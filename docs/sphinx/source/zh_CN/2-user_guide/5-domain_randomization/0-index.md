@@ -6,7 +6,7 @@
 当前存在两条 DR 声明路径：
 
 - **Manager-Based（Compatible）任务**：reset / interval 随机化通过 owner YAML 中的 Hydra `events:` manager term 声明；reset 生命周期的 event 在 reset 时采样，interval 生命周期的 event 在 step 之间施加扰动。例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 的 `events:` 段。
-- **legacy provider 路径**：只有 2 个 Adapted family（`sharpa_inhand` / `sharpa_inhand_grasp`，含 appo / hora owner）仍通过 `DomainRandomizationProvider` + `DomainRandomizationManager` 声明 `env.domain_rand.*` 配置。
+- **任务级 provider 路径**：自定义任务（包括托管在外部仓库中的任务）可以通过 `DomainRandomizationProvider` + `DomainRandomizationManager` 声明 `env.domain_rand.*` 配置。当前仓库内没有任务使用该路径。
 
 legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization()` 和 `DomainRandomizationManager`：
 
@@ -16,18 +16,18 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 
 这三条路径对应三个生命周期类别：
 
-- **init 生命周期 DR**：改变模型 identity 或模型几何的项；只能在 env/backend 初始化和 materialization 期间生效，例如 Sharpa 手物体的 `geom_size` 缩放。
+- **init 生命周期 DR**：改变模型 identity 或模型几何的项；只能在 env/backend 初始化和 materialization 期间生效，例如通过模型变体进行的物体 `geom_size` 缩放。
 - **reset 生命周期 DR**：不改变模型 identity，只在同一模型内改变参数或 reset 状态的项，例如 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`。
 - **interval 生命周期 DR**：step 之间的外部扰动，例如 push。
 
 ## 状态结论
 
-1. Manager-Based 任务不注册 DR provider；它们的 reset/interval 随机化是 owner YAML 中的 `events:` manager term，由 manager 生命周期统一执行。只有 Adapted family 的冻结兼容工厂仍走 `DomainRandomizationManager` 统一入口。
-2. Adapted family owner 定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider` 和 `ResetPlan`；Manager-Based owner 则通过 Hydra command/event term 声明 reset 行为。G1 motion reset 扰动归 `MotionCommandCfg` 所有，WBT 另加 `EventTermCfg` reset 与 interval term。
+1. Manager-Based 任务不注册 DR provider；它们的 reset/interval 随机化是 owner YAML 中的 `events:` manager term，由 manager 生命周期统一执行。走 provider 路径的自定义任务则经过 `DomainRandomizationManager` 统一入口。
+2. provider 路径的 owner 定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider` 和 `ResetPlan`；Manager-Based owner 则通过 Hydra command/event term 声明 reset 行为。G1 motion reset 扰动归 `MotionCommandCfg` 所有，WBT 另加 `EventTermCfg` reset 与 interval term。
 3. 今天所"统一"的主要是入口点和执行流程，而不是每一个随机化项本身。legacy 路径的共享辅助函数 `build_common_reset_randomization()` 目前生成 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`。
 4. `ResetRandomizationPayload` 已经可以表达 `gravity`、`body_iquat`、`body_inertia`、`kp`、`kd`，并且 `MuJoCoBackend` 已声明支持。这些是否实际被使用，仍取决于 task provider 是否对它们进行采样和 dispatch。
 5. `MotrixBackend` 目前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并且它要求在初始化期间所有模型 actuator 都是 position actuator。
-6. `geom_size` 不是 reset 生命周期字段；Sharpa 手物体的 geom 缩放由 init 生命周期的模型 materialization 处理。
+6. `geom_size` 不是 reset 生命周期字段；物体 geom 缩放由 init 生命周期的模型 materialization 处理。
 
 ## 统一性评估表
 
@@ -41,8 +41,6 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 | `G1WBTObs` | Hydra `events:` term | 是：同一 motion command + Hydra `EventTermCfg` | motion reset 加 mass/COM/PD/friction/encoder-bias event | interval velocity kick | `motion_tracking/g1/manager_terms.py` |
 | `AllegroInhandRotation` | Hydra `events:` term | 是：Hydra `EventTermCfg` + Manager-Based reset term | entity 范围的手/球 reset | 无 | `allegro_inhand/manager_terms.py` |
 | `AllegroInhandRotationGrasp` | Hydra `events:` term | 是：复用 rotation reset event + `RecorderTermCfg` | 带噪声的手部 reset + grasp 收集 | 无 | `allegro_inhand/grasp_gen.py` |
-| `SharpaInhandRotation` | legacy provider | 是：`InitRandomizationPlan + ResetPlan + IntervalRandomizationPlan` | grasp cache 采样 + common payload | 物体 `body_force` | `sharpa_inhand/rotation.py` |
-| `SharpaInhandRotationGrasp` | legacy provider | 是：复用 Sharpa rotation provider 并 override reset 采样 | grasp 收集 reset + common payload | 无 | `sharpa_inhand/grasp_gen.py` |
 
 ## 各任务域随机化清单
 
@@ -56,8 +54,6 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 | `G1WBTObs` | 同一 motion reset 加 base mass、base COM、PD gain、足端摩擦和 encoder-bias event term | `push_by_setting_velocity` | WBT owner 显式启用上述全部 event term；能力不支持时直接报错，不回退 |
 | `AllegroInhandRotation` | entity 范围的手/球 reset；显式配置 grasp cache 时进行采样，否则以 `null` 显式选择模型 home pose；可选 `joint_noise`、`ball_velocity_noise` 与 `ball_z_offset` | 无 | owner YAML 显式选择 home pose 与零 reset 噪声；配置的 cache 缺失或格式错误时 fail-closed |
 | `AllegroInhandRotationGrasp` | 复用 rotation reset 并设置 `joint_noise=0.25`；Manager-Based termination 检查指尖距离、接触数和球高度；recorder 保存成功 timeout rows | 无 | 生成 5 万行 Allegro grasp cache，成功保存后抛出 `RunComplete` |
-| `SharpaInhandRotation` | grasp cache 按 `scale_ids` 分桶采样；物体位姿 / quat reset；可选 common reset 随机化 payload（含 `gravity`） | 物体 `body_force` 直接力扰动 | `domain_rand.scale_list` 默认值来自 owner YAML；在 MuJoCo 下，物体 geom 缩放在 init 期间 materialize；common payload 默认禁用；物体 force 通过 Sharpa owner YAML 默认启用 |
-| `SharpaInhandRotationGrasp` | 手部位姿 reset；物体位姿 / quat reset；收集成功的 grasp 并按 `scale_ids` 分桶存储；可选 `base_mass_delta`；可选 `base_com_offset`；可选 `gravity` | 无 | 默认用于生成 Sharpa grasp cache；cache 文件名包含单个 scale 值；common payload 默认禁用 |
 
 ## 当前统一 DR 的能力与边界
 
@@ -69,7 +65,7 @@ legacy provider 路径的统一入口点由 `NpEnv` 和 `DomainRandomizationMana
 - manager 统一执行能力验证
 - 后端统一负责实际施加随机化 payload
 
-因此从执行路径的角度看，仍走该路径的 Adapted family 是统一的；Manager-Based 任务则由 manager 生命周期统一执行 owner YAML 声明的 `events:` term。
+因此从执行路径的角度看，provider 路径的任务是统一的；Manager-Based 任务则由 manager 生命周期统一执行 owner YAML 声明的 `events:` term。
 
 ### 2. 共享辅助函数仍然较窄
 
@@ -79,10 +75,10 @@ legacy 路径的 `dr_utils.py` 构造并校验通用 reset payload：
 
 这意味着：
 
-- 仍走 legacy provider 的 sharpa family，其 task 专属状态仍直接在各自的 provider 内部采样
+- provider 路径的任务直接在各自的 provider 内部采样 task 专属状态
 - `G1MotionTracking` 的 pose / velocity / joint 噪声由其 manager command 所有
 - Allegro 的 grasp / 物体初始状态采样完全是 task 专属逻辑
-- Sharpa 的 `geom_size` 缩放是 init 生命周期的模型 materialization，不属于 reset common payload
+- `geom_size` 缩放是 init 生命周期的模型 materialization，不属于 reset common payload
 
 所以今天的"统一性"更多是关于 contract 和调用约定，而不是"所有任务共享同一套随机化项 schema"。
 
@@ -106,7 +102,7 @@ legacy 路径的 `dr_utils.py` 构造并校验通用 reset payload：
 说明：
 
 - 当前的 `IntervalRandomizationPlan` 支持 `push_perturbation_limit`、`body_linear_velocity_delta`、`body_angular_velocity_delta`、`body_force` 和 `body_torque`；其中 `body_force`/`body_torque` 表达热路径上的直接外力/力矩扰动，而不暴露后端私有的 `xfrc_applied` 细节。
-- 当前 MuJoCo 后端的 interval push 和 interval body force 都通过 `xfrc_applied` dispatch；Sharpa 手物体扰动已切换为直接力扰动。
+- 当前 MuJoCo 后端的 interval push 和 interval body force 都通过 `xfrc_applied` dispatch。
 - Motrix 后端目前仍不支持直接 body-force 扰动，因此这类 owner 配置必须继续显式禁用。
 
 但在任务侧，当前的现实是：并非每个 provider 都构造这些字段。后端 contract 是能力边界；task 配置和 provider 是否 dispatch 一个 payload，才决定了某个任务是否实际启用对应的 DR 项。
@@ -120,7 +116,7 @@ legacy 路径的 `dr_utils.py` 构造并校验通用 reset payload：
 - 生命周期：仅在 reset 时采样和写入；env 会保留该重力，直到下一次 reset 重新采样。
 - 后端：当前在 UniLab 中，只有 MuJoCo 后端声明支持该 reset 项；Motrix 后端不支持。一些任务按能力过滤并跳过它；另一些任务在 validate 阶段抛出错误。
 
-配置入口位于采用 legacy provider 路径的 Sharpa owner（如 `sharpa_inhand_grasp`）的 `env.domain_rand` 下；Manager-Based 任务没有 `env.domain_rand`：
+配置入口位于 provider 路径任务 owner 的 `env.domain_rand` 下；Manager-Based 任务没有 `env.domain_rand`：
 
 ```yaml
 env:
@@ -137,21 +133,7 @@ env:
 - `gravity_range`：一个形状为 `(2, 3)` 的逐维采样范围；第一行和第二行给出每个分量的上界和下界。
 - 在每次 reset 时，每个维度在 `[min(row0, row1), max(row0, row1)]` 内均匀采样。方向不会自动归一化，重力范数也不固定。
 
-如果你只想随机化大小而保持竖直向下的方向，只开放 `z` 分量：
-
-```bash
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
-  env.domain_rand.randomize_gravity=true \
-  'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
-```
-
-如果你想同时随机化方向和大小，开放 `x/y/z`：
-
-```bash
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
-  env.domain_rand.randomize_gravity=true \
-  'env.domain_rand.gravity_range=[[-0.3,-0.3,-10.5],[0.3,0.3,-8.5]]'
-```
+如果你只想随机化大小而保持竖直向下的方向，只开放 `z` 分量；如果想同时随机化方向和大小，开放 `x/y/z`。在 provider 路径的任务 owner 上，可通过 CLI 以 `env.domain_rand.randomize_gravity=true` 与 `env.domain_rand.gravity_range=[...]` override 启用。
 
 说明：
 
@@ -192,100 +174,9 @@ uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
 
 这条边界存在的目的是遵循冷路径 asset/model-metadata 访问原则：`step()`、`reset()` 和热路径 DR 不解析 XML、不读取 asset，也不在运行时基于 asset 元数据进行分支。
 
-## Sharpa 手物体 Geom 缩放用法
-
-Sharpa 手是仓库中当前 `geom_size` init 生命周期 DR 的示例任务。相关任务配置：
-
-- `src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml`
-- `src/unilab/conf/ppo/task/sharpa_inhand_grasp/mujoco.yaml`
-
-### 1. 配置入口
-
-Sharpa 的 scale 配置位于 env owner YAML 的 `env.domain_rand.scale_list`：
-
-```yaml
-env:
-  object_body_name: object
-  object_geom_name: object
-  domain_rand:
-    scale_list: [0.5, 0.6, 0.7, 0.8]
-```
-
-字段语义：
-
-- `object_body_name`：物体 body name；用于在 reset / observation 期间定位物体 body，而不是缩放的目标字段。
-- `object_geom_name`：要缩放的 MuJoCo geom name；默认为 `object`。
-- `domain_rand.scale_list`：显式的 scale 列表；每个值必须大于 0。
-- `domain_rand.scale_list` 的顺序就是 `scale_id` 的顺序。
-- `domain_rand.scale_list` 的长度就是模型变体的数量。
-
-每个 env 被静态分配一个 `scale_id`。当前的分配规则是连续分桶分配；当 `algo.num_envs` 不能被 `num_scales` 整除时，前几个 scale 桶各多分到一个 env：
-
-```bash
-uv run train --algo ppo --task sharpa_inhand --sim mujoco 'env.domain_rand.scale_list=[0.5,0.6,0.7,0.8]' algo.num_envs=4096
-```
-
-如果 `algo.num_envs=4096` 且 `num_scales=4`，那么每 1024 个 env 使用同一个 scale 桶。
-
-### 2. MuJoCo Materialization 行为
-
-MuJoCo 后端如何应用它：
-
-1. env/provider 在 init 期间基于 `scale_list` 构建 `ModelVariantSpec`。
-2. 后端使用 `MjSpec` 读取模型，并修改与 `object_geom_name` 对应的 geom 的 `size`。
-3. 每个 scale 编译一个 scale 专属的 `MjModel`。
-4. 在首次需要物理 pool 时，将 env 到模型的分配展开为长度为 `num_envs` 的模型序列，然后构造 `BatchEnvPool`。
-
-因此，`domain_rand.scale_list` 仅在 env/backend 初始化期间生效。在 env 创建之后修改 `env.domain_rand.scale_list` 不会改变已经 materialize 的模型 pool。
-
-该流程有三条重要边界：
-
-- `BatchEnvPool` 是惰性构造的；正常路径不会先为默认模型构造一个 pool，再为 `scale_list` 重建它。
-- 多个模型变体的编译使用基于进程的并行分块完成；不要在 Python 线程中编译，也不要在上层 for 循环中串行编译 `num_envs` 个模型。
-- worker 使用 `MjSpec` 编译变体并保存 `.mjb`；父进程仅按 `.mjb` 路径加载 `MjModel.from_binary_path(...)`。不要通过 IPC 传回修改后的模型对象或模型字节。
-
-### 3. Grasp Cache 与 Scale 桶
-
-Sharpa rotation 任务按 `scale_ids` 从多个单 scale 的 grasp cache 中采样：
-
-- cache 文件名默认由 `grasp_cache_path` 和单个 scale 值共同决定。
-- `scale_list: [0.5, 0.6, 0.7, 0.8]` 默认对应 `caches/sharpa_grasp_linspace_0.5.npy`、`caches/sharpa_grasp_linspace_0.6.npy`、`caches/sharpa_grasp_linspace_0.7.npy`、`caches/sharpa_grasp_linspace_0.8.npy`。
-- 在 rotation 启动时会检查 `scale_list` 的所有 cache 文件；如果有任何缺失，则报错。
-- 每个 scale 桶只从其自身 scale 的 cache 文件中采样，避免在不同物体 scale 之间混用 grasp 初始状态。
-
-默认 scale 的 cache 托管在 Hugging Face (`unilabsim/unilab-caches`)，首次 rotation 训练时会自动下载到 `src/unilab/assets/caches/`，标准 `scale_list` 无需手动采集。
-
-如需为 HF 上没有的自定义 scale 采集 cache，或在本地重新生成，可按每个 scale 分别运行 grasp 收集任务。生成的文件会落到 `src/unilab/assets/caches/`，与 HF 下载位置一致，后续 rotation 训练能直接命中；**但重新生成耗时较长**。
-
-辅助脚本按顺序采集每个 scale：
-
-```bash
-./scripts/sharpa_collect_grasps.sh 0.5 0.6 0.7 0.8
-```
-
-<sub>等价的逐 scale 调用：`uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco 'env.domain_rand.scale_list=[0.5]' algo.num_envs=4096`（对 `[0.6]`、`[0.7]`、`[0.8]` 等同理重复）。</sub>
-
-然后用相同的 `scale_list` 训练 rotation：
-
-```bash
-uv run train --algo ppo --task sharpa_inhand --sim mujoco 'env.domain_rand.scale_list=[0.5,0.6,0.7,0.8]' algo.num_envs=4096
-```
-
-### 4. 边界与注意事项
-
-- `geom_size` 不是 reset DR 字段，且不得写入 `ResetPlan.randomization`。
-- `BatchEnvPool.reset(..., randomization=...)` 目前不支持 `geom_size`。
-- `geom_size` 缩放仅在 MuJoCo 后端下 materialize；Motrix 后端目前不会从 `scale_list` 产生多模型 pool。
-- `scale_list` 的长度是模型变体的数量，而不是每次 reset 的重采样次数。
-- 每个 env 的 `scale_id` 在 init 期间静态分配，且在 reset 时不变。
-- 在扩容时，扩容模型变体的数量；不要按 `num_envs` 为每个 env 编译一个模型。多个 env 共享与同一 scale 桶对应的同一个 `MjModel`。
-- 热路径不得读取 XML、解析 asset，也不得使用 `getattr` / `hasattr` 探测后端私有能力来决定缩放行为。
-- 在扩展到其他 shape DR 时，优先复用 init 生命周期 contract；不要把 shape 字段塞进 reset payload。
-
 ## 相关任务
 
 - {doc}`G1 Motion Tracking <../4-tasks/2-motion_tracking>`：开启 DR 前先确认 motion 资产和 replay。
-- {doc}`Sharpa Inhand <../8-manipulation/1-dexterous_inhand>`：scale / grasp cache / DR 边界更敏感。
 - {doc}`Go2 Rough Terrain <../4-tasks/1-locomotion>`：常见的是 mass、COM、friction、push。
 
 有关配置示例，请参阅 {doc}`1-configuration`。有关开发者

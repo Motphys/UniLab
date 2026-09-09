@@ -33,12 +33,12 @@ training:
   task_name: Go1
   sim_backend: mujoco
 """,
-        root / "conf" / "ppo" / "task" / "go1" / "mujoco_hora.yaml": """
+        root / "conf" / "ppo" / "task" / "go1" / "mujoco_nodr.yaml": """
 defaults:
   - /task/go1/mujoco
   - _self_
 algo:
-  algo_log_name: hora_ppo
+  algo_log_name: nodr_ppo
 """,
         root / "conf" / "ppo" / "task" / "go1" / "motrix_lab.yaml": """
 training:
@@ -70,7 +70,7 @@ training:
         root / "logs" / "rsl_rl_ppo" / "Go1" / "2026-01-01_00-00-00_mujoco",
         root / "logs" / "rsl_rl_ppo" / "Go1" / "2026-01-02_00-00-00_mujoco",
         root / "logs" / "rsl_rl_ppo" / "Go2" / "2026-02-01_00-00-00_mujoco",
-        root / "logs" / "hora_ppo" / "Go1" / "2026-03-01_00-00-00_mujoco",
+        root / "logs" / "nodr_ppo" / "Go1" / "2026-03-01_00-00-00_mujoco",
         root / "custom_logs" / "Go3" / "2026-04-01_00-00-00_mujoco",
     ]:
         path.mkdir(parents=True)
@@ -174,7 +174,7 @@ def test_eval_load_run_completion_respects_profile_log_name(tmp_path: Path) -> N
             "--sim",
             "mujoco",
             "--profile",
-            "hora",
+            "nodr",
             "--load-run",
             "",
         ],
@@ -216,13 +216,13 @@ def test_train_profile_value_position_completes_profile_names(tmp_path: Path) ->
         ["uv", "run", "train", "--algo", "ppo", "--sim", "mujoco", "--profile", ""],
         8,
         metadata,
-    ) == ["custom", "hora", "lab"]
+    ) == ["custom", "lab", "nodr"]
     choices = complete_words(
-        ["uv", "run", "train", "--algo", "ppo", "--sim", "mujoco", "--profile", "h"],
+        ["uv", "run", "train", "--algo", "ppo", "--sim", "mujoco", "--profile", "n"],
         8,
         metadata,
     )
-    assert choices == ["hora"]
+    assert choices == ["nodr"]
     assert "--algo" not in choices
     assert complete_words(
         [
@@ -240,7 +240,7 @@ def test_train_profile_value_position_completes_profile_names(tmp_path: Path) ->
         ],
         10,
         metadata,
-    ) == ["hora"]
+    ) == ["nodr"]
     assert complete_words(
         [
             "uv",
@@ -259,10 +259,10 @@ def test_train_profile_value_position_completes_profile_names(tmp_path: Path) ->
         metadata,
     ) == ["lab"]
     assert complete_words(
-        ["uv", "run", "eval", "--algo", "ppo", "--sim", "mujoco", "--profile", "h"],
+        ["uv", "run", "eval", "--algo", "ppo", "--sim", "mujoco", "--profile", "n"],
         8,
         metadata,
-    ) == ["hora"]
+    ) == ["nodr"]
 
 
 def test_task_completion_respects_selected_profile(tmp_path: Path) -> None:
@@ -279,7 +279,7 @@ def test_task_completion_respects_selected_profile(tmp_path: Path) -> None:
             "--sim",
             "mujoco",
             "--profile",
-            "hora",
+            "nodr",
             "--task",
             "",
         ],
@@ -307,8 +307,6 @@ def test_demo_positional_completes_all_demo_names(tmp_path: Path) -> None:
     assert choices == [
         "boxtracking",
         "dance",
-        "inhandgrasp",
-        "sharpa_appo_student",
         "teaser",
         "wallflip",
     ]

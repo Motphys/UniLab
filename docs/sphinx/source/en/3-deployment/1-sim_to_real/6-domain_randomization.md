@@ -46,11 +46,10 @@ Manager-Based tasks declare reset and interval randomization through
 `env.events` in their owner YAML, executed by the manager lifecycle. See
 `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`.
 
-The Sharpa Adapted tasks still attach a task provider to
-`src/unilab/dr/manager.py`. The current example is
-`SharpaInhandRotationDRProvider` in
-`src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`. The capability
-boundary for both paths is described in
+Tasks may also attach a task-level provider (the
+`DomainRandomizationProvider` interface in `src/unilab/dr/provider.py`) to
+`src/unilab/dr/manager.py`; no in-repo task currently uses this path. The
+capability boundary for both paths is described in
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`.
 
 ## Recipe: starting ranges

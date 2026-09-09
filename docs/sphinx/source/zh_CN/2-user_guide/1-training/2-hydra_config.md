@@ -10,7 +10,6 @@ reward、scene 以及 task 专属运行时字段的身份标识。
 | PPO | `src/unilab/conf/ppo/task/<task>/<backend>.yaml` |
 | APPO | `src/unilab/conf/appo/task/<task>/<backend>.yaml` |
 | SAC / TD3 / FlashSAC | `src/unilab/conf/<algo>/task/<task>/<backend>.yaml` |
-| HORA 蒸馏 | `src/unilab/conf/hora_distill/task/<task>/<backend>.yaml` |
 
 示例：
 

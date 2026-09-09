@@ -9,14 +9,8 @@ Two declaration paths exist today:
 - Manager-Based (Compatible) tasks declare reset / interval randomization
   through Hydra `events:` manager terms in the owner YAML, for example
   `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`.
-- The Sharpa Adapted families and their hora / appo owners configure legacy
-  provider fields under `env.domain_rand`.
-
-```bash
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
-  env.domain_rand.randomize_gravity=true \
-  'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
-```
+- Tasks may also attach a task-level provider and configure legacy provider
+  fields under `env.domain_rand`; no in-repo task currently uses this path.
 
 Common lifecycle boundaries:
 
@@ -37,13 +31,8 @@ the env owners, and backend capabilities are declared through
 
 Use `--sim mujoco` when enabling gravity reset randomization; Motrix does not
 advertise the same gravity capability in the current backend. This item is only
-available on the legacy provider path (Adapted-family owners).
-
-```bash
-uv run train --algo ppo --task sharpa_inhand_grasp --sim mujoco \
-  env.domain_rand.randomize_gravity=true \
-  'env.domain_rand.gravity_range=[[0.0,0.0,-10.5],[0.0,0.0,-8.5]]'
-```
+available on the task-level provider path (`env.domain_rand.randomize_gravity`
+and `env.domain_rand.gravity_range`), which no in-repo task currently uses.
 
 ## Interval Push
 
@@ -62,8 +51,6 @@ Keep ranges in the task owner YAML when they are part of the task contract. For
 example, the rough quadruped family's base mass, center-of-mass, kp/kd, and
 push randomization are declared as event terms in the shared base
 `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml` (the `go2_joystick_rough`
-backend owners compose it through Hydra defaults), while
-`src/unilab/conf/ppo/task/sharpa_inhand/mujoco.yaml` configures object scale, friction, and
-force disturbance for Sharpa.
+backend owners compose it through Hydra defaults).
 
 For the full current inventory, see {doc}`0-index`.

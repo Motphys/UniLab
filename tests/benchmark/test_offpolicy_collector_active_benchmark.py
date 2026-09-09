@@ -70,7 +70,7 @@ def test_parse_case_requires_algo_task_sim() -> None:
         bench._parse_case("g1_walk_flat/mujoco")
 
 
-def test_default_cases_cover_motrix_only_without_sharpa() -> None:
+def test_default_cases_cover_motrix_only() -> None:
     specs = bench._resolve_case_specs(
         "default",
         algos_arg="sac,flashsac,td3",
@@ -80,7 +80,6 @@ def test_default_cases_cover_motrix_only_without_sharpa() -> None:
     assert "sac/g1_motion_tracking/motrix" in specs
     assert "flashsac/g1_walk_flat/motrix" in specs
     assert "sac/g1_motion_tracking/mujoco" not in specs
-    assert "sac/sharpa_inhand/mujoco_hora" not in specs
 
 
 def test_all_backend_selection_expands_default_cases() -> None:

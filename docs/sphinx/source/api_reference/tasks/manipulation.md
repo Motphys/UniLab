@@ -7,6 +7,5 @@
    :recursive:
 
    unilab.tasks.manipulation.allegro_inhand
-   unilab.tasks.manipulation.sharpa_inhand
    unilab.tasks.manipulation.stewart
 ```

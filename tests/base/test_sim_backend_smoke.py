@@ -31,7 +31,6 @@ BASIC_ROBOTS = [
 
 _G1 = dict(model_file=_xml("g1"), base_name="pelvis")
 _ALLEGRO = dict(model_file=_xml("allegro_hand", "scene.xml"), base_name="palm")
-_SHARPA = dict(model_file=_xml("sharpa_wave", "scene.xml"), base_name="right_hand_C_MC")
 
 NUM_ENVS = 2
 SIM_DT = 0.005
@@ -543,16 +542,16 @@ def test_mujoco_metadata_getters_return_stable_copies():
 
     from unilab.assets.hub import ensure_robot_assets_for_paths
 
-    ensure_robot_assets_for_paths([_SHARPA["model_file"]])
+    ensure_robot_assets_for_paths([_G1["model_file"]])
     bkd = MuJoCoBackend(
-        SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
     )
     model = bkd.model
-    object_geom_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "object"))
-    base_body_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, _SHARPA["base_name"]))
+    floor_geom_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor"))
+    base_body_id = int(mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, _G1["base_name"]))
 
-    assert bkd.get_geom_id("object") == object_geom_id
-    assert bkd.get_body_id(_SHARPA["base_name"]) == base_body_id
+    assert bkd.get_geom_id("floor") == floor_geom_id
+    assert bkd.get_body_id(_G1["base_name"]) == base_body_id
     with pytest.raises(ValueError, match="Geom 'missing'"):
         bkd.get_geom_id("missing")
     with pytest.raises(ValueError, match="Body 'missing'"):
@@ -564,17 +563,17 @@ def test_mujoco_metadata_getters_return_stable_copies():
     default_qpos[0] += 1.0
     assert not np.isclose(default_qpos[0], model.qpos0[0])
 
-    geom_size = bkd.get_geom_size("object")
+    geom_size = bkd.get_geom_size("floor")
     _shape(geom_size, 3)
-    np.testing.assert_allclose(geom_size, model.geom_size[object_geom_id])
+    np.testing.assert_allclose(geom_size, model.geom_size[floor_geom_id])
     geom_size[0] += 1.0
-    assert not np.isclose(geom_size[0], model.geom_size[object_geom_id, 0])
+    assert not np.isclose(geom_size[0], model.geom_size[floor_geom_id, 0])
 
     geom_body_ids = bkd.get_geom_body_ids()
     _shape(geom_body_ids, model.ngeom)
     np.testing.assert_array_equal(geom_body_ids, model.geom_bodyid)
-    geom_body_ids[object_geom_id] = -1
-    assert int(model.geom_bodyid[object_geom_id]) != -1
+    geom_body_ids[floor_geom_id] = -1
+    assert int(model.geom_bodyid[floor_geom_id]) != -1
 
     geom_contype, geom_conaffinity = bkd.get_geom_contact_masks()
     _shape(geom_contype, model.ngeom)
@@ -584,14 +583,14 @@ def test_mujoco_metadata_getters_return_stable_copies():
 
     geom_names = bkd.get_geom_names()
     assert len(geom_names) == model.ngeom
-    assert geom_names[object_geom_id] == "object"
+    assert geom_names[floor_geom_id] == "floor"
     assert base_body_id in set(int(body_id) for body_id in bkd.get_body_subtree_ids(base_body_id))
 
     geom_friction = bkd.get_geom_friction()
     _shape(geom_friction, model.ngeom, 3)
     np.testing.assert_allclose(geom_friction, model.geom_friction)
-    geom_friction[object_geom_id, 0] += 1.0
-    assert not np.isclose(geom_friction[object_geom_id, 0], model.geom_friction[object_geom_id, 0])
+    geom_friction[floor_geom_id, 0] += 1.0
+    assert not np.isclose(geom_friction[floor_geom_id, 0], model.geom_friction[floor_geom_id, 0])
 
     gravity = bkd.get_gravity()
     _shape(gravity, 3)
@@ -734,9 +733,9 @@ def test_motrix_default_qpos_uses_mujoco_quaternion_convention():
 
     from unilab.assets.hub import ensure_robot_assets_for_paths
 
-    ensure_robot_assets_for_paths([_SHARPA["model_file"]])
+    ensure_robot_assets_for_paths([_G1["model_file"]])
     bkd = MotrixBackend(
-        SceneCfg(model_file=_SHARPA["model_file"]), NUM_ENVS, SIM_DT, base_name=_SHARPA["base_name"]
+        SceneCfg(model_file=_G1["model_file"]), NUM_ENVS, SIM_DT, base_name=_G1["base_name"]
     )
     qpos = bkd.get_default_qpos()
     assert qpos.ndim == 1
@@ -755,9 +754,9 @@ def test_motrix_default_qpos_uses_mujoco_quaternion_convention():
         np.broadcast_to(qpos, (NUM_ENVS, qpos.shape[0])).copy(),
         np.zeros((NUM_ENVS, bkd.model.num_dof_vel), dtype=np.float64),
     )
-    object_body_id = bkd.get_body_id("object")
+    base_body_id = bkd.get_body_id(_G1["base_name"])
     np.testing.assert_allclose(
-        np.abs(bkd.get_body_quat_w(np.asarray([object_body_id], dtype=np.int32))[:, 0, :]),
+        np.abs(bkd.get_body_quat_w(np.asarray([base_body_id], dtype=np.int32))[:, 0, :]),
         np.broadcast_to([1.0, 0.0, 0.0, 0.0], (NUM_ENVS, 4)),
         atol=1.0e-6,
     )

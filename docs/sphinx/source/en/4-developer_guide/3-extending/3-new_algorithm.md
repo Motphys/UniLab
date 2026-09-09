@@ -18,7 +18,8 @@ Change no code — only adjust the Hydra config under `src/unilab/conf/<algo>/`:
   `src/unilab/conf/<algo>/task/<task>/<backend>.yaml`;
 - Swapping policy / algorithm implementation classes works through the
   `class_name` dotted path in the owner YAML (in-repo example:
-  `uni_rl.algos.hora:HoraActorModel`), with no new code path required.
+  `uni_rl.algos.rsl_rl_ppo:FinalObservationAwarePPO` in
+  `src/unilab/conf/ppo/config.yaml`), with no new code path required.
 
 ### 2. `runtime_resolver`: Algorithm Code In Your Own Repository
 
@@ -42,11 +43,6 @@ Contract:
 - Resolution happens on the uni_rl side (`uni_rl.algos.appo.runtime` /
   `uni_rl.algos.rsl_rl_runtime`); the dotted path may point at any importable
   module.
-
-In-repo example: `src/unilab/conf/appo/task/sharpa_inhand/mujoco_hora.yaml`
-points at `unilab.scripts.play_hora_appo:resolve_hora_appo_runtime`; the HORA
-SAC / PPO variants point at `uni_rl.algos.hora.sac:resolve_hora_sac_runtime`
-and `uni_rl.algos.hora.rsl_rl:resolve_hora_ppo_runtime` respectively.
 
 ### 3. Fork unilab_rl: Modify `uni_rl/algos/`
 
@@ -79,9 +75,8 @@ convention-discovered).
 
 Notes:
 
-- Config trees that have a conf directory but no entrypoint script (such as
-  `hora_distill`) are not routable — they are not standalone
-  CLI algos.
+- Config trees that have a conf directory but no entrypoint script are not
+  routable — they are not standalone CLI algos.
 - The special script-name mappings for built-in algorithms are preserved:
   `ppo` → `train_rsl_rl.py`, `appo` → `train_appo.py`.
 - The dataclasses in `src/unilab/structured_configs.py` are an **optional**

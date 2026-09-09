@@ -177,9 +177,6 @@ requires an explicit migration decision.
 
 - 36 tasks are **Compatible** (`target=complete`): the Hydra owner YAML
   materializes the canonical NumPy Manager-Based runtime.
-- 2 tasks are **Adapted** (`target=compatibility`): `SharpaInhandRotation`
-  and `SharpaInhandRotationGrasp` keep tactile/contact/cache behavior behind one
-  frozen compatibility factory each; they migrate only when the formal capability exists.
 
 ## Repository evidence
 

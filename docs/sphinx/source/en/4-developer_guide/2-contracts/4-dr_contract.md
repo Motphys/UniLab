@@ -136,4 +136,4 @@ payloads.
   `src/unilab/dr/__init__.py`
 - DR manager: `src/unilab/dr/manager.py`
 - Backend interface: `unisim.backend.base`
-- Example provider: `src/unilab/tasks/manipulation/sharpa_inhand/rotation.py`
+- Provider interface: `src/unilab/dr/provider.py`

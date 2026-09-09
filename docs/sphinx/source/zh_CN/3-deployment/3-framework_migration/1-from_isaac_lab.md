@@ -156,9 +156,6 @@ entry 的 production task 名称抛出 `KeyError`，因此新增 production 注�
 
 - 36 个 task 为 **Compatible**（`target=complete`）：Hydra owner YAML 物化 canonical
   NumPy Manager-Based runtime。
-- 2 个 task 为 **Adapted**（`target=compatibility`）：`SharpaInhandRotation` 和
-  `SharpaInhandRotationGrasp` 各自把 tactile/contact/cache 行为保留在一个冻结的
-  兼容 factory 后面；只有当正式能力存在时才迁移。
 
 ## 仓库证据
 

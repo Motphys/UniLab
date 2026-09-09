@@ -54,13 +54,6 @@ _G1_LOCOMOTION_TASKS = frozenset(
     }
 )
 
-_CUSTOM_COMPAT_TASKS = frozenset(
-    {
-        "SharpaInhandRotation",
-        "SharpaInhandRotationGrasp",
-    }
-)
-
 _MOTION_CORE_TASKS = frozenset(
     {
         "G1MotionTracking",
@@ -93,12 +86,7 @@ _MOTION_TASKS = frozenset(
 )
 
 PRODUCTION_TASK_NAMES = frozenset(
-    _MBA_TASKS
-    | _ROUGH_TASKS
-    | _G1_LOCOMOTION_TASKS
-    | _CUSTOM_COMPAT_TASKS
-    | _MOTION_CORE_TASKS
-    | _MOTION_TASKS
+    _MBA_TASKS | _ROUGH_TASKS | _G1_LOCOMOTION_TASKS | _MOTION_CORE_TASKS | _MOTION_TASKS
 )
 
 
@@ -141,15 +129,6 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "complete",
             "Hydra owners materialize biped gait, sensor, command, and penalty-curriculum manager terms on the canonical runtime.",
             "Keep the manager contract and regression evidence current.",
-        )
-    if task_name in _CUSTOM_COMPAT_TASKS:
-        return TaskMigrationRecord(
-            task_name,
-            "sharpa",
-            "Adapted",
-            "compatibility",
-            "Custom tactile/contact/cache behavior is retained behind one frozen adapter.",
-            "Keep Hydra/Registry ownership single; migrate only when the formal capability exists.",
         )
     if task_name in _MOTION_CORE_TASKS:
         return TaskMigrationRecord(

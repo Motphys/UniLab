@@ -92,14 +92,12 @@ def test_analyze_offpolicy_trace_reports_training_e2e(tmp_path, capsys):
 # Helpers
 # ---------------------------------------------------------------------------
 
-
 try:
     import mujoco  # noqa: F401
 
     _HAS_MUJOCO = True
 except ImportError:
     _HAS_MUJOCO = False
-
 
 # ---------------------------------------------------------------------------
 # train_sac.py / train_td3.py / train_flashsac.py — Hydra config defaults
@@ -129,20 +127,6 @@ def _appo_cfg(overrides=None):
         return compose("config", overrides=_normalize_overrides(overrides))
 
 
-def _hora_distill_cfg(overrides=None):
-    """Compose the HORA distillation Hydra config.
-
-    Args:
-        overrides: Optional Hydra override strings to apply during composition.
-
-    Returns:
-        The composed HORA distillation config.
-    """
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(_CONF_DIR / "hora_distill"), version_base="1.3"):
-        return compose("config", overrides=overrides or [])
-
-
 def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
     import types
 
@@ -161,18 +145,6 @@ def _train_rsl_rl(monkeypatch: pytest.MonkeyPatch):
 
 def _train_appo():
     return _load_script("train_appo")
-
-
-def _train_hora_distill():
-    """Load the HORA distillation entrypoint module.
-
-    Args:
-        None.
-
-    Returns:
-        The loaded ``scripts/train_hora_distill.py`` module.
-    """
-    return _load_script("train_hora_distill")
 
 
 def test_offpolicy_hydra_default_algo():
@@ -327,266 +299,6 @@ def test_offpolicy_hydra_default_torch_thread_budget():
 def test_offpolicy_hydra_algo_td3():
     cfg = _offpolicy_cfg(algo="td3")
     assert cfg.algo.algo == "td3"
-
-
-def test_hora_distill_run_config_records_hardware(tmp_path, monkeypatch):
-    mod = _train_hora_distill()
-    hardware = {
-        "platform": "test-platform",
-        "chip": "test-cpu",
-        "cpu_total_cores": "8",
-        "gpu_name": "test-gpu",
-        "memory": "32 GB",
-    }
-    monkeypatch.setattr(mod, "get_device_info_dict", lambda: hardware)
-    cfg = OmegaConf.create({"training": {"task_name": "Task", "sim_backend": "mujoco"}})
-
-    mod._write_distill_run_config(
-        tmp_path,
-        cfg=cfg,
-        teacher_metadata={"checkpoint_path": "teacher.pt"},
-    )
-
-    payload = json.loads((tmp_path / "distill_run_config.json").read_text(encoding="utf-8"))
-    assert payload["run"]["hardware"] == hardware
-
-
-def test_hora_distill_task_owner_overrides_root_config_defaults():
-    mod = _train_hora_distill()
-    root_cfg = OmegaConf.load(_CONF_DIR / "hora_distill" / "config.yaml")
-    cfg = mod._apply_teacher_defaults(_hora_distill_cfg(["task=sharpa_inhand/mujoco"]))
-
-    assert root_cfg.algo.num_envs == 4096
-    assert root_cfg.algo.save_interval_steps == 100000000
-    assert cfg.algo.num_envs == 16384
-    assert cfg.algo.save_interval_steps == 10000000
-
-
-def test_hora_distill_sharpa_appo_student_owner_selects_nodr_demo_profile():
-    mod = _train_hora_distill()
-    cfg = mod._apply_teacher_defaults(_hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"]))
-
-    assert cfg.teacher.algo_family == "appo"
-    assert cfg.teacher.task == "sharpa_inhand/mujoco_hora"
-    assert cfg.training.task_name == "SharpaInhandRotation"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.interactive.action_mode == "policy"
-    assert cfg.interactive.policy_obs_mode == "actor"
-    assert cfg.env.post_step_forward_sensor is True
-    assert cfg.env.domain_rand.scale_list == [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
-    assert cfg.env.domain_rand.randomize_gravity is False
-    assert cfg.env.domain_rand.randomize_gravity_direction is False
-    assert cfg.env.domain_rand.randomize_pd_gains is False
-    assert cfg.env.domain_rand.randomize_friction is False
-    assert cfg.env.domain_rand.randomize_com is False
-    assert cfg.env.domain_rand.randomize_mass is False
-    assert cfg.env.domain_rand.force_scale == pytest.approx(0.0)
-    assert cfg.env.domain_rand.random_force_prob_scalar == pytest.approx(0.0)
-    assert cfg.env.domain_rand.joint_noise_scale == pytest.approx(0.0)
-    assert cfg.env.domain_rand.contact_latency == pytest.approx(0.0)
-    assert cfg.env.domain_rand.contact_sensor_noise == pytest.approx(0.0)
-    assert cfg.algo.model.priv_info_embed_dim == 9
-    assert cfg.algo.model.priv_mlp_hidden_dims == [256, 128, 9]
-
-
-def test_hora_distill_runtime_checkpoint_records_model_only():
-    mod = _train_hora_distill()
-    cfg = OmegaConf.create(
-        {
-            "training": {
-                "task_name": "OwnerTask",
-                "sim_backend": "mujoco",
-                "cam_distance": 1.5,
-            },
-            "env": {
-                "post_step_forward_sensor": True,
-                "domain_rand": {"force_scale": 1.2},
-            },
-            "reward": {"scales": {"rotate": 2.5}},
-            "algo": {"model": {"hidden_dims": [512, 256, 128]}},
-        }
-    )
-
-    runtime = OmegaConf.to_container(mod._resolved_distill_runtime_cfg(cfg), resolve=True)
-
-    assert runtime == {"algo": {"model": {"hidden_dims": [512, 256, 128]}}}
-
-
-def test_hora_distill_checkpoint_runtime_only_restores_model_structure():
-    from uni_rl.algos.hora.distill import cfg_with_checkpoint_runtime
-
-    from unilab.training.hora_distill_config import apply_teacher_defaults
-
-    cfg = _hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"])
-    checkpoint = {
-        "distill_runtime_cfg": {
-            "training": {
-                "task_name": "CheckpointTask",
-                "sim_backend": "motrix",
-                "render_spacing": 99.0,
-            },
-            "reward": {"scales": {"rotate": 999.0}},
-            "env": {
-                "post_step_forward_sensor": False,
-                "domain_rand": {
-                    "scale_list": [9.9],
-                    "randomize_mass": True,
-                    "force_scale": 99.0,
-                },
-            },
-            "algo": {
-                "model": {
-                    "hidden_dims": [32, 16],
-                    "priv_info_embed_dim": 7,
-                    "priv_mlp_hidden_dims": [11, 7],
-                }
-            },
-        }
-    }
-
-    restored = cfg_with_checkpoint_runtime(apply_teacher_defaults(cfg), checkpoint)
-
-    assert restored.training.task_name == "SharpaInhandRotation"
-    assert restored.training.sim_backend == "mujoco"
-    assert restored.training.render_spacing == pytest.approx(0.5)
-    assert restored.reward.scales.rotate != pytest.approx(999.0)
-    assert restored.env.post_step_forward_sensor is True
-    assert restored.env.domain_rand.scale_list == [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
-    assert restored.env.domain_rand.randomize_mass is False
-    assert restored.env.domain_rand.force_scale == pytest.approx(0.0)
-    assert restored.algo.model.hidden_dims == [32, 16]
-    assert restored.algo.model.priv_info_embed_dim == 7
-    assert restored.algo.model.priv_mlp_hidden_dims == [11, 7]
-
-
-@pytest.mark.parametrize(
-    ("teacher_algo_family", "checkpoint_model"),
-    [
-        ("ppo", {"hidden_dims": [512, 256, 128], "activation": "elu"}),
-        ("appo", {"hidden_dims": [512, 256, 128], "activation": "elu"}),
-        (
-            "sac",
-            {
-                "teacher_arch": "hora_sac",
-                "actor_hidden_dim": 512,
-                "use_layer_norm": True,
-            },
-        ),
-    ],
-)
-def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
-    monkeypatch: pytest.MonkeyPatch,
-    teacher_algo_family: str,
-    checkpoint_model: dict[str, Any],
-):
-    from uni_rl.algos.hora.distill import cfg_with_checkpoint_runtime
-
-    from unilab.training import hora_distill_config as distill_config
-
-    owner_cfg = OmegaConf.create(
-        {
-            "teacher": {"algo_family": teacher_algo_family},
-            "training": {
-                "task_name": "OwnerTask",
-                "sim_backend": "mujoco",
-                "cam_distance": 1.5,
-            },
-            "env": {
-                "post_step_forward_sensor": False,
-                "domain_rand": {"force_scale": 1.2, "randomize_mass": False},
-            },
-            "reward": {"scales": {"rotate": 2.5}},
-            "algo": {"model": {"owner_model": True}},
-        }
-    )
-    checkpoint = {
-        "teacher_algo_family": teacher_algo_family,
-        "distill_runtime_cfg": {
-            "training": {
-                "task_name": "CheckpointTask",
-                "sim_backend": "mujoco",
-                "cam_distance": 9.0,
-            },
-            "env": {
-                "post_step_forward_sensor": True,
-                "domain_rand": {"force_scale": 9.0, "randomize_mass": True},
-            },
-            "reward": {"scales": {"rotate": 99.0}},
-            "algo": {"model": checkpoint_model},
-        },
-    }
-
-    monkeypatch.setattr(distill_config, "apply_teacher_defaults", lambda cfg: owner_cfg)
-
-    # uni_rl's cfg_with_checkpoint_runtime only restores model-side fields;
-    # composing teacher-owner defaults first is the caller's job (issue #1480).
-    effective_cfg = cfg_with_checkpoint_runtime(
-        distill_config.apply_teacher_defaults(OmegaConf.create({})), checkpoint
-    )
-
-    assert effective_cfg.training.task_name == "OwnerTask"
-    assert effective_cfg.training.cam_distance == pytest.approx(1.5)
-    assert effective_cfg.env.post_step_forward_sensor is False
-    assert effective_cfg.env.domain_rand.force_scale == pytest.approx(1.2)
-    assert effective_cfg.env.domain_rand.randomize_mass is False
-    assert effective_cfg.reward.scales.rotate == pytest.approx(2.5)
-    assert OmegaConf.to_container(effective_cfg.algo.model, resolve=True) == checkpoint_model
-
-
-@pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo", "sac"])
-def test_hora_distill_teacher_owner_defaults_support_ppo_appo_and_sac(
-    teacher_algo_family: str,
-):
-    mod = _train_hora_distill()
-    teacher_task = "sharpa_inhand/mujoco_hora"
-    cfg = mod._apply_teacher_defaults(
-        _hora_distill_cfg(
-            [
-                "task=sharpa_inhand/mujoco",
-                f"teacher.algo_family={teacher_algo_family}",
-                f"teacher.task={teacher_task}",
-            ]
-        )
-    )
-
-    assert cfg.training.task_name == "SharpaInhandRotation"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.algo.model.priv_info_embed_dim == 9
-    assert cfg.algo.model.priv_mlp_hidden_dims == [256, 128, 9]
-    if teacher_algo_family == "sac":
-        assert cfg.algo.model.teacher_arch
-        assert cfg.algo.model.actor_hidden_dim is not None
-
-
-def test_hora_distill_sac_teacher_requires_hora_sac_runtime():
-    mod = _train_hora_distill()
-
-    with pytest.raises(ValueError, match="runtime_impl='hora_sac'"):
-        mod._apply_teacher_defaults(
-            _hora_distill_cfg(
-                [
-                    "task=sharpa_inhand/mujoco",
-                    "teacher.algo_family=sac",
-                    "teacher.task=g1_walk_flat/mujoco",
-                ]
-            )
-        )
-
-
-@pytest.mark.parametrize("teacher_algo_family", ["ppo", "appo"])
-def test_hora_distill_teacher_run_slug_omits_teacher_run_name(teacher_algo_family: str):
-    mod = _train_hora_distill()
-    cfg = OmegaConf.create({"teacher": {"task": "sharpa_inhand/mujoco"}})
-    teacher_checkpoint = Path("/tmp") / "2026-04-22_13-26-45_mujoco" / "model_10000.pt"
-
-    metadata = mod._teacher_run_metadata(
-        cfg,
-        teacher_algo_family=teacher_algo_family,
-        teacher_checkpoint=teacher_checkpoint,
-    )
-
-    assert metadata["run_name"] == "2026-04-22_13-26-45_mujoco"
-    assert metadata["run_slug"] == f"teacher-{teacher_algo_family}"
 
 
 def test_offpolicy_go1_motrix_task_is_not_configured():
@@ -934,7 +646,7 @@ def test_build_ppo_env_cfg_override_allegro_grasp_mujoco(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=allegro_inhand_grasp/mujoco"])
+    cfg = _ppo_cfg(["task=allegro_inhand_grasp/mujoco", "+env.grasp_collection_target=1"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
@@ -976,46 +688,6 @@ def test_build_ppo_env_cfg_override_allegro_grasp_cli_override_wins(
     assert cfg.algo.max_iterations == 1
     assert env_cfg_override["recorders"]["grasp_cache"]["params"]["collection_target"] == 128
     assert env_cfg_override["rewards"]["rotate"]["weight"] == pytest.approx(0.3)
-
-
-def test_build_ppo_env_cfg_override_sharpa_grasp_cli_override_wins(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(
-        [
-            "task=sharpa_inhand_grasp/mujoco",
-            "algo.max_iterations=1",
-            "env.grasp_collection_target=128",
-            "reward.scales.rotate=0.3",
-        ]
-    )
-
-    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-
-    assert cfg.algo.max_iterations == 1
-    assert env_cfg_override["grasp_collection_target"] == 128
-    assert env_cfg_override["reward_config"]["scales"]["rotate"] == pytest.approx(0.3)
-
-
-def test_build_ppo_env_cfg_override_sharpa_grasp_motrix_owner(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(
-        [
-            "task=sharpa_inhand_grasp/motrix",
-            "algo.max_iterations=1",
-            "env.grasp_collection_target=128",
-        ]
-    )
-
-    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-
-    assert cfg.training.task_name == "SharpaInhandRotationGrasp"
-    assert cfg.training.sim_backend == "motrix"
-    assert env_cfg_override["grasp_collection_target"] == 128
-    assert env_cfg_override["domain_rand"]["scale_list"] == [0.8]
 
 
 @pytest.mark.parametrize("std_type", ["scalar", "log"])
@@ -1088,7 +760,7 @@ def _build_rsl_lifecycle_case(
         )
     cfg = _ppo_cfg(
         [
-            "task=sharpa_inhand_grasp/mujoco",
+            "task=allegro_inhand_grasp/mujoco",
             f"training.log_dir={tmp_path}",
             "training.logger=none",
             "training.nan_guard.enabled=false",
@@ -1305,7 +977,7 @@ def test_train_rsl_rl_grasp_collection_rejects_multi_rank_before_launch(
     world_size: int,
 ) -> None:
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=sharpa_inhand_grasp/mujoco"])
+    cfg = _ppo_cfg(["task=allegro_inhand_grasp/mujoco", "+env.grasp_collection_target=1"])
     monkeypatch.setattr(mod, "resolve_dp_topology", lambda _devices: devices)
     monkeypatch.setattr(mod, "current_torch_distributed_rank", lambda: 0)
     monkeypatch.setattr(mod, "current_torch_distributed_local_rank", lambda: 0)
@@ -1526,18 +1198,6 @@ def test_g1_motion_tracking_appo_task_exposes_final_reward():
     cfg = _appo_cfg(["task=g1_motion_tracking/motrix"])
 
     assert cfg.reward.motion_body_pos.weight == pytest.approx(1.0)
-
-
-def test_sharpa_appo_motrix_owner_uses_backend_specific_overrides():
-    cfg = _appo_cfg(["task=sharpa_inhand/motrix"])
-
-    assert cfg.training.task_name == "SharpaInhandRotation"
-    assert cfg.training.sim_backend == "motrix"
-    assert cfg.algo.num_envs == 2048
-    assert cfg.env.sim_dt == pytest.approx(0.01)
-    assert cfg.env.domain_rand.randomize_gravity is True
-    assert cfg.env.domain_rand.randomize_gravity_direction is False
-    assert cfg.env.domain_rand.randomize_pd_gains is True
 
 
 # ---------------------------------------------------------------------------
@@ -1965,26 +1625,6 @@ def test_offpolicy_extract_play_obs_uses_obs_group_only():
     assert np.allclose(play_obs, 1.0)
 
 
-def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
-    from unilab.visualization.interactive_playback import resolve_play_actor_spec
-
-    cfg = _offpolicy_cfg(
-        [
-            "task=sharpa_inhand/mujoco_hora",
-        ]
-    )
-
-    actor_algo_type, actor_kwargs = resolve_play_actor_spec(
-        "sac",
-        cfg,
-        obs_dim=4,
-        critic_obs_dim=6,
-    )
-
-    assert actor_algo_type == "hora_sac"
-    assert actor_kwargs["priv_info_dim"] == 2
-
-
 def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
     from unilab.visualization.interactive_playback import resolve_play_actor_spec
 
@@ -2256,142 +1896,6 @@ def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
     assert not (run_dir / "policy.onnx").exists()
 
 
-def test_play_offpolicy_uses_hora_sac_actor_and_priv_info(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
-    import torch
-
-    mod = _offpolicy()
-    cfg = _offpolicy_cfg(
-        [
-            "task=sharpa_inhand/mujoco_hora",
-            "training.play_only=true",
-            "training.play_render_mode=record",
-            "training.export_onnx=false",
-            "training.play_env_num=2",
-        ]
-    )
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    checkpoint = run_dir / "model_5000.pt"
-    torch.save({"actor": {}}, checkpoint)
-
-    captured: dict[str, Any] = {}
-    reset_priv = np.array([[4.0, 5.0], [6.0, 7.0]], dtype=np.float32)
-    step_priv = np.array([[8.0, 9.0], [10.0, 11.0]], dtype=np.float32)
-
-    class FakeHoraActor:
-        def eval(self):
-            return self
-
-        def load_state_dict(self, state_dict):
-            captured["loaded_state_dict"] = state_dict
-
-        def explore(self, obs, priv_info, deterministic=True):
-            captured["obs_shape"] = tuple(obs.shape)
-            captured["priv_info"] = priv_info.detach().cpu().numpy()
-            captured["deterministic"] = deterministic
-            return torch.zeros((obs.shape[0], 2), dtype=obs.dtype, device=obs.device)
-
-    class FakeEnv:
-        def __init__(self):
-            self.obs_groups_spec = {"obs": 3, "critic": 5}
-            self.action_space = type("ActionSpace", (), {"shape": (2,)})()
-            self.state = None
-
-        def init_state(self):
-            self.state = type(
-                "State",
-                (),
-                {
-                    "obs": {
-                        "obs": np.zeros((cfg.training.play_env_num, 3), dtype=np.float32),
-                        "critic": np.zeros((cfg.training.play_env_num, 5), dtype=np.float32),
-                    },
-                    "info": {"critic_info": reset_priv},
-                },
-            )()
-
-        def reset(self, env_ids):
-            batch = len(env_ids)
-            return (
-                {
-                    "obs": np.zeros((batch, 3), dtype=np.float32),
-                    "critic": np.concatenate(
-                        [np.zeros((batch, 3), dtype=np.float32), reset_priv],
-                        axis=1,
-                    ),
-                },
-                {"critic_info": reset_priv},
-            )
-
-        def step(self, actions):
-            batch = actions.shape[0]
-            captured["actions_shape"] = actions.shape
-            self.state = type(
-                "State",
-                (),
-                {
-                    "obs": {
-                        "obs": np.ones((batch, 3), dtype=np.float32),
-                        "critic": np.concatenate(
-                            [np.ones((batch, 3), dtype=np.float32), step_priv],
-                            axis=1,
-                        ),
-                    },
-                    "info": {"critic_info": step_priv},
-                },
-            )()
-            return self.state
-
-        def run_playback_mode(self, **kwargs):
-            init_obs = kwargs["initialize"]()
-            captured["init_obs_shape"] = init_obs.shape
-            next_obs = kwargs["step"](init_obs)
-            captured["next_obs_shape"] = next_obs.shape
-            return str(kwargs["output_video"])
-
-    monkeypatch.setattr(mod, "build_offpolicy_env_cfg_override", lambda algo_name, cfg: {})
-    monkeypatch.setattr(mod, "default_device", lambda torch_module, preferred=None: "cpu")
-    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: FakeEnv())
-    monkeypatch.setattr(
-        mod,
-        "resolve_checkpoint_path",
-        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
-    )
-
-    import unilab.utils.checkpoint as checkpoint_utils
-
-    monkeypatch.setattr(
-        checkpoint_utils,
-        "resolve_offpolicy_checkpoint_path",
-        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
-    )
-
-    import uni_rl.algos.common.actor_factory as actor_factory
-
-    def fake_build_actor(algo_type, obs_dim, action_dim, hidden_dim, use_layer_norm, device, **kw):
-        captured["build_actor"] = (algo_type, obs_dim, action_dim, kw)
-        return FakeHoraActor()
-
-    monkeypatch.setattr(actor_factory, "build_actor", fake_build_actor)
-
-    result = mod.play_offpolicy("sac", cfg)
-
-    assert result == str(run_dir / "play_video.mp4")
-    assert captured["build_actor"][0] == "hora_sac"
-    assert captured["build_actor"][1:3] == (3, 2)
-    assert captured["build_actor"][3]["priv_info_dim"] == 2
-    assert captured["loaded_state_dict"] == {}
-    assert captured["actions_shape"] == (cfg.training.play_env_num, 2)
-    assert captured["init_obs_shape"] == (cfg.training.play_env_num, 3)
-    assert captured["next_obs_shape"] == (cfg.training.play_env_num, 3)
-    assert captured["obs_shape"] == (cfg.training.play_env_num, 3)
-    np.testing.assert_allclose(captured["priv_info"], reset_priv)
-    assert captured["deterministic"] is True
-    assert not (run_dir / "policy.onnx").exists()
-
-
 # ---------------------------------------------------------------------------
 # play_interactive.py — resolve_checkpoint()
 # ---------------------------------------------------------------------------
@@ -2601,69 +2105,6 @@ def test_play_wrapper_flat_policy_excludes_critic_only_group():
     assert wrapper.num_privileged_obs == 4
 
 
-def test_play_wrapper_preserves_hora_priv_info_and_proprio_history():
-    import numpy as np
-    from uni_rl.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
-
-    class FakeEnv:
-        def __init__(self):
-            self.num_envs = 1
-            self.state = type(
-                "State",
-                (),
-                {
-                    "obs": {
-                        "obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32),
-                        "proprio": np.array([[6.0, 7.0]], dtype=np.float32),
-                        "critic": np.array([[1.0, 2.0, 3.0, 4.0, 5.0]], dtype=np.float32),
-                    },
-                    "info": {
-                        "critic_info": np.array([[4.0, 5.0]], dtype=np.float32),
-                        "proprio_hist": np.array(
-                            [[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]],
-                            dtype=np.float32,
-                        ),
-                    },
-                },
-            )()
-            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
-            self.observation_space = type("Space", (), {"shape": (5,)})()
-            self.action_space = type("Space", (), {"shape": (2,)})()
-            self.obs_groups_spec = {"obs": 3, "proprio": 2, "critic": 5}
-
-        def init_state(self):
-            pass
-
-        def reset(self, env_indices):
-            del env_indices
-            return (
-                cast(dict[str, np.ndarray], getattr(self.state, "obs")),
-                cast(dict[str, np.ndarray], getattr(self.state, "info")),
-            )
-
-    assert "reset" not in HoraRslRlVecEnvWrapper.__dict__
-    assert "get_observations" not in HoraRslRlVecEnvWrapper.__dict__
-
-    wrapper = HoraRslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
-    reset_obs_td, reset_info = wrapper.reset()
-    current_obs_td = wrapper.get_observations()
-
-    assert reset_info is wrapper.env.state.info
-    for obs_td in (reset_obs_td, current_obs_td):
-        np.testing.assert_allclose(
-            obs_td["policy"].cpu().numpy(),
-            np.array([[1.0, 2.0, 3.0, 6.0, 7.0]], dtype=np.float32),
-        )
-        np.testing.assert_allclose(
-            obs_td["priv_info"].cpu().numpy(),
-            np.array([[4.0, 5.0]], dtype=np.float32),
-        )
-        np.testing.assert_allclose(
-            obs_td["proprio_hist"].cpu().numpy(),
-            np.array([[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]], dtype=np.float32),
-        )
-
-
 def test_play_wrapper_step_exports_timeout_bootstrap_obs():
     import torch
     from uni_rl.algos.rsl_rl import RslRlVecEnvWrapper
@@ -2716,76 +2157,6 @@ def test_play_wrapper_step_exports_timeout_bootstrap_obs():
     )
     np.testing.assert_allclose(
         infos["time_out_bootstrap_obs"]["critic"].cpu().numpy(),
-        np.array([[4.0, 5.0]], dtype=np.float32),
-    )
-
-
-def test_play_wrapper_timeout_bootstrap_preserves_hora_priv_info():
-    import torch
-    from uni_rl.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper
-
-    class FakeEnv:
-        def __init__(self):
-            self.num_envs = 1
-            self.cfg = type("Cfg", (), {"max_episode_seconds": 10.0, "ctrl_dt": 0.02})()
-            self.observation_space = type("Space", (), {"shape": (5,)})()
-            self.action_space = type("Space", (), {"shape": (2,)})()
-            self.obs_groups_spec = {"obs": 3, "critic": 5}
-            self.state = type(
-                "State",
-                (),
-                {
-                    "obs": {
-                        "obs": np.zeros((1, 3), dtype=np.float32),
-                        "critic": np.zeros((1, 5), dtype=np.float32),
-                    },
-                    "info": {
-                        "critic_info": np.zeros((1, 2), dtype=np.float32),
-                        "proprio_hist": np.zeros((1, 2, 3), dtype=np.float32),
-                    },
-                },
-            )()
-
-        def init_state(self):
-            pass
-
-        def reset(self, env_indices):
-            del env_indices
-            return cast(dict[str, np.ndarray], getattr(self.state, "obs")), cast(
-                dict[str, np.ndarray], getattr(self.state, "info")
-            )
-
-        def step(self, actions):
-            del actions
-            return type(
-                "StepState",
-                (),
-                {
-                    "obs": {"obs": np.array([[1.0, 2.0, 3.0]], dtype=np.float32)},
-                    "reward": np.array([1.0], dtype=np.float32),
-                    "terminated": np.array([True]),
-                    "truncated": np.array([True]),
-                    "final_observation": {
-                        "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
-                        "critic": np.array([[7.0, 8.0, 9.0, 4.0, 5.0]], dtype=np.float32),
-                    },
-                    "info": {
-                        "final_observation": {
-                            "obs": np.array([[7.0, 8.0, 9.0]], dtype=np.float32),
-                            "critic": np.array([[7.0, 8.0, 9.0, 4.0, 5.0]], dtype=np.float32),
-                        },
-                        "critic_info": np.array([[0.0, 0.0]], dtype=np.float32),
-                        "proprio_hist": np.zeros((1, 2, 3), dtype=np.float32),
-                    },
-                },
-            )()
-
-    wrapper = HoraRslRlVecEnvWrapper(FakeEnv(), device="cpu", policy_obs_mode="flat")
-
-    _, _, _, infos = wrapper.step(torch.zeros((1, 2)))
-
-    np.testing.assert_allclose(
-        infos["time_out_bootstrap_obs"]["priv_info"].cpu().numpy(),
         np.array([[4.0, 5.0]], dtype=np.float32),
     )
 
@@ -3170,25 +2541,25 @@ def test_play_interactive_parses_explicit_cli():
     mod = _play_interactive()
 
     parsed = mod._parse_interactive_cli(
-        ["--algo", "hora_distill", "--task", "sharpa_inhand", "--sim", "mujoco_nodr"]
+        ["--algo", "ppo", "--task", "go1_joystick_flat", "--sim", "mujoco"]
     )
 
-    assert parsed.algo == "hora_distill"
-    assert parsed.task == "sharpa_inhand"
-    assert parsed.sim == "mujoco_nodr"
-    assert parsed.overrides == ["task=sharpa_inhand/mujoco_nodr"]
+    assert parsed.algo == "ppo"
+    assert parsed.task == "go1_joystick_flat"
+    assert parsed.sim == "mujoco"
+    assert parsed.overrides == ["task=go1_joystick_flat/mujoco"]
 
 
-@pytest.mark.parametrize("algo", ["appo", "sac", "td3", "hora_distill"])
+@pytest.mark.parametrize("algo", ["appo", "sac", "td3"])
 def test_play_interactive_parses_feature_algo_flags(algo: str):
     mod = _play_interactive()
 
     parsed = mod._parse_interactive_cli(
-        [f"--algo={algo}", "--task", "sharpa_inhand", "--sim", "mujoco_hora"]
+        [f"--algo={algo}", "--task", "allegro_inhand", "--sim", "mujoco"]
     )
 
     assert parsed.algo == algo
-    assert parsed.overrides == ["task=sharpa_inhand/mujoco_hora"]
+    assert parsed.overrides == ["task=allegro_inhand/mujoco"]
 
 
 def test_play_interactive_cli_respects_owner_action_mode_and_user_override():
@@ -3234,20 +2605,14 @@ def test_play_interactive_dynamic_compose_supports_algo_roots():
     mod = _play_interactive()
 
     ppo_cfg = mod._compose_interactive_config("ppo", ["task=go1_joystick_flat/mujoco"])
-    appo_cfg = mod._compose_interactive_config("appo", ["task=sharpa_inhand/mujoco_hora"])
-    sac_cfg = mod._compose_interactive_config("sac", ["task=sharpa_inhand/mujoco_hora"])
+    appo_cfg = mod._compose_interactive_config("appo", ["task=allegro_inhand/mujoco"])
+    sac_cfg = mod._compose_interactive_config("sac", ["task=g1_walk_flat/mujoco"])
     td3_cfg = mod._compose_interactive_config("td3", ["task=g1_walk_flat/mujoco"])
-    distill_cfg = mod._compose_interactive_config("hora_distill", ["task=sharpa_inhand/mujoco"])
 
     assert ppo_cfg.algo.algo == "ppo"
-    assert appo_cfg.algo.runtime_impl == "hora_appo"
-    assert appo_cfg.interactive.action_mode == "policy"
+    assert appo_cfg.algo.algo == "appo"
     assert sac_cfg.algo.algo == "sac"
-    assert sac_cfg.algo.runtime_impl == "hora_sac"
-    assert sac_cfg.interactive.policy_obs_mode == "actor"
     assert td3_cfg.algo.algo == "td3"
-    assert distill_cfg.algo.algo_log_name == "hora_distill"
-    assert distill_cfg.interactive.action_mode == "policy"
 
 
 def test_play_interactive_sac_overrides_pass_through():
@@ -3255,11 +2620,11 @@ def test_play_interactive_sac_overrides_pass_through():
 
     overrides = mod._normalize_interactive_overrides(
         "sac",
-        ["task=sharpa_inhand/mujoco_hora", "algo.load_run=my_run"],
+        ["task=g1_walk_flat/mujoco", "algo.load_run=my_run"],
     )
 
     assert overrides == [
-        "task=sharpa_inhand/mujoco_hora",
+        "task=g1_walk_flat/mujoco",
         "algo.load_run=my_run",
     ]
 
@@ -3707,16 +3072,6 @@ def test_ee_goal_overlay_getter_disabled_without_marker_or_capability(monkeypatc
     assert mod._ee_goal_debug_overlay_getter(object()) is None
     env = _OverlayEnv(np.zeros((1, 3)), supports_debug_overlay=False)
     assert mod._ee_goal_debug_overlay_getter(env) is None
-
-
-def test_hora_distill_play_camera_kwargs_returns_typed_camera_cfg():
-    from unisim.backend.base import CameraCfg
-
-    mod = _train_hora_distill()
-    cfg = _hora_distill_cfg()
-    camera = mod._play_camera_kwargs(cfg)
-    assert isinstance(camera, CameraCfg)
-    assert camera.cam_distance == pytest.approx(cfg.training.cam_distance)
 
 
 class _DiscoverableOverlayEnv(_OverlayEnv):

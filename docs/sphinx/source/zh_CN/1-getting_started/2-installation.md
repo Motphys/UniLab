@@ -121,7 +121,7 @@ editable install 会指向源码 checkout；常规安装会把 package 和任务
 MJWarp、Genesis、平台相关 torch index、ROCm / XPU profile 请优先使用上面的
 uv 路径。机器人 mesh 和纹理不会打进 wheel，而是在 cold path 从
 `unilabsim/unilab-robots` 数据集下载。请确保安装位置可写，或从源码 checkout 使用
-`uv run unilab-pull-assets` 预拉取。isaacgym / isaacsim 后端和 HORA 多卡提交路径仍假设
+`uv run unilab-pull-assets` 预拉取。isaacgym / isaacsim 后端仍假设
 源码 checkout；外部后端请使用下方专用安装页。
 
 ## 运行时 Asset

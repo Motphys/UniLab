@@ -136,7 +136,7 @@ record 管线各自维护了一套互不兼容的绘制代码。
 - 可嵌入 session: `src/unilab/visualization/playback_session.py`
 - camera 归一化: `src/unilab/visualization/playback.py`
 - 交互 viewer 迁移: `src/unilab/scripts/play_interactive.py`
-- 训练入口迁移: `src/unilab/scripts/train_rsl_rl.py`, `src/unilab/scripts/train_appo.py`, `src/unilab/scripts/train_offpolicy.py`, `src/unilab/scripts/play_hora_appo.py`
+- 训练入口迁移: `src/unilab/scripts/train_rsl_rl.py`, `src/unilab/scripts/train_appo.py`, `src/unilab/scripts/train_offpolicy.py`
 - 上游契约: `unisim.backend.base`（`DebugPrimitive`, `CameraCfg`, `DebugOverlayGetter`, `validate_debug_overlays`, `BackendPlayCapabilities.supports_debug_overlay` / `supports_interactive_debug_overlay`）
 - 测试: `tests/visualization/test_debug_primitives.py`, `tests/visualization/test_playback_session.py`, `tests/base/test_np_env_playback_contract.py`, `tests/envs/test_manager_based_rl_env.py`（overlay 聚合）
 

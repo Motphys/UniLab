@@ -67,7 +67,6 @@ from unilab.visualization.debug_primitives import (
     segment_arrow,
 )
 from unilab.visualization.interactive_playback import (
-    _HORA_DISTILL_CHECKPOINT_UNAVAILABLE,
     KeyboardCommander,
     PlaybackControls,
     PlayInteractiveArgs,
@@ -76,7 +75,6 @@ from unilab.visualization.interactive_playback import (
     build_play_backend_adapter,
     build_playback_config,
     create_appo_playback_session,
-    create_hora_distill_playback_session,
     create_rsl_rl_playback_session,
     create_sac_playback_session,
     infer_checkpoint_actor_input_dim,
@@ -135,14 +133,13 @@ def _algo_config_dict(cfg: DictConfig | None) -> dict[str, Any]:
     return algo_config_dict(cfg)
 
 
-SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac", "hora_distill")
+SUPPORTED_INTERACTIVE_ALGOS = ("ppo", "appo", "sac", "td3", "flashsac")
 _CONFIG_ROOT_BY_ALGO = {
     "ppo": "ppo",
     "appo": "appo",
     "sac": "sac",
     "td3": "td3",
     "flashsac": "flashsac",
-    "hora_distill": "hora_distill",
 }
 _OFFPOLICY_INTERACTIVE_ALGOS = {"sac", "td3", "flashsac"}
 
@@ -922,22 +919,10 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 algo_name=algo,
                 log=lambda message: print(f"[play_interactive] {message}"),
             )
-        elif algo == "hora_distill":
-            if cfg is None:
-                raise ValueError(
-                    "HORA distill interactive playback requires a composed Hydra config."
-                )
-            session = create_hora_distill_playback_session(
-                playback_cfg=playback_cfg,
-                cfg=cfg,
-                root_dir=Path.cwd(),
-                device=device,
-                log=lambda message: print(f"[play_interactive] {message}"),
-            )
         else:
             raise ValueError(f"Unsupported interactive playback algo: {algo}")
     except RuntimeError as exc:
-        if str(exc) in {_PLAYBACK_ENV_UNAVAILABLE, _HORA_DISTILL_CHECKPOINT_UNAVAILABLE}:
+        if str(exc) == _PLAYBACK_ENV_UNAVAILABLE:
             return
         raise
     playback_session = session[0]
