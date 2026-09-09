@@ -5,6 +5,14 @@ from pathlib import Path
 import pytest
 from scripts.tools.support_matrix import BACKENDS, EvidenceLevel, build_support_rows
 
+
+def test_superdex_fr3_is_configured_without_full_training_claim() -> None:
+    row = _row("PPO (torch)", "fr3_joint_target")
+    assert row.cells["superdex"].level == EvidenceLevel.CONFIGURED
+    go2_row = _row("PPO (torch)", "go2_joystick_flat")
+    assert go2_row.cells["superdex"].level == EvidenceLevel.CONFIGURED
+
+
 # CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
 pytestmark = pytest.mark.slow
 
@@ -37,6 +45,7 @@ def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
         "genesis",
         "isaacsim",
         "newton",
+        "superdex",
     )
     assert torch_row.cells["mjwarp"].level == EvidenceLevel.TESTED
     assert sac_row.cells["mjwarp"].level == EvidenceLevel.TESTED

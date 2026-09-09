@@ -371,6 +371,11 @@ def _build_sac_runner_with_fakes(
         return _FakeEnv()
 
     monkeypatch.setattr(module.os, "cpu_count", lambda: cpu_count)
+    monkeypatch.setattr(
+        "uni_rl.ipc.dp_launcher.os.sched_getaffinity",
+        lambda _: set(range(cpu_count)),
+        raising=False,
+    )
     if backend_binding_calls is not None:
         monkeypatch.setattr(
             module,
@@ -408,6 +413,10 @@ def test_build_runner_binds_mjwarp_rank_process_to_learner_device(
 
 
 def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "uni_rl.ipc.dp_launcher._discover_physical_cpu_groups",
+        lambda _: [[core, core + 64] for core in range(64)],
+    )
     # Spawned rank: rank comes from the env, world_size from training.devices.
     monkeypatch.setenv(UNILAB_DP_RANK, "1")
     monkeypatch.setenv(UNILAB_DP_LOG_DIR, "/tmp/offpolicy_test_run")
@@ -416,7 +425,9 @@ def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.Mon
         ["training.devices=[0,1]"],
         cpu_count=128,
     )
-    assert runner.kwargs["collector_cpu_ids"] == list(range(64, 128))
+    assert runner.kwargs["collector_cpu_ids"] == [
+        cpu for core in range(32, 64) for cpu in (core, core + 64)
+    ]
     assert runner.kwargs["device"] == "cuda:1"
     # The thread budget is resolved against the rank's CPU share, not the host.
     assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 64
@@ -429,6 +440,10 @@ def test_build_runner_partitions_collector_cpus_per_rank(monkeypatch: pytest.Mon
 
 
 def test_build_runner_rank_zero_partitions_without_dp_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "uni_rl.ipc.dp_launcher._discover_physical_cpu_groups",
+        lambda _: [[core, core + 64] for core in range(64)],
+    )
     # Rank 0 carries no UNILAB_DP_* env; world_size must come from the config.
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     monkeypatch.delenv(UNILAB_DP_WORLD_SIZE, raising=False)
@@ -437,7 +452,9 @@ def test_build_runner_rank_zero_partitions_without_dp_env(monkeypatch: pytest.Mo
         ["training.devices=[0,1]"],
         cpu_count=128,
     )
-    assert runner.kwargs["collector_cpu_ids"] == list(range(0, 64))
+    assert runner.kwargs["collector_cpu_ids"] == [
+        cpu for core in range(32) for cpu in (core, core + 64)
+    ]
     assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 64
 
 

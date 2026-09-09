@@ -302,6 +302,89 @@ def test_eval_mujoco_interactive_honors_profile_and_render_override(
     ]
 
 
+def _make_superdex_eval_checkout(root: Path) -> None:
+    (root / "scripts").mkdir(parents=True)
+    (root / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
+    owner_dir = root / "conf" / "ppo" / "task" / "go2_joystick_flat"
+    owner_dir.mkdir(parents=True)
+    (owner_dir / "superdex.yaml").write_text(
+        "training:\n  sim_backend: superdex\n", encoding="utf-8"
+    )
+
+
+def _pretend_superdex_runtime_is_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unisim.backend.superdex import dependencies
+
+    monkeypatch.setattr(dependencies, "superdex_dependencies_available", lambda: True)
+
+
+def test_eval_superdex_interactive_forces_single_env_on_train_play_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_superdex_eval_checkout(tmp_path)
+    _pretend_superdex_runtime_is_available(monkeypatch)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="superdex",
+        overrides=[],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    # SuperDex interactive eval keeps the train-script play path (the native
+    # Polyscope viewer renders it) but collapses to the single scene the
+    # viewer draws; the owner layer switches the env to the serial executor.
+    assert command[1] == str(tmp_path / "scripts" / "train_rsl_rl.py")
+    assert "training.play_render_mode=interactive" in command
+    assert "training.play_env_num=1" in command
+
+
+def test_eval_superdex_interactive_preserves_explicit_play_env_num(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_superdex_eval_checkout(tmp_path)
+    _pretend_superdex_runtime_is_available(monkeypatch)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="superdex",
+        overrides=["training.play_env_num=4"],
+        load_run="-1",
+        render_mode="interactive",
+        root=tmp_path,
+    )
+
+    assert "training.play_env_num=4" in command
+    assert "training.play_env_num=1" not in command
+
+
+def test_eval_superdex_record_does_not_force_play_env_num(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_superdex_eval_checkout(tmp_path)
+    _pretend_superdex_runtime_is_available(monkeypatch)
+
+    command = cli.build_command(
+        mode="eval",
+        algo="ppo",
+        task="go2_joystick_flat",
+        sim="superdex",
+        overrides=[],
+        load_run="-1",
+        render_mode="record",
+        root=tmp_path,
+    )
+
+    assert "training.play_render_mode=record" in command
+    assert not any(o.startswith("training.play_env_num=") for o in command)
+
+
 def test_eval_mujoco_interactive_preserves_explicit_action_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

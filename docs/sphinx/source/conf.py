@@ -277,6 +277,7 @@ _LANGUAGE_ROOT_INDEX = {
 _LANGUAGE_PATH_FORWARD: dict[str, str] = {
     "en/why_unilab": "zh_CN/why_unilab",
     "en/2-user_guide/3-backends/6-drake": "zh_CN/2-user_guide/3-backends/6-drake",
+    "en/2-user_guide/3-backends/8-superdex": "zh_CN/2-user_guide/3-backends/8-superdex",
     "en/1-getting_started/5-faq": "zh_CN/1-getting_started/5-faq",
     "en/4-developer_guide/1-architecture/6-manager_based_api": (
         "zh_CN/4-developer_guide/1-architecture/6-manager_based_api"

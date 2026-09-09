@@ -480,6 +480,16 @@ def test_resolve_collector_cpu_ids_even_partition():
     assert resolve_collector_cpu_ids(2, 1, 128) == list(range(64, 128))
 
 
+def test_resolve_collector_cpu_ids_keeps_physical_siblings_together(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    groups = [[0, 4], [1, 5], [2, 6], [3, 7]]
+    monkeypatch.setattr(dp_launcher.os, "sched_getaffinity", lambda _: set(range(8)), raising=False)
+    monkeypatch.setattr(dp_launcher, "_discover_physical_cpu_groups", lambda _: groups)
+    assert resolve_collector_cpu_ids(2, 0) == [0, 4, 1, 5]
+    assert resolve_collector_cpu_ids(2, 1) == [2, 6, 3, 7]
+
+
 def test_resolve_collector_cpu_ids_remainder_stays_unassigned():
     # 129 CPUs / 2 ranks -> 64+64; CPU 128 keeps default OS scheduling.
     assert resolve_collector_cpu_ids(2, 0, 129) == list(range(0, 64))

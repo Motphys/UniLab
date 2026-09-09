@@ -8,12 +8,13 @@ factory. Physics implementations and their public contract live in the
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import unisim
 from unisim.backend.base import SimBackend
 
-from unilab.assets.hub import ensure_robot_assets_for_paths
+from unilab.assets.hub import ensure_robot_assets_for_paths, resolve_superdex_robot_asset
 from unilab.base.process_device import bind_genesis_process_device
 
 if TYPE_CHECKING:
@@ -44,6 +45,10 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     """Translate ``EnvCfg`` backend knobs into UniSim adapter options."""
     result: dict[str, Any] = {
         "post_step_forward_sensor": cfg.post_step_forward_sensor,
+        "superdex_num_workers": cfg.superdex_num_workers,
+        "superdex_assets_root": cfg.superdex_assets_root,
+        "superdex_effort_limits": cfg.superdex_effort_limits,
+        "superdex_allow_contact_approximation": cfg.superdex_allow_contact_approximation,
         "motrix_max_iterations": cfg.motrix_max_iterations,
         "chunk_size": cfg.chunk_size,
         "adaptive_chunk_size": cfg.adaptive_chunk_size,
@@ -75,6 +80,11 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     # compatibility fallback for those releases.
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
+    # Keep the default absent so unisim-core releases that predate the
+    # execution-mode option still accept the SuperDex kwargs; "serial" requires
+    # the updated adapter.
+    if cfg.superdex_execution_mode != "batch":
+        result["superdex_execution_mode"] = cfg.superdex_execution_mode
     return result
 
 
@@ -90,6 +100,19 @@ def create_backend(
     """Prepare UniLab-owned assets and construct a UniSim backend."""
     if scene is None:
         raise ValueError("SceneCfg must be provided")
+    superdex_assets_root = kwargs.pop("superdex_assets_root", None)
+    if backend_type == "superdex" and scene.model_file.endswith(".superdex_bot"):
+        scene = replace(
+            scene,
+            model_file=resolve_superdex_robot_asset(
+                scene.model_file, assets_root=superdex_assets_root
+            ),
+        )
+    if backend_type != "superdex":
+        kwargs.pop("superdex_num_workers", None)
+        kwargs.pop("superdex_execution_mode", None)
+        kwargs.pop("superdex_effort_limits", None)
+        kwargs.pop("superdex_allow_contact_approximation", None)
     ensure_robot_assets_for_paths(
         [scene.model_file, scene.visual_model_file, *scene.fragment_files]
     )
@@ -108,7 +131,10 @@ def create_backend(
     # not accept MuJoCo's synthetic body-sensor injection.  Keep this
     # capability translation at the owner/backend boundary so env code remains
     # backend-agnostic.
-    kwargs["body_state_required"] = body_state_required and backend_type != "newton"
+    kwargs["body_state_required"] = body_state_required and backend_type not in {
+        "newton",
+        "superdex",
+    }
     if backend_type == "genesis" and kwargs.get("genesis_device_id") is not None:
         # Bind before any unisim-core Genesis constructor can call gs.init.
         # New unisim-core releases repeat this idempotently; old releases do

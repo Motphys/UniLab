@@ -22,6 +22,7 @@ BACKENDS: tuple[str, ...] = (
     "genesis",
     "isaacsim",
     "newton",
+    "superdex",
 )
 
 # Maintainer-confirmed completed training validations. Keep this mapping narrow:
@@ -245,6 +246,9 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
 
 
 def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -> bool:
+    if backend == "superdex":
+        # Bounded native smoke/short training does not establish full training support.
+        return False
     if backend == "mjwarp":
         return (
             spec.entrypoint_id,
@@ -407,8 +411,8 @@ def render_support_matrix(root: Path | None = None) -> str:
         "",
         "### Entrypoint x Task Owner",
         "",
-        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix | IsaacGym | Genesis | IsaacSim | Newton |",
-        "|------------|------------|--------|--------|--------|----------|---------|----------|--------|",
+        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix | IsaacGym | Genesis | IsaacSim | Newton | SuperDex |",
+        "|------------|------------|--------|--------|--------|----------|---------|----------|--------|----------|",
     ]
 
     for row in build_support_rows(resolved_root):
@@ -417,7 +421,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             f"{row.cells['mujoco'].level.label} | {row.cells['mjwarp'].level.label} | "
             f"{row.cells['motrix'].level.label} | {row.cells['isaacgym'].level.label} | "
             f"{row.cells['genesis'].level.label} | {row.cells['isaacsim'].level.label} |"
-            f" {row.cells['newton'].level.label} |"
+            f" {row.cells['newton'].level.label} | {row.cells['superdex'].level.label} |"
         )
 
     lines.extend(
@@ -428,6 +432,7 @@ def render_support_matrix(root: Path | None = None) -> str:
             "- Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.",
             "- Owner YAML scan: `src/unilab/conf/ppo/task/**`, `src/unilab/conf/appo/task/**`, `src/unilab/conf/sac/task/**`, `src/unilab/conf/td3/task/**`, `src/unilab/conf/flashsac/task/**`.",
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
+            "- SuperDex remains `Configured`: FR3 has optional CPU rollout/spawn coverage in `tests/envs/test_fr3_superdex.py`; the Go2 research profile has policy-contract/rollout/checkpoint coverage in `tests/envs/test_go2_superdex.py`. Neither profile claims full-training performance or cross-platform support.",
             "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
             "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).",
             "- Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (real hardware, genesis-world extra + CUDA; not covered by repo CI); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.",

@@ -49,6 +49,7 @@ _SUPPORTED_SIM_BACKENDS = (
     "genesis",
     "isaacsim",
     "newton",
+    "superdex",
 )
 _DEFAULT_SIM_BACKEND_ORDER: tuple[str, ...] = ("mujoco", "motrix")
 _REGISTRY_MODULES_ATTR = "__unilab_registry_modules__"

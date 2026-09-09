@@ -324,6 +324,22 @@ def test_backend_adapter_injects_isaacsim_render_intent_only_for_play():
     assert play_override["isaacsim_render_height"] == 720
 
 
+def test_backend_adapter_injects_superdex_serial_mode_only_for_interactive_play():
+    interactive = _ppo_cfg(
+        ["task=go2_joystick_flat/superdex", "training.play_render_mode=interactive"]
+    )
+    adapter = BackendAdapter(interactive, root_dir=_ROOT_DIR, algo_name="ppo")
+    assert "superdex_execution_mode" not in adapter.build_task_env_cfg_override()
+    play_override = adapter.build_play_env_cfg_override()
+    assert play_override["superdex_execution_mode"] == "serial"
+
+    record = _ppo_cfg(["task=go2_joystick_flat/superdex", "training.play_render_mode=record"])
+    record_override = BackendAdapter(
+        record, root_dir=_ROOT_DIR, algo_name="ppo"
+    ).build_play_env_cfg_override()
+    assert "superdex_execution_mode" not in record_override
+
+
 def test_backend_adapter_keeps_motion_manager_scene_during_play():
     cfg = _ppo_cfg(["task=g1_motion_tracking/motrix", "training.play_only=true"])
     assert cfg.training.play_env_num == 16

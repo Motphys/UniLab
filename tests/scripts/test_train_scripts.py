@@ -372,6 +372,25 @@ def test_ppo_gpu_backend_env_uses_torchrun_local_rank(
     assert override[field] == 1
 
 
+def test_ppo_multi_rank_routes_one_cpu_partition_to_the_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go2_joystick_flat/superdex", "training.devices=[0,1]"])
+    monkeypatch.setenv("RANK", "1")
+    monkeypatch.setenv("LOCAL_RANK", "1")
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setattr(
+        mod,
+        "resolve_collector_cpu_ids",
+        lambda world_size, rank, cpu_count, explicit=None: [8, 24],
+    )
+
+    override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert override["cpu_ids"] == [8, 24]
+
+
 def test_offpolicy_isaacsim_training_and_eval_use_separate_render_overrides():
     cfg = _offpolicy_cfg(
         [

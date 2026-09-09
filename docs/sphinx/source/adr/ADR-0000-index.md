@@ -22,6 +22,7 @@ orphan: true
 | [ADR-0006 Community Manager API On NumPy Runtime](ADR-0006-community-manager-api-on-numpy-runtime.md) | Manager API / NumPy runtime | Accepted |
 | [ADR-0007 UniSim Extraction Boundary](ADR-0007-unisim-extraction-boundary.md) | Physics package extraction | Accepted |
 | [ADR-0008 Debug Overlay Primitive Contract And Playback Session](ADR-0008-debug-overlay-primitive-contract-and-playback-session.md) | Debug overlay / playback session | Accepted |
+| [ADR-0009 SuperDex Native C++ Scene Batch Executor](ADR-0009-superdex-persistent-cpu-workers.md) | Backend CPU scene execution | Accepted |
 
 ## ADR Governance
 

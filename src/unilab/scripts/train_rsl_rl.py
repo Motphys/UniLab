@@ -27,6 +27,7 @@ from uni_rl.ipc.dp_launcher import (
     current_torch_distributed_rank,
     current_torch_distributed_world_size,
     launch_torchrun_workers,
+    resolve_collector_cpu_ids,
     resolve_dp_topology,
     validate_dp_launchable,
 )
@@ -92,6 +93,7 @@ def _backend_adapter(cfg: DictConfig) -> BackendAdapter:
 def build_ppo_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
     base = cast(dict[str, Any], _backend_adapter(cfg).build_task_env_cfg_override())
     devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
+    rank = current_torch_distributed_rank()
     local_rank = current_torch_distributed_local_rank()
     world_size = current_torch_distributed_world_size()
     configured_device = OmegaConf.select(cfg, "training.device", default=None)
@@ -100,7 +102,7 @@ def build_ppo_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
         if world_size > 1
         else (f"cuda:{devices[0]}" if devices else configured_device)
     )
-    return apply_backend_env_device_override(
+    result = apply_backend_env_device_override(
         base,
         str(cfg.training.sim_backend),
         devices=devices,
@@ -109,6 +111,16 @@ def build_ppo_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
         world_size=world_size,
         learner_device=learner_device,
     )
+    if world_size > 1:
+        explicit = OmegaConf.select(cfg, "training.dp_collector_cpu_ids", default=None)
+        explicit = OmegaConf.to_container(explicit, resolve=True) if explicit is not None else None
+        result["cpu_ids"] = resolve_collector_cpu_ids(
+            world_size,
+            rank,
+            None,
+            explicit=explicit,
+        )
+    return result
 
 
 def build_ppo_play_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:

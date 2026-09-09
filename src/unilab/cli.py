@@ -25,6 +25,7 @@ SUPPORTED_SIMS = (
     "genesis",
     "isaacsim",
     "newton",
+    "superdex",
 )
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "none")
 OFFPOLICY_ALGOS = {"sac", "td3", "flashsac"}
@@ -127,6 +128,21 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
                 "sim=newton requires the Newton extra "
                 f"(missing: {joined}). Install it with `uv sync --extra newton` "
                 "in a source checkout (or `pip install unilab[newton]`)."
+            )
+    if sim == "superdex":
+        try:
+            from unisim.backend.superdex.dependencies import superdex_dependencies_available
+        except ImportError as exc:
+            raise SystemExit(
+                "sim=superdex requires the locally linked UniSim SuperDex development checkout; "
+                "the installed unisim-core does not provide that adapter."
+            ) from exc
+
+        if not superdex_dependencies_available():
+            raise SystemExit(
+                "sim=superdex requires Python 3.12 or 3.13 and the SuperDex Physics/Robotics "
+                "runtime. Install the locally linked UniSim superdex extra in a supported "
+                "Python environment; see the SuperDex backend page for local development setup."
             )
     if sim == "motrix" and find_spec("motrixsim") is None:
         raise SystemExit(
@@ -406,6 +422,17 @@ def build_command(
         generated.append(f"training.sim_backend={sim_backend_override}")
     if render_mode is not None and _override_value(overrides, "training.play_render_mode") is None:
         generated.append(f"training.play_render_mode={render_mode}")
+    selected_render_mode = _override_value(overrides, "training.play_render_mode") or render_mode
+    if (
+        mode == "eval"
+        and sim == "superdex"
+        and selected_render_mode is not None
+        and selected_render_mode.strip().lower() == "interactive"
+        and _override_value(overrides, "training.play_env_num") is None
+    ):
+        # Native superdex interactive rendering draws exactly one scene; the
+        # owner layer also switches the env to the serial executor.
+        generated.append("training.play_env_num=1")
     if use_interactive_play and _override_value(overrides, "interactive.action_mode") is None:
         # The low-level viewer defaults to zero actions for debugging, while
         # eval must preserve the policy-control behavior of the train scripts.

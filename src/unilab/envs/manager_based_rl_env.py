@@ -22,6 +22,7 @@ from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,
     MANAGER_TERM_MAPPING_POLICY,
 )
+from unilab.base.cpu_runtime import apply_env_cpu_runtime
 from unilab.base.entity import EntityCfg, EntityScene
 from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.reset_state import ResetStateTransaction
@@ -778,6 +779,9 @@ def make_manager_based_rl_env(
         )
 
     cfg.validate()
+    # Constrain the process before backend materialization so native pools size
+    # themselves from the rank-owned CPU block.
+    apply_env_cpu_runtime(cfg.cpu_ids)
     assert cfg.scene is not None
     base_name, body_state_requested = _resolve_backend_entity_contract(cfg)
     backend_kwargs = env_backend_kwargs(cfg)

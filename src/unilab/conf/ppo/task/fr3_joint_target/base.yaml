@@ -1,0 +1,71 @@
+# @package _global_
+# Fixed-base native FR3 task. Targets and research torque limits are task-owned;
+# they are not a claim about the hardware's rated actuator limits.
+env:
+  scene:
+    model_file: bots/arms/fr3_v2/fr3_v2.superdex_bot
+    entities:
+      robot:
+        root_body_name: fr3_link0
+        joint_names: &joints [fr3_joint1, fr3_joint2, fr3_joint3, fr3_joint4, fr3_joint5, fr3_joint6, fr3_joint7]
+        actuator_names: *joints
+        body_names: [fr3_link0, fr3_link7]
+  sim_dt: 0.002
+  ctrl_dt: 0.01
+  max_episode_seconds: 5.0
+  seed: 1
+  observations:
+    policy:
+      terms:
+        target_error:
+          func: unilab.tasks.manipulation.fr3.joint_target.JointTargetObservation
+          params:
+            entity_name: robot
+            target: &target [0.1, -0.7, 0.0, -2.2, 0.0, 1.5, 1.57]
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          func: unilab.envs.mdp.last_action
+  actions:
+    effort:
+      _target_: unilab.envs.mdp.JointEffortActionCfg
+      entity_name: robot
+      actuator_names: *joints
+      scale:
+        fr3_joint[1-4]: 20.0
+        fr3_joint[5-7]: 5.0
+      clip:
+        fr3_joint[1-4]: [-20.0, 20.0]
+        fr3_joint[5-7]: [-5.0, 5.0]
+  events:
+    reset_scene_to_default:
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    reset_joints:
+      func: unilab.tasks.manipulation.fr3.joint_target.ResetJointOffsets
+      mode: reset
+      params:
+        entity_name: robot
+        position_range: [-0.05, 0.05]
+        velocity_range: [-0.01, 0.01]
+  terminations:
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true
+  policy_observation_group: policy
+  critic_observation_group: null
+
+reward:
+  joint_target:
+    func: unilab.tasks.manipulation.fr3.joint_target.JointTargetReward
+    weight: 2.0
+    params:
+      entity_name: robot
+      target: *target
+      std: 0.5
+  joint_velocity:
+    func: unilab.envs.mdp.joint_vel_l2
+    weight: -0.01
+  action_rate:
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.001

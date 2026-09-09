@@ -40,6 +40,15 @@ class EnvCfg:
     render_offset_mode: str = "grid"
     drake_backend_mode: str = "batch"
     drake_nthread: int = 0
+    # SuperDex native robots are resolved through the local asset hub registry.
+    # 0 selects affinity-aware native C++ scene batching.
+    superdex_num_workers: int = 0
+    # "batch" steps scenes on native SceneBatchExecutor workers; "serial" steps
+    # every scene on the environment thread for native debugger sessions.
+    superdex_execution_mode: str = "batch"
+    superdex_assets_root: Optional[str] = None
+    superdex_effort_limits: Optional[list[float]] = None
+    superdex_allow_contact_approximation: bool = False
     motrix_max_iterations: Optional[int] = None
     post_step_forward_sensor: bool = False
     adaptive_chunk_size: bool = True
@@ -112,6 +121,31 @@ class EnvCfg:
         """
         if self.sim_dt > self.ctrl_dt:
             raise ValueError("sim_dt must be less than or equal to ctrl_dt")
+        if (
+            isinstance(self.superdex_num_workers, bool)
+            or not isinstance(self.superdex_num_workers, int)
+            or self.superdex_num_workers < 0
+        ):
+            raise ValueError("superdex_num_workers must be an integer >= 0")
+        if self.superdex_execution_mode not in ("batch", "serial"):
+            raise ValueError("superdex_execution_mode must be 'batch' or 'serial'")
+        if self.superdex_assets_root is not None and (
+            not isinstance(self.superdex_assets_root, str) or not self.superdex_assets_root.strip()
+        ):
+            raise ValueError("superdex_assets_root must be a non-empty string or None")
+        if self.superdex_effort_limits is not None:
+            if not isinstance(self.superdex_effort_limits, list) or not self.superdex_effort_limits:
+                raise ValueError("superdex_effort_limits must be a non-empty list or None")
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not np.isfinite(value)
+                or value <= 0
+                for value in self.superdex_effort_limits
+            ):
+                raise ValueError("superdex_effort_limits must contain finite positive numbers")
+        if not isinstance(self.superdex_allow_contact_approximation, bool):
+            raise ValueError("superdex_allow_contact_approximation must be bool")
         for name, value in (
             ("mjwarp_nconmax", self.mjwarp_nconmax),
             ("mjwarp_njmax", self.mjwarp_njmax),
