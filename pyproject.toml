@@ -40,14 +40,12 @@ classifiers = [
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    # Physics implementations are provided by the independently released
-    # unisim-core package from the production PyPI index.
-    "unisim-core>=1.1.4",
-    # RL algorithms and async runtimes (PPO/APPO/SAC/TD3/HORA runners,
-    # collectors, IPC, logging) live in the independently released uni-rl
-    # package (distribution name ``unilab-rl``), consumed via the injected
-    # env contract (uni_rl.env_contract.EnvFactory). Published on PyPI.
-    "unilab-rl==1.1.1",
+    # Keep the SuperDex backend contract aligned with the merged UniSim source
+    # until its next PyPI release. The commit is pinned for reproducible CI.
+    "unisim-core @ git+https://github.com/unilabsim/unisim.git@037e596",
+    # Keep the CPU-partition contract aligned with the merged UniRL source
+    # until its next PyPI release. The commit is pinned for reproducible CI.
+    "unilab-rl @ git+https://github.com/unilabsim/unilab_rl.git@2cdab3c",
     "numba>=0.67",
     "prettytable>=3.10",
     # torch is a range (not an exact pin) so that published PyPI metadata lets

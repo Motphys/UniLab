@@ -190,7 +190,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     collector_cpu_ids = resolve_collector_cpu_ids(
         dp_world_size,
         dp_rank,
-        host_cpu_count,
+        None,
         explicit=explicit_cpu_ids,
     )
 
