@@ -26,5 +26,25 @@ env:
   events:
     pd_gains: null
 
+# SuperDex uses sliding Coulomb contact and a different compliant contact
+# solver.  Keep the policy/command contract identical to MuJoCo, but reduce
+# contact-shaping terms that are not numerically equivalent and put more of
+# the learning signal on the two task objectives.
+reward:
+  tracking_lin_vel:
+    weight: 1.5
+  tracking_ang_vel:
+    weight: 0.5
+  contact:
+    weight: 0.05
+  swing_feet_z:
+    weight: 1.5
+  base_height:
+    weight: -50.0
+  action_rate:
+    weight: -0.0025
+  similar_to_default:
+    weight: -0.05
+
 play_profile:
   enabled: true
