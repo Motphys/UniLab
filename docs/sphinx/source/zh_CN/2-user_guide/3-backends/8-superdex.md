@@ -17,15 +17,16 @@ Physics/Robotics 1.0.0 要求 Python 3.12；CPU 物理不需要 CUDA。FR3 owner
 本 roadmap 的临时方案使用改动后的 SuperDex 源码编译 native extension。先运行：
 
 ```bash
-bash scripts/tools/setup_superdex_env.sh \
-  --source /absolute/path/to/project_superdex
+bash scripts/tools/setup_superdex_env.sh
+source ~/.cache/unisim/superdex/env.sh
 ```
 
-脚本以 Release 模式编译 `mochi_physics_pybind` 和
-`superdex_robotics_pybind`，默认输出到 `~/.cache/unisim/superdex`，可通过
-`UNISIM_SUPERDEX_HOME` 覆盖。它不会发布或从 PyPI 安装 SuperDex wheel。执行完成后，
-将脚本打印的 `SUPERDEX_ASSETS_PATH`、`SUPERDEX_NATIVE_PATH` 和 `PYTHONPATH` 导出到
-当前 shell，再运行 UniLab。修改 SuperDex 源码后可重复执行，CMake 会复用已有 build 目录。
+不传参数时，脚本会自动 clone `unilabsim/project_superdex` 的 integration branch，
+安装 SuperDex Python facade，以 Release 模式编译 `mochi_physics_pybind` 和
+`superdex_robotics_pybind`，并将本地 UniSim、UniRL、UniLab 以 editable 方式安装。
+默认输出到 `~/.cache/unisim/superdex`，可通过 `UNISIM_SUPERDEX_HOME` 覆盖。它不会
+发布或从 PyPI 安装 SuperDex wheel；完成后 source 生成的 `env.sh` 即可使用。修改
+SuperDex 源码后可重复执行，CMake 会复用已有 build 目录。
 
 在 UniLab checkout 中使用已有的 Python 3.12 环境，或创建环境后安装本地包：
 

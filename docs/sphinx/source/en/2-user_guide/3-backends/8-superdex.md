@@ -22,17 +22,17 @@ one, then install the local packages:
 For the temporary local SuperDex source build used by this roadmap, first run:
 
 ```bash
-bash scripts/tools/setup_superdex_env.sh \
-  --source /absolute/path/to/project_superdex
+bash scripts/tools/setup_superdex_env.sh
+source ~/.cache/unisim/superdex/env.sh
 ```
 
-The script builds the modified `mochi_physics_pybind` and
-`superdex_robotics_pybind` targets in Release mode under
-`~/.cache/unisim/superdex` (override with `UNISIM_SUPERDEX_HOME`). It does not
-publish or install a SuperDex wheel from PyPI. Export the printed
-`SUPERDEX_ASSETS_PATH`, `SUPERDEX_NATIVE_PATH`, and `PYTHONPATH` lines before
-running UniLab. Re-run the script after changing the SuperDex checkout; CMake
-reuses the existing build directory.
+With no arguments the script clones the modified
+`unilabsim/project_superdex` integration branch, installs the public SuperDex
+Python facade, builds `mochi_physics_pybind` and `superdex_robotics_pybind` in
+Release mode, and installs the local UniSim/UniRL/UniLab checkouts editable. It
+does not publish or install a SuperDex wheel from PyPI. The generated
+`env.sh` exports the assets and native-extension paths. Re-run the script after
+changing the SuperDex checkout; CMake reuses the existing build directory.
 
 ```bash
 uv venv --python 3.12
