@@ -76,6 +76,14 @@ record 管线各自维护了一套互不兼容的绘制代码。
    `getattr(env, "get_playback_debug_overlays", None)` 发现任务 overlay，发现不到
    时回退现有特例（`curr_ee_goal_world` EE goal sphere、交互 viewer 的
    motion/reward/velocity 硬编码），既有行为不回归。
+9. **overlay 门控按 resolve 后的渲染模式区分。** 落点在
+   `ABEnv.run_playback_mode`（`on_plan` 回调之后、dispatch 之前，plan 对象不被
+   改写）：record 模式要求 `supports_debug_overlay`，backend 不支持时维持
+   fail-closed；interactive 模式要求
+   `supports_interactive_debug_overlay`（unisim#54 起 mjwarp 报 True，其余
+   backend 为 False），不满足时 `warnings.warn` 并丢弃 getter（传 None），
+   交互回放照常进行——任务 opt-in overlay 不应让无位 backend 的交互回放整体
+   不可用。
 
 ## Stable Contracts
 
@@ -83,7 +91,8 @@ record 管线各自维护了一套互不兼容的绘制代码。
   （per-env、env 局部系）；不允许再引入按位置数组或 backend 私有 geom 操作
   的叠加层入口。
 - `EnvPlayCapabilities.supports_debug_overlay` 是 env 侧判断叠加层可用性的
-  唯一入口。
+  唯一入口；interactive 模式的叠加层可用性由
+  `supports_interactive_debug_overlay` 表达，门控统一在 `run_playback_mode`。
 - 任务自有 overlay 的唯一发现入口是 `ManagerBasedRlEnv.get_playback_debug_overlays()`
   （command terms 实现 `playback_debug_overlay_getter()`）；play 入口用
   `getattr` 发现并回退现有特例，不再新增绕过发现机制的任务特例。
@@ -128,7 +137,7 @@ record 管线各自维护了一套互不兼容的绘制代码。
 - camera 归一化: `src/unilab/visualization/playback.py`
 - 交互 viewer 迁移: `src/unilab/scripts/play_interactive.py`
 - 训练入口迁移: `src/unilab/scripts/train_rsl_rl.py`, `src/unilab/scripts/train_appo.py`, `src/unilab/scripts/train_offpolicy.py`, `src/unilab/scripts/play_hora_appo.py`
-- 上游契约: `unisim.backend.base`（`DebugPrimitive`, `CameraCfg`, `DebugOverlayGetter`, `validate_debug_overlays`, `BackendPlayCapabilities.supports_debug_overlay`）
+- 上游契约: `unisim.backend.base`（`DebugPrimitive`, `CameraCfg`, `DebugOverlayGetter`, `validate_debug_overlays`, `BackendPlayCapabilities.supports_debug_overlay` / `supports_interactive_debug_overlay`）
 - 测试: `tests/visualization/test_debug_primitives.py`, `tests/visualization/test_playback_session.py`, `tests/base/test_np_env_playback_contract.py`, `tests/envs/test_manager_based_rl_env.py`（overlay 聚合）
 
 ## Related Documents

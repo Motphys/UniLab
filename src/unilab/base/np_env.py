@@ -628,6 +628,7 @@ class NpEnv(ABEnv):
             supports_physics_state_playback=capabilities.supports_physics_state_playback,
             supports_native_video_capture=capabilities.supports_native_video_capture,
             supports_debug_overlay=capabilities.supports_debug_overlay,
+            supports_interactive_debug_overlay=capabilities.supports_interactive_debug_overlay,
         )
 
     def get_playback_model(self, env_index: int | None = None) -> Any:

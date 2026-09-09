@@ -163,3 +163,79 @@ def test_render_rgb_array_initializes_capture_renderer_once() -> None:
 
     env.render(mode="rgb_array")
     assert env._backend.init_renderer.call_count == 1
+
+
+def _interactive_plan() -> BackendPlayRenderPlan:
+    return BackendPlayRenderPlan(
+        mode="interactive",
+        headless=False,
+        record_video=False,
+        num_steps=None,
+        output_video=None,
+    )
+
+
+def _run_interactive_mode(env: _PlaybackStubEnv, getter) -> None:
+    env._backend.resolve_play_render_plan.return_value = _interactive_plan()
+    env.run_playback_mode(
+        play_render_mode="interactive",
+        play_steps=None,
+        output_video=None,
+        initialize=lambda: None,
+        step=lambda obs: obs,
+        debug_overlay_getter=getter,
+    )
+
+
+def test_run_playback_mode_interactive_drops_overlay_without_capability() -> None:
+    env = _PlaybackStubEnv(capabilities=BackendPlayCapabilities(supports_debug_overlay=True))
+
+    with pytest.warns(UserWarning, match="interactive debug overlays"):
+        _run_interactive_mode(env, lambda: None)
+
+    call = env._backend.run_playback.call_args
+    assert call.kwargs["debug_overlay_getter"] is None
+
+
+def test_run_playback_mode_interactive_forwards_overlay_with_capability() -> None:
+    env = _PlaybackStubEnv(
+        capabilities=BackendPlayCapabilities(supports_interactive_debug_overlay=True)
+    )
+    getter = lambda: None  # noqa: E731
+
+    _run_interactive_mode(env, getter)
+
+    call = env._backend.run_playback.call_args
+    assert call.kwargs["debug_overlay_getter"] is getter
+
+
+def test_run_playback_mode_record_ignores_interactive_overlay_gating() -> None:
+    env = _PlaybackStubEnv(capabilities=BackendPlayCapabilities(supports_debug_overlay=True))
+    env._backend.resolve_play_render_plan.return_value = BackendPlayRenderPlan(
+        mode="record",
+        headless=True,
+        record_video=True,
+        num_steps=1,
+        output_video="out.mp4",
+    )
+    getter = lambda: None  # noqa: E731
+
+    env.run_playback_mode(
+        play_render_mode="record",
+        play_steps=1,
+        output_video="out.mp4",
+        initialize=lambda: None,
+        step=lambda obs: obs,
+        debug_overlay_getter=getter,
+    )
+
+    call = env._backend.run_playback.call_args
+    assert call.kwargs["debug_overlay_getter"] is getter
+
+
+def test_play_capabilities_forward_supports_interactive_debug_overlay() -> None:
+    env = _PlaybackStubEnv(
+        capabilities=BackendPlayCapabilities(supports_interactive_debug_overlay=True)
+    )
+    assert env.play_capabilities.supports_interactive_debug_overlay is True
+    assert EnvPlayCapabilities().supports_interactive_debug_overlay is False

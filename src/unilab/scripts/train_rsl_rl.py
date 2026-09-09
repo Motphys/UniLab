@@ -290,7 +290,10 @@ def _playback_debug_overlay_getter(env):
     (command terms implementing ``playback_debug_overlay_getter()``); falls
     back to the ``curr_ee_goal_world`` EE-goal special case. Returns ``None``
     when neither is available or the backend does not advertise debug overlay
-    support.
+    support. Mode-specific gating happens in ``run_playback_mode`` once the
+    render plan is resolved: interactive playback on backends without
+    ``supports_interactive_debug_overlay`` drops the getter with a warning
+    instead of failing closed.
     """
     capabilities = getattr(env, "play_capabilities", None)
     if capabilities is None or not capabilities.supports_debug_overlay:

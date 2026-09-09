@@ -1,4 +1,5 @@
 import abc
+import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from os import PathLike
@@ -21,6 +22,7 @@ class EnvPlayCapabilities:
     supports_physics_state_playback: bool = False
     supports_native_video_capture: bool = False
     supports_debug_overlay: bool = False
+    supports_interactive_debug_overlay: bool = False
 
 
 @dataclass
@@ -284,7 +286,15 @@ class ABEnv(abc.ABC):
         on_frame: OnPlaybackFrameFn | None = None,
         on_plan: Callable[[BackendPlayRenderPlan], None] | None = None,
     ) -> str | None:
-        """Resolve configured playback mode and execute it through the backend contract."""
+        """Resolve configured playback mode and execute it through the backend contract.
+
+        Overlay gating follows the resolved plan mode: ``record`` playback
+        requires ``play_capabilities.supports_debug_overlay`` (backends fail
+        closed otherwise); ``interactive`` playback requires
+        ``supports_interactive_debug_overlay`` — when the backend lacks it the
+        getter is dropped with a warning so interactive playback still runs
+        without overlays.
+        """
         plan = self.resolve_play_render_plan(
             play_render_mode=play_render_mode,
             play_steps=play_steps,
@@ -294,6 +304,14 @@ class ABEnv(abc.ABC):
             on_plan(plan)
         if plan.mode == "none":
             return None
+        if plan.mode == "interactive" and debug_overlay_getter is not None:
+            if not self.play_capabilities.supports_interactive_debug_overlay:
+                warnings.warn(
+                    f"{self.__class__.__name__} backend does not support interactive debug "
+                    "overlays; dropping debug_overlay_getter for this interactive playback",
+                    stacklevel=2,
+                )
+                debug_overlay_getter = None
         return self.run_playback(
             initialize=initialize,
             step=step,

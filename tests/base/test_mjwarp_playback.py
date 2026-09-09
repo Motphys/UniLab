@@ -48,6 +48,7 @@ def test_mjwarp_plan_is_explicit_and_finite() -> None:
     assert backend.get_play_capabilities() == BackendPlayCapabilities(
         supports_physics_state_playback=True,
         supports_debug_overlay=True,
+        supports_interactive_debug_overlay=True,
     )
     assert (
         backend.resolve_play_render_plan(
