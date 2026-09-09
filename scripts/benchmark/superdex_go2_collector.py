@@ -28,19 +28,26 @@ def run(mode: str, *, num_envs: int, workers: int, warmup: int, steps: int, repe
     rewards: list[float] = []
     for repeat in range(repeats):
         GlobalHydra.instance().clear()
-        with initialize_config_dir(config_dir=str(root / "src/unilab/conf/ppo"), version_base="1.3"):
+        with initialize_config_dir(
+            config_dir=str(root / "src/unilab/conf/ppo"), version_base="1.3"
+        ):
             cfg = compose("config", overrides=["task=go2_joystick_flat/superdex"])
         override = BackendAdapter(cfg, root_dir=root).build_task_env_cfg_override()
         env = registry.make(
-            "Go2JoystickFlat", sim_backend="superdex", num_envs=num_envs,
+            "Go2JoystickFlat",
+            sim_backend="superdex",
+            num_envs=num_envs,
             env_cfg_override={**override, "superdex_num_workers": workers, "seed": repeat + 1},
         )
         try:
             state = env.init_state()
             obs_dim = int(env.obs_groups_spec["obs"])
-            policy = torch.nn.Sequential(torch.nn.Linear(obs_dim, 128), torch.nn.Tanh(),
-                                         torch.nn.Linear(128, env.action_space.shape[0]),
-                                         torch.nn.Tanh()).eval()
+            policy = torch.nn.Sequential(
+                torch.nn.Linear(obs_dim, 128),
+                torch.nn.Tanh(),
+                torch.nn.Linear(128, env.action_space.shape[0]),
+                torch.nn.Tanh(),
+            ).eval()
             if mode == "unbatched":
                 env._backend._pre_step_control_fn = lambda _backend, controls: controls
             for _ in range(warmup):
@@ -60,10 +67,18 @@ def run(mode: str, *, num_envs: int, workers: int, warmup: int, steps: int, repe
             rewards.append(total_reward / steps)
         finally:
             env.close()
-    return {"mode": mode, "metric": "collector-env-step/s", "num_envs": num_envs,
-            "workers": workers, "warmup": warmup, "steps": steps, "repeats": values,
-            "median": float(np.median(values)), "mean_reward_per_step": float(np.mean(rewards)),
-            "done_count": total_done}
+    return {
+        "mode": mode,
+        "metric": "collector-env-step/s",
+        "num_envs": num_envs,
+        "workers": workers,
+        "warmup": warmup,
+        "steps": steps,
+        "repeats": values,
+        "median": float(np.median(values)),
+        "mean_reward_per_step": float(np.mean(rewards)),
+        "done_count": total_done,
+    }
 
 
 def main() -> None:
