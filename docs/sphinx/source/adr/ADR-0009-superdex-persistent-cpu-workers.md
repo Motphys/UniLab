@@ -2,7 +2,7 @@
 orphan: true
 ---
 
-# ADR-0008 SuperDex Native C++ Scene Batch Executor
+# ADR-0009 SuperDex Native C++ Scene Batch Executor
 
 - Status: Accepted
 - Date: 2026-09-07

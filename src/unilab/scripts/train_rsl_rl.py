@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import hydra
+import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 from uni_rl.algos.rsl_rl import (
@@ -30,7 +31,7 @@ from uni_rl.ipc.dp_launcher import (
     resolve_dp_topology,
     validate_dp_launchable,
 )
-from unisim.backend.base import RenderClosedError, log_playback_plan
+from unisim.backend.base import DebugPrimitive, RenderClosedError, log_playback_plan
 from unisim.backend.mujoco.xml import materialize_scene_visual_override
 
 from unilab.base.config_adapter import BackendAdapter, create_env
@@ -68,6 +69,7 @@ from unilab.visualization.interactive_playback import (
     make_sim2sim_preflight,
     normalize_checkpoint_value,
 )
+from unilab.visualization.playback import camera_cfg_from_training
 
 # Also defined for consumers that invoke main with a composed configuration.
 EXPORT_POLICY = False
@@ -250,6 +252,72 @@ def _resolve_play_num_steps(cfg: DictConfig) -> int | None:
     return int(play_steps)
 
 
+_EE_GOAL_MARKER_RADIUS = 0.025
+_EE_GOAL_MARKER_RGBA = (1.0, 0.2, 0.2, 0.8)
+
+
+def _ee_goal_debug_overlay_getter(env):
+    """Build the per-frame EE-goal overlay getter for tasks that expose one.
+
+    Returns ``None`` when the env has no ``curr_ee_goal_world`` marker or the
+    backend does not advertise debug overlay support; in both cases playback
+    runs without overlays (backends fail closed on unsupported getters).
+    """
+    if not hasattr(env, "curr_ee_goal_world"):
+        return None
+    capabilities = getattr(env, "play_capabilities", None)
+    if capabilities is None or not capabilities.supports_debug_overlay:
+        return None
+
+    def _get_overlay():
+        goals = getattr(env, "curr_ee_goal_world", None)
+        if goals is None:
+            return None
+        goals = np.asarray(goals, dtype=np.float64)
+        if goals.ndim != 2 or goals.shape[1] != 3:
+            raise ValueError(f"curr_ee_goal_world must have shape (num_envs, 3); got {goals.shape}")
+        return [
+            (
+                [
+                    DebugPrimitive(
+                        kind="sphere",
+                        pos=(float(goal[0]), float(goal[1]), float(goal[2])),
+                        size=(_EE_GOAL_MARKER_RADIUS,),
+                        rgba=_EE_GOAL_MARKER_RGBA,
+                    )
+                ]
+                if np.isfinite(goal).all()
+                else None
+            )
+            for goal in goals
+        ]
+
+    return _get_overlay
+
+
+def _playback_debug_overlay_getter(env):
+    """Discover the play-path overlay getter for an env.
+
+    Prefers task-owned overlays aggregated by ``get_playback_debug_overlays``
+    (command terms implementing ``playback_debug_overlay_getter()``); falls
+    back to the ``curr_ee_goal_world`` EE-goal special case. Returns ``None``
+    when neither is available or the backend does not advertise debug overlay
+    support. Mode-specific gating happens in ``run_playback_mode`` once the
+    render plan is resolved: interactive playback on backends without
+    ``supports_interactive_debug_overlay`` drops the getter with a warning
+    instead of failing closed.
+    """
+    capabilities = getattr(env, "play_capabilities", None)
+    if capabilities is None or not capabilities.supports_debug_overlay:
+        return None
+    discover = getattr(env, "get_playback_debug_overlays", None)
+    if discover is not None:
+        getter = discover()
+        if getter is not None:
+            return getter
+    return _ee_goal_debug_overlay_getter(env)
+
+
 def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     """Play mode for RSL-RL."""
     rl_cfg = algo_config_dict(cfg)
@@ -378,21 +446,9 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
                 render_offset_mode=str(getattr(env.cfg, "render_offset_mode", "grid")),
                 initialize=session.reset,
                 step=lambda _obs: session.step_once(),
-                camera_kwargs={
-                    "cam_distance": cfg.training.cam_distance,
-                    "cam_elevation": cfg.training.cam_elevation,
-                    "cam_azimuth": cfg.training.cam_azimuth,
-                    "cam_lookat": getattr(cfg.training, "cam_lookat", None),
-                    "cam_tracking": getattr(cfg.training, "cam_tracking", False),
-                    "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
-                    "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
-                },
+                camera_kwargs=camera_cfg_from_training(cfg.training),
                 on_plan=_log_plan,
-                extra_data_getter=(
-                    (lambda: getattr(env, "curr_ee_goal_world", None))
-                    if hasattr(env, "curr_ee_goal_world")
-                    else None
-                ),
+                debug_overlay_getter=_playback_debug_overlay_getter(env),
             )
     except RenderClosedError:
         # Interface-level signal: the user closed the backend render window.

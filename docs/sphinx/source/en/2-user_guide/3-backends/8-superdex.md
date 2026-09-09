@@ -79,7 +79,7 @@ contact sensors and solver status without per-environment Python binding calls.
 Asset materialization, reset and cache-frame transforms remain owned by the
 UniSim adapter. This is CPU thread parallelism, not GPU physics, and it does
 not change the PPO/APPO collector, learner or policy contracts. The decision is
-recorded in {doc}`/adr/ADR-0008-superdex-persistent-cpu-workers` and
+recorded in {doc}`/adr/ADR-0009-superdex-persistent-cpu-workers` and
 [unisim#41](https://github.com/unilabsim/unisim/issues/41).
 
 Both task owners select automatic workers by default:

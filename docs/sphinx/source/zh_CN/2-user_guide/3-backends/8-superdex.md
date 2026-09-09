@@ -67,7 +67,7 @@ C++ 线程池：每个子步批量写入广义力、推进 scene，并回写 art
 contact sensor 和 solver status，不再逐环境跨越 Python binding。资产物化、reset 和
 cache frame 转换仍由 UniSim adapter 负责。这是 CPU 线程并行，不是 GPU physics；它不改变
 PPO/APPO collector、learner 或 policy contract。决策见
-{doc}`/adr/ADR-0008-superdex-persistent-cpu-workers` 和
+{doc}`/adr/ADR-0009-superdex-persistent-cpu-workers` 和
 [unisim#41](https://github.com/unilabsim/unisim/issues/41)。
 
 两个 task owner 默认选择自动 worker：

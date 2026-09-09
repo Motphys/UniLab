@@ -14,7 +14,7 @@ from typing import Any
 
 import gymnasium as gym
 import numpy as np
-from unisim.backend.base import SimBackend
+from unisim.backend.base import DebugOverlayGetter, DebugPrimitive, SimBackend
 
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
@@ -315,6 +315,46 @@ class ManagerBasedRlEnv(NpEnv):
     @property
     def unwrapped(self) -> ManagerBasedRlEnv:
         return self
+
+    def get_playback_debug_overlays(self) -> DebugOverlayGetter | None:
+        """Aggregate playback overlays from command terms that provide one.
+
+        Terms opt in by implementing ``playback_debug_overlay_getter()``,
+        which returns a per-frame getter following the
+        :data:`unisim.backend.base.DebugOverlayGetter` contract. The returned
+        getter merges primitives per env across all providing terms. Returns
+        ``None`` when no term provides an overlay.
+        """
+        getters: list[DebugOverlayGetter] = []
+        for name in self.command_manager.active_terms:
+            term = self.command_manager.get_term(name)
+            provider = getattr(term, "playback_debug_overlay_getter", None)
+            if provider is None:
+                continue
+            getter = provider()
+            if getter is not None:
+                getters.append(getter)
+        if not getters:
+            return None
+        num_envs = self.num_envs
+
+        def _get_overlay() -> list[list[DebugPrimitive]] | None:
+            per_term = [getter() for getter in getters]
+            if all(overlays is None for overlays in per_term):
+                return None
+            merged: list[list[DebugPrimitive]] = []
+            for env_idx in range(num_envs):
+                env_primitives: list[DebugPrimitive] = []
+                for overlays in per_term:
+                    if overlays is None:
+                        continue
+                    entry = overlays[env_idx]
+                    if entry:
+                        env_primitives.extend(entry)
+                merged.append(env_primitives)
+            return merged
+
+        return _get_overlay
 
     def _load_managers(self) -> None:
         """Construct managers in the pinned community dependency order."""

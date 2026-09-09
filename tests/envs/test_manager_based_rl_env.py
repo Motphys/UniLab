@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-from unisim.backend.base import SimBackend
+from unisim.backend.base import DebugPrimitive, SimBackend
 
 import unilab.envs.manager_based_rl_env as manager_env_module
 from unilab.assets import ASSETS_ROOT_PATH
@@ -30,6 +30,7 @@ from unilab.managers import (
     CurriculumTermCfg,
     EventTermCfg,
     MetricsTermCfg,
+    NullCommandManager,
     ObservationGroupCfg,
     ObservationTermCfg,
     RecorderTerm,
@@ -1448,3 +1449,122 @@ def test_close_unhooks_callback_and_closes_owned_resources() -> None:
     assert backend.pre_step_control is None
     assert backend.cleanup_calls == 1
     assert env.trace[-1] == "recorder_close"
+
+
+# ---------------------------------------------------------------------------
+# get_playback_debug_overlays — task-owned overlay discovery (wuji_unilab#21)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(kw_only=True)
+class _OverlayCommandCfg(CommandTermCfg):
+    def build(self, env) -> CommandTerm:
+        return _OverlayCommand(self, env)
+
+
+class _OverlayCommand(_Command):
+    def playback_debug_overlay_getter(self):
+        def _get_overlay():
+            return [
+                [
+                    DebugPrimitive(
+                        kind="sphere",
+                        pos=(float(env_idx), 0.0, 0.0),
+                        size=(0.1,),
+                    )
+                ]
+                for env_idx in range(self.num_envs)
+            ]
+
+        return _get_overlay
+
+
+@dataclass(kw_only=True)
+class _NoneOverlayCommandCfg(CommandTermCfg):
+    def build(self, env) -> CommandTerm:
+        return _NoneOverlayCommand(self, env)
+
+
+class _NoneOverlayCommand(_Command):
+    def playback_debug_overlay_getter(self):
+        return lambda: None
+
+
+def _make_overlay_cfg(commands: dict[str, CommandTermCfg]) -> ManagerBasedRlEnvCfg:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.commands = commands
+    return cfg
+
+
+def test_get_playback_debug_overlays_aggregates_term_primitives_per_env() -> None:
+    env, _ = _make_env(
+        _make_overlay_cfg({"goal": _OverlayCommandCfg(resampling_time_range=(1.0, 1.0))})
+    )
+
+    getter = env.get_playback_debug_overlays()
+
+    assert getter is not None
+    overlays = getter()
+    assert overlays is not None
+    assert len(overlays) == env.num_envs
+    assert overlays[0][0].kind == "sphere"
+    assert overlays[0][0].pos == (0.0, 0.0, 0.0)
+    assert overlays[1][0].pos == (1.0, 0.0, 0.0)
+
+
+def test_get_playback_debug_overlays_merges_multiple_terms_per_env() -> None:
+    cfg = _make_overlay_cfg(
+        {
+            "goal": _OverlayCommandCfg(resampling_time_range=(1.0, 1.0)),
+            "extra": _OverlayCommandCfg(resampling_time_range=(1.0, 1.0)),
+        }
+    )
+    env, _ = _make_env(cfg)
+
+    getter = env.get_playback_debug_overlays()
+
+    assert getter is not None
+    overlays = getter()
+    assert overlays is not None
+    assert [primitive.kind for primitive in overlays[0]] == ["sphere", "sphere"]
+
+
+def test_get_playback_debug_overlays_skips_terms_without_provider() -> None:
+    cfg = _make_overlay_cfg(
+        {
+            "plain": _CommandCfg(resampling_time_range=(1.0, 1.0)),
+            "goal": _OverlayCommandCfg(resampling_time_range=(1.0, 1.0)),
+        }
+    )
+    env, _ = _make_env(cfg)
+
+    getter = env.get_playback_debug_overlays()
+
+    assert getter is not None
+    overlays = getter()
+    assert overlays is not None
+    assert len(overlays[0]) == 1
+
+
+def test_get_playback_debug_overlays_returns_none_without_providers() -> None:
+    env, _ = _make_env()
+
+    assert env.get_playback_debug_overlays() is None
+
+
+def test_get_playback_debug_overlays_returns_none_with_null_command_manager() -> None:
+    env, _ = _make_env(_make_cfg(include_optional_managers=False))
+
+    assert isinstance(env.command_manager, NullCommandManager)
+    assert env.get_playback_debug_overlays() is None
+
+
+def test_get_playback_debug_overlays_frame_is_none_when_all_terms_return_none() -> None:
+    env, _ = _make_env(
+        _make_overlay_cfg({"idle": _NoneOverlayCommandCfg(resampling_time_range=(1.0, 1.0))})
+    )
+
+    getter = env.get_playback_debug_overlays()
+
+    assert getter is not None
+    assert getter() is None
