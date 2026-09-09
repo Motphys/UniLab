@@ -70,8 +70,6 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested | - | - | - | - | - |
 | PPO (torch) | `x2_wall_flip_tracking` (X2 wall flip tracking) | Tested | - | Tested | - | - | - | - | - |
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - | - | - | - |
-| PPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | - | Tested | - | - | - | - | - |
-| PPO (torch) | `sharpa_inhand_grasp` (Sharpa in-hand grasp) | Tested | - | Tested | - | - | - | - | - |
 | PPO (torch) | `a2_joystick_flat` (a2 joystick flat) | Tested | - | - | - | - | - | - | - |
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | - | Tested | - | - | - | - | - |
 | PPO (torch) | `fr3_joint_target` (fr3 joint target) | - | - | - | - | - | - | - | Configured |
@@ -98,7 +96,6 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested | - | - | - | - | - |
 | APPO (torch) | `g1_wall_flip_tracking` (G1 wall flip tracking) | Tested | - | Tested | - | - | - | - | - |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - | - | - | - |
-| APPO (torch) | `sharpa_inhand` (Sharpa in-hand) | Tested | - | Tested | - | - | - | - | - |
 | APPO (torch) | `g1_23dof_climb_tracking` (g1 23dof climb tracking) | Tested | - | Tested | - | - | - | - | - |
 | APPO (torch) | `g1_23dof_flip_tracking` (g1 23dof flip tracking) | Tested | - | Tested | - | - | - | - | - |
 | APPO (torch) | `g1_23dof_motion_tracking` (g1 23dof motion tracking) | Tested | - | Tested | - | - | - | - | - |
