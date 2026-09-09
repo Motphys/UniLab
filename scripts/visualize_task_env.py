@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast, get_args, get_origin, get_type_hints
 
 import numpy as np
+from unisim.backend.base import CameraCfg
 
 ROOT_DIR = Path(__file__).parent.parent
 SRC_DIR = ROOT_DIR / "src"
@@ -165,7 +166,7 @@ def _run_motrix(env, num_envs: int) -> None:
     )
 
 
-def _motrix_camera_kwargs(env, num_envs: int) -> dict[str, Any] | None:
+def _motrix_camera_kwargs(env, num_envs: int) -> CameraCfg | None:
     """Point Motrix's interactive camera at the actual terrain spawn cells."""
     spawn = getattr(env, "_spawn", None)
     origins_for = getattr(spawn, "origins_for", None)
@@ -194,12 +195,14 @@ def _motrix_camera_kwargs(env, num_envs: int) -> dict[str, Any] | None:
         lookat = origins[0].copy()
         distance = 4.0
     lookat[2] += 0.5
-    return {
-        "cam_lookat": lookat.tolist(),
-        "cam_distance": distance,
-        "cam_elevation": -25.0,
-        "cam_azimuth": 135.0,
-    }
+    return CameraCfg.from_kwargs(
+        {
+            "cam_lookat": lookat.tolist(),
+            "cam_distance": distance,
+            "cam_elevation": -25.0,
+            "cam_azimuth": 135.0,
+        }
+    )
 
 
 def _env_scene(env) -> "SceneCfg | None":

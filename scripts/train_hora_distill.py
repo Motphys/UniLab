@@ -22,7 +22,7 @@ from uni_rl.algos.hora.distill import (
     student_policy,
 )
 from uni_rl.algos.hora.rsl_rl import HoraRslRlVecEnvWrapper as RslRlVecEnvWrapper
-from unisim.backend.base import log_playback_plan
+from unisim.backend.base import CameraCfg, log_playback_plan
 from unisim.backend.mujoco.xml import materialize_scene_visual_override
 
 from unilab.base.config_adapter import (
@@ -107,7 +107,7 @@ def _build_play_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
     return cast(dict[str, Any], adapter.build_play_env_cfg_override())
 
 
-def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
+def _play_camera_kwargs(cfg: DictConfig) -> CameraCfg:
     camera_kwargs = {
         "cam_tracking": getattr(cfg.training, "cam_tracking", False),
         "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
@@ -117,7 +117,7 @@ def _play_camera_kwargs(cfg: DictConfig) -> dict[str, Any]:
         value = getattr(cfg.training, key, None)
         if value is not None:
             camera_kwargs[key] = value
-    return camera_kwargs
+    return CameraCfg.from_kwargs(camera_kwargs)
 
 
 def play_hora_distill(cfg: DictConfig, device: str) -> str | None:

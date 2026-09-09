@@ -515,6 +515,10 @@ def test_render_play_mode_uses_env_interactive_contract():
         def run_playback(self, **kwargs):
             kwargs = _resolve_low_level_playback_flags(kwargs)
             kwargs.pop("frame_state_getter", None)
+            # FakeEnv mimics the real backend boundary: debug overlays and
+            # on_frame fail closed downstream; here they are simply unused.
+            kwargs.pop("debug_overlay_getter", None)
+            kwargs.pop("on_frame", None)
             return run_motrix_playback(backend=self, env=self, **kwargs)
 
         def init_renderer(self, **kwargs):
@@ -651,6 +655,10 @@ def test_render_play_mode_uses_motrix_native_video_capture(
         def run_playback(self, **kwargs):
             kwargs = _resolve_low_level_playback_flags(kwargs)
             kwargs.pop("frame_state_getter", None)
+            # FakeEnv mimics the real backend boundary: debug overlays and
+            # on_frame fail closed downstream; here they are simply unused.
+            kwargs.pop("debug_overlay_getter", None)
+            kwargs.pop("on_frame", None)
             return run_motrix_playback(backend=self, env=self, **kwargs)
 
         def init_renderer(self, **kwargs):
@@ -718,6 +726,10 @@ def test_render_play_mode_rejects_motrix_record_with_interactive_window(
         def run_playback(self, **kwargs):
             kwargs = _resolve_low_level_playback_flags(kwargs)
             kwargs.pop("frame_state_getter", None)
+            # FakeEnv mimics the real backend boundary: debug overlays and
+            # on_frame fail closed downstream; here they are simply unused.
+            kwargs.pop("debug_overlay_getter", None)
+            kwargs.pop("on_frame", None)
             return run_motrix_playback(backend=self, env=self, **kwargs)
 
         def init_renderer(self, **kwargs):
@@ -773,6 +785,7 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
         def run_playback(self, **kwargs):
             kwargs = _resolve_low_level_playback_flags(kwargs)
             kwargs.pop("render_offset_mode", None)
+            kwargs.pop("on_frame", None)
             return run_mujoco_playback(env=self, **kwargs)
 
     def _render_states_get_frames(state_list, model_file, **kwargs):
@@ -859,6 +872,7 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
         def run_playback(self, **kwargs):
             kwargs = _resolve_low_level_playback_flags(kwargs)
             kwargs.pop("render_offset_mode", None)
+            kwargs.pop("on_frame", None)
             return run_mujoco_playback(env=self, **kwargs)
 
     def _render_states_get_frames(state_list, model_file, **kwargs):
@@ -928,6 +942,7 @@ def test_render_play_mode_requires_env_snapshot_contract_for_video_export(tmp_pa
         def run_playback(self, **kwargs):
             kwargs = _resolve_low_level_playback_flags(kwargs)
             kwargs.pop("render_offset_mode", None)
+            kwargs.pop("on_frame", None)
             return run_mujoco_playback(env=self, **kwargs)
 
     with pytest.raises(NotImplementedError, match="unsupported"):

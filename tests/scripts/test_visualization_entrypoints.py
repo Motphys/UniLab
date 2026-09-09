@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from unisim.backend.base import CameraCfg
 
 # CPU-bound on the single-core CI runner; kept in the slow lane (make test-slow).
 pytestmark = pytest.mark.slow
@@ -68,14 +69,13 @@ def test_motrix_camera_kwargs_focuses_single_terrain_spawn():
     class FakeEnv:
         _spawn = FakeSpawn()
 
-    camera_kwargs = mod._motrix_camera_kwargs(FakeEnv(), 1)
+    camera_cfg = mod._motrix_camera_kwargs(FakeEnv(), 1)
 
-    assert camera_kwargs == {
-        "cam_lookat": [10.0, 20.0, 0.75],
-        "cam_distance": 4.0,
-        "cam_elevation": -25.0,
-        "cam_azimuth": 135.0,
-    }
+    assert isinstance(camera_cfg, CameraCfg)
+    assert list(camera_cfg.cam_lookat) == [10.0, 20.0, 0.75]
+    assert camera_cfg.cam_distance == 4.0
+    assert camera_cfg.cam_elevation == -25.0
+    assert camera_cfg.cam_azimuth == 135.0
 
 
 def test_motrix_camera_kwargs_frames_multiple_terrain_spawns():
@@ -97,12 +97,13 @@ def test_motrix_camera_kwargs_frames_multiple_terrain_spawns():
     class FakeEnv:
         _spawn = FakeSpawn()
 
-    camera_kwargs = mod._motrix_camera_kwargs(FakeEnv(), 4)
+    camera_cfg = mod._motrix_camera_kwargs(FakeEnv(), 4)
 
-    assert camera_kwargs["cam_lookat"] == [0.0, -4.0, 0.5]
-    assert camera_kwargs["cam_distance"] > 4.0
-    assert camera_kwargs["cam_elevation"] == -25.0
-    assert camera_kwargs["cam_azimuth"] == 135.0
+    assert isinstance(camera_cfg, CameraCfg)
+    assert list(camera_cfg.cam_lookat) == [0.0, -4.0, 0.5]
+    assert camera_cfg.cam_distance > 4.0
+    assert camera_cfg.cam_elevation == -25.0
+    assert camera_cfg.cam_azimuth == 135.0
 
 
 def test_mujoco_visual_xml_paths_prefer_backend_visual_scene(tmp_path: Path):

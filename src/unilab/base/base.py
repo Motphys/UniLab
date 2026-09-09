@@ -1,14 +1,16 @@
 import abc
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from os import PathLike
 from typing import Any, Optional
 
 import gymnasium as gym
 import numpy as np
-from unisim.backend.base import BackendPlayRenderPlan
+from unisim.backend.base import BackendPlayRenderPlan, CameraCfg, DebugOverlayGetter
 
 from .scene import SceneCfg
+
+OnPlaybackFrameFn = Callable[[int, np.ndarray], "np.ndarray | None"]
 
 
 @dataclass(frozen=True)
@@ -18,6 +20,7 @@ class EnvPlayCapabilities:
     supports_native_interactive_renderer: bool = False
     supports_physics_state_playback: bool = False
     supports_native_video_capture: bool = False
+    supports_debug_overlay: bool = False
 
 
 @dataclass
@@ -251,10 +254,18 @@ class ABEnv(abc.ABC):
         headless: bool | None = None,
         record_video: bool | None = None,
         frame_state_getter: Callable[[], np.ndarray] | None = None,
-        camera_kwargs: dict[str, Any] | None = None,
-        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
+        camera_kwargs: CameraCfg | Mapping[str, Any] | None = None,
+        debug_overlay_getter: DebugOverlayGetter | None = None,
+        on_frame: OnPlaybackFrameFn | None = None,
     ) -> str | None:
-        """Execute playback through the backend contract."""
+        """Execute playback through the backend contract.
+
+        ``debug_overlay_getter`` returns per-env sequences of
+        :class:`unisim.backend.base.DebugPrimitive` with env-local poses
+        (``None`` disables overlays for the frame).  ``on_frame`` is an
+        optional ``(frame_index, frame) -> frame | None`` callback applied to
+        each recorded frame before it is written to the video.
+        """
         raise NotImplementedError(f"{self.__class__.__name__} does not support playback execution")
 
     def run_playback_mode(
@@ -268,8 +279,9 @@ class ABEnv(abc.ABC):
         render_spacing: float | None = None,
         render_offset_mode: str | None = None,
         frame_state_getter: Callable[[], np.ndarray] | None = None,
-        camera_kwargs: dict[str, Any] | None = None,
-        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
+        camera_kwargs: CameraCfg | Mapping[str, Any] | None = None,
+        debug_overlay_getter: DebugOverlayGetter | None = None,
+        on_frame: OnPlaybackFrameFn | None = None,
         on_plan: Callable[[BackendPlayRenderPlan], None] | None = None,
     ) -> str | None:
         """Resolve configured playback mode and execute it through the backend contract."""
@@ -293,7 +305,8 @@ class ABEnv(abc.ABC):
             record_video=plan.record_video,
             frame_state_getter=frame_state_getter,
             camera_kwargs=camera_kwargs,
-            extra_data_getter=extra_data_getter,
+            debug_overlay_getter=debug_overlay_getter,
+            on_frame=on_frame,
         )
 
     @property
@@ -351,11 +364,22 @@ class ABEnv(abc.ABC):
         capture: bool = False,
         width: int = 1280,
         height: int = 720,
-        camera_kwargs: dict[str, Any] | None = None,
+        camera_kwargs: CameraCfg | Mapping[str, Any] | None = None,
     ) -> None:
         """Initialize env-facing playback rendering when supported."""
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support native playback rendering"
+        )
+
+    def render(self, mode: str = "rgb_array") -> np.ndarray:
+        """Render the current state; ``mode="rgb_array"`` returns an RGB frame.
+
+        Convenience wrapper over :meth:`init_play_renderer` and
+        :meth:`capture_play_video_frame`, gated on
+        ``play_capabilities.supports_native_video_capture``.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support render(mode={mode!r})"
         )
 
     def render_play_frame(self) -> None:

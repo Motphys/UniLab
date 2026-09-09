@@ -39,6 +39,7 @@ from unilab.base.process_device import (
     configure_backend_process_device,
 )
 from unilab.utils.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
+from unilab.visualization.playback import camera_cfg_from_training
 
 
 @dataclass(frozen=True)
@@ -265,15 +266,7 @@ def play_hora_appo(
                 ),
                 initialize=initialize_play_obs,
                 step=step_play_obs,
-                camera_kwargs={
-                    "cam_distance": cfg.training.cam_distance,
-                    "cam_elevation": cfg.training.cam_elevation,
-                    "cam_azimuth": cfg.training.cam_azimuth,
-                    "cam_lookat": getattr(cfg.training, "cam_lookat", None),
-                    "cam_tracking": getattr(cfg.training, "cam_tracking", False),
-                    "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
-                    "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
-                },
+                camera_kwargs=camera_cfg_from_training(cfg.training),
                 on_plan=log_playback_plan,
             ),
         )

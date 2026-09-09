@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING, Any, Optional, Tuple, cast
 
 import gymnasium as gym
 import numpy as np
-from unisim.backend.base import BackendPlayRenderPlan, SimBackend
+from unisim.backend.base import (
+    BackendPlayRenderPlan,
+    CameraCfg,
+    DebugOverlayGetter,
+    SimBackend,
+)
 
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.cpu_runtime import apply_env_cpu_runtime
@@ -130,6 +135,7 @@ class NpEnv(ABEnv):
         self._autoreset = True
         self._autoreset_reset_active = False
         self._nan_guard_model_file = self._resolve_nan_guard_model_file()
+        self._rgb_array_renderer_ready = False
 
     @property
     def cfg(self) -> EnvCfg:
@@ -453,7 +459,7 @@ class NpEnv(ABEnv):
         capture: bool = False,
         width: int = 1280,
         height: int = 720,
-        camera_kwargs: dict[str, Any] | None = None,
+        camera_kwargs: CameraCfg | Mapping[str, Any] | None = None,
     ) -> None:
         """Initialize backend-native playback rendering when available."""
         if capture:
@@ -519,10 +525,24 @@ class NpEnv(ABEnv):
         headless: bool | None = None,
         record_video: bool | None = None,
         frame_state_getter: Callable[[], np.ndarray] | None = None,
-        camera_kwargs: dict[str, Any] | None = None,
-        extra_data_getter: Callable[[], np.ndarray | None] | None = None,
+        camera_kwargs: CameraCfg | Mapping[str, Any] | None = None,
+        debug_overlay_getter: DebugOverlayGetter | None = None,
+        on_frame: Callable[[int, np.ndarray], np.ndarray | None] | None = None,
     ) -> str | None:
-        """Execute playback through the concrete backend."""
+        """Execute playback through the concrete backend.
+
+        ``on_frame`` is declared on the env contract but the unisim
+        ``SimBackend.run_playback`` boundary does not accept it yet; passing a
+        callback fails closed until the upstream contract lands.  Use
+        :class:`unilab.visualization.playback_session.SnapshotPlaybackSession`
+        for deferred rendering with per-frame callbacks today.
+        """
+        if on_frame is not None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} cannot forward on_frame to "
+                f"{self._backend.__class__.__name__}.run_playback yet; the unisim playback "
+                "contract does not declare the parameter (tracked by unilabsim/wuji_unilab#21)"
+            )
         return cast(
             str | None,
             self._backend.run_playback(
@@ -537,7 +557,7 @@ class NpEnv(ABEnv):
                 record_video=record_video,
                 frame_state_getter=frame_state_getter,
                 camera_kwargs=camera_kwargs,
-                extra_data_getter=extra_data_getter,
+                debug_overlay_getter=debug_overlay_getter,
             ),
         )
 
@@ -548,6 +568,27 @@ class NpEnv(ABEnv):
                 f"{self._backend.__class__.__name__} does not support native interactive playback"
             )
         self._backend.render()
+
+    def render(self, mode: str = "rgb_array") -> np.ndarray:
+        """Render the current state to an RGB array through the play renderer.
+
+        Lazily initializes a headless capture renderer on first use and
+        returns one detached ``(H, W, 3)`` uint8 frame per call.  Backends
+        without native video capture fail closed with a class-named error.
+        """
+        if mode != "rgb_array":
+            raise NotImplementedError(
+                f"{self.__class__.__name__} does not support render mode {mode!r}"
+            )
+        if not self.play_capabilities.supports_native_video_capture:
+            raise NotImplementedError(
+                f"{self._backend.__class__.__name__} does not support native video capture, "
+                f"so {self.__class__.__name__}.render(mode='rgb_array') is unavailable"
+            )
+        if not self._rgb_array_renderer_ready:
+            self.init_play_renderer(headless=True, capture=True)
+            self._rgb_array_renderer_ready = True
+        return self.capture_play_video_frame()
 
     def capture_play_video_frame(self) -> np.ndarray:
         """Capture one detached RGB video frame through the env contract."""
@@ -586,6 +627,7 @@ class NpEnv(ABEnv):
             supports_native_interactive_renderer=capabilities.supports_native_interactive_renderer,
             supports_physics_state_playback=capabilities.supports_physics_state_playback,
             supports_native_video_capture=capabilities.supports_native_video_capture,
+            supports_debug_overlay=capabilities.supports_debug_overlay,
         )
 
     def get_playback_model(self, env_index: int | None = None) -> Any:

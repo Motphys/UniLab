@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from unisim.backend.base import RenderClosedError
+from unisim.backend.base import CameraCfg, RenderClosedError
 from unisim.backend.isaacgym.backend import IsaacGymWorkerError
 from unisim.backend.isaacsim.backend import (
     IsaacSimBackend,
@@ -416,11 +416,11 @@ def test_interactive_playback_routes_startup_dimensions_and_camera(
                 "headless": False,
                 "width": 64,
                 "height": 48,
-                "camera_kwargs": {
-                    "cam_distance": 3.0,
-                    "cam_elevation": -15.0,
-                    "cam_azimuth": 45.0,
-                },
+                "camera_kwargs": CameraCfg(
+                    cam_distance=3.0,
+                    cam_elevation=-15.0,
+                    cam_azimuth=45.0,
+                ),
             }
         ]
     finally:

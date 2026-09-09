@@ -2970,6 +2970,7 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
                     "record_video": False,
                     "num_steps": None,
                     "output_video": None,
+                    "renderer": None,
                 },
             )()
             kwargs["on_plan"](plan)
@@ -3063,6 +3064,7 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
                     "record_video": True,
                     "num_steps": 37,
                     "output_video": kwargs["output_video"],
+                    "renderer": None,
                 },
             )()
             kwargs["on_plan"](plan)
@@ -3669,3 +3671,49 @@ def test_play_offpolicy_uses_shared_playback_session_factory(
     assert env_captured["play_render_mode"] == "record"
     assert env_captured["init_obs"] == "obs_0"
     assert env_captured["next_obs"] == "obs_1"
+
+
+# ---------------------------------------------------------------------------
+# train_rsl_rl.py — EE-goal debug overlay getter (issue unilabsim/wuji_unilab#21)
+# ---------------------------------------------------------------------------
+
+
+class _OverlayEnv:
+    def __init__(self, goals, *, supports_debug_overlay=True):
+        from unilab.base.base import EnvPlayCapabilities
+
+        self.curr_ee_goal_world = goals
+        self.play_capabilities = EnvPlayCapabilities(supports_debug_overlay=supports_debug_overlay)
+
+
+def test_ee_goal_overlay_getter_builds_sphere_primitives(monkeypatch):
+    from unisim.backend.base import DebugPrimitive
+
+    mod = _train_rsl_rl(monkeypatch)
+    goals = np.array([[0.1, 0.2, 0.3], [np.nan, 0.0, 0.0]], dtype=np.float64)
+    getter = mod._ee_goal_debug_overlay_getter(_OverlayEnv(goals))
+    assert getter is not None
+    overlays = getter()
+    assert len(overlays) == 2
+    primitive = overlays[0][0]
+    assert isinstance(primitive, DebugPrimitive)
+    assert primitive.kind == "sphere"
+    assert primitive.pos == pytest.approx((0.1, 0.2, 0.3))
+    assert overlays[1] is None  # non-finite goals suppress that env's overlay
+
+
+def test_ee_goal_overlay_getter_disabled_without_marker_or_capability(monkeypatch):
+    mod = _train_rsl_rl(monkeypatch)
+    assert mod._ee_goal_debug_overlay_getter(object()) is None
+    env = _OverlayEnv(np.zeros((1, 3)), supports_debug_overlay=False)
+    assert mod._ee_goal_debug_overlay_getter(env) is None
+
+
+def test_hora_distill_play_camera_kwargs_returns_typed_camera_cfg():
+    from unisim.backend.base import CameraCfg
+
+    mod = _train_hora_distill()
+    cfg = _hora_distill_cfg()
+    camera = mod._play_camera_kwargs(cfg)
+    assert isinstance(camera, CameraCfg)
+    assert camera.cam_distance == pytest.approx(cfg.training.cam_distance)

@@ -46,7 +46,8 @@ def _stub_backend(model_file: Path = G1_SCENE, *, num_envs: int = 2) -> MjwarpBa
 def test_mjwarp_plan_is_explicit_and_finite() -> None:
     backend = _stub_backend(num_envs=1)
     assert backend.get_play_capabilities() == BackendPlayCapabilities(
-        supports_physics_state_playback=True
+        supports_physics_state_playback=True,
+        supports_debug_overlay=True,
     )
     assert (
         backend.resolve_play_render_plan(
@@ -64,10 +65,12 @@ def test_mjwarp_plan_is_explicit_and_finite() -> None:
         backend.resolve_play_render_plan(
             play_render_mode="auto", play_steps=3, output_video="play.mp4"
         )
-    with pytest.raises(NotImplementedError, match="interactive"):
-        backend.resolve_play_render_plan(
-            play_render_mode="interactive", play_steps=3, output_video="play.mp4"
-        )
+    interactive_plan = backend.resolve_play_render_plan(
+        play_render_mode="interactive", play_steps=3, output_video="play.mp4"
+    )
+    assert interactive_plan.mode == "interactive"
+    assert interactive_plan.headless is False
+    assert interactive_plan.num_steps == 3
     with pytest.raises(ValueError, match="positive finite"):
         backend.resolve_play_render_plan(
             play_render_mode="record", play_steps=0, output_video="play.mp4"
