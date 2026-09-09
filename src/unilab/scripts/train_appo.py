@@ -42,6 +42,7 @@ from unilab.visualization.interactive_playback import (
     create_appo_playback_session,
     normalize_checkpoint_value,
 )
+from unilab.visualization.playback import camera_cfg_from_training
 
 
 def _training_resume_requested(load_run: Any) -> bool:
@@ -277,15 +278,7 @@ def play_appo(
             ),
             initialize=session.reset,
             step=lambda _obs: session.step_once(),
-            camera_kwargs={
-                "cam_distance": cfg.training.cam_distance,
-                "cam_elevation": cfg.training.cam_elevation,
-                "cam_azimuth": cfg.training.cam_azimuth,
-                "cam_lookat": getattr(cfg.training, "cam_lookat", None),
-                "cam_tracking": getattr(cfg.training, "cam_tracking", False),
-                "cam_tracking_env_idx": getattr(cfg.training, "cam_tracking_env_idx", 0),
-                "cam_tracking_extra_envs": getattr(cfg.training, "cam_tracking_extra_envs", 2),
-            },
+            camera_kwargs=camera_cfg_from_training(cfg.training),
             on_plan=log_playback_plan,
         )
     if play_video_path is not None:

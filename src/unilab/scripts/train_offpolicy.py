@@ -65,6 +65,7 @@ from unilab.visualization.interactive_playback import (
 from unilab.visualization.interactive_playback import (
     build_offpolicy_play_env_cfg_override as _build_offpolicy_play_env_cfg_override,
 )
+from unilab.visualization.playback import camera_cfg_from_training
 
 
 def enable_faulthandler() -> None:
@@ -377,11 +378,7 @@ def play_offpolicy(algo_name: str, cfg: DictConfig) -> str | None:
             output_video=os.path.join(load_path_dir, "play_video.mp4") if load_path_dir else None,
             initialize=session.reset,
             step=lambda _obs: session.step_once(),
-            camera_kwargs={
-                "cam_distance": cfg.training.cam_distance,
-                "cam_elevation": cfg.training.cam_elevation,
-                "cam_azimuth": cfg.training.cam_azimuth,
-            },
+            camera_kwargs=camera_cfg_from_training(cfg.training),
             on_plan=log_playback_plan,
         )
     if play_video_path is not None:

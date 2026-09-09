@@ -2341,6 +2341,7 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
                     "record_video": False,
                     "num_steps": None,
                     "output_video": None,
+                    "renderer": None,
                 },
             )()
             kwargs["on_plan"](plan)
@@ -2434,6 +2435,7 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
                     "record_video": True,
                     "num_steps": 37,
                     "output_video": kwargs["output_video"],
+                    "renderer": None,
                 },
             )()
             kwargs["on_plan"](plan)
@@ -3034,3 +3036,94 @@ def test_play_offpolicy_uses_shared_playback_session_factory(
     assert env_captured["play_render_mode"] == "record"
     assert env_captured["init_obs"] == "obs_0"
     assert env_captured["next_obs"] == "obs_1"
+
+
+# ---------------------------------------------------------------------------
+# train_rsl_rl.py — EE-goal debug overlay getter (issue unilabsim/wuji_unilab#21)
+# ---------------------------------------------------------------------------
+
+
+class _OverlayEnv:
+    def __init__(self, goals, *, supports_debug_overlay=True):
+        from unilab.base.base import EnvPlayCapabilities
+
+        self.curr_ee_goal_world = goals
+        self.play_capabilities = EnvPlayCapabilities(supports_debug_overlay=supports_debug_overlay)
+
+
+def test_ee_goal_overlay_getter_builds_sphere_primitives(monkeypatch):
+    from unisim.backend.base import DebugPrimitive
+
+    mod = _train_rsl_rl(monkeypatch)
+    goals = np.array([[0.1, 0.2, 0.3], [np.nan, 0.0, 0.0]], dtype=np.float64)
+    getter = mod._ee_goal_debug_overlay_getter(_OverlayEnv(goals))
+    assert getter is not None
+    overlays = getter()
+    assert len(overlays) == 2
+    primitive = overlays[0][0]
+    assert isinstance(primitive, DebugPrimitive)
+    assert primitive.kind == "sphere"
+    assert primitive.pos == pytest.approx((0.1, 0.2, 0.3))
+    assert overlays[1] is None  # non-finite goals suppress that env's overlay
+
+
+def test_ee_goal_overlay_getter_disabled_without_marker_or_capability(monkeypatch):
+    mod = _train_rsl_rl(monkeypatch)
+    assert mod._ee_goal_debug_overlay_getter(object()) is None
+    env = _OverlayEnv(np.zeros((1, 3)), supports_debug_overlay=False)
+    assert mod._ee_goal_debug_overlay_getter(env) is None
+
+
+class _DiscoverableOverlayEnv(_OverlayEnv):
+    def __init__(self, goals, *, task_overlays="task", **kwargs):
+        super().__init__(goals, **kwargs)
+        self._task_overlays = task_overlays
+
+    def get_playback_debug_overlays(self):
+        if self._task_overlays is None:
+            return None
+        return lambda: self._task_overlays
+
+
+def test_playback_debug_overlay_getter_prefers_task_owned_overlays(monkeypatch):
+    mod = _train_rsl_rl(monkeypatch)
+    env = _DiscoverableOverlayEnv(np.zeros((1, 3)), task_overlays="task")
+
+    getter = mod._playback_debug_overlay_getter(env)
+
+    assert getter is not None
+    assert getter() == "task"
+
+
+def test_playback_debug_overlay_getter_falls_back_to_ee_goal_marker(monkeypatch):
+    from unisim.backend.base import DebugPrimitive
+
+    mod = _train_rsl_rl(monkeypatch)
+    goals = np.array([[0.1, 0.2, 0.3]], dtype=np.float64)
+    env = _DiscoverableOverlayEnv(goals, task_overlays=None)
+
+    getter = mod._playback_debug_overlay_getter(env)
+
+    assert getter is not None
+    overlays = getter()
+    assert isinstance(overlays[0][0], DebugPrimitive)
+    assert overlays[0][0].pos == pytest.approx((0.1, 0.2, 0.3))
+
+
+def test_playback_debug_overlay_getter_falls_back_without_discovery_hook(monkeypatch):
+    mod = _train_rsl_rl(monkeypatch)
+    env = _OverlayEnv(np.array([[0.1, 0.2, 0.3]], dtype=np.float64))
+
+    getter = mod._playback_debug_overlay_getter(env)
+
+    assert getter is not None
+    assert getter()[0][0].pos == pytest.approx((0.1, 0.2, 0.3))
+
+
+def test_playback_debug_overlay_getter_disabled_without_capability(monkeypatch):
+    mod = _train_rsl_rl(monkeypatch)
+    env = _DiscoverableOverlayEnv(
+        np.zeros((1, 3)), task_overlays="task", supports_debug_overlay=False
+    )
+
+    assert mod._playback_debug_overlay_getter(env) is None

@@ -37,6 +37,15 @@ def _stub_backend(model_file: Path = G1_SCENE, *, num_envs: int = 2) -> MjwarpBa
     ).copy()
     backend._qvel_cache = np.zeros((num_envs, int(model.nv)), dtype=np.float32)
     backend._time_cache = np.zeros((num_envs,), dtype=np.float32)
+    backend._nmocap = int(model.nmocap)
+    mocap_bodies = np.flatnonzero(model.body_mocapid >= 0)
+    mocap_bodies = mocap_bodies[np.argsort(model.body_mocapid[mocap_bodies])]
+    backend._mocap_pos = np.broadcast_to(
+        model.body_pos[mocap_bodies].astype(np.float32), (num_envs, len(mocap_bodies), 3)
+    ).copy()
+    backend._mocap_quat = np.broadcast_to(
+        model.body_quat[mocap_bodies].astype(np.float32), (num_envs, len(mocap_bodies), 4)
+    ).copy()
     backend.scene_visual_model_file = str(model_file)
     backend._playback_model_validated = False
     backend._scene_cleanup_handle = None
@@ -46,7 +55,9 @@ def _stub_backend(model_file: Path = G1_SCENE, *, num_envs: int = 2) -> MjwarpBa
 def test_mjwarp_plan_is_explicit_and_finite() -> None:
     backend = _stub_backend(num_envs=1)
     assert backend.get_play_capabilities() == BackendPlayCapabilities(
-        supports_physics_state_playback=True
+        supports_physics_state_playback=True,
+        supports_debug_overlay=True,
+        supports_interactive_debug_overlay=True,
     )
     assert (
         backend.resolve_play_render_plan(
@@ -64,10 +75,12 @@ def test_mjwarp_plan_is_explicit_and_finite() -> None:
         backend.resolve_play_render_plan(
             play_render_mode="auto", play_steps=3, output_video="play.mp4"
         )
-    with pytest.raises(NotImplementedError, match="interactive"):
-        backend.resolve_play_render_plan(
-            play_render_mode="interactive", play_steps=3, output_video="play.mp4"
-        )
+    interactive_plan = backend.resolve_play_render_plan(
+        play_render_mode="interactive", play_steps=3, output_video="play.mp4"
+    )
+    assert interactive_plan.mode == "interactive"
+    assert interactive_plan.headless is False
+    assert interactive_plan.num_steps == 3
     with pytest.raises(ValueError, match="positive finite"):
         backend.resolve_play_render_plan(
             play_render_mode="record", play_steps=0, output_video="play.mp4"
@@ -100,6 +113,27 @@ def test_mjwarp_snapshot_is_detached_time_qpos_qvel_layout() -> None:
     snapshot.fill(99.0)
     assert backend._time_cache[0] == pytest.approx(0.12)
     assert backend._qpos_cache[0, 0] == pytest.approx(1.0)
+
+
+def test_mjwarp_snapshot_appends_mocap_state(tmp_path: Path) -> None:
+    mocap_model = tmp_path / "mocap.xml"
+    mocap_model.write_text(
+        "<mujoco><worldbody>"
+        "<body name='base'><joint name='slide' type='slide' axis='1 0 0'/>"
+        "<geom size='.05'/></body>"
+        "<body name='palm' mocap='true' pos='0 0 0.5'><geom size='.02'/></body>"
+        "</worldbody></mujoco>",
+        encoding="utf-8",
+    )
+    backend = _stub_backend(mocap_model, num_envs=2)
+    backend._mocap_pos[:] = [[[0.1, 0.2, 0.3]], [[0.4, 0.5, 0.6]]]
+
+    snapshot = backend.get_physics_state()
+
+    assert snapshot.shape == (2, 1 + backend._nq + backend._nv + 7)
+    base = 1 + backend._nq + backend._nv
+    np.testing.assert_allclose(snapshot[:, base : base + 3], [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
+    np.testing.assert_allclose(snapshot[:, base + 3 :], [[1.0, 0.0, 0.0, 0.0]] * 2)
 
 
 def test_g1_visual_model_and_replay_forward_camera_and_spacing(
@@ -159,7 +193,7 @@ def test_mjwarp_playback_rejects_bad_snapshot_and_renderer(
     backend = _stub_backend(num_envs=1)
     env = SimpleNamespace(get_physics_state_snapshot=lambda: np.zeros((1, 4), dtype=np.float32))
     monkeypatch.setattr("unisim.visualization.render_many.render_backend_usable", lambda: True)
-    with pytest.raises(ValueError, match=r"\[time, qpos, qvel\]"):
+    with pytest.raises(ValueError, match=r"\[time, qpos, qvel"):
         run_mjwarp_playback(
             backend=backend,
             env=env,
