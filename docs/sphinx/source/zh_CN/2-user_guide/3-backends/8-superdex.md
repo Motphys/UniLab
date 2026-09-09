@@ -78,6 +78,14 @@ PPO/APPO collector、learner 或 policy contract。决策见
 | `env.superdex_num_workers=1` | 一个 native C++ scene worker |
 | `env.superdex_num_workers=K` | 显式 C++ worker 数，最多为 `num_envs` |
 
+native scene 的 `DebugDraw` 状态有线程亲和性，因此 batch 模式与已连接的
+native SuperDex debugger 不兼容：adapter 在检测到 debugger 客户端连接时会直接
+报错并给出可操作提示。需要使用 native debugger 调试时，以
+`env.superdex_execution_mode=serial` 运行——该模式在环境线程上逐步推进每个
+scene，完全不创建 native worker pool
+（[unisim#55](https://github.com/unilabsim/unisim/issues/55)）。serial 是调试
+配置，不是性能配置。
+
 1024 个环境、16 核 32 线程主机上，自动解析为 16 workers。多 rank 并发 collector
 按完整物理核心分配，并将同一核心的 logical sibling 放在同一 rank，避免拆分 SMT 核心。
 也可以通过 `training.dp_collector_cpu_ids` 为每个 rank 显式提供 CPU id 列表；该分片在

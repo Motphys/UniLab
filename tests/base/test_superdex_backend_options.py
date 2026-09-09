@@ -91,3 +91,54 @@ def test_large_superdex_batch_delegates_worker_selection_to_unisim(
     assert captured["backend"] == "superdex"
     assert captured["num_envs"] == 1024
     assert captured["superdex_num_workers"] == workers
+
+
+def test_superdex_execution_mode_is_forwarded_only_when_serial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def create(name: str, scene: SceneCfg, num_envs: int, dt: float, **kwargs: Any) -> object:
+        captured.clear()
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(backend_factory, "ensure_robot_assets_for_paths", lambda *_: None)
+    monkeypatch.setattr(backend_factory.unisim, "create_backend", create)
+    scene = SceneCfg(model_file="scene.xml")
+    serial = EnvCfg(superdex_execution_mode="serial")
+    serial.validate()
+    backend_factory.create_backend(
+        "superdex", scene, 1, 0.002, **backend_factory.env_backend_kwargs(serial)
+    )
+    # Legacy unisim-core releases predate the option; the default stays absent
+    # so they still accept the SuperDex kwargs.
+    assert captured["superdex_execution_mode"] == "serial"
+    backend_factory.create_backend(
+        "superdex", scene, 1, 0.002, **backend_factory.env_backend_kwargs(EnvCfg())
+    )
+    assert "superdex_execution_mode" not in captured
+
+
+def test_superdex_execution_mode_validates_and_does_not_leak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def create(*args: Any, **kwargs: Any) -> object:
+        calls.update(kwargs)
+        return object()
+
+    with pytest.raises(ValueError, match="superdex_execution_mode"):
+        EnvCfg(superdex_execution_mode="threaded").validate()
+    monkeypatch.setattr(backend_factory, "ensure_robot_assets_for_paths", lambda *_: None)
+    monkeypatch.setattr(backend_factory.unisim, "create_backend", create)
+    cfg = EnvCfg(superdex_execution_mode="serial")
+    backend_factory.create_backend(
+        "mujoco",
+        SceneCfg(model_file="scene.xml"),
+        1,
+        0.01,
+        **backend_factory.env_backend_kwargs(cfg),
+    )
+    assert not any(name.startswith("superdex_") for name in calls)

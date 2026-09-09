@@ -36,8 +36,11 @@ class EnvCfg:
     drake_backend_mode: str = "batch"
     drake_nthread: int = 0
     # SuperDex native robots are resolved through the local asset hub registry.
-    # 0 selects affinity-aware native C++ scene batching; 1 stays serial.
+    # 0 selects affinity-aware native C++ scene batching.
     superdex_num_workers: int = 0
+    # "batch" steps scenes on native SceneBatchExecutor workers; "serial" steps
+    # every scene on the environment thread for native debugger sessions.
+    superdex_execution_mode: str = "batch"
     superdex_assets_root: Optional[str] = None
     superdex_effort_limits: Optional[list[float]] = None
     superdex_allow_contact_approximation: bool = False
@@ -119,6 +122,8 @@ class EnvCfg:
             or self.superdex_num_workers < 0
         ):
             raise ValueError("superdex_num_workers must be an integer >= 0")
+        if self.superdex_execution_mode not in ("batch", "serial"):
+            raise ValueError("superdex_execution_mode must be 'batch' or 'serial'")
         if self.superdex_assets_root is not None and (
             not isinstance(self.superdex_assets_root, str) or not self.superdex_assets_root.strip()
         ):

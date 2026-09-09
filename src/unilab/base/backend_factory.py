@@ -80,6 +80,11 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     # compatibility fallback for those releases.
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
+    # Keep the default absent so unisim-core releases that predate the
+    # execution-mode option still accept the SuperDex kwargs; "serial" requires
+    # the updated adapter.
+    if cfg.superdex_execution_mode != "batch":
+        result["superdex_execution_mode"] = cfg.superdex_execution_mode
     return result
 
 
@@ -105,6 +110,7 @@ def create_backend(
         )
     if backend_type != "superdex":
         kwargs.pop("superdex_num_workers", None)
+        kwargs.pop("superdex_execution_mode", None)
         kwargs.pop("superdex_effort_limits", None)
         kwargs.pop("superdex_allow_contact_approximation", None)
     ensure_robot_assets_for_paths(

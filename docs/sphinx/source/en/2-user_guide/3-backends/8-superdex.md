@@ -90,6 +90,14 @@ Both task owners select automatic workers by default:
 | `env.superdex_num_workers=1` | One native C++ scene worker |
 | `env.superdex_num_workers=K` | Explicit C++ worker count, capped at `num_envs` |
 
+A native scene's `DebugDraw` state is thread-affine, so the batched mode is
+incompatible with an attached native SuperDex debugger: the adapter fails
+closed with an actionable error when a debugger client connects. To debug with
+the native debugger, run `env.superdex_execution_mode=serial`, which steps
+every scene on the environment thread and never builds the native worker pool
+([unisim#55](https://github.com/unilabsim/unisim/issues/55)). Serial mode is a
+debugging profile, not a performance configuration.
+
 With 1024 environments on a 16-core/32-thread host, automatic selection yields
 16 workers. Concurrent multi-rank collectors are assigned whole physical-core
 groups, including their logical siblings, so ranks do not split an SMT core.
