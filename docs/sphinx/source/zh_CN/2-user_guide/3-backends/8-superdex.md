@@ -8,44 +8,50 @@ owner 为固定基 `FR3JointTarget`，配置位于
 实施见 [#1534](https://github.com/Motphys/UniLab/issues/1534)，所属
 roadmap 为 [#1533](https://github.com/Motphys/UniLab/issues/1533)。
 
-## 本地开发安装
+## 安装
 
-该开发配置使用本地链接的 UniSim 与 UniLab，不要求发布新版本。SuperDex
-Physics/Robotics 1.0.0 要求 Python 3.12；CPU 物理不需要 CUDA。FR3 owner 暂不包含
-原生渲染和视频，默认 `no_play=true`。
-
-本 roadmap 的临时方案使用改动后的 SuperDex 源码编译 native extension。先运行：
-
-```bash
-bash scripts/tools/setup_superdex_env.sh
-source ~/.cache/unisim/superdex/env.sh
-```
-
-不传参数时，脚本会自动 clone `unilabsim/project_superdex` 的 integration branch，
-安装 SuperDex Python facade，以 Release 模式编译 `mochi_physics_pybind` 和
-`superdex_robotics_pybind`，并将本地 UniSim、UniRL、UniLab 以 editable 方式安装。
-默认输出到 `~/.cache/unisim/superdex`，可通过 `UNISIM_SUPERDEX_HOME` 覆盖。它不会
-发布或从 PyPI 安装 SuperDex wheel；完成后 source 生成的 `env.sh` 即可使用。修改
-SuperDex 源码后可重复执行，CMake 会复用已有 build 目录。
-
-在 UniLab checkout 中使用已有的 Python 3.12 环境，或创建环境后安装本地包：
+SuperDex Physics/Robotics 1.0.0 已发布 Python wheel，是 UniLab 的 optional
+extra，不再需要源码编译 native extension。wheel 携带 native batch executor，
+仅支持 CPython 3.12/3.13 的 Linux x86_64；其他平台上该 extra 为空，CLI 会给出
+针对性的运行时诊断。CPU 物理不需要 CUDA。FR3 owner 没有 record（视频）回放——
+`.superdex_bot` 资产没有 MJCF visual model——play 默认走 native interactive
+viewer（`play_render_mode=interactive`，`play_env_num=1`）；无显示环境下使用
+`training.play_render_mode=none`。
 
 ```bash
-uv venv --python 3.12
-export UNILAB_LOCAL_UNISIM=/absolute/path/to/unisim
-uv pip install -e "${UNILAB_LOCAL_UNISIM}[superdex,mujoco]" -e . --group pyproject.toml:dev
-export UV_NO_SYNC=1
-export SUPERDEX_ASSETS_PATH=/absolute/path/to/project_superdex/assets
+# 源码 checkout（默认 Python 3.13；wheel 支持 CPython 3.12/3.13）：
+uv sync --extra superdex
+
+# 从 PyPI 安装：
+pip install "unilab[superdex]"
 ```
 
-`UNILAB_LOCAL_UNISIM` 启用严格的本地依赖验证：测试同时检查 editable 安装元数据
-和实际 import 路径确实指向指定 checkout。不设置时保留正常的索引发布包检查。
-`UV_NO_SYNC=1` 让现有 Make 目标保留本地链接；`uv sync` 会重新解析锁定的发布依赖。
+该 extra 通过 `unisim-core[superdex]` 委托 UniSim 钉定版本；UniSim 的
+superdex extra 已包含普通 `mujoco` 包（MJCF 转换与离线回放渲染使用），不需要
+`mujoco-uni-runtime`（仅 MuJoCo 物理后端需要）。当前 wheel 为临时
+unilabsim 构建（`superdex-physics-uni`/`superdex-robotics-uni`）；上游
+project_superdex 发布正式 `superdex-physics`/`superdex-robotics` wheel 后，
+UniSim 会切换包名，UniLab 侧无需改动。
 
-FR3 原生资产保留在上游 checkout。asset hub 注册
-`bots/arms/fr3_v2/fr3_v2.superdex_bot`，在物理构造前验证 collision SDF、render、
-`LICENSE` 和 `NOTICE`。UniLab 不打包或下载这些二进制。单次运行可通过
-`env.superdex_assets_root=/absolute/path/to/project_superdex/assets` 覆盖环境变量。
+FR3 原生资产与其他机器人 mesh 资产一样托管在 Hugging Face
+（[unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots)），
+wheel 不携带机器人二进制。asset hub 注册
+`bots/arms/fr3_v2/fr3_v2.superdex_bot`，首次使用时自动把快照下载到
+`src/unilab/assets/`，并在物理构造前验证 collision SDF、render、`LICENSE` 和
+`NOTICE`。需要预拉取（如 CI 或离线准备）时：
+
+```bash
+uv run unilab-pull-assets --robot fr3_v2
+```
+
+若要审计本地 `project_superdex` checkout，可设置
+`SUPERDEX_ASSETS_PATH=/absolute/path/to/project_superdex/assets`；单次运行也可通过
+`env.superdex_assets_root=/absolute/path/to/project_superdex/assets` 覆盖。显式
+root 优先于 Hugging Face 下载，且不会触发下载。
+
+只有修改 SuperDex 引擎源码本身时才需要本地源码构建：
+`bash scripts/tools/setup_superdex_env.sh` 会 clone integration branch、编译
+native extension 并以 editable 方式链接本地 UniSim/UniLab；常规使用不需要它。
 
 ## 运行 FR3 任务
 
@@ -60,9 +66,42 @@ uv run --no-sync train --algo ppo --task fr3_joint_target --sim superdex \
 `superdex_effort_limits` 在 native backend 边界声明同样的上限。SDK 固定为单线程；
 下面的 native scene executor 是唯一支持的 CPU 并行层。
 
+## 运行 Go2 任务
+
+`go2_joystick_flat/superdex` owner 在 SuperDex 上训练和评估 Go2 四足机器人。
+它继承 MuJoCo owner 的 policy I/O（49 维 actor 观测、52 维 critic 观测、
+12 维位置目标动作）与控制时序，声明自己的 command 范围和 reward 权重，并显式
+接受接触近似；contract 细节见下文"验证与归属"。
+
+直接在 SuperDex 上训练（CPU 物理，自动 native worker）：
+
+```bash
+uv run train --algo ppo --task go2_joystick_flat --sim superdex
+```
+
+owner 默认 1024 个环境、400 轮迭代。日志和 checkpoint 写入
+`logs/rsl_rl_ppo/Go2JoystickFlat/<timestamp>_superdex/`。
+
+用 `--load-run` 评估已训练的 run。默认 record 回放：跨 16 个环境推进 200 帧，
+通过离线 MuJoCo renderer 把 `play_video.mp4` 写入 run 目录，物理仍由 SuperDex
+执行：
+
+```bash
+uv run eval --algo ppo --task go2_joystick_flat --sim superdex \
+  --load-run 2026-09-10_10-50-00_superdex
+```
+
+如需 native SuperDex（Polyscope）viewer 而不是视频，加
+`--render-mode interactive`；CLI 会强制 `training.play_env_num=1`，owner 层同时
+把该次运行的 env 切到 serial executor。
+
+在 MuJoCo 上训练的 checkpoint 可以直接在 SuperDex 上评估（sim2sim）：把它的
+run 目录传给 `--load-run`。play 入口会在构造环境前按 sim2sim contract 验证来源
+`run_config.json`，并拒绝不兼容的 policy I/O。
+
 ## 默认 CPU 环境并行
 
-backend 使用 SuperDex 源码构建的 `SceneBatchExecutor`。它是跨独立 scene 的常驻
+backend 使用 SuperDex wheel 携带的 `SceneBatchExecutor`。它是跨独立 scene 的常驻
 C++ 线程池：每个子步批量写入广义力、推进 scene，并回写 articulation/link state、
 contact sensor 和 solver status，不再逐环境跨越 Python binding。资产物化、reset 和
 cache frame 转换仍由 UniSim adapter 负责。这是 CPU 线程并行，不是 GPU physics；它不改变
@@ -145,9 +184,10 @@ uv run --no-sync pytest tests/assets/test_superdex_assets.py \
   tests/envs/test_fr3_superdex.py tests/test_cli_runtime_requirements.py -q
 ```
 
-原生测试要求 SDK 和 `SUPERDEX_ASSETS_PATH`，覆盖有限数值 rollout、局部 reset
-隔离、即时观测刷新及 spawn `EnvFactory`。缺失 SDK/资产会明确 skip，不能将 skip
-记为原生验证通过。基础资产和配置测试不依赖原生资产 checkout。
+原生测试要求 SDK 和 FR3 资产（按需从 Hugging Face 下载，或通过
+`SUPERDEX_ASSETS_PATH` 提供），覆盖有限数值 rollout、局部 reset 隔离、即时观测
+刷新及 spawn `EnvFactory`。缺失 SDK/资产会明确 skip，不能将 skip 记为原生验证
+通过。基础资产和配置测试不依赖原生资产 checkout。
 
 引擎转换与物理由 UniSim 拥有；资产注册、Hydra 与任务 term 由 UniLab 拥有。
 相关约束见 {doc}`/adr/ADR-0007-unisim-extraction-boundary`、

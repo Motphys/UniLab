@@ -79,6 +79,7 @@ src/unilab/assets/motions/x2/*.npz
 src/unilab/assets/motions/x2/*.csv
 
 # Robot mesh assets (downloaded from HF at runtime)
+src/unilab/assets/bots/
 src/unilab/assets/robots/x2/meshes/*.STL
 src/unilab/assets/robots/g1/assets/
 src/unilab/assets/robots/g1/textures/

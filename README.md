@@ -104,11 +104,13 @@ and [support matrix](https://unilabsim.github.io/UniLab-doc/en/5-reference/5-sup
 ## Ecosystem
 
 UniLab is designed to be a shared task and training surface for robot-specific
-repositories. Current downstream examples include
-[MicroDuck RL](https://github.com/unilabsim/microduck_rl_unilab) and
-[EngineAI RL](https://github.com/unilabsim/engineai_rl_unilab). They can ship
-robot recipes independently while consuming the same task, backend, and RL
-contracts.
+repositories. They can ship robot recipes independently while consuming the
+same task, backend, and RL contracts. Current downstream examples:
+
+- [MicroDuck RL](https://github.com/unilabsim/microduck_rl_unilab)
+- [EngineAI RL](https://github.com/unilabsim/engineai_rl_unilab)
+- [Wuji](https://github.com/unilabsim/wuji_unilab)
+- [Legged Manipulation](https://github.com/unilabsim/legged-manipulation_unilab)
 
 ## Documentation
 

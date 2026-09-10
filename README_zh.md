@@ -96,10 +96,13 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 
 ## 生态
 
-UniLab 被设计为机器人专属仓库共享的任务与训练界面。目前的下游示例包括
-[MicroDuck RL](https://github.com/unilabsim/microduck_rl_unilab) 和
-[EngineAI RL](https://github.com/unilabsim/engineai_rl_unilab)。它们可以独立发布机器人
-recipe，同时消费同一套 task、backend 和 RL contract。
+UniLab 被设计为机器人专属仓库共享的任务与训练界面。下游仓库可以独立发布机器人
+recipe，同时消费同一套 task、backend 和 RL contract。目前的下游示例：
+
+- [MicroDuck RL](https://github.com/unilabsim/microduck_rl_unilab)
+- [EngineAI RL](https://github.com/unilabsim/engineai_rl_unilab)
+- [Wuji](https://github.com/unilabsim/wuji_unilab)
+- [Legged Manipulation](https://github.com/unilabsim/legged-manipulation_unilab)
 
 ## 文档
 

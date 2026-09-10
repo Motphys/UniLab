@@ -3,12 +3,12 @@ revision = 3
 requires-python = ">=3.10, <3.14"
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version == '3.11.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.11.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.11.*' and platform_machine == 's390x'",
     "python_full_version < '3.11' and platform_machine == 'x86_64' and sys_platform == 'linux'",
@@ -307,12 +307,12 @@ version = "1.3.3"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version == '3.11.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.11.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.11.*' and platform_machine == 's390x'",
 ]
@@ -611,12 +611,12 @@ version = "1.14.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version == '3.11.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.11.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.11.*' and platform_machine == 's390x'",
 ]
@@ -1087,10 +1087,10 @@ version = "9.12.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
 ]
 dependencies = [
@@ -1928,12 +1928,12 @@ version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version == '3.11.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.11.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.11.*' and platform_machine == 's390x'",
 ]
@@ -2046,12 +2046,12 @@ version = "2.4.4"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version == '3.11.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.11.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.11.*' and platform_machine == 's390x'",
 ]
@@ -2366,12 +2366,12 @@ version = "1.24.4"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version == '3.11.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.11.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.11.*' and platform_machine == 's390x'",
 ]
@@ -3206,12 +3206,12 @@ version = "1.17.1"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.13' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
-    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "python_full_version == '3.12.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
+    "python_full_version == '3.11.*' and platform_machine == 'x86_64' and sys_platform == 'linux'",
     "(python_full_version == '3.11.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.11.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.11.*' and platform_machine == 's390x'",
 ]
@@ -3509,8 +3509,8 @@ version = "2.11.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "(python_full_version >= '3.13' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version >= '3.13' and platform_machine != 's390x' and sys_platform != 'linux')",
-    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version >= '3.13' and platform_machine == 's390x'",
+    "(python_full_version == '3.12.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.12.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.12.*' and platform_machine == 's390x'",
     "(python_full_version == '3.11.*' and platform_machine != 's390x' and platform_machine != 'x86_64') or (python_full_version == '3.11.*' and platform_machine != 's390x' and sys_platform != 'linux')",
     "python_full_version == '3.11.*' and platform_machine == 's390x'",
@@ -3801,8 +3801,8 @@ requires-dist = [
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "triton-rocm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==3.6.0", index = "https://download.pytorch.org/whl/rocm7.2" },
     { name = "typing-extensions" },
-    { name = "unilab-rl", specifier = "==1.1.3" },
-    { name = "unisim-core", specifier = ">=1.1.5" },
+    { name = "unilab-rl", specifier = "==1.2.0" },
+    { name = "unisim-core", specifier = ">=1.2.0" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "wheel", marker = "extra == 'mujoco'" },
@@ -3820,7 +3820,7 @@ dev = [
 
 [[package]]
 name = "unilab-rl"
-version = "1.1.3"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hydra-core" },
@@ -3836,20 +3836,20 @@ dependencies = [
     { name = "torch", version = "2.11.0+rocm7.2", source = { registry = "https://download.pytorch.org/whl/rocm7.2" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "wandb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/04/7d9158f2e51662da3a694d8a23965918ba42ef40ea06406a1f222e51d37a/unilab_rl-1.1.3.tar.gz", hash = "sha256:2b39a884830f6740b1bdad59a283f47fdd9213149dc75997b11532b96a616a78", size = 148298, upload-time = "2026-09-09T13:52:35.765Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/9d/7a646bc044cadb48cbd1d0c58832faf59e037a45f22432cff2a7ad5a7b01/unilab_rl-1.2.0.tar.gz", hash = "sha256:bb8b1c713b961ea4b24ea72c39d443e057531e71882fa058502af947b98768da", size = 148289, upload-time = "2026-09-10T05:20:52.549Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c4/89/1c17773efa67e952bd93ccc34d2f1e78a745e6e290918305b84b1751c9e6/unilab_rl-1.1.3-py3-none-any.whl", hash = "sha256:7489db2042860bc2cc72c3184a9d2a8f9eaea0c79e06da702b87b4295eb3bdff", size = 183373, upload-time = "2026-09-09T13:52:34.639Z" },
+    { url = "https://files.pythonhosted.org/packages/58/67/0ea1fb5f0c9a7e8604b0415b018deb3286024191a84d357f1b3221d2a41d/unilab_rl-1.2.0-py3-none-any.whl", hash = "sha256:617317dcca581d1af2daec36d50de7214067dd34f5d85a4f02d7cd38de1df611", size = 183372, upload-time = "2026-09-10T05:20:51.254Z" },
 ]
 
 [[package]]
 name = "unisim-core"
-version = "1.1.5"
+version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/11/53/e69401c7363edfdc7e491e32a19074309ad5a6d025faf3c480fcc505a0f3/unisim_core-1.1.5.tar.gz", hash = "sha256:cdde0ffcdd222f2b9ceb40174bf8a7778c160748f2fff3b1c97b004b2f503a6a", size = 252926, upload-time = "2026-09-09T16:19:58.065Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/b7/2cf8626884236d9e14256fa4330b9e04a8a41598867ced1ac4030f827989/unisim_core-1.2.0.tar.gz", hash = "sha256:fccd67edbde98eeb16d2e6f9f5f8ce608dd2790266a673788897cbd9a42fa4ce", size = 253069, upload-time = "2026-09-10T05:19:05.388Z" }
 
 [[package]]
 name = "urllib3"

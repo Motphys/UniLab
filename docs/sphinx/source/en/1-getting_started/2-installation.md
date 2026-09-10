@@ -183,6 +183,7 @@ uv sync --extra mujoco --extra mjwarp --extra newton
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | NVIDIA CUDA and an explicit CUDA process device |
 | Genesis | `uv sync --extra genesis` | The validated path uses Linux x86_64, an NVIDIA GPU, and the pinned torch/Genesis versions |
 | Newton | `uv sync --extra newton` | NVIDIA CUDA; can be combined with the `mujoco` / `mjwarp` extras in one environment |
+| SuperDex | `uv sync --extra superdex` | Published wheels support Linux x86_64 with CPython 3.12/3.13 only; FR3 assets download from Hugging Face on first use (`SUPERDEX_ASSETS_PATH` overrides with a local checkout) |
 | Drake | `make setup-drake` | C++20, Eigen/fmt/spdlog, and an existing Drake prefix or the script's download path |
 | IsaacGym | `bash scripts/tools/setup_isaacgym_env.sh` | Linux x86_64, NVIDIA driver, and a separate Python 3.8 worker environment |
 | IsaacSim | `bash scripts/tools/setup_isaacsim_env.sh` | Linux x86_64, NVIDIA CUDA, a separate Python 3.11 worker, and Kit EULA acceptance |
@@ -198,6 +199,7 @@ runtime variables, renderer requirements, and verification commands:
 - {doc}`Genesis <../2-user_guide/3-backends/5-genesis>`
 - {doc}`Drake <../2-user_guide/3-backends/6-drake>`
 - {doc}`Newton <../2-user_guide/3-backends/7-newton>`
+- {doc}`SuperDex <../2-user_guide/3-backends/8-superdex>`
 - {doc}`IsaacGym <../2-user_guide/3-backends/3-isaacgym>`
 - {doc}`IsaacSim <../2-user_guide/3-backends/4-isaacsim>`
 

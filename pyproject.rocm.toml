@@ -25,10 +25,10 @@ dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
     # unisim-core package from the production PyPI index.
-    "unisim-core>=1.1.5",
+    "unisim-core>=1.2.0",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
-    "unilab-rl==1.1.3",
+    "unilab-rl==1.2.0",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "gymnasium",
