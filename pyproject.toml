@@ -6,9 +6,10 @@ build-backend = "uv_build"
 # Robot meshes/textures are hosted on Hugging Face (unilabsim/unilab-robots)
 # and downloaded into these paths on first use; keep them out of the
 # wheel/sdist even when they exist in the source tree. XML and small metadata
-# stay packaged. Directories must stay in sync with ROBOT_ASSET_SPECS in
-# src/unilab/assets/hub.py.
+# stay packaged. Directories must stay in sync with ROBOT_ASSET_SPECS and
+# SUPERDEX_ROBOT_ASSET_SPECS in src/unilab/assets/hub.py.
 source-exclude = [
+    "/src/unilab/assets/bots",
     "/src/unilab/assets/robots/a2/assets",
     "/src/unilab/assets/robots/allegro_hand/assets",
     "/src/unilab/assets/robots/g1/assets",
@@ -41,12 +42,12 @@ dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
     # unisim-core package from the production PyPI index.
-    "unisim-core>=1.1.5",
+    "unisim-core>=1.2.0",
     # RL algorithms and async runtimes (PPO/APPO/SAC/TD3 runners,
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
     # env contract (uni_rl.env_contract.EnvFactory). Published on PyPI.
-    "unilab-rl==1.1.3",
+    "unilab-rl==1.2.0",
     "numba>=0.67",
     "prettytable>=3.10",
     # torch is a range (not an exact pin) so that published PyPI metadata lets
@@ -164,6 +165,20 @@ genesis = [
     "genesis-world==1.3.3",
 ]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
+# SuperDex Physics/Robotics 1.0.0 ships as published wheels; the exact pins and
+# the temporary superdex-uni build names are owned by unisim-core's superdex
+# extra (they revert to superdex-physics/-robotics once the upstream
+# project_superdex release lands). That extra already carries plain `mujoco`
+# for MJCF conversion and the offline playback renderer; mujoco-uni-runtime is
+# deliberately NOT bound here, since only the MuJoCo physics backend
+# (unisim.backend.mujoco.backend) needs it and UniLab guards that backend on
+# the `mujoco_uni` module. The wheels are CPython 3.12/3.13 Linux x86_64 only,
+# so the marker keeps `uv lock` resolvable for the other
+# required-environments; elsewhere the extra is empty and the CLI reports a
+# targeted runtime diagnostic.
+superdex = [
+    "unisim-core[superdex] ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 
 [dependency-groups]
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]

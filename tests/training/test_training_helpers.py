@@ -8,6 +8,9 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
+
+pytest.importorskip("mujoco_uni")
+
 from unisim.backend.base import RenderClosedError
 from unisim.backend.motrix.backend import MotrixBackend
 from unisim.backend.motrix.playback import run_motrix_playback

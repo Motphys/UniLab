@@ -109,7 +109,10 @@ def _check_load_run(load_run: str) -> None:
 
 
 def _check_runtime_requirements(algo: str, sim: str) -> None:
-    if sim == "mujoco" and find_spec("mujoco") is None:
+    # The MuJoCo physics backend (unisim.backend.mujoco.backend) needs the
+    # mujoco-uni-runtime native binding; plain `mujoco` can also arrive via
+    # other extras (e.g. superdex), so gate on `mujoco_uni` here.
+    if sim == "mujoco" and (find_spec("mujoco") is None or find_spec("mujoco_uni") is None):
         raise SystemExit(
             "sim=mujoco requires the MuJoCo extra. Install it with "
             "`pip install unilab[mujoco]` (or `uv sync --extra mujoco` in a source checkout)."
@@ -134,15 +137,16 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
             from unisim.backend.superdex.dependencies import superdex_dependencies_available
         except ImportError as exc:
             raise SystemExit(
-                "sim=superdex requires the locally linked UniSim SuperDex development checkout; "
+                "sim=superdex requires unisim-core>=1.1.5 with the SuperDex adapter; "
                 "the installed unisim-core does not provide that adapter."
             ) from exc
 
         if not superdex_dependencies_available():
             raise SystemExit(
-                "sim=superdex requires Python 3.12 or 3.13 and the SuperDex Physics/Robotics "
-                "runtime. Install the locally linked UniSim superdex extra in a supported "
-                "Python environment; see the SuperDex backend page for local development setup."
+                "sim=superdex requires Python 3.12 or 3.13 on Linux x86_64 and the "
+                "SuperDex Physics/Robotics runtime. Install it with "
+                "`uv sync --extra superdex` in a source checkout "
+                "(or `pip install unilab[superdex]`)."
             )
     if sim == "motrix" and find_spec("motrixsim") is None:
         raise SystemExit(

@@ -165,6 +165,7 @@ uv sync --extra mujoco --extra mjwarp --extra newton
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | NVIDIA CUDA 和显式 CUDA process device |
 | Genesis | `uv sync --extra genesis` | 已验证路径使用 Linux x86_64、NVIDIA GPU 及固定版本 torch/Genesis |
 | Newton | `uv sync --extra newton` | NVIDIA CUDA；可与 `mujoco` / `mjwarp` extra 组合进同一环境 |
+| SuperDex | `uv sync --extra superdex` | 已发布 wheel 仅支持 Linux x86_64、CPython 3.12/3.13；FR3 资产首次使用时自动从 Hugging Face 下载（`SUPERDEX_ASSETS_PATH` 可指定本地 checkout 覆盖） |
 | Drake | `make setup-drake` | C++20、Eigen/fmt/spdlog，以及已有 Drake prefix 或脚本下载路径 |
 | IsaacGym | `bash scripts/tools/setup_isaacgym_env.sh` | Linux x86_64、NVIDIA driver 和独立 Python 3.8 worker 环境 |
 | IsaacSim | `bash scripts/tools/setup_isaacsim_env.sh` | Linux x86_64、NVIDIA CUDA、独立 Python 3.11 worker 和 Kit EULA 接受 |
@@ -179,6 +180,7 @@ Drake、IsaacGym 和 IsaacSim 的 setup 脚本会将外部 runtime 安装到仓�
 - {doc}`Genesis <../2-user_guide/3-backends/5-genesis>`
 - {doc}`Drake <../2-user_guide/3-backends/6-drake>`
 - {doc}`Newton <../2-user_guide/3-backends/7-newton>`
+- {doc}`SuperDex <../2-user_guide/3-backends/8-superdex>`
 - {doc}`IsaacGym <../2-user_guide/3-backends/3-isaacgym>`
 - {doc}`IsaacSim <../2-user_guide/3-backends/4-isaacsim>`
 

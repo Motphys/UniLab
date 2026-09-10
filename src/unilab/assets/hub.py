@@ -50,9 +50,12 @@ ROBOT_ASSET_SPECS: dict[str, tuple[tuple[str, str, str, str], ...]] = {
     "x2": (("robots/x2/meshes", "pelvis.STL", "*.STL", "STL"),),
 }
 
-# Upstream native robots stay in the user's audited SuperDex asset checkout.
-# This registry deliberately has no download fallback or SDK import. Relative
-# model names in task owners are resolved only beneath the configured root.
+# Native SuperDex robots. When env.superdex_assets_root / SUPERDEX_ASSETS_PATH
+# points at an audited upstream checkout, assets resolve there and nothing is
+# downloaded. Without an explicit root, registered bots are downloaded from the
+# HF robot repo into ASSETS_ROOT_PATH on first use, like every other robot
+# asset. Each entry lists the collision, render and license files that must
+# exist before physics construction.
 SUPERDEX_ROBOT_ASSET_SPECS: dict[str, tuple[str, ...]] = {
     "bots/arms/fr3_v2/fr3_v2.superdex_bot": (
         "LICENSE",
@@ -64,20 +67,44 @@ SUPERDEX_ROBOT_ASSET_SPECS: dict[str, tuple[str, ...]] = {
 
 
 def resolve_superdex_robot_asset(model_file: str, *, assets_root: str | None = None) -> str:
-    """Resolve a registered native robot in a local SuperDex asset checkout.
+    """Resolve a registered native SuperDex robot, downloading from HF if needed.
 
-    ``assets_root`` or ``SUPERDEX_ASSETS_PATH`` points to the upstream ``assets``
-    directory, not the repository root. Required collision, visual and license
-    files are checked before physics construction. No files are downloaded or
-    copied into UniLab's package.
+    ``assets_root`` or ``SUPERDEX_ASSETS_PATH`` points to an audited upstream
+    ``assets`` directory (not the repository root) and takes precedence; in
+    that mode nothing is downloaded. Without an explicit root, registered
+    ``bots/...`` names resolve beneath ``ASSETS_ROOT_PATH`` and are downloaded
+    from the Hugging Face robot repo on first use, like other robot assets.
+    Required collision, visual and license files are checked before physics
+    construction either way.
     """
     root_value = assets_root if assets_root is not None else os.environ.get("SUPERDEX_ASSETS_PATH")
-    if not root_value or not root_value.strip():
-        raise FileNotFoundError(
-            "SuperDex native assets require env.superdex_assets_root or SUPERDEX_ASSETS_PATH "
-            "pointing to the project_superdex/assets directory"
-        )
-    root = Path(root_value).expanduser().resolve()
+    if root_value and root_value.strip():
+        return _resolve_superdex_under_root(model_file, Path(root_value).expanduser().resolve())
+
+    supplied = Path(model_file).expanduser()
+    if supplied.is_absolute():
+        try:
+            relative = supplied.resolve().relative_to(ASSETS_ROOT_PATH.resolve()).as_posix()
+        except ValueError:
+            raise ValueError(
+                f"SuperDex robot asset is not registered: {model_file}. Provide a "
+                "registered bots/... name or set env.superdex_assets_root / "
+                "SUPERDEX_ASSETS_PATH for a local checkout"
+            ) from None
+    else:
+        relative = supplied.as_posix()
+    if relative not in SUPERDEX_ROBOT_ASSET_SPECS:
+        raise ValueError(f"SuperDex robot asset is not registered: {relative}")
+    directory = posixpath.dirname(relative)
+    _resolve_snapshot_dir(
+        directory, repo_id=_HF_ROBOTS_REPO_ID, marker=posixpath.basename(relative)
+    )
+    _check_superdex_asset_completeness(ASSETS_ROOT_PATH, relative)
+    return str(ASSETS_ROOT_PATH / relative)
+
+
+def _resolve_superdex_under_root(model_file: str, root: Path) -> str:
+    """Resolve a registered native robot in an audited local SuperDex checkout."""
     supplied = Path(model_file).expanduser()
     resolved = (supplied if supplied.is_absolute() else root / supplied).resolve()
     try:
@@ -86,17 +113,20 @@ def resolve_superdex_robot_asset(model_file: str, *, assets_root: str | None = N
         raise ValueError(f"SuperDex robot asset must be inside configured root {root}") from exc
     if relative not in SUPERDEX_ROBOT_ASSET_SPECS:
         raise ValueError(f"SuperDex robot asset is not registered: {relative}")
-    required = (
-        resolved,
-        *(resolved.parent / item for item in SUPERDEX_ROBOT_ASSET_SPECS[relative]),
-    )
+    _check_superdex_asset_completeness(root, relative)
+    return str(resolved)
+
+
+def _check_superdex_asset_completeness(root: Path, relative: str) -> None:
+    """Fail before physics construction when a registered bot is incomplete."""
+    base = root / relative
+    required = (base, *(base.parent / item for item in SUPERDEX_ROBOT_ASSET_SPECS[relative]))
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
         raise FileNotFoundError(
-            "SuperDex registered robot asset is incomplete; restore the upstream checkout "
+            "SuperDex registered robot asset is incomplete; restore the asset directory "
             f"including collision/render files and license notices: {', '.join(missing)}"
         )
-    return str(resolved)
 
 
 def resolve_motion_files(

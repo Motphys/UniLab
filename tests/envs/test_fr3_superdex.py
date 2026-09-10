@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import multiprocessing as mp
-import os
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +43,8 @@ def test_fr3_owner_has_torque_control_without_free_root_terms(
     assert list(cfg.observations["policy"].terms) == ["target_error", "joint_vel", "actions"]
     assert cfg.superdex_effort_limits == [20.0] * 4 + [5.0] * 3
     assert cfg.superdex_num_workers == 0
-    assert owner.training.no_play and owner.training.device == "cpu"
+    assert owner.training.play_render_mode == "interactive"
+    assert owner.training.play_env_num == 1 and owner.training.device == "cpu"
     assert "superdex" in cli.SUPPORTED_SIMS
     monkeypatch.setattr(cli, "_check_runtime_requirements", lambda *_: None)
     command = cli.build_command(
@@ -70,10 +70,17 @@ def test_superdex_owner_options_reject_invalid_values(kwargs: dict[str, Any]) ->
 
 
 def _require_runtime() -> None:
-    if not os.environ.get("SUPERDEX_ASSETS_PATH"):
-        pytest.skip("native FR3 integration requires SUPERDEX_ASSETS_PATH")
     pytest.importorskip("superdex.physics")
     pytest.importorskip("superdex.robotics")
+    from unilab.assets.hub import resolve_superdex_robot_asset
+
+    try:
+        resolve_superdex_robot_asset("bots/arms/fr3_v2/fr3_v2.superdex_bot")
+    except Exception as exc:  # noqa: BLE001 - any resolution failure means skip
+        pytest.skip(
+            "native FR3 integration needs the FR3 assets: allow Hugging Face download "
+            f"or set SUPERDEX_ASSETS_PATH to a local checkout ({exc})"
+        )
 
 
 def test_fr3_native_rollout_and_selected_reset() -> None:

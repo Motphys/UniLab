@@ -9,6 +9,7 @@ under ``src/unilab/assets/robots/<robot>/`` — no manual file moving needed.
 Usage:
   uv run unilab-pull-assets               # pull the default robot (x2)
   uv run unilab-pull-assets --robot g1
+  uv run unilab-pull-assets --robot fr3_v2   # SuperDex native bot
   uv run unilab-pull-assets --robot all   # pull every registered robot
 """
 
@@ -20,7 +21,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from unilab.assets.hub import ROBOT_ASSET_SPECS, resolve_robot_asset_dir
+from unilab.assets.hub import (
+    ROBOT_ASSET_SPECS,
+    SUPERDEX_ROBOT_ASSET_SPECS,
+    resolve_robot_asset_dir,
+    resolve_superdex_robot_asset,
+)
 
 _ALL = "all"
 
@@ -30,6 +36,14 @@ class _AssetSummary:
     target: Path
     count: int
     label: str
+
+
+def _superdex_bot_names() -> dict[str, str]:
+    """Map a short bot name (``fr3_v2``) to its ``SUPERDEX_ROBOT_ASSET_SPECS`` key."""
+    return {
+        key.rsplit("/", 1)[-1].replace(".superdex_bot", ""): key
+        for key in SUPERDEX_ROBOT_ASSET_SPECS
+    }
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -49,10 +63,16 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def _sorted_robots() -> list[str]:
-    return sorted(ROBOT_ASSET_SPECS)
+    return sorted(ROBOT_ASSET_SPECS) + sorted(_superdex_bot_names())
 
 
 def _pull_robot(robot: str) -> list[_AssetSummary]:
+    superdex_bots = _superdex_bot_names()
+    if robot in superdex_bots:
+        resolved = resolve_superdex_robot_asset(superdex_bots[robot])
+        target = Path(resolved).parent
+        count = sum(1 for path in target.rglob("*") if path.is_file())
+        return [_AssetSummary(target=target, count=count, label="asset")]
     summaries: list[_AssetSummary] = []
     for directory, marker, pattern, label in ROBOT_ASSET_SPECS[robot]:
         target = resolve_robot_asset_dir(directory, marker=marker, show_progress=False)

@@ -7,8 +7,8 @@ training:
   task_name: FR3JointTarget
   sim_backend: superdex
   device: cpu
-  no_play: true
-  play_render_mode: none
+  play_render_mode: interactive
+  play_env_num: 1
 
 algo:
   num_envs: 2

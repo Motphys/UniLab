@@ -13,6 +13,47 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 
 ## Unreleased / 未发布
 
+- Update the required `unisim-core` release to `>=1.2.0` and the pinned
+  `unilab-rl` release to `==1.2.0`, including the ROCm profile.
+  将必需的 `unisim-core` 版本更新为 `>=1.2.0`，并将钉定的 `unilab-rl` 版本更新为
+  `==1.2.0`，ROCm 配置档同步更新。
+
+- Host the FR3 SuperDex native bot assets (collision SDF, render GLB, license)
+  on the Hugging Face dataset
+  [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots),
+  consistent with the other robot mesh assets. The asset hub downloads the
+  `bots/arms/fr3_v2` snapshot into `src/unilab/assets/` on first use, and
+  `uv run unilab-pull-assets --robot fr3_v2` pre-fetches it;
+  `SUPERDEX_ASSETS_PATH` / `env.superdex_assets_root` remain as overrides for
+  auditing a local `project_superdex` checkout and take precedence without
+  downloading.
+  FR3 SuperDex 原生 bot 资产（collision SDF、render GLB、许可证）改为托管在
+  Hugging Face 数据集
+  [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots)，
+  与其他机器人 mesh 资产的处理方式一致。asset hub 首次使用时自动把
+  `bots/arms/fr3_v2` 快照下载到 `src/unilab/assets/`，也可用
+  `uv run unilab-pull-assets --robot fr3_v2` 预拉取；
+  `SUPERDEX_ASSETS_PATH` / `env.superdex_assets_root` 保留为审计本地
+  `project_superdex` checkout 的覆盖方式，优先级更高且不会触发下载。
+
+- Add a `superdex` optional extra (`uv sync --extra superdex` or
+  `pip install "unilab[superdex]"`) that pulls the published SuperDex
+  Physics/Robotics 1.0.0 wheels (CPython 3.12/3.13, Linux x86_64) through
+  `unisim-core[superdex]`, replacing the temporary source-build setup. The
+  `sim=mujoco` runtime check now guards on the `mujoco_uni` binding, since
+  plain `mujoco` also arrives with the superdex extra.
+  SuperDex native interactive playback crashing on the first rendered frame
+  (`eval --sim superdex --render-mode interactive`) was first fixed in
+  `unisim-core` 1.1.6; the required release line is now `>=1.2.0`.
+  新增 `superdex` optional extra（`uv sync --extra superdex` 或
+  `pip install "unilab[superdex]"`），通过 `unisim-core[superdex]`
+  安装已发布的 SuperDex Physics/Robotics 1.0.0 wheel（CPython 3.12/3.13、
+  Linux x86_64），取代临时的源码编译安装方式。`sim=mujoco` 的运行时检查
+  改为检查 `mujoco_uni` 绑定，因为普通 `mujoco` 包也会随 superdex extra
+  装入。SuperDex 原生 interactive 回放首帧渲染崩溃的问题
+  （`eval --sim superdex --render-mode interactive`）最早在 `unisim-core`
+  1.1.6 修复；当前必需的版本线为 `>=1.2.0`。
+
 - Go2 arm manipulation/locomotion, its legacy helpers, assets, tools and HIM-PPO
   owners moved to [legged-manipulation_unilab](https://github.com/unilabsim/legged-manipulation_unilab)
   under [#1528](https://github.com/unilabsim/UniLab/issues/1528). Dedicated source
