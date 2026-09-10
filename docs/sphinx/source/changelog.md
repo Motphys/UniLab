@@ -13,6 +13,8 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 
 ## Unreleased / 未发布
 
+## 1.2.0 (2026-09-10)
+
 - Update the required `unisim-core` release to `>=1.2.0` and the pinned
   `unilab-rl` release to `==1.2.0`, including the ROCm profile.
   将必需的 `unisim-core` 版本更新为 `>=1.2.0`，并将钉定的 `unilab-rl` 版本更新为
@@ -62,6 +64,15 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
   Per maintainer instruction, this migration does not change repository versions
   or publish a release; consumers use the coordinated migration commits.
   按维护者要求，本次不修改仓库版本号、不发布新版本，消费方固定配套迁移提交。
+
+- The FR3 SuperDex owner defaults play to the native interactive viewer
+  (`play_render_mode=interactive`, `play_env_num=1`). Record (video) playback
+  stays unavailable for the `.superdex_bot` asset, which carries no MJCF
+  visual model; use `training.play_render_mode=none` for headless runs.
+  FR3 SuperDex owner 的 play 默认改为 native interactive viewer
+  （`play_render_mode=interactive`，`play_env_num=1`）。`.superdex_bot` 资产没有
+  MJCF visual model，record（视频）回放仍不可用；无显示环境使用
+  `training.play_render_mode=none`。
 
 ## 1.1.0 (2026-09-06)
 
