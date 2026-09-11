@@ -1,14 +1,21 @@
-"""CPU affinity wiring tests for the MuJoCo BatchEnvPool adapter (issue #959).
+"""CPU affinity wiring tests for the MuJoCo backend on the mjbatch engine (#959, #1554).
 
 Covers the UniLab side of the contract: ``EnvCfg.cpu_ids`` validation,
 ``env_backend_kwargs``/``create_backend`` routing, cold-path validation in
-``MuJoCoBackend``, and the actual worker pinning exposed by mujoco-uni.
+``MuJoCoBackend``, and the pool wiring mjbatch exposes.
+
+The mjbatch fork pins workers inside ``Batch`` construction and exposes no
+per-worker introspection (no ``pool.cpu_ids``/``worker_cpu_ids()``), so the
+pool-level tests assert constructor/wiring behavior — materializing a pool
+with pins succeeds and the worker count follows the pin list — rather than
+observed per-thread affinity.
 """
 
 import inspect
 import os
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
@@ -54,7 +61,6 @@ def _build_small_backend(**backend_kwargs):
         num_envs=_NUM_ENVS,
         sim_dt=0.01,
         base_name=_BASE_NAME,
-        adaptive_chunk_size=False,
         **backend_kwargs,
     )
     backend.materialize()
@@ -103,7 +109,6 @@ def test_create_backend_routes_cpu_ids():
         _NUM_ENVS,
         0.01,
         base_name=_BASE_NAME,
-        adaptive_chunk_size=False,
         cpu_ids=cpu_ids,
     )
     assert isinstance(backend, MuJoCoBackend)
@@ -124,14 +129,19 @@ def test_backend_rejects_invalid_cpu_ids_on_cold_path(cpu_ids):
 
 
 def test_workers_pinned_to_configured_cpus():
+    """Materializing a pool with pins succeeds and the worker count follows.
+
+    mjbatch applies the pinning inside ``Batch`` construction (worker i to
+    ``cpu_ids[i]``) and exposes no per-worker query, so the observable contract
+    here is wiring-level: the pool builds with exactly ``len(cpu_ids)``
+    threads and stays usable.
+    """
     cpu_ids = _AVAILABLE_CPUS[:2]
     backend = _build_small_backend(cpu_ids=cpu_ids)
-    try:
-        # Configured mapping is queryable and workers were observed on those CPUs.
-        assert tuple(backend._pool.cpu_ids) == tuple(cpu_ids)
-        assert backend._pool.worker_cpu_ids() == tuple(cpu_ids)
-    finally:
-        backend._pool.close()
+    assert backend._pool.num_threads == len(cpu_ids)
+    nu = backend._model.nu
+    backend.step(np.zeros((_NUM_ENVS, nu), dtype=np.float64), nsteps=1)
+    assert np.all(np.isfinite(backend.get_dof_pos()))
 
 
 def test_unavailable_cpu_id_fails_at_pool_creation():
@@ -149,12 +159,11 @@ def test_unavailable_cpu_id_fails_at_pool_creation():
 
 def test_default_path_keeps_os_scheduling():
     backend = _build_small_backend()
-    try:
-        assert backend._cpu_ids is None
-        assert backend._pool.cpu_ids is None
-        assert backend._pool.worker_cpu_ids() == ()
-    finally:
-        backend._pool.close()
+    assert backend._cpu_ids is None
+    assert backend._pool.num_threads == backend._n_threads
+    nu = backend._model.nu
+    backend.step(np.zeros((_NUM_ENVS, nu), dtype=np.float64), nsteps=1)
+    assert np.all(np.isfinite(backend.get_dof_pos()))
 
 
 def test_default_nthread_sized_to_effective_cpus():
@@ -180,3 +189,35 @@ def test_default_nthread_capped_by_num_envs():
     # num_envs caps the pool size, but the effective-CPU cap wins first on
     # single-core hosts (e.g. ubuntu-slim CI runners).
     assert backend._n_threads == min(len(os.sched_getaffinity(0)), 2)
+
+
+def test_hot_path_does_no_xml_parse(monkeypatch):
+    """Step/reset must not parse asset/XML — an architecture contract.
+
+    Moved here from the deleted ``test_mujoco_chunk_size_wiring.py`` (#1554).
+    Install all parse spies AFTER the cold-path materialize so only hot-path
+    (step) parses are counted. Spy multiple XML entrypoints, not just MjSpec.
+    """
+    import mujoco
+
+    backend = _build_small_backend()  # cold path done
+
+    spec_calls = {"n": 0}
+    model_calls = {"n": 0}
+    orig_from_file = mujoco.MjSpec.from_file
+    orig_from_xml_path = mujoco.MjModel.from_xml_path
+
+    def _counting_from_file(*a, **k):
+        spec_calls["n"] += 1
+        return orig_from_file(*a, **k)
+
+    def _counting_from_xml_path(*a, **k):
+        model_calls["n"] += 1
+        return orig_from_xml_path(*a, **k)
+
+    monkeypatch.setattr(mujoco.MjSpec, "from_file", staticmethod(_counting_from_file))
+    monkeypatch.setattr(mujoco.MjModel, "from_xml_path", staticmethod(_counting_from_xml_path))
+    nu = backend._model.nu
+    backend.step(np.zeros((backend.num_envs, nu), dtype=np.float64), nsteps=1)
+    assert spec_calls["n"] == 0
+    assert model_calls["n"] == 0
