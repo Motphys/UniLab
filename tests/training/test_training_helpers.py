@@ -768,9 +768,14 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
     assert captured["fps"] == 20
 
 
-def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_export(
+def test_render_play_mode_uses_visual_playback_model_for_video_export(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+    """Video export resolves ONE visual model for every env (#1554).
+
+    The mjbatch executor has no per-env model variants, so playback renders
+    against a single visual model file instead of a per-env list.
+    """
     import mujoco
 
     captured: dict[str, object] = {}
@@ -798,22 +803,13 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
                 {"ctrl_dt": 0.05, "scene": SceneCfg(model_file=str(visual_model_path))},
             )()
             self.snapshot_calls = 0
-            self._models = [
-                mujoco.MjModel.from_xml_string(
-                    "<mujoco><worldbody><body><geom name='object' type='box' size='0.1 0.1 0.1'/></body></worldbody></mujoco>"
-                ),
-                mujoco.MjModel.from_xml_string(
-                    "<mujoco><worldbody><body><geom name='object' type='box' size='0.2 0.2 0.2'/></body></worldbody></mujoco>"
-                ),
-            ]
 
         def get_physics_state_snapshot(self) -> np.ndarray:
             self.snapshot_calls += 1
             return np.full((2, 2), self.snapshot_calls, dtype=np.float32)
 
         def get_playback_model(self, env_index: int | None = None):
-            idx = 0 if env_index is None else int(env_index)
-            return self._models[idx]
+            raise AssertionError("one visual model serves every env; no per-env lookup")
 
         def run_playback(self, **kwargs):
             kwargs = _resolve_low_level_playback_flags(kwargs)
@@ -825,21 +821,12 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
         del kwargs
         captured["states"] = state_list
         captured["model_file"] = model_file
-        assert isinstance(model_file, list)
-        model0 = mujoco.MjModel.from_binary_path(model_file[0])
-        model1 = mujoco.MjModel.from_binary_path(model_file[1])
-        object0 = mujoco.mj_name2id(model0, mujoco.mjtObj.mjOBJ_GEOM, "object")
-        object1 = mujoco.mj_name2id(model1, mujoco.mjtObj.mjOBJ_GEOM, "object")
-        hand0 = mujoco.mj_name2id(model0, mujoco.mjtObj.mjOBJ_GEOM, "hand_geom")
-        hand1 = mujoco.mj_name2id(model1, mujoco.mjtObj.mjOBJ_GEOM, "hand_geom")
-        ground0 = mujoco.mj_name2id(model0, mujoco.mjtObj.mjOBJ_GEOM, "ground")
-        ground1 = mujoco.mj_name2id(model1, mujoco.mjtObj.mjOBJ_GEOM, "ground")
-        captured["object0_size"] = model0.geom_size[object0].copy()
-        captured["object1_size"] = model1.geom_size[object1].copy()
-        captured["hand0_size"] = model0.geom_size[hand0].copy()
-        captured["hand1_size"] = model1.geom_size[hand1].copy()
-        captured["ground0_size"] = model0.geom_size[ground0].copy()
-        captured["ground1_size"] = model1.geom_size[ground1].copy()
+        assert isinstance(model_file, str)
+        rendered = mujoco.MjModel.from_xml_path(model_file)
+        hand = mujoco.mj_name2id(rendered, mujoco.mjtObj.mjOBJ_GEOM, "hand_geom")
+        ground = mujoco.mj_name2id(rendered, mujoco.mjtObj.mjOBJ_GEOM, "ground")
+        captured["hand_size"] = rendered.geom_size[hand].copy()
+        captured["ground_size"] = rendered.geom_size[ground].copy()
         return [np.zeros((2, 2, 3), dtype=np.uint8)]
 
     monkeypatch.setattr(
@@ -866,13 +853,9 @@ def test_render_play_mode_uses_visualized_per_env_playback_models_for_video_expo
 
     assert result == str(output_path)
     assert env.snapshot_calls == 2
-    assert isinstance(captured["model_file"], list)
-    model_files = captured["model_file"]
-    assert len(model_files) == 2
-    np.testing.assert_allclose(captured["object0_size"], [0.1, 0.1, 0.1])
-    np.testing.assert_allclose(captured["object1_size"], [0.2, 0.2, 0.2])
-    np.testing.assert_allclose(captured["hand0_size"], captured["hand1_size"])
-    np.testing.assert_allclose(captured["ground0_size"], captured["ground1_size"])
+    assert captured["model_file"] == str(visual_model_path)
+    np.testing.assert_allclose(captured["hand_size"], [0.05, 0.05, 0.05])
+    np.testing.assert_allclose(captured["ground_size"], [2.0, 2.0, 0.1])
 
 
 def test_render_play_mode_requires_env_snapshot_contract_for_video_export(tmp_path: Path):
