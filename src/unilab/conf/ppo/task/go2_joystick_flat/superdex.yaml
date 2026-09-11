@@ -26,7 +26,6 @@ env:
         lin_vel_x: [0.5, 0.5]
         lin_vel_y: [0.0, 0.0]
         ang_vel_z: [0.0, 0.0]
-  adaptive_chunk_size: false
   superdex_num_workers: 0
   superdex_allow_contact_approximation: true
   events:

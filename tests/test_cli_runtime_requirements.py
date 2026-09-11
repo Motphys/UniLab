@@ -12,12 +12,12 @@ def test_check_runtime_requirements_requires_mujoco_extra(monkeypatch: pytest.Mo
         cli._check_runtime_requirements("ppo", "mujoco")
 
 
-def test_check_runtime_requirements_mujoco_needs_the_uni_runtime(
+def test_check_runtime_requirements_mujoco_needs_mjbatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Plain `mujoco` can arrive via other extras (e.g. superdex); the MuJoCo
-    # physics backend is only usable with the mujoco-uni-runtime binding.
-    monkeypatch.setattr(cli, "find_spec", lambda name: None if name == "mujoco_uni" else object())
+    # physics backend is only usable with the mjbatch batch engine.
+    monkeypatch.setattr(cli, "find_spec", lambda name: None if name == "mjbatch" else object())
 
     with pytest.raises(SystemExit, match="sim=mujoco requires the MuJoCo extra"):
         cli._check_runtime_requirements("ppo", "mujoco")

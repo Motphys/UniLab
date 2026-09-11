@@ -15,6 +15,10 @@ import pytest
 import torch
 
 pytest.importorskip("mujoco")
+pytest.importorskip(
+    "unisim.backend.mujoco.backend",
+    reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 

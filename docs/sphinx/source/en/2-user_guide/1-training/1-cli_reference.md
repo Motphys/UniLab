@@ -45,16 +45,14 @@ completion:
 # Full default environment (MuJoCo + Motrix):
 make setup
 
-# MuJoCo only:
-# make setup-mujoco
-
 # Motrix only (the shortest path for Motrix demos):
 # make setup-motrix
 ```
 
 `make setup` runs `uv sync --extra mujoco --extra motrix` followed by
-`uv run --no-sync unilab-complete install`; `make setup-mujoco` and
-`make setup-motrix` select only their named extra and install the same completion.
+`uv run --no-sync unilab-complete install`; `make setup-motrix` selects only
+the Motrix extra and installs the same completion; use bare
+`uv sync --extra mujoco` for a MuJoCo-only environment.
 Choose one setup path for an environment. The install command picks Bash or Zsh
 from `$SHELL` / platform and only writes user-level rc files. The current shell
 is not auto-activated; reopen the terminal or source the rc file to apply.

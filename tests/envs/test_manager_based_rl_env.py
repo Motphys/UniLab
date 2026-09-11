@@ -938,6 +938,10 @@ def test_named_keyframe_snapshot_is_shared_by_entity_and_reset_cold_path() -> No
 
 
 def test_real_mujoco_backend_is_materialized_before_first_reset() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     scene = SceneCfg(
         model_file=str(ASSETS_ROOT_PATH / "robots" / "go2" / "scene_flat.xml"),
         entities={"robot": EntityCfg(root_body_name="base")},
@@ -990,6 +994,10 @@ def test_real_mujoco_default_state_matches_qpos0_or_named_home(
     expected_root_z: float,
     expected_joint_pos: np.ndarray,
 ) -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     joint_names = (
         "FL_hip_joint",
         "FL_thigh_joint",

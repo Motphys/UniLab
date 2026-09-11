@@ -10,14 +10,15 @@ live in the getting-started and algorithm pages.
 - Git and `curl`, used to clone the repository and fetch runtime assets.
 - `cmake`, required when building the Drake native batch extension. The Drake
   setup script uses CMake and a C++ toolchain.
-- For the `mujoco` extra: the default install path uses the prebuilt
-  `mujoco-uni-runtime` wheel (bound to `mujoco==3.11.0`), so
-  `make setup` / `uv sync --extra mujoco` needs no compiler. A C++17 toolchain
-  and Python development headers are only required on the explicit
-  source-rebuild path (switching the MuJoCo version; see "Switching The Local
-  MuJoCo Version"); without them the build fails with errors such as
-  `fatal error: Python.h: No such file or directory` (see "Install Error
-  Signatures" for the full lookup table).
+- For the `mujoco` extra: the MuJoCo physics backend executes on the
+  `mjbatch` native batch engine, currently consumed from the pinned
+  integration fork (`unilabsim/mjbatch`). uv builds it from the pinned git
+  source with an isolated build (scikit-build-core + nanobind), which requires
+  a C++17 toolchain and Python development headers; the build binds
+  `mujoco==3.11.0` and the engine refuses to import against any other mujoco
+  version. A no-compiler install path depends on the fork's final distribution
+  channel (prebuilt wheels vs the git pin), which is the roadmap's open item
+  (see "Switching The Local MuJoCo Version" and "Install Error Signatures").
   - macOS: `xcode-select --install`
   - Ubuntu / Debian: `sudo apt-get install build-essential python3-dev`
   - Fedora / RHEL: `sudo dnf install gcc-c++ make python3-devel`
@@ -61,16 +62,12 @@ make setup
 
 # Fastest path for the first Motrix demo.
 # make setup-motrix
-
-# MuJoCo only.
-# make setup-mujoco
 ```
 
 `make setup` runs `uv sync --extra mujoco --extra motrix` and installs shell
 completion. `make setup-motrix` runs `uv sync --extra motrix` and installs the
-same completion entry. `make setup-mujoco` runs `uv sync --extra mujoco` and
-installs completion. Run only one of these paths. If `make` is unavailable, run
-the matching commands directly:
+same completion entry. Run only one of these paths. If `make` is unavailable,
+run the matching commands directly:
 
 ```bash
 # Full default setup:
@@ -79,16 +76,13 @@ uv run --no-sync unilab-complete install
 
 # Motrix only:
 # uv sync --extra motrix && uv run --no-sync unilab-complete install
-
-# MuJoCo only:
-# uv sync --extra mujoco && uv run --no-sync unilab-complete install
 ```
 
 ## Conda And Pip
 
 The recommended path is still the in-repo `make setup` / `make setup-motrix` (or
-`uv`) workflow. Use `make setup-mujoco` when Motrix is not needed. Conda can
-serve as an outer environment for Python, CUDA, or system-library isolation,
+`uv`) workflow. Use `uv sync --extra mujoco` when Motrix is not needed. Conda
+can serve as an outer environment for Python, CUDA, or system-library isolation,
 but once the environment is active keep using the repository's `make` / `uv`
 commands inside it:
 
@@ -101,8 +95,8 @@ cd UniLab
 make setup-motrix
 ```
 
-Use `make setup-mujoco` if you do not need Motrix. ROCm and XPU still go through
-the platform-specific `make` targets below.
+Use `uv sync --extra mujoco` if you do not need Motrix. ROCm and XPU still go
+through the platform-specific `make` targets below.
 
 From a source checkout, pip is a fallback path. Install the package first, then
 add optional runtimes explicitly:
@@ -117,19 +111,17 @@ pip install -e .
 # Motrix, when needed:
 pip install motrixsim-core==0.8.2
 
-# MuJoCo, when needed (the default install resolves the prebuilt wheel bound
-# to mujoco==3.11.0):
-pip install "mujoco~=3.11.0" "mujoco-uni-runtime==0.5.0"
+# MuJoCo, when needed (resolves the pinned mjbatch integration fork, built
+# against mujoco==3.11.0):
+pip install "mujoco~=3.11.0" "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@473bba9"
 ```
 
 The editable install points at the checkout; the regular install copies the
 package and its task configs (`unilab/conf/`) into the environment. In both
 cases, `train`, `eval`, and `demo` work from any directory, while logs and
-checkpoints are written under the current working directory. The prebuilt
-`mujoco-uni-runtime` wheel installs directly through pip with no build step;
-`pybind11` / `wheel` and `--no-build-isolation` are only needed when forcing an
-sdist rebuild against a non-default mujoco version (see "Switching The Local
-MuJoCo Version"). For MJWarp, Genesis, platform-specific torch indexes, and
+checkpoints are written under the current working directory. The `mjbatch`
+engine builds against the pinned `mujoco==3.11.0`; for MJWarp, Genesis,
+platform-specific torch indexes, and
 ROCm/XPU profiles, prefer the uv paths above. Robot meshes and
 textures are intentionally excluded from the wheel and downloaded on the cold
 path from the `unilabsim/unilab-robots` dataset. Ensure the installed package
@@ -178,7 +170,7 @@ uv sync --extra mujoco --extra mjwarp --extra newton
 
 | Backend | Install path | Important prerequisites |
 | --- | --- | --- |
-| MuJoCo | `make setup-mujoco` or `uv sync --extra mujoco` | Prebuilt wheel (bound to `mujoco==3.11.0`), no compiler needed; a C++17 toolchain and Python development headers are only required when switching versions (`make mujoco MJ=<version>`) |
+| MuJoCo | `make setup` or `uv sync --extra mujoco` | Builds the pinned `mjbatch` fork (bound to `mujoco==3.11.0`) from source; a C++17 toolchain and Python development headers are required until prebuilt wheels exist (roadmap open item) |
 | Motrix | `make setup-motrix` or `uv sync --extra motrix` | Motrix runtime is installed from the pinned Python package |
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | NVIDIA CUDA and an explicit CUDA process device |
 | Genesis | `uv sync --extra genesis` | The validated path uses Linux x86_64, an NVIDIA GPU, and the pinned torch/Genesis versions |
@@ -205,44 +197,23 @@ runtime variables, renderer requirements, and verification commands:
 
 ## Switching The Local MuJoCo Version
 
-The default install path of the `mujoco` extra uses the prebuilt
-`mujoco-uni-runtime==0.5.0` wheel. Each runtime release carries exactly one
-prebuilt MuJoCo binding: the 0.5.0 wheels are compiled against
-`mujoco==3.11.0`, and the native extension records its build-time mujoco
-version and refuses to load on a mismatch (see the watchdog row in "Install
-Error Signatures"). A bump of the default MuJoCo version therefore always
-ships with a new runtime release; the coordination details live in the
-mujoco-uni-runtime repository's `docs/release-coordination.md`.
+The `mujoco` extra declares `mujoco~=3.11.0`, and the `mjbatch` batch engine
+is built against `mujoco==3.11.0`: it records its build-time mujoco version
+and refuses to import against a different one (see the watchdog row in
+"Install Error Signatures"). Switching the local MuJoCo version therefore
+requires an `mjbatch` build against that version — it is not a UniLab config
+change:
 
-Switching the MuJoCo version inside the support window `>=3.5,<3.12` always
-takes the source-rebuild path:
+1. bump the `mujoco` bound and the `mjbatch` source pin in `pyproject.toml`
+   (and mirror `pyproject.rocm.toml`),
+2. re-lock (`uv lock`, plus the ROCm lockfile via `make sync-rocm`) and
+   re-sync (`uv sync --extra mujoco`).
 
-```bash
-make mujoco MJ=3.10.0
-```
-
-The `mujoco` extra declares `mujoco~=3.11.0`, which a re-lock can never leave,
-so the target operates on the environment directly (`uv pip`, without touching
-`uv.lock`). It runs, in order:
-
-1. the `check-cxx-toolchain` preflight: fails fast when no C++ compiler is
-   found and prints per-platform install commands;
-2. `uv pip install "mujoco==3.10.0" pybind11 wheel setuptools`: installs the
-   requested mujoco plus the runtime's build requirements into the current
-   environment;
-3. `uv cache clean mujoco-uni-runtime`: drops the build cache (uv's cache
-   cannot see that the extension depends on the mujoco version);
-4. `uv pip install --force-reinstall --no-deps --no-build-isolation
-   --no-binary mujoco-uni-runtime "mujoco-uni-runtime==<installed version>"`:
-   recompiles the native extension from the sdist against the new mujoco.
-
-The override is **environment-local**: `uv.lock` stays unchanged. The
-switch-back path is `uv sync --extra mujoco --reinstall-package
-mujoco-uni-runtime`, which restores the locked default (mujoco 3.11.0 +
-prebuilt wheel); the `--reinstall-package` flag is required because a plain
-`uv sync` restores mujoco but keeps the locally rebuilt extension, which then
-fails to load. The source rebuild requires a C++17 toolchain and Python
-development headers (see "Requirements").
+The fork's build pins `mujoco==3.11.0` at build time, so the isolated build
+always compiles against the matching mujoco. Until the fork's distribution
+identity is decided (PyPI package vs git pin — the roadmap's open item),
+coordinate version bumps with the
+[fork](https://github.com/unilabsim/mjbatch).
 
 ## Install Error Signatures
 
@@ -250,12 +221,9 @@ Reverse-lookup from error text to cause and fix.
 
 | Error signature | Where it comes from | Fix |
 | --- | --- | --- |
-| `error: building mujoco-uni-runtime from source requires a C++ toolchain, but 'c++' was not found.` | The `check-cxx-toolchain` preflight of `make mujoco MJ=<version>` | Install a C++ toolchain and retry: Debian/Ubuntu `sudo apt-get install build-essential`; macOS `xcode-select --install`; Fedora/RHEL `sudo dnf install gcc-c++ make` |
-| `error: [Errno 2] No such file or directory: 'c++'` (or `c++: No such file or directory`) | Building `mujoco-uni-runtime` from the sdist without a compiler; only occurs on the source-rebuild path — the default wheel path never compiles | Same toolchain install as above; or do not switch versions and use the default wheel path `uv sync --extra mujoco` |
-| `fatal error: Python.h: No such file or directory` | Missing Python development headers during a source rebuild | A uv-managed Python (`uv python install`) bundles the headers; system Pythons need `python3-dev` (Debian/Ubuntu) or `python3-devel` (Fedora/RHEL) |
-| `MuJoCoUni native batch extension was built against mujoco '3.11.0', but loaded mujoco is '...'` | Version watchdog: the extension's recorded build-time mujoco version does not match the loaded mujoco | Install the mujoco version the extension binds (the prebuilt wheel binds `3.11.0`: `uv sync --extra mujoco --reinstall-package mujoco-uni-runtime`); or rebuild from source against the active mujoco: `make mujoco MJ=<version>` |
-| `mujoco_uni 0.5.0 supports official mujoco>=3.5,<3.12; found mujoco '...'` | The installed mujoco is outside the runtime's support window | Install a mujoco version inside `>=3.5,<3.12` (`make mujoco MJ=<version>`) |
-| `MuJoCoUni native batch extension has not been built` | The native extension failed to import (`mujoco_uni.batch_available()` returns `False`); a common cause is a plain `uv sync` after a version switch, which restores mujoco but keeps the locally rebuilt extension linked to the old `libmujoco.so` | Run `uv run python -c "import mujoco_uni; print(mujoco_uni.batch_import_error())"` for the underlying cause; after a version switch, restore the prebuilt wheel with `uv sync --extra mujoco --reinstall-package mujoco-uni-runtime` |
+| `fatal error: Python.h: No such file or directory` | Missing Python development headers while uv builds the `mjbatch` fork from source | A uv-managed Python (`uv python install`) bundles the headers; system Pythons need `python3-dev` (Debian/Ubuntu) or `python3-devel` (Fedora/RHEL) |
+| `error: [Errno 2] No such file or directory: 'c++'` (or `c++: No such file or directory`) | Building `mjbatch` from the pinned git source without a compiler | Install a C++ toolchain (see "Requirements") and retry `uv sync --extra mujoco` |
+| `mjbatch was built against MuJoCo <version> but <other> is installed` | Version watchdog: the engine's build-time mujoco pin does not match the installed mujoco | Restore the locked pair with `uv sync --extra mujoco`; a different mujoco version requires an `mjbatch` rebuild (see "Switching The Local MuJoCo Version") |
 
 ## Platform Profiles
 
@@ -269,10 +237,12 @@ uses the `mjpython` application bundled by the official MuJoCo wheel. Torch's
 `cuda` alias resolves to MPS when CUDA is absent.
 
 On Windows, use the direct `uv sync` commands from above unless GNU `make` and
-Bash are available. The default install uses the prebuilt wheel; MSVC Build
-Tools and Python development headers are only needed when rebuilding the MuJoCo
-native extension from source (version switch). If you want to use the Makefile,
-install GNU Make and Bash separately (for example through Chocolatey or WSL).
+Bash are available. The `mjbatch` engine does not ship Windows wheels (the
+official `mujoco.dll` provides no import library), so the MuJoCo physics
+backend stays Linux/macOS-only there; plain `mujoco` (MJCF conversion,
+playback rendering via other backends) still installs. If you want to use the
+Makefile, install GNU Make and Bash separately (for example through Chocolatey
+or WSL).
 
 ROCm and Intel XPU have explicit Makefile targets:
 

@@ -116,6 +116,10 @@ def _newton_runtime_available() -> bool:
 def _require_backend(backend_type: str) -> None:
     if backend_type == "mujoco":
         pytest.importorskip("mujoco", reason="mujoco not installed")
+        pytest.importorskip(
+            "unisim.backend.mujoco.backend",
+            reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+        )
     elif backend_type == "motrix":
         pytest.importorskip("motrixsim", reason="motrixsim not installed")
     elif backend_type == "mjwarp":
@@ -397,6 +401,11 @@ def test_root_qvel_body_angular_contract_reads_back_world_velocity(backend_type:
 
 def test_mujoco_root_layout_resolves_a_nonfirst_free_joint() -> None:
     import mujoco
+
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     from unisim.backend.mujoco.backend import MuJoCoBackend
 
     model = mujoco.MjModel.from_xml_string(

@@ -70,17 +70,16 @@ drake = [
 mujoco = [
     # MuJoCo 3.11 alignment (unilabsim/UniLab#1515): the bound is a
     # compatible-release specifier; uv.rocm.lock pins the exact MuJoCo
-    # version, and the `mujoco-uni-runtime` pin is exact because each runtime
-    # release carries exactly one prebuilt MuJoCo binding (its 0.5.0 wheels
-    # bind mujoco==3.11.0; the runtime supports >=3.5,<3.12 via sdist
-    # rebuilds). Switch via `make mujoco MJ=<version>` (source rebuild path).
+    # version. The MuJoCo physics backend (unisim.backend.mujoco.backend)
+    # executes on the mjbatch native batch engine, which is built and
+    # version-checked against mujoco==3.11.0 — switching MuJoCo versions
+    # requires an mjbatch rebuild, not a UniLab config change. mjbatch is
+    # consumed from the integration fork until its distribution identity
+    # (PyPI name vs git pin) is decided on the roadmap (#1552 open maintainer
+    # item); its build backend pins mujoco==3.11.0 at build time, so isolated
+    # builds are correct and no compiler preflight is needed.
     "mujoco~=3.11.0",
-    "mujoco-uni-runtime==0.5.0",
-    # pybind11/wheel are build requirements of the mujoco-uni-runtime sdist
-    # fallback build (see no-build-isolation-package below); the default
-    # install path uses the prebuilt wheel and never invokes them.
-    "pybind11>=2.12",
-    "wheel",
+    "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@473bba9",
 ]
 motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
@@ -109,15 +108,6 @@ exclude-dependencies = [
     "nvidia-cuda-runtime-cu12",
     "nvidia-cudnn-cu12",
 ]
-# Only relevant if mujoco-uni-runtime is ever built from its sdist inside
-# this project: the native extension must be compiled against the mujoco
-# version installed in this environment rather than in an isolated build env,
-# because it records the build-time mujoco version and refuses to load on
-# mismatch. The sdist fallback path (`make mujoco MJ=<version>`) builds via
-# `uv pip install --no-build-isolation` explicitly; this setting covers any
-# other in-project build. The default install path resolves the prebuilt
-# wheel (bound to mujoco==3.11.0) and never builds anything.
-no-build-isolation-package = ["mujoco-uni-runtime"]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
@@ -170,11 +160,9 @@ venvPath = "."
 venv = ".venv"
 include = ["src/unilab"]
 exclude = [
-    "src/unilab/base/backend/",
-    "src/unilab/envs/",
-    "src/unilab/terrains/",
-    "src/unilab/utils/monitoring.py",
-    "src/unilab/visualization/",
+    "src/unilab/envs/",                     # lazy optional `mujoco` import; not installed in the pyright env
+    "src/unilab/utils/monitoring.py",       # optional pynvml/psutil deps
+    "src/unilab/visualization/",            # direct mujoco C bindings + optional viser deps
 ]
 reportMissingImports = "warning"
 reportMissingModuleSource = "none"

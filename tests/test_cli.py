@@ -224,7 +224,7 @@ def test_eval_mujoco_interactive_routes_to_dedicated_viewer(
     monkeypatch.setattr(
         cli,
         "find_spec",
-        lambda name: ModuleSpec(name, loader=None) if name in {"mujoco", "mujoco_uni"} else None,
+        lambda name: ModuleSpec(name, loader=None) if name in {"mujoco", "mjbatch"} else None,
     )
 
     command = cli.build_command(
@@ -270,7 +270,7 @@ def test_eval_mujoco_interactive_honors_profile_and_render_override(
     monkeypatch.setattr(
         cli,
         "find_spec",
-        lambda name: ModuleSpec(name, loader=None) if name in {"mujoco", "mujoco_uni"} else None,
+        lambda name: ModuleSpec(name, loader=None) if name in {"mujoco", "mjbatch"} else None,
     )
 
     command = cli.build_command(
@@ -398,7 +398,7 @@ def test_eval_mujoco_interactive_preserves_explicit_action_mode(
     monkeypatch.setattr(
         cli,
         "find_spec",
-        lambda name: ModuleSpec(name, loader=None) if name in {"mujoco", "mujoco_uni"} else None,
+        lambda name: ModuleSpec(name, loader=None) if name in {"mujoco", "mjbatch"} else None,
     )
 
     command = cli.build_command(
@@ -554,7 +554,7 @@ def test_eval_mujoco_interactive_falls_back_to_sibling_owner(
     monkeypatch.setattr(
         cli,
         "find_spec",
-        lambda name: ModuleSpec(name, loader=None) if name in {"mujoco", "mujoco_uni"} else None,
+        lambda name: ModuleSpec(name, loader=None) if name in {"mujoco", "mjbatch"} else None,
     )
 
     command = cli.build_command(

@@ -558,18 +558,6 @@ def test_build_ppo_env_cfg_override_carries_motrix_max_iterations_override(
     assert env_cfg_override["motrix_max_iterations"] == 9
 
 
-def test_build_ppo_env_cfg_override_carries_post_step_forward_sensor_override(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mod = _train_rsl_rl(monkeypatch)
-    for value in (True, False):
-        cfg = _ppo_cfg(["task=g1_walk_flat/mujoco", f"env.post_step_forward_sensor={value}"])
-
-        env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
-
-        assert env_cfg_override["post_step_forward_sensor"] is value
-
-
 def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_disables_pd_gains():
     cfg = _offpolicy_cfg(["task=g1_walk_flat/motrix"])
 

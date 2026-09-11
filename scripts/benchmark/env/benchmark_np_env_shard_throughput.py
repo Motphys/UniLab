@@ -195,10 +195,6 @@ def _shard_worker(
         cfg = task_config.build_cfg(BACKEND)
         task_config.finalize_cfg(cfg, BACKEND)
         cfg.validate()
-        # Skip the adaptive chunk_size sweep: it re-probes on every env
-        # materialization and dominates shard setup time. Use the native
-        # default chunk_size instead (issue #960).
-        cfg.adaptive_chunk_size = False
         env = task_config.env_cls_factory()(cfg, num_envs=shard_rows, backend_type=BACKEND)
         try:
             env.init_state()

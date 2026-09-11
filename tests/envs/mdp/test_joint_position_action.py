@@ -217,6 +217,11 @@ def test_relative_joint_position_action_rejects_nonzero_offsets() -> None:
 def test_go2_joint_targets_are_mapped_to_backend_control_order(backend_type: str) -> None:
     if backend_type == "motrix":
         pytest.importorskip("motrixsim")
+    else:
+        pytest.importorskip(
+            "unisim.backend.mujoco.backend",
+            reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+        )
     joint_names = (
         "FL_hip_joint",
         "FL_thigh_joint",

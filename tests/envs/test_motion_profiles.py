@@ -508,10 +508,11 @@ def test_representative_motion_profiles_reset_and_step(
 ) -> None:
     if backend == "mujoco":
         pytest.importorskip("mujoco")
-        try:
-            from mujoco_uni.batch_env import BatchEnvPool as _  # noqa: F401
-        except Exception:
-            pytest.skip("mujoco_uni.batch_env not available")
+        pytest.importorskip("mjbatch", reason="mjbatch not installed")
+        pytest.importorskip(
+            "unisim.backend.mujoco.backend",
+            reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+        )
     else:
         pytest.importorskip("motrixsim")
 

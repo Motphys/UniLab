@@ -266,6 +266,10 @@ def test_go2w_flat_registry_executes_real_manager_runtime(backend: str) -> None:
 
 
 def test_go2w_flat_dead_zone_and_motor_gain_overrides_are_manager_owned() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     _, env_cfg, _ = _materialize("mujoco")
     command = env_cfg.commands["twist"]
     command.ranges.lin_vel_x = (0.1, 0.1)
@@ -288,6 +292,10 @@ def test_go2w_flat_dead_zone_and_motor_gain_overrides_are_manager_owned() -> Non
 
 
 def test_go2w_flat_incomplete_motor_selection_fails_closed() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     _, env_cfg, _ = _materialize("mujoco")
     action = env_cfg.actions["motor"]
     assert isinstance(action, Go2WMixedActionCfg)

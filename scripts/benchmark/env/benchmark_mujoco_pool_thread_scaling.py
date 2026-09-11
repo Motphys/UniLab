@@ -1,12 +1,12 @@
-"""MuJoCo BatchEnvPool thread-count scaling probe (issue #1328).
+"""MuJoCo mjbatch thread-count scaling probe (issue #1328).
 
-Steps a raw ``BatchEnvPool`` (no env semantics, no learner) on the G1 flat
-scene with several ``nthread`` / ``cpu_ids`` configurations and reports, per
-configuration, wall time per ``pool.step`` and the average number of cores the
-process kept busy (process CPU time / wall time via ``os.times``).
+Steps a raw ``mjbatch.Batch`` (no env semantics, no learner) on the G1 flat
+scene with several ``num_threads`` / ``cpu_ids`` configurations and reports,
+per configuration, wall time per ``batch.step`` and the average number of
+cores the process kept busy (process CPU time / wall time via ``os.times``).
 
 Used to separate two effects of the default
-``nthread = min(num_envs, 2 * cpu_count)`` pool sizing:
+``num_threads = min(num_envs, 2 * cpu_count)`` pool sizing:
 
 - thread count vs. pinning (``cpu_ids``): on the reference 16C/32T host the
   32-thread unpinned and pinned rows match, so the 2x-oversubscription loss
@@ -19,7 +19,7 @@ Run:
 
     # subset + tuning:
     uv run scripts/benchmark/env/benchmark_mujoco_pool_thread_scaling.py \
-        --num-envs 4096 --nstep 3 --chunk-size 6 \
+        --num-envs 4096 --nstep 3 \
         --configs 64:unpinned,32:unpinned,32:pinned,16:pinned
 """
 
@@ -43,8 +43,8 @@ def _cpu_time() -> float:
     return t.user + t.system
 
 
-def build_state(model, nenvs: int) -> np.ndarray:
-    """Tile the ``stand`` keyframe (or a plain forward) into a full-batch state."""
+def build_state(model, nenvs: int) -> tuple[np.ndarray, np.ndarray]:
+    """Tile the ``stand`` keyframe (or a plain forward) qpos/qvel for the batch."""
     import mujoco
 
     data = mujoco.MjData(model)
@@ -52,43 +52,42 @@ def build_state(model, nenvs: int) -> np.ndarray:
     if key_id >= 0:
         mujoco.mj_resetDataKeyframe(model, data, key_id)
     mujoco.mj_forward(model, data)
-    spec = int(mujoco.mjtState.mjSTATE_FULLPHYSICS)
-    row = np.empty(mujoco.mj_stateSize(model, spec), dtype=np.float64)
-    mujoco.mj_getState(model, data, row, spec)
-    return np.tile(row, (nenvs, 1)).copy()
+    qpos = np.tile(np.asarray(data.qpos, dtype=np.float64), (nenvs, 1)).copy()
+    qvel = np.tile(np.asarray(data.qvel, dtype=np.float64), (nenvs, 1)).copy()
+    return qpos, qvel
 
 
 def bench_config(
     model,
-    state0: np.ndarray,
+    qpos0: np.ndarray,
+    qvel0: np.ndarray,
     *,
     nthread: int,
     pinned: bool,
     nstep: int,
-    chunk_size: int | None,
     warmup: int,
     iters: int,
 ) -> tuple[float, float]:
-    """Return (wall ms/step, busy cores) for one pool configuration."""
-    from mujoco_uni.batch_env import BatchEnvPool
+    """Return (wall ms/step, busy cores) for one batch configuration."""
+    import mjbatch
 
     cpu_ids = list(range(nthread)) if pinned else None
-    pool = BatchEnvPool(model, nbatch=state0.shape[0], nthread=nthread, cpu_ids=cpu_ids)
-    nenvs = state0.shape[0]
-    ctrl = np.zeros((nenvs, nstep, model.nu), dtype=np.float64)
-    st = state0.copy()
-    try:
-        for _ in range(warmup):
-            st = pool.step(st, nstep=nstep, control=ctrl, chunk_size=chunk_size)
-        t0 = time.perf_counter()
-        c0 = _cpu_time()
-        for _ in range(iters):
-            st = pool.step(st, nstep=nstep, control=ctrl, chunk_size=chunk_size)
-        wall_ms = (time.perf_counter() - t0) / iters * 1000.0
-        cores = (_cpu_time() - c0) / iters * 1000.0 / wall_ms
-        return wall_ms, cores
-    finally:
-        pool.close()
+    batch = mjbatch.Batch(model, qpos0.shape[0], num_threads=nthread, cpu_ids=cpu_ids)
+    ctrl_view = batch.bind("ctrl")
+    ctrl_view[:] = 0.0
+    qpos_view = batch.bind("qpos")
+    qvel_view = batch.bind("qvel")
+    qpos_view[:] = qpos0
+    qvel_view[:] = qvel0
+    for _ in range(warmup):
+        batch.step(nstep=nstep)
+    t0 = time.perf_counter()
+    c0 = _cpu_time()
+    for _ in range(iters):
+        batch.step(nstep=nstep)
+    wall_ms = (time.perf_counter() - t0) / iters * 1000.0
+    cores = (_cpu_time() - c0) / iters * 1000.0 / wall_ms
+    return wall_ms, cores
 
 
 def _parse_configs(spec: str) -> list[tuple[int, bool]]:
@@ -105,8 +104,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--model", default=DEFAULT_MODEL, help="MuJoCo XML scene path")
     parser.add_argument("--num-envs", type=int, default=4096)
-    parser.add_argument("--nstep", type=int, default=3, help="sim substeps per pool.step")
-    parser.add_argument("--chunk-size", type=int, default=6)
+    parser.add_argument("--nstep", type=int, default=3, help="sim substeps per batch.step")
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--iters", type=int, default=30)
     parser.add_argument(
@@ -119,21 +117,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     import mujoco
 
     model = mujoco.MjModel.from_xml_path(args.model)
-    state0 = build_state(model, args.num_envs)
+    qpos0, qvel0 = build_state(model, args.num_envs)
     print(
         f"model={os.path.basename(args.model)} nu={model.nu} nv={model.nv} "
-        f"nstate={state0.shape[1]} num_envs={args.num_envs} host_cpus={os.cpu_count()} "
-        f"nstep={args.nstep} chunk_size={args.chunk_size}"
+        f"nq={model.nq} num_envs={args.num_envs} host_cpus={os.cpu_count()} "
+        f"nstep={args.nstep}"
     )
     print(f"{'config':>18s} | {'ms/step':>8s} | {'cores':>6s}")
     for nthread, pinned in _parse_configs(args.configs):
         wall_ms, cores = bench_config(
             model,
-            state0,
+            qpos0,
+            qvel0,
             nthread=nthread,
             pinned=pinned,
             nstep=args.nstep,
-            chunk_size=args.chunk_size,
             warmup=args.warmup,
             iters=args.iters,
         )

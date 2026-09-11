@@ -24,10 +24,11 @@ pytestmark = pytest.mark.slow
 
 def _require_mujoco_runtime() -> None:
     pytest.importorskip("mujoco", reason="mujoco not installed")
-    try:
-        from mujoco_uni.batch_env import BatchEnvPool as _  # noqa: F401
-    except Exception:
-        pytest.skip("mujoco_uni.batch_env not available (platform/libstdc++ issue)")
+    pytest.importorskip("mjbatch", reason="mjbatch not installed")
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
 
 
 def _allegro_manager_override(

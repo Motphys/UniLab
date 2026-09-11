@@ -17,6 +17,10 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.scene import SceneCfg
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
+pytest.importorskip(
+    "unisim.backend.mujoco.backend",
+    reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+)
 
 
 def _xml(robot: str, scene: str = "scene_flat.xml") -> str:

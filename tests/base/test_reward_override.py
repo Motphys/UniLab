@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
@@ -15,6 +16,10 @@ ROOT_DIR = Path(__file__).parents[2]
 
 def test_reward_override_g1():
     """Test G1 manager reward override through the registry."""
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     ensure_registries()
 
     GlobalHydra.instance().clear()

@@ -13,6 +13,47 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 
 ## Unreleased / 未发布
 
+- Replace the `mujoco-uni-runtime` dependency (`mujoco_uni` import) with the
+  `mjbatch` native batch engine across the repository (roadmap
+  [#1552](https://github.com/unilabsim/UniLab/issues/1552),
+  [#1553](https://github.com/unilabsim/UniLab/issues/1553)). The `mujoco`
+  extra now installs `mujoco~=3.11.0` plus `mjbatch` pinned to the
+  [integration fork](https://github.com/unilabsim/mjbatch); the fork's final
+  distribution identity (PyPI package vs git pin, and prebuilt wheels) is the
+  roadmap's open maintainer item. The `sim=mujoco` CLI runtime check now gates
+  on the `mjbatch` module. Numerical equivalence before and after the swap is
+  **not** guaranteed; the accepted drift is characterized by the #1554 drift
+  baseline.
+  全仓库将 `mujoco-uni-runtime` 依赖（`mujoco_uni` 导入）替换为 `mjbatch`
+  原生 batch 引擎（roadmap #1552、#1553）。`mujoco` extra 现安装
+  `mujoco~=3.11.0` 加钉住的 [集成 fork](https://github.com/unilabsim/mjbatch)
+  `mjbatch`；fork 的最终分发身份（PyPI package 还是 git 钉版、是否提供预编译
+  wheel）是 roadmap 上的待定维护事项。`sim=mujoco` 的 CLI 运行时检查改为检查
+  `mjbatch` 模块。替换前后数值不保证一致；接受的漂移由 #1554 漂移基线表征。
+
+- Deprecate and remove the MuJoCo chunk/forward knobs: `EnvCfg` fields
+  `post_step_forward_sensor`, `adaptive_chunk_size`, and `chunk_size`, the
+  `bench_nsteps` backend kwarg, the matching Hydra owner keys, and the
+  `make mujoco MJ=<version>` / `check-cxx-toolchain` / `setup-mujoco` Makefile
+  targets are gone. `mjbatch` schedules per-simulation work without a chunk
+  knob, and step ends one substep behind the state by default, matching the
+  previous `post_step_forward_sensor=False` semantics; the per-env model
+  variant machinery (`ModelVariantSpec` materialization on the MuJoCo backend)
+  is no longer supported there — init-lifecycle geometry overrides move to the
+  remaining variant-capable backends. Windows support is unchanged: the
+  MuJoCo physics backend stays Linux/macOS-only because `mjbatch` ships no
+  Windows wheels.
+  弃用并移除 MuJoCo chunk/forward 旋钮：`EnvCfg` 字段
+  `post_step_forward_sensor`、`adaptive_chunk_size`、`chunk_size`、`bench_nsteps`
+  后端 kwarg、对应的 Hydra owner 键，以及 Makefile 目标
+  `make mujoco MJ=<version>` / `check-cxx-toolchain` / `setup-mujoco` 均已删除。
+  `mjbatch` 在没有 chunk 旋钮的情况下调度 per-simulation 工作，且 sensordata
+  默认落后一个子步，与之前的 `post_step_forward_sensor=False` 语义一致；
+  MuJoCo 后端不再支持 per-env 模型 variants（`ModelVariantSpec`
+  materialization）——init-lifecycle 几何覆盖改由仍支持 variants 的后端提供。
+  Windows 支持不变：由于 `mjbatch` 不提供 Windows wheel，MuJoCo 物理后端
+  仍然只支持 Linux/macOS。
+
 ## 1.2.0 (2026-09-10)
 
 - Update the required `unisim-core` release to `>=1.2.0` and the pinned

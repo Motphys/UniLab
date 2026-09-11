@@ -17,19 +17,19 @@ from unilab.base.base import EnvCfg
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
 try:
-    from mujoco_uni.batch_env import BatchEnvPool
+    import mjbatch
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 except Exception:
     pytest.skip(
-        "mujoco_uni.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
-    )
-
-if "cpu_ids" not in inspect.signature(BatchEnvPool.__init__).parameters:
-    pytest.skip(
-        "installed mujoco-uni-runtime has no cpu_ids support (pre-0.3.1)",
+        "mjbatch/unisim MuJoCo backend not available (platform/build issue)",
         allow_module_level=True,
     )
 
-from unisim.backend.mujoco.backend import MuJoCoBackend
+if "cpu_ids" not in inspect.signature(mjbatch.Batch.__init__).parameters:
+    pytest.skip(
+        "installed mjbatch has no cpu_ids support",
+        allow_module_level=True,
+    )
 
 from unilab.base.scene import SceneCfg
 

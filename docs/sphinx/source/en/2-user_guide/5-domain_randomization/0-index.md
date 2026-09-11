@@ -144,7 +144,8 @@ Notes:
 - `gravity_range` must be convertible into a `(2, 3)` array; otherwise reset will raise an error when constructing the payload.
 - This term does not call `mj_setConst`; MuJoCo step / forward reads `mjModel.opt.gravity` directly.
 - Do not enable this term under the Motrix backend; the current Motrix capability does not include `gravity`.
-- If your current environment still has a `mujoco-uni-runtime` package installed that does not include the `gravity` field, MuJoCo reset will raise unsupported field; you need to use a `mujoco-uni-runtime` build/release that includes the field.
+- The MuJoCo backend writes gravity through the `mjbatch` per-simulation model
+  expansion (`expand("gravity")`), which the pinned `mjbatch` build ships.
 - During training it is recommended to start from a small tilt range; otherwise sampling a too-large horizontal gravity early on may degrade the task into being unlearnable.
 
 ## Interval push Usage

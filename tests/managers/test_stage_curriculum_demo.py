@@ -62,6 +62,10 @@ def test_stage_curriculum_demo_owner_materializes_declared_ladders() -> None:
 
 
 def test_stage_curriculum_demo_runtime_ramps_with_step_counter() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     _, override = _materialize()
     env = registry.make(
         FIXTURE_ENV_NAME,
@@ -102,6 +106,10 @@ def test_stage_curriculum_demo_runtime_ramps_with_step_counter() -> None:
 
 
 def test_stage_curriculum_demo_owner_invalid_stages_fail_closed() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     _, override = _materialize()
     override["curriculum"]["smooth_reward_weight"]["params"]["stages"] = [
         {"step": 4, "weight": 0.5},

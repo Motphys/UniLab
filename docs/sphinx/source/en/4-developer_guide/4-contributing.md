@@ -8,7 +8,7 @@ architecture details live in {doc}`1-architecture/1-overview`.
 Install dependencies for your platform. The setup targets also install the
 optional simulator extras used by the repository's checks:
 
-- macOS (MPS, PyPI torch wheel): `make setup-motrix` (or `make setup-mujoco`)
+- macOS (MPS, PyPI torch wheel): `make setup-motrix` (or `uv sync --extra mujoco`)
 - Linux with NVIDIA (PyTorch cu128 wheel): `make setup`
 - Linux AMD / ROCm: `make sync-rocm`, then run commands with `uv run ...`. To
   return to the default CUDA / macOS profile, `git restore -- pyproject.toml
@@ -21,7 +21,6 @@ optional simulator extras used by the repository's checks:
 ```bash
 # Choose one core setup path:
 make setup
-# make setup-mujoco
 # make setup-motrix
 make sync-rocm
 make sync-xpu

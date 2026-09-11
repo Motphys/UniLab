@@ -70,6 +70,10 @@ def test_mjlab_fixture_hydra_materializes_source_structure() -> None:
 
 
 def test_mjlab_fixture_real_mujoco_reset_step_and_reward() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     _, override = _materialize()
     env = registry.make(
         FIXTURE_ENV_NAME,
@@ -112,6 +116,10 @@ def test_mjlab_fixture_real_mujoco_reset_step_and_reward() -> None:
 
 
 def test_mjlab_fixture_missing_actuator_fails_on_cold_path() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     _, override = _materialize()
     override["actions"]["effort"]["actuator_names"] = ["missing_actuator"]
     with pytest.raises(ValueError, match="regular expressions matched.*missing_actuator"):

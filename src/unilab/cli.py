@@ -110,9 +110,9 @@ def _check_load_run(load_run: str) -> None:
 
 def _check_runtime_requirements(algo: str, sim: str) -> None:
     # The MuJoCo physics backend (unisim.backend.mujoco.backend) needs the
-    # mujoco-uni-runtime native binding; plain `mujoco` can also arrive via
-    # other extras (e.g. superdex), so gate on `mujoco_uni` here.
-    if sim == "mujoco" and (find_spec("mujoco") is None or find_spec("mujoco_uni") is None):
+    # mjbatch native batch engine; plain `mujoco` can also arrive via
+    # other extras (e.g. superdex), so gate on `mjbatch` here.
+    if sim == "mujoco" and (find_spec("mujoco") is None or find_spec("mjbatch") is None):
         raise SystemExit(
             "sim=mujoco requires the MuJoCo extra. Install it with "
             "`pip install unilab[mujoco]` (or `uv sync --extra mujoco` in a source checkout)."

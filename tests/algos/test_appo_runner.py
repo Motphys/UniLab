@@ -14,6 +14,10 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
 pytest.importorskip("mujoco")
+pytest.importorskip(
+    "unisim.backend.mujoco.backend",
+    reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+)
 
 from uni_rl.algos.appo.runner import APPORunner
 

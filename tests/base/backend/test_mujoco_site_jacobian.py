@@ -10,13 +10,13 @@ import pytest
 pytest.importorskip("mujoco", reason="mujoco not installed")
 
 try:
-    from mujoco_uni.batch_env import BatchEnvPool  # noqa: F401
+    import mjbatch  # noqa: F401
+    from unisim.backend.mujoco.backend import MuJoCoBackend
 except Exception:
     pytest.skip(
-        "mujoco_uni.batch_env not available (platform/libstdc++ issue)", allow_module_level=True
+        "mjbatch/unisim MuJoCo backend not available (platform/build issue)",
+        allow_module_level=True,
     )
-
-from unisim.backend.mujoco.backend import MuJoCoBackend
 
 from unilab.base.scene import SceneCfg
 
