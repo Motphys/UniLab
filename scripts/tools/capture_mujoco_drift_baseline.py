@@ -9,8 +9,8 @@ fixed model/seed/action-sequence trajectory diff against this baseline
 
 This script builds each task's training environment through the exact Hydra
 owner path used by the trainer (``conf/ppo`` task config -> ``BackendAdapter``
--> ``registry.make``), seeds every consumed RNG, fixes the executor thread
-count and chunk size explicitly, drives the env with a fixed pseudo-random
+-> ``registry.make``), seeds every consumed RNG, pins the executor thread
+count via ``cpu_ids``, drives the env with a fixed pseudo-random
 action sequence (seeded ``numpy`` Generator, stored in the artifact; no neural
 network), and records per-step observations (all obs groups), rewards, done
 flags, and backend qpos/qvel read through the public ``SimBackend.get_state``
@@ -79,14 +79,14 @@ DEFAULT_OUTPUT_DIR = ROOT_DIR / "scripts" / "tools" / "drift_baseline" / "before
 # position-action path on the same robot family.
 DEFAULT_TASKS = ("go2w_joystick_flat/mujoco", "go2_joystick_flat/mujoco")
 
-# Executor determinism contract: mujoco_uni's BatchEnvPool partitions envs
-# over a thread pool; pin the worker count via cpu_ids and disable the
-# timing-dependent adaptive chunk tuner so every run steps an identical
-# partition. Recorded in metadata for the AFTER comparison.
+# Executor determinism contract: pin the pool worker count via cpu_ids so
+# every run steps an identical partition. Recorded in metadata for the AFTER
+# comparison. (The mujoco_uni-era chunk_size/adaptive_chunk_size knobs no
+# longer exist in EnvCfg; mjbatch schedules per-sim work without a chunk
+# knob, so there is nothing else to pin.)
 DEFAULT_CPU_IDS = (0, 1, 2, 3)
-DEFAULT_CHUNK_SIZE = 2
 
-METADATA_PACKAGES = ("mujoco", "mujoco-uni-runtime", "unisim-core", "numpy")
+METADATA_PACKAGES = ("mujoco", "mjbatch", "unisim-core", "numpy")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -124,12 +124,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         nargs="+",
         default=list(DEFAULT_CPU_IDS),
         help="Explicit CPU ids; also fixes the executor pool worker count (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--chunk-size",
-        type=int,
-        default=DEFAULT_CHUNK_SIZE,
-        help="Explicit executor chunk size; adaptive tuning is disabled (default: %(default)s).",
     )
     return parser.parse_args(argv)
 
@@ -169,8 +163,6 @@ def _build_env(task_path: str, args: argparse.Namespace):
         {
             "seed": args.seed,
             "cpu_ids": list(args.cpu_ids),
-            "chunk_size": args.chunk_size,
-            "adaptive_chunk_size": False,
         }
     )
     env = registry.make(
@@ -267,8 +259,6 @@ def capture_task(task_path: str, args: argparse.Namespace) -> dict[str, Any]:
                 "envs i%4==3 hold a seeded +/-1 vector for the first half, negated after"
             ),
             "cpu_ids": list(args.cpu_ids),
-            "chunk_size": args.chunk_size,
-            "adaptive_chunk_size": False,
             "sim_dt": float(env.cfg.sim_dt),
             "ctrl_dt": float(env.cfg.ctrl_dt),
             "obs_groups_spec": {k: int(v) for k, v in env.obs_groups_spec.items()},
