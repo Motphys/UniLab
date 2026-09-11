@@ -1,0 +1,47 @@
+{
+  "task_name": "Go2WJoystickFlat",
+  "hydra_task_path": "go2w_joystick_flat/mujoco",
+  "sim_backend": "mujoco",
+  "num_envs": 8,
+  "num_steps": 300,
+  "seed": 42,
+  "action_seed": 1234,
+  "action_generator": "make_action_sequence: default_rng(action_seed) iid uniform(-1, 1); envs i%4==3 hold a seeded +/-1 vector for the first half, negated after",
+  "cpu_ids": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "chunk_size": 2,
+  "adaptive_chunk_size": false,
+  "sim_dt": 0.005,
+  "ctrl_dt": 0.02,
+  "obs_groups_spec": {
+    "obs": 53,
+    "critic": 72
+  },
+  "action_dim": 16,
+  "git_commit": "db1a6e5b3dbe4dd096b16a517837f2d46dba8164",
+  "package_versions": {
+    "mujoco": "3.11.0",
+    "mujoco-uni-runtime": "0.5.0",
+    "unisim-core": "1.2.0",
+    "numpy": "2.4.4"
+  },
+  "timestamp_utc": "2026-09-11T15:32:47.470709+00:00",
+  "array_sha256": {
+    "reward": "469cd45dcd4efd4af7d549b7b339c062a444de8d55ee311316f867831851da09",
+    "terminated": "1b4fa292d26b5857652ffa862089156a03091bb14d82fc107d3ec9bcebc4c866",
+    "truncated": "a0ee989ed2a0a2e3626520afa4032e06144865c8c8f6357293c9f4cd2069eaf2",
+    "qpos": "fb4e78b67a0e26df9a483f0c15ba72883c3226ddc6e4988c9277cfcbf99b98e9",
+    "qvel": "d68d669c9efb7a5a269cc672d70a29229e16276f3573ad16ffbee9240701cfb0",
+    "obs/critic": "f7445001580e6fe5499c80b01bd07751309b632e621c1fd191bf0fb857cf355d",
+    "obs/obs": "ec7b82b63128e7ab85d7da08eaabbcab72b41b20f381c4574b58bf7450bc97c1",
+    "actions": "4c2df924382b83d34cb56a188cb966c23d27d30fd4c8a6973e5d92bc6e7e7a8f",
+    "obs_init/critic": "149379b215c40beb65da5e4301e064a3e92f39a112a2783fec577dfc8c34518d",
+    "obs_init/obs": "d4b73148fbb776fd7912c20dbd84fd3c0e8cdf9757868b8e30b5b92e406b8e72",
+    "qpos_init": "924ca2ab30273642e3a284c0b57718bb61df707e3df00b7d32792826b074db81",
+    "qvel_init": "c50170fa7c86bb5bc265f44bfe0d21e86d5f112feeab31725641b981d1e42c54"
+  }
+}
