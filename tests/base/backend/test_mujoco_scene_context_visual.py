@@ -11,7 +11,11 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("mujoco_uni")
+pytest.importorskip("mjbatch")
+pytest.importorskip(
+    "unisim.backend.mujoco.backend",
+    reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+)
 
 from unisim.backend.mujoco.backend import _build_mujoco_scene_context
 

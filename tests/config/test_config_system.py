@@ -148,16 +148,6 @@ def test_task_files_keep_full_identity_without_hidden_backend_marker():
         assert "sim_backend" in training_raw, f"task missing sim_backend: {path}"
 
 
-def test_motrix_task_files_do_not_declare_post_step_forward_sensor():
-    for path in sorted(CONF_DIR.glob("*/task/**/*motrix*.yaml")):
-        cfg = OmegaConf.load(path)
-
-        assert OmegaConf.select(cfg, "env.post_step_forward_sensor") is None, (
-            "post_step_forward_sensor is routed only to MuJoCo backends: "
-            f"{path.relative_to(CONF_DIR)}"
-        )
-
-
 @pytest.mark.parametrize(
     "algo_dir,config_name,task,backend,task_file,overrides",
     _supported_task_cases(),
@@ -286,30 +276,6 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
     assert motrix_cfg.reward.feet_phase.params.min_forward_speed == pytest.approx(0.05)
     assert motrix_cfg.env.terminations.base_height.params.minimum_height == pytest.approx(0.5)
     assert motrix_cfg.env.terminations.tilt.params.max_tilt_deg == pytest.approx(35.0)
-
-
-@pytest.mark.parametrize(
-    ("algo_dir", "overrides"),
-    [
-        ("ppo", ["task=g1_walk_flat/mujoco"]),
-        ("appo", ["task=g1_walk_flat/mujoco"]),
-        ("sac", ["task=g1_walk_flat/mujoco"]),
-        ("flashsac", ["task=g1_walk_flat/mujoco"]),
-    ],
-)
-def test_post_step_forward_sensor_defaults_false(algo_dir: str, overrides: list[str]):
-    cfg = _compose(algo_dir, overrides=overrides)
-
-    assert cfg.env.post_step_forward_sensor is False
-
-
-def test_mujoco_post_step_forward_sensor_can_be_overridden():
-    override_cfg = _compose(
-        "ppo",
-        overrides=["task=g1_walk_flat/mujoco", "env.post_step_forward_sensor=true"],
-    )
-
-    assert override_cfg.env.post_step_forward_sensor is True
 
 
 def test_appo_adaptive_lr_factors_are_overridden_only_by_dex_hand_owners():

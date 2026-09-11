@@ -44,16 +44,12 @@ def _legacy_genesis_device_option_error(exc: TypeError) -> bool:
 def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     """Translate ``EnvCfg`` backend knobs into UniSim adapter options."""
     result: dict[str, Any] = {
-        "post_step_forward_sensor": cfg.post_step_forward_sensor,
         "superdex_num_workers": cfg.superdex_num_workers,
         "superdex_assets_root": cfg.superdex_assets_root,
         "superdex_effort_limits": cfg.superdex_effort_limits,
         "superdex_allow_contact_approximation": cfg.superdex_allow_contact_approximation,
         "motrix_max_iterations": cfg.motrix_max_iterations,
-        "chunk_size": cfg.chunk_size,
-        "adaptive_chunk_size": cfg.adaptive_chunk_size,
         "cpu_ids": cfg.cpu_ids,
-        "bench_nsteps": cfg.sim_substeps,
         "mjwarp_nconmax": cfg.mjwarp_nconmax,
         "mjwarp_njmax": cfg.mjwarp_njmax,
         "newton_device": cfg.newton_device,

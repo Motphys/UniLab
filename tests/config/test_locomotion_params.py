@@ -370,7 +370,6 @@ def test_ppo_go2_footstand_uses_hydra_owned_manager_task():
     assert cfg.env.sim_dt == pytest.approx(0.004)
     assert cfg.env.ctrl_dt == pytest.approx(0.02)
     assert cfg.env.max_episode_seconds == pytest.approx(10.0)
-    assert cfg.env.adaptive_chunk_size is False
     assert cfg.env.observations.policy.terms.frame.history_length == 15
     assert cfg.env.observations.critic.terms.frame.history_length == 15
     assert cfg.env.actions.joint_pos.action_scale == pytest.approx(0.3)

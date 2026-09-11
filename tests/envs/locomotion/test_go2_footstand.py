@@ -205,7 +205,6 @@ def test_footstand_owner_materializes_complete_plain_manager_cfg(
     assert env_cfg.sim_dt == pytest.approx(0.004)
     assert env_cfg.ctrl_dt == pytest.approx(0.02)
     assert env_cfg.max_episode_seconds == pytest.approx(10.0)
-    assert env_cfg.adaptive_chunk_size is False
     assert env_cfg.policy_observation_group == "policy"
     assert env_cfg.critic_observation_group == "critic"
 
@@ -302,6 +301,11 @@ def test_footstand_registry_has_no_legacy_config_or_factory() -> None:
 def test_footstand_real_runtime_preserves_history_action_and_partial_reset(
     backend: str,
 ) -> None:
+    if backend == "mujoco":
+        pytest.importorskip(
+            "unisim.backend.mujoco.backend",
+            reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+        )
     registry.ensure_registries()
     env = _make_env(backend)
     try:
@@ -363,6 +367,10 @@ def test_footstand_real_runtime_preserves_history_action_and_partial_reset(
 
 
 def test_footstand_termination_uses_grace_boundary() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     registry.ensure_registries()
     env = _make_env("mujoco")
     try:
@@ -385,6 +393,10 @@ def test_footstand_termination_uses_grace_boundary() -> None:
 
 
 def test_footstand_reward_clips_aggregate_before_dt_scaling() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     registry.ensure_registries()
     env = _make_env("mujoco")
     try:

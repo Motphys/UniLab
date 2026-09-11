@@ -28,7 +28,7 @@ pip install "unilab[superdex]"
 
 该 extra 通过 `unisim-core[superdex]` 委托 UniSim 钉定版本；UniSim 的
 superdex extra 已包含普通 `mujoco` 包（MJCF 转换与离线回放渲染使用），不需要
-`mujoco-uni-runtime`（仅 MuJoCo 物理后端需要）。当前 wheel 为临时
+`mjbatch`（仅 MuJoCo 物理后端需要）。当前 wheel 为临时
 unilabsim 构建（`superdex-physics-uni`/`superdex-robotics-uni`）；上游
 project_superdex 发布正式 `superdex-physics`/`superdex-robotics` wheel 后，
 UniSim 会切换包名，UniLab 侧无需改动。

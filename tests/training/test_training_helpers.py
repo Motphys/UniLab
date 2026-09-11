@@ -9,7 +9,11 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from omegaconf import OmegaConf
 
-pytest.importorskip("mujoco_uni")
+pytest.importorskip("mjbatch")
+pytest.importorskip(
+    "unisim.backend.mujoco.backend",
+    reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+)
 
 from unisim.backend.base import RenderClosedError
 from unisim.backend.motrix.backend import MotrixBackend

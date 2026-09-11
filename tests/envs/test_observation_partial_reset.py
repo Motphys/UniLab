@@ -50,10 +50,11 @@ def _make_env(config_root: str, task: str, backend: str, identity: str, num_envs
 
 def test_observation_partial_reset_row_contract() -> None:
     pytest.importorskip("mujoco")
-    try:
-        from mujoco_uni.batch_env import BatchEnvPool as _  # noqa: F401
-    except Exception:
-        pytest.skip("mujoco_uni.batch_env not available")
+    pytest.importorskip("mjbatch", reason="mjbatch not installed")
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
 
     num_envs = 4
     env = _make_env("sac", "g1_motion_tracking", "mujoco", "G1MotionTrackingSAC", num_envs)

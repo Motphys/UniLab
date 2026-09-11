@@ -70,12 +70,12 @@ Interval plan 基于 term 描述符：`IntervalRandomizationPlan.ops` 携带一�
   op，布尔位仍作为能力回退。新 provider 应填充 `ops`；旧字段将在下一个
   unisim-core major release 中移除。
 
-## MuJoCo BatchEnvPool 快照
+## MuJoCo mjbatch 快照
 
-当前 MuJoCo 的 reset 随机化使用 `BatchEnvPool.reset(..., randomization=...)`，
-并带有固定的字段白名单。带索引的读写可通过 `get_field_indexed(...)` 与
-`set_field_indexed(...)` 实现。该接口位于 `mujoco-uni-runtime` 包
-（`mujoco_uni.batch_env`），不在本仓库中；映射到它的 reset-term 常量定义在
+当前 MuJoCo 的 reset 随机化通过 `mjbatch` 的 per-simulation 模型视图写入九个
+受支持字段：backend 先用 `Batch.expand(name)` 展开字段、写入目标 env 行，然后在
+融合 reset 运行 `mj_forward` 之前用 `Batch.set_const(ids)` 刷新派生常量。该接口
+位于 `mjbatch` 包，不在本仓库中；映射到它的 reset-term 常量定义在
 `unisim.dr.types`。
 
 支持的 reset 字段及其每 env 整块形状如下。首维始终是 `len(env_ids)`；尾部
@@ -99,12 +99,13 @@ refresh 行为由 backend 固定：`body_mass`、`body_ipos`、`body_iquat`、
 
 两点注意：
 
-- `geom_size` 不在 `SUPPORTED_FIELDS` 里。几何尺寸通过 init-lifecycle 的模型
+- `geom_size` 不在受支持的 reset 字段里。几何尺寸通过 init-lifecycle 的模型
   materialization 表达（见 `unisim.dr.types` 中的 `GeomSizeOverride` /
   `ModelVariantSpec`），不走 reset 随机化。
-- `gravity` 的 reset 随机化需要包含它的 `mujoco-uni-runtime` 构建。本仓库依赖
-  官方 `mujoco` 包（`>=3.5`，默认版本由 `uv.lock` 钉住）加 `mujoco-uni-runtime`，其 `SUPPORTED_FIELDS`
-  包含 `gravity`；更旧的 batch-env 包（例如 `mujoco-uni==3.6.0.post6`）则没有。
+- `gravity` 的 reset 随机化需要包含它的 `mjbatch` 构建
+  （`expand("gravity")` 覆盖 `mjOption` 向量）。本仓库依赖官方 `mujoco`
+  包（`~=3.11.0`，默认版本由 `uv.lock` 钉住）加 `mjbatch`，其可展开字段包含
+  `gravity`。
 
 ## 电机控制扩展
 

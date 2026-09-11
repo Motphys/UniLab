@@ -743,6 +743,10 @@ def test_entity_facade_has_no_backend_model_or_asset_access() -> None:
 
 
 def test_real_mujoco_entity_selector_and_numpy_state_smoke() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     from unisim.backend.mujoco.backend import MuJoCoBackend
 
     joint_names = (

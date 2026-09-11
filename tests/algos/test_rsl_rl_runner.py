@@ -15,6 +15,10 @@ from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 
 pytest.importorskip("mujoco")
+pytest.importorskip(
+    "unisim.backend.mujoco.backend",
+    reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+)
 rsl_rl = pytest.importorskip("rsl_rl")
 
 import numpy as np

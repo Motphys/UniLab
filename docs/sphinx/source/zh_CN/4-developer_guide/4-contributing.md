@@ -7,7 +7,7 @@
 
 按平台安装依赖。setup target 也会安装仓库检查所需的可选仿真器 extra：
 
-- macOS（MPS，PyPI torch wheel）：`make setup-motrix`（或 `make setup-mujoco`）
+- macOS（MPS，PyPI torch wheel）：`make setup-motrix`（或 `uv sync --extra mujoco`）
 - Linux NVIDIA（PyTorch cu128 wheel）：`make setup`
 - Linux AMD / ROCm：`make sync-rocm`，随后用 `uv run ...` 运行命令。要切回默认
   CUDA / macOS profile，执行 `git restore -- pyproject.toml uv.lock` 后重新
@@ -19,7 +19,6 @@
 ```bash
 # 选择一条核心安装路径：
 make setup
-# make setup-mujoco
 # make setup-motrix
 make sync-rocm
 make sync-xpu

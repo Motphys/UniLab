@@ -30,7 +30,7 @@ pip install "unilab[superdex]"
 
 The extra delegates version pins to UniSim through `unisim-core[superdex]`.
 UniSim's superdex extra already carries the plain `mujoco` package (used for
-MJCF conversion and the offline playback renderer); `mujoco-uni-runtime` is
+MJCF conversion and the offline playback renderer); `mjbatch` is
 not required — only the MuJoCo physics backend needs it. The current wheels
 are a temporary unilabsim build (`superdex-physics-uni` /
 `superdex-robotics-uni`); once the upstream project_superdex release publishes

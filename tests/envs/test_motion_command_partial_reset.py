@@ -115,10 +115,11 @@ def test_motion_command_partial_reset_row_parity(
     config_root: str, task: str, identity: str
 ) -> None:
     pytest.importorskip("mujoco")
-    try:
-        from mujoco_uni.batch_env import BatchEnvPool as _  # noqa: F401
-    except Exception:
-        pytest.skip("mujoco_uni.batch_env not available")
+    pytest.importorskip("mjbatch", reason="mjbatch not installed")
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
 
     num_envs = 4
     env = _make_env(config_root, task, "mujoco", identity, num_envs)

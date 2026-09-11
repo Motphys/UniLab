@@ -52,7 +52,6 @@ env:
   sim_dt: 0.004
   ctrl_dt: 0.02
   max_episode_seconds: 10.0
-  adaptive_chunk_size: false
   observations:
     policy:
       enable_corruption: true

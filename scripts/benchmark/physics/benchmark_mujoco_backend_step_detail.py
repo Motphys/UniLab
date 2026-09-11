@@ -5,10 +5,10 @@ Benchmark detailed MuJoCo backend step overhead.
 
 This benchmark mirrors the hot path inside `MujocoBackend.step()` and splits it
 into:
-    1. control broadcast (`set_ctrl`)
-    2. `BatchEnvPool.step` (`pool_step`)
+    1. control upload (`set_ctrl`)
+    2. `mjbatch.Batch.step` (`pool_step`)
     3. physics-state cast/copy (`state_copy`)
-    4. `BatchEnvPool.forward` (`forward`)
+    4. `mjbatch.Batch.forward` (`forward`)
     5. sensor-data cast/copy (`sensor_copy`)
 
 It sweeps current locomotion owner tasks across MuJoCo only, with environment
@@ -40,10 +40,10 @@ from pathlib import Path
 from typing import Sequence
 
 import matplotlib
+import mjbatch
 import mujoco
 import numpy as np
 from matplotlib.patches import Rectangle
-from mujoco_uni.batch_env import BatchEnvPool
 from unisim.backend.mujoco.xml import create_discardvisual_xml
 
 from unilab.dtype_config import get_global_dtype
@@ -140,16 +140,17 @@ def _parse_csv_tasks(text: str) -> list[str]:
     return values
 
 
-def _keyframe0_state_and_ctrl(model: mujoco.MjModel) -> tuple[np.ndarray, np.ndarray]:
+def _keyframe0_state_and_ctrl(
+    model: mujoco.MjModel,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     data = mujoco.MjData(model)
     if model.nkey > 0:
         mujoco.mj_resetDataKeyframe(model, data, 0)
     else:
-        mujoco.mj_resetData(model, data)
+        mujoco.mj_resetData(model)
 
-    nstate = mujoco.mj_stateSize(model, mujoco.mjtState.mjSTATE_FULLPHYSICS)
-    state0 = np.empty((nstate,), dtype=np.float64)
-    mujoco.mj_getState(model, data, state0, mujoco.mjtState.mjSTATE_FULLPHYSICS)
+    qpos0 = np.array(data.qpos, dtype=np.float64)
+    qvel0 = np.array(data.qvel, dtype=np.float64)
 
     if model.nu == 0:
         ctrl0 = np.empty((0,), dtype=np.float64)
@@ -157,7 +158,7 @@ def _keyframe0_state_and_ctrl(model: mujoco.MjModel) -> tuple[np.ndarray, np.nda
         ctrl0 = np.asarray(model.key_ctrl[0], dtype=np.float64).copy()
     else:
         ctrl0 = np.zeros((model.nu,), dtype=np.float64)
-    return state0, ctrl0
+    return qpos0, qvel0, ctrl0
 
 
 def _load_discardvisual_model(model_file: str) -> mujoco.MjModel:
@@ -211,7 +212,7 @@ def _benchmark_one(
     model = _load_discardvisual_model(locomotion_task_model_file(task))
     np_dtype = get_global_dtype()
 
-    state0, _ = _keyframe0_state_and_ctrl(model)
+    qpos0, qvel0, _ = _keyframe0_state_and_ctrl(model)
     ctrl_low, ctrl_high = _control_limits(model)
     nthread = min(env_num, cpu_count() * 2)
     rng = np.random.default_rng(seed)
@@ -225,44 +226,50 @@ def _benchmark_one(
     forward_samples: list[float] = []
     sensor_copy_samples: list[float] = []
 
-    with BatchEnvPool(model, nbatch=env_num, nthread=nthread) as pool:
-        physics_state = np.broadcast_to(state0.astype(np_dtype), (env_num, state0.shape[0])).copy()
-        sensor_data = np.zeros((env_num, model.nsensordata), dtype=np_dtype)
-        sensor_init = pool.forward(physics_state)
-        sensor_data[:] = sensor_init.astype(np_dtype)
+    batch = mjbatch.Batch(model, env_num, num_threads=nthread)
+    time_view = batch.bind("time", np_dtype)
+    qpos_view = batch.bind("qpos", np_dtype)
+    qvel_view = batch.bind("qvel", np_dtype)
+    ctrl_view = batch.bind("ctrl", np_dtype)
+    sensor_view = batch.bind("sensordata", np_dtype)
 
-        for iteration_idx, ctrl in enumerate(controls):
-            t0 = time.perf_counter()
-            control_traj = np.broadcast_to(ctrl[:, None, :], (env_num, nstep, ctrl.shape[-1]))
-            set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
+    qpos_view[:] = qpos0
+    qvel_view[:] = qvel0
+    state_dim = 1 + model.nq + model.nv
+    physics_state = np.empty((env_num, state_dim), dtype=np_dtype)
+    sensor_data = np.empty((env_num, model.nsensordata), dtype=np_dtype)
+    batch.forward()
+    sensor_data[:] = sensor_view
 
-            t0 = time.perf_counter()
-            state_np = pool.step(
-                physics_state,
-                nstep=nstep,
-                control=control_traj,
-                control_spec=int(mujoco.mjtState.mjSTATE_CTRL),
-            )
-            pool_step_ms = (time.perf_counter() - t0) * 1000.0
+    for iteration_idx, ctrl in enumerate(controls):
+        t0 = time.perf_counter()
+        ctrl_view[:] = ctrl
+        set_ctrl_ms = (time.perf_counter() - t0) * 1000.0
 
-            t0 = time.perf_counter()
-            physics_state[:] = state_np.astype(np_dtype)
-            state_copy_ms = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
+        batch.step(nstep=nstep)
+        pool_step_ms = (time.perf_counter() - t0) * 1000.0
 
-            t0 = time.perf_counter()
-            sensor_np = pool.forward(physics_state)
-            forward_ms = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
+        physics_state[:, 0] = time_view
+        physics_state[:, 1 : 1 + model.nq] = qpos_view
+        physics_state[:, 1 + model.nq :] = qvel_view
+        state_copy_ms = (time.perf_counter() - t0) * 1000.0
 
-            t0 = time.perf_counter()
-            sensor_data[:] = sensor_np.astype(np_dtype)
-            sensor_copy_ms = (time.perf_counter() - t0) * 1000.0
+        t0 = time.perf_counter()
+        batch.forward()
+        forward_ms = (time.perf_counter() - t0) * 1000.0
 
-            if iteration_idx >= warmup:
-                set_ctrl_samples.append(set_ctrl_ms)
-                pool_step_samples.append(pool_step_ms)
-                state_copy_samples.append(state_copy_ms)
-                forward_samples.append(forward_ms)
-                sensor_copy_samples.append(sensor_copy_ms)
+        t0 = time.perf_counter()
+        sensor_data[:] = sensor_view
+        sensor_copy_ms = (time.perf_counter() - t0) * 1000.0
+
+        if iteration_idx >= warmup:
+            set_ctrl_samples.append(set_ctrl_ms)
+            pool_step_samples.append(pool_step_ms)
+            state_copy_samples.append(state_copy_ms)
+            forward_samples.append(forward_ms)
+            sensor_copy_samples.append(sensor_copy_ms)
 
     set_ctrl_ms = _median_ms(set_ctrl_samples)
     pool_step_ms = _median_ms(pool_step_samples)
@@ -281,7 +288,7 @@ def _benchmark_one(
         warmup=warmup,
         iters=iters,
         control_dim=model.nu,
-        state_dim=state0.shape[0],
+        state_dim=state_dim,
         sensor_dim=model.nsensordata,
         set_ctrl_ms=set_ctrl_ms,
         pool_step_ms=pool_step_ms,

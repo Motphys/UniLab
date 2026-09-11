@@ -31,6 +31,10 @@ from unilab.base.np_env import BACKEND_SET_STATE_DETAIL_TIMING_KEYS
 from unilab.base.scene import SceneCfg
 
 pytest.importorskip("mujoco", reason="mujoco not installed")
+pytest.importorskip(
+    "unisim.backend.mujoco.backend",
+    reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+)
 
 
 NUM_ENVS = 2

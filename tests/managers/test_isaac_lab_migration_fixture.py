@@ -81,6 +81,10 @@ def test_fixture_hydra_owner_materializes_source_order_as_plain_manager_cfg() ->
 
 
 def test_fixture_real_mujoco_reset_step_and_partial_reset() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     _, _, override = _materialize_fixture()
     env = registry.make(
         FIXTURE_ENV_NAME,
@@ -124,6 +128,10 @@ def test_fixture_real_mujoco_reset_step_and_partial_reset() -> None:
 
 
 def test_fixture_missing_actuator_fails_during_cold_path_binding() -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     _, _, override = _materialize_fixture()
     override["actions"]["joint_effort"]["actuator_names"] = ["missing_actuator"]
 

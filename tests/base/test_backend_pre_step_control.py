@@ -98,6 +98,10 @@ class _FakeMuJoCoPool:
 
 
 def _fake_mujoco_backend(pre_step_control_fn=None, post_step_forward_sensor=False):
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
     try:
         from unisim.backend.mujoco.backend import MuJoCoBackend
     except Exception as exc:

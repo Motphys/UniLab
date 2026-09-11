@@ -77,12 +77,13 @@ optional `body_ids`) from `unisim.dr.interval`, re-exported through
   providers should populate `ops`; the legacy fields will be removed in the
   next unisim-core major release.
 
-## MuJoCo BatchEnvPool Snapshot
+## MuJoCo mjbatch Snapshot
 
-Current MuJoCo reset randomization uses `BatchEnvPool.reset(...,
-randomization=...)` with a fixed field whitelist. Indexed reads and writes are
-available through `get_field_indexed(...)` and `set_field_indexed(...)`. This
-interface lives in the `mujoco-uni-runtime` package (`mujoco_uni.batch_env`), not in this
+Current MuJoCo reset randomization writes the nine supported fields through
+`mjbatch` per-simulation model views: the backend expands a field with
+`Batch.expand(name)`, writes the targeted env rows, then refreshes derived
+constants with `Batch.set_const(ids)` before the fused reset runs `mj_forward`.
+This interface lives in the `mjbatch` package, not in this
 repository; the reset-term constants that map onto it are in
 `unisim.dr.types`.
 
@@ -109,14 +110,13 @@ not.
 
 Two caveats:
 
-- `geom_size` is not in `SUPPORTED_FIELDS`. Geometry size is expressed through
-  init-lifecycle model materialization (see `GeomSizeOverride` /
+- `geom_size` is not in the supported reset fields. Geometry size is expressed
+  through init-lifecycle model materialization (see `GeomSizeOverride` /
   `ModelVariantSpec` in `unisim.dr.types`), not reset randomization.
-- `gravity` reset randomization requires a `mujoco-uni-runtime` build that ships
-  it. This repository depends on the official `mujoco` package (`>=3.5`, with
-  the default version pinned by `uv.lock`)
-  plus `mujoco-uni-runtime`, whose `SUPPORTED_FIELDS` includes `gravity`; older
-  batch-env packages such as `mujoco-uni==3.6.0.post6` do not.
+- `gravity` reset randomization requires an `mjbatch` build that ships it
+  (`expand("gravity")` covers the `mjOption` vector). This repository depends
+  on the official `mujoco` package (`~=3.11.0`, with the default version pinned
+  by `uv.lock`) plus `mjbatch`, whose expandable fields include `gravity`.
 
 ## Motor Control Extension
 

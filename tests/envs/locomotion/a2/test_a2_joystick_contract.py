@@ -290,10 +290,11 @@ def test_a2_registry_has_no_legacy_config_or_runtime_fallback() -> None:
 
 def test_a2_registry_executes_real_manager_runtime() -> None:
     pytest.importorskip("mujoco")
-    try:
-        from mujoco_uni.batch_env import BatchEnvPool  # noqa: F401
-    except Exception:
-        pytest.skip("mujoco_uni.batch_env not available")
+    pytest.importorskip("mjbatch", reason="mjbatch not installed")
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="unisim-core MuJoCo adapter (mjbatch build) not available",
+    )
 
     hydra_cfg, _, env_override = _materialize()
     env = registry.make(
