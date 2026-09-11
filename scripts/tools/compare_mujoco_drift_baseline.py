@@ -101,9 +101,7 @@ def _fmt(value: object) -> str:
     return str(value)
 
 
-def compare(
-    before_dir: Path, after_dir: Path
-) -> dict[str, dict[str, dict[str, object]]]:
+def compare(before_dir: Path, after_dir: Path) -> dict[str, dict[str, dict[str, object]]]:
     before_tasks = _load(before_dir)
     after_tasks = _load(after_dir)
     common = sorted(set(before_tasks) & set(after_tasks))
@@ -161,9 +159,7 @@ def render_markdown(
             if not res.get("mismatch") and int(res.get("first_divergence", -1)) >= 0
         }
         first_overall = (
-            min(int(res["first_divergence"]) for res in step_arrays.values())
-            if step_arrays
-            else -1
+            min(int(res["first_divergence"]) for res in step_arrays.values()) if step_arrays else -1
         )
         for name, res in arrays.items():
             if res.get("mismatch"):
