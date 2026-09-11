@@ -155,7 +155,12 @@ def test_mujoco_interval_root_velocity_kick_is_row_selective_and_refreshes_senso
     bkd.set_state(np.arange(NUM_ENVS, dtype=np.int32), qpos, qvel)
     bkd.step(np.zeros((NUM_ENVS, bkd.model.nu)), nsteps=1)
     assert bkd._pool is not None
-    bkd._sensor_data[:] = bkd._pool.forward(bkd.get_physics_state())
+    # Refresh the derived fields (sensors one substep behind after step()).
+    bkd._pool.forward()
+
+    # get_physics_state rows are [time, qpos, qvel].
+    idx_qpos = 1
+    idx_qvel = 1 + bkd.nq
 
     body_ids = bkd.get_body_ids(("base",))
     state_before = bkd.get_physics_state().copy()
@@ -175,18 +180,18 @@ def test_mujoco_interval_root_velocity_kick_is_row_selective_and_refreshes_senso
     np.testing.assert_array_equal(state_after[0], state_before[0])
     np.testing.assert_allclose(state_after[1, 0], state_before[1, 0], atol=1e-12)
     np.testing.assert_allclose(
-        state_after[1, bkd._idx_qpos : bkd._idx_qvel],
-        state_before[1, bkd._idx_qpos : bkd._idx_qvel],
+        state_after[1, idx_qpos:idx_qvel],
+        state_before[1, idx_qpos:idx_qvel],
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        state_after[1, bkd._idx_qvel + 3 :],
-        state_before[1, bkd._idx_qvel + 3 :],
+        state_after[1, idx_qvel + 3 :],
+        state_before[1, idx_qvel + 3 :],
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        state_after[1, bkd._idx_qvel : bkd._idx_qvel + 3],
-        state_before[1, bkd._idx_qvel : bkd._idx_qvel + 3] + delta[1, 0],
+        state_after[1, idx_qvel : idx_qvel + 3],
+        state_before[1, idx_qvel : idx_qvel + 3] + delta[1, 0],
         atol=1e-7,
     )
     np.testing.assert_allclose(
@@ -288,15 +293,16 @@ def test_mujoco_interval_root_angular_velocity_kick_converts_to_body_frame():
     )
 
     state_after = bkd.get_physics_state()
+    idx_qvel = 1 + bkd.nq
     # The free-root qvel angular channels are body-frame: yaw(+90deg) maps the
     # world-frame +x kick onto body-frame -y.
     np.testing.assert_allclose(
-        state_after[0, bkd._idx_qvel + 3 : bkd._idx_qvel + 6],
+        state_after[0, idx_qvel + 3 : idx_qvel + 6],
         0.0,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        state_after[1, bkd._idx_qvel + 3 : bkd._idx_qvel + 6],
+        state_after[1, idx_qvel + 3 : idx_qvel + 6],
         [0.0, -0.5, 0.0],
         atol=1e-7,
     )
@@ -346,7 +352,8 @@ def test_mujoco_interval_body_force_and_torque_have_observable_effect(tmp_path):
 
     bkd.set_state(ids, qpos, qvel0)
     bkd.step(ctrl, nsteps=1)
-    baseline = bkd.get_physics_state()[:, bkd._idx_qvel : bkd._idx_qvel + 6].copy()
+    idx_qvel = 1 + bkd.nq
+    baseline = bkd.get_physics_state()[:, idx_qvel : idx_qvel + 6].copy()
 
     force = np.zeros((NUM_ENVS, 1, 3), dtype=np.float64)
     force[:, 0, 2] = 10.0  # N, world +z
@@ -362,7 +369,7 @@ def test_mujoco_interval_body_force_and_torque_have_observable_effect(tmp_path):
         )
     )
     bkd.step(ctrl, nsteps=1)
-    kicked = bkd.get_physics_state()[:, bkd._idx_qvel : bkd._idx_qvel + 6]
+    kicked = bkd.get_physics_state()[:, idx_qvel : idx_qvel + 6]
 
     # Free fall is common to both runs, so the staged wrench adds exactly
     # F/m * dt to linear z and tau/I * dt to angular z.

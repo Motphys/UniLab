@@ -108,15 +108,17 @@ def test_get_site_jacobian_matches_serial(backend):
 
     jacp_par, jacr_par = backend.get_site_jacobian_w(site_id, dof_indices)
 
-    # Serial reference.
+    # Serial reference built from the backend's state accessors (the mjbatch
+    # executor keeps canonical state in bound per-field views, not FULLPHYSICS
+    # rows, and has no per-env model variants).
+    model = backend._model
     jacp_ser = np.zeros((NUM_ENVS, 3, 6), dtype=np.float64)
     jacr_ser = np.zeros((NUM_ENVS, 3, 6), dtype=np.float64)
     for env_idx in range(NUM_ENVS):
-        variant_idx = int(backend._model_assignments[env_idx])
-        model = backend._model_variants[variant_idx]
         data = mujoco.MjData(model)
-        state = np.asarray(backend._physics_state[env_idx], dtype=np.float64)
-        mujoco.mj_setState(model, data, state, int(mujoco.mjtState.mjSTATE_FULLPHYSICS))
+        data.time = float(backend._time_view[env_idx])
+        data.qpos[:] = backend._qpos_view[env_idx]
+        data.qvel[:] = backend._qvel_view[env_idx]
         mujoco.mj_forward(model, data)
         jacp_full = np.zeros((3, model.nv), dtype=np.float64)
         jacr_full = np.zeros((3, model.nv), dtype=np.float64)
