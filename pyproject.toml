@@ -124,7 +124,7 @@ mujoco = [
     # identity (PyPI name vs git pin) is decided on the roadmap (#1552 open
     # maintainer item). Its build backend pins mujoco==3.11.0 at build time,
     # so isolated builds are correct and no compiler preflight is needed.
-    "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@473bba9",
+    "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@e6c19ba",
 ]
 mjwarp = [
     # Keep the Warp backend on the same MuJoCo minor line as the host backend.

@@ -79,7 +79,7 @@ mujoco = [
     # item); its build backend pins mujoco==3.11.0 at build time, so isolated
     # builds are correct and no compiler preflight is needed.
     "mujoco~=3.11.0",
-    "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@473bba9",
+    "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@e6c19ba",
 ]
 motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
