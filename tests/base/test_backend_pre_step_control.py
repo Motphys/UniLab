@@ -46,11 +46,10 @@ class _FakeMjBatch:
 
     Emulates the documented mjbatch semantics the adapter relies on: the
     callback runs on the calling thread before every substep as
-    ``callback(k, state, sensordata, ctrl)`` with ``sensordata=None`` at k=0
-    (and at every k when ``callback_sensordata=False``), one dispatch per
-    ``step()`` call, and an end-of-call copy-out that leaves the bound
-    qpos/qvel views at the final state and sensordata one substep behind
-    (matching ``mj_step``). Each substep adds 1.0 to every state row.
+    ``callback(k, state, ctrl)``, one dispatch per ``step()`` call, and an
+    end-of-call copy-out that leaves the bound qpos/qvel views at the final
+    state and sensordata one substep behind (matching ``mj_step``). Each
+    substep adds 1.0 to every state row.
     """
 
     def __init__(self, nq: int = 1, nv: int = 1, nu: int = 2, nbody: int = 1) -> None:
@@ -82,23 +81,18 @@ class _FakeMjBatch:
         history=None,
         *,
         callback=None,
-        callback_sensordata: bool = True,
-        steps_done=None,
-        stop_on_warning: bool = False,
     ) -> None:
         self.step_calls.append(
             {
                 "nstep": nstep,
                 "callback": callback,
-                "callback_sensordata": callback_sensordata,
             }
         )
         state = self._state
         ctrl_buf = self._bufs["ctrl"]
         for k in range(nstep):
-            sensor_arg = state[:, :1] if (k > 0 and callback_sensordata) else None
             if callback is not None:
-                callback(k, state, sensor_arg, ctrl_buf)
+                callback(k, state, ctrl_buf)
                 self.callback_controls.append(ctrl_buf.copy())
             state += 1.0
         # End-of-call copy-out of the bound input/derived fields.
@@ -185,12 +179,12 @@ def test_mujoco_step_with_pre_step_control_uses_single_dispatch_callback() -> No
     call = pool.step_calls[0]
     assert call["nstep"] == 3
     assert call["callback"] is not None
-    assert call["callback_sensordata"] is False
     # k=0 refreshes nothing (the bound views already hold the pre-call state);
     # k>0 receives the state after substep k-1.
     np.testing.assert_allclose(seen_qpos, [[[0.0]], [[1.0]], [[2.0]]])
-    # With callback_sensordata=False the hook never sees a sensor refresh; the
-    # bound sensordata view only catches up via the end-of-call copy-out.
+    # The slim callback protocol carries no sensordata argument, so the hook
+    # never sees a sensor refresh; the bound sensordata view only catches up
+    # via the end-of-call copy-out.
     np.testing.assert_allclose(seen_sensors, [[[0.0]], [[0.0]], [[0.0]]])
     assert len(pool.callback_controls) == 3
     np.testing.assert_allclose(pool.callback_controls[0], ctrl + 1)

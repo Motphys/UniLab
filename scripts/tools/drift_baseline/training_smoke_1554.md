@@ -6,7 +6,8 @@ branches: mjbatch fork + unisim adapter), exercising both action paths:
 - `Go2JoystickFlat` — plain position-action path.
 - `Go2WJoystickFlat` — wheeled-leg task; its mixed action runs through
   `SimBackend.set_pre_step_control`, i.e. mjbatch's native per-substep
-  callback (`callback_sensordata=False`).
+  callback (slimmed to `fn(k, state, ctrl)` by the post-swap ablation; this
+  smoke ran against the pre-ablation build with `callback_sensordata=False`).
 
 Both runs: `algo.num_envs=32 algo.max_iterations=100 algo.seed=42`, zero
 NaN/Inf, playback video rendered after training.
