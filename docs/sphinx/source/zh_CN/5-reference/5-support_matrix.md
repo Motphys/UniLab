@@ -72,6 +72,8 @@ uv run scripts/generate_support_matrix.py --write
 | PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - | - | - | - |
 | PPO (torch) | `a2_joystick_flat` (a2 joystick flat) | Tested | - | - | - | - | - | - | - |
 | PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | - | Tested | - | - | - | - | - |
+| PPO (torch) | `cricket_bowling` (cricket bowling) | - | - | - | - | - | - | - | - |
+| PPO (torch) | `cricket_motor` (cricket motor) | - | - | - | - | - | - | - | - |
 | PPO (torch) | `fr3_joint_target` (fr3 joint target) | - | - | - | - | - | - | - | Configured |
 | PPO (torch) | `g1_23dof_box_tracking` (g1 23dof box tracking) | Tested | - | Tested | - | - | - | - | - |
 | PPO (torch) | `g1_23dof_climb_tracking` (g1 23dof climb tracking) | Tested | - | Tested | - | - | - | - | - |
