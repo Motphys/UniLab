@@ -1,0 +1,25 @@
+# @package _global_
+training:
+  task_name: CricketDeliveryStride
+  sim_backend: mujoco
+  device: cpu
+  no_play: true
+  play_render_mode: none
+  nan_guard:
+    enabled: false
+
+algo:
+  seed: 1
+  num_envs: 2
+  num_steps_per_env: 32
+  max_iterations: 32
+  obs_groups:
+    actor: [policy]
+    critic: [policy]
+
+reward:
+  source: cricket_gym_internal
+
+env:
+  base_seed: ${algo.seed}
+  handedness: right
