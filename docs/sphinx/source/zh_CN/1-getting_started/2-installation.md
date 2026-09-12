@@ -104,7 +104,7 @@ pip install -e .
 pip install motrixsim-core==0.8.2
 
 # 需要 MuJoCo 时（解析钉住的 mjbatch 集成 fork，针对 mujoco==3.11.0 构建）：
-pip install "mujoco~=3.11.0" "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@473bba9"
+pip install "mujoco~=3.11.0" "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@cf4a83d"
 ```
 
 editable install 会指向源码 checkout；常规安装会把 package 和任务配置

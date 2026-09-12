@@ -21,15 +21,22 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
   [integration fork](https://github.com/unilabsim/mjbatch); the fork's final
   distribution identity (PyPI package vs git pin, and prebuilt wheels) is the
   roadmap's open maintainer item. The `sim=mujoco` CLI runtime check now gates
-  on the `mjbatch` module. Numerical equivalence before and after the swap is
-  **not** guaranteed; the accepted drift is characterized by the #1554 drift
-  baseline.
+  on the `mjbatch` module. A post-swap ablation slimmed the pinned fork's
+  API ([#1557](https://github.com/unilabsim/UniLab/issues/1557)): the
+  per-substep callback is `fn(k, state, ctrl)` (no `callback_sensordata`
+  argument), `steps_done` / `stop_on_warning` are gone, and the hfield
+  scanner is height-only with its own validation. Numerical equivalence
+  before and after the swap is **not** guaranteed; the accepted drift is
+  characterized by the #1554 drift baseline.
   全仓库将 `mujoco-uni-runtime` 依赖（`mujoco_uni` 导入）替换为 `mjbatch`
   原生 batch 引擎（roadmap #1552、#1553）。`mujoco` extra 现安装
   `mujoco~=3.11.0` 加钉住的 [集成 fork](https://github.com/unilabsim/mjbatch)
   `mjbatch`；fork 的最终分发身份（PyPI package 还是 git 钉版、是否提供预编译
   wheel）是 roadmap 上的待定维护事项。`sim=mujoco` 的 CLI 运行时检查改为检查
-  `mjbatch` 模块。替换前后数值不保证一致；接受的漂移由 #1554 漂移基线表征。
+  `mjbatch` 模块。替换后的消融精简了钉住 fork 的 API（#1557）：per-substep
+  回调为 `fn(k, state, ctrl)`（不再有 `callback_sensordata` 参数），
+  `steps_done` / `stop_on_warning` 已移除，hfield 扫描器只输出高度并自带
+  校验。替换前后数值不保证一致；接受的漂移由 #1554 漂移基线表征。
 
 - Deprecate and remove the MuJoCo chunk/forward knobs: `EnvCfg` fields
   `post_step_forward_sensor`, `adaptive_chunk_size`, and `chunk_size`, the

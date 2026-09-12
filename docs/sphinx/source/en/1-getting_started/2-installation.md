@@ -113,7 +113,7 @@ pip install motrixsim-core==0.8.2
 
 # MuJoCo, when needed (resolves the pinned mjbatch integration fork, built
 # against mujoco==3.11.0):
-pip install "mujoco~=3.11.0" "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@473bba9"
+pip install "mujoco~=3.11.0" "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@cf4a83d"
 ```
 
 The editable install points at the checkout; the regular install copies the
