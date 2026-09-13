@@ -11,13 +11,10 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+from unisim.dr.types import IntervalRandomizationPlan, ResetRandomizationPayload
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.scene import SceneCfg
-from unilab.dr import (
-    IntervalRandomizationPlan,
-    ResetRandomizationPayload,
-)
 
 
 # ---------------------------------------------------------------------------

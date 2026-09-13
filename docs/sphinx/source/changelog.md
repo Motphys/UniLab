@@ -13,6 +13,24 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 
 ## Unreleased / 未发布
 
+- Retire the legacy DomainRandomization provider protocol (roadmap
+  [#1563](https://github.com/Motphys/UniLab/issues/1563),
+  [#1567](https://github.com/Motphys/UniLab/issues/1567)).
+  `DomainRandomizationProvider`, `DomainRandomizationManager`, their NpEnv
+  hooks, and the provider-side payload helper are removed. Manager-Based event
+  terms are the sole DR lifecycle: fixed model identity is construction-time,
+  reset terms commit through `ResetStateTransaction`, and interval terms use the
+  public UniSim plan contract. `unilab.dr` remains only as a thin re-export of
+  backend-owned plan/capability types. The `env.domain_rand` sim2sim allowlist
+  entry and provider documentation are removed.
+  移除 legacy DomainRandomization provider 协议（roadmap #1563、#1567）。
+  `DomainRandomizationProvider`、`DomainRandomizationManager`、NpEnv hooks 和
+  provider 侧 payload helper 已删除。Manager-Based event term 成为唯一 DR
+  lifecycle：固定模型 identity 位于 construction-time，reset term 通过
+  `ResetStateTransaction` 提交，interval term 使用公开 UniSim plan contract。
+  `unilab.dr` 仅保留 backend-owned plan/capability 类型的薄 re-export，并移除
+  `env.domain_rand` sim2sim allowlist 与 provider 文档。
+
 - Replace the `mujoco-uni-runtime` dependency (`mujoco_uni` import) with the
   `mjbatch` native batch engine across the repository (roadmap
   [#1552](https://github.com/unilabsim/UniLab/issues/1552),

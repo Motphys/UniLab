@@ -20,7 +20,6 @@ from unisim.backend.base import (
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.cpu_runtime import apply_env_cpu_runtime
 from unilab.base.scene import SceneCfg
-from unilab.dr import DomainRandomizationManager, DomainRandomizationProvider
 from unilab.dtype_config import get_global_dtype
 
 if TYPE_CHECKING:
@@ -129,8 +128,6 @@ class NpEnv(ABEnv):
         self._truncated_scratch: np.ndarray = np.zeros((self._num_envs,), dtype=bool)
         self._final_observation_scratch: dict[str, np.ndarray] | None = None
         self.step_counter = 0
-        self._dr_manager: DomainRandomizationManager | None = None
-        self._init_randomization_applied = False
         self._nan_guard: NanGuard | None = None
         self._autoreset = True
         self._autoreset_reset_active = False
@@ -178,6 +175,11 @@ class NpEnv(ABEnv):
         self._clear_step_final_observation()
         return self._state
 
+    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
+        """Reject the removed legacy reset path; concrete owners own reset."""
+
+        raise NotImplementedError(f"{type(self).__name__} does not define a reset lifecycle")
+
     def _initial_episode_steps(self) -> np.ndarray:
         """Return initial per-env episode counters.
 
@@ -206,8 +208,6 @@ class NpEnv(ABEnv):
         ctrl = self.apply_action(actions, self._state)
         apply_action_time = time.perf_counter() - t0
 
-        if self._dr_manager is not None:
-            self._dr_manager.apply_interval_randomization_if_due(self.step_counter)
         self._state.truncated.fill(False)
         self._clear_step_final_observation()
 
@@ -347,13 +347,11 @@ class NpEnv(ABEnv):
     def _collect_reset_backend_timing_ms(self) -> dict[str, float]:
         """Backend-sourced reset sub-timings for the last reset call.
 
-        The monolithic DR path reports through the DR manager; manager-based
-        envs override this to surface the reset-state transaction's set_state
-        timings. Keys outside RESET_DONE_DETAIL_TIMING_KEYS are dropped by the
-        caller so stale keys never leak into ``info["timing"]``.
+        Manager-based envs override this to surface the reset-state
+        transaction's set_state timings. Keys outside
+        RESET_DONE_DETAIL_TIMING_KEYS are dropped by the caller so stale keys
+        never leak into ``info["timing"]``.
         """
-        if self._dr_manager is not None:
-            return self._dr_manager.last_reset_timing_ms
         return {}
 
     def _resolve_nan_guard_model_file(self) -> str:
@@ -419,19 +417,6 @@ class NpEnv(ABEnv):
         compat_terminal_mask = self._state.info.get("_final_observation")
         if isinstance(compat_terminal_mask, np.ndarray):
             compat_terminal_mask.fill(False)
-
-    def _init_domain_randomization(self, provider: "DomainRandomizationProvider") -> None:
-        from unilab.dr import DomainRandomizationManager
-
-        self._dr_manager = DomainRandomizationManager(self, provider)
-        if not self._init_randomization_applied:
-            self._init_randomization_applied = self._dr_manager.apply_init_randomization()
-        self._backend.materialize()
-
-    def reset(self, env_indices: np.ndarray) -> Tuple[dict[str, np.ndarray], dict]:
-        if self._dr_manager is None:  # pragma: no cover - constructor integration error
-            raise RuntimeError("Domain-randomization manager has not been initialized")
-        return self._dr_manager.reset(env_indices)
 
     def _compute_truncated(self, state: NpEnvState) -> np.ndarray:
         """Compute truncation conditions.

@@ -1,6 +1,6 @@
 # 面向真机迁移的域随机化
 
-本页是域随机化的部署检查清单。关于**契约**层（一个 DR provider 必须实现什么），见
+本页是域随机化的部署检查清单。关于**契约**层（Manager-Based event term 与 backend 必须实现什么），见
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`。
 
 ## 随机化什么，按优先级排序
@@ -44,9 +44,7 @@ Manager-Based 任务在 owner YAML 的 `env.events` 中声明 reset 与 interval
 随机化，由 manager 生命周期执行。示例见
 `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`。
 
-任务也可以通过任务级 provider（`src/unilab/dr/provider.py` 中的
-`DomainRandomizationProvider` 接口）接入 `src/unilab/dr/manager.py`；目前仓内
-没有任务使用这条路径。两条路径的能力边界见
+legacy 任务级 provider 协议已移除。能力边界见
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`。
 
 ## 配方：起始范围

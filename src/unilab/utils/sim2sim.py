@@ -19,7 +19,6 @@ ALLOWLIST: list[str] = [
     "training.sim_backend",
     "env.scene",
     "training.play_steps",
-    "env.domain_rand",
     "env.noise_config",
     "env.commands.vel_limit",
 ]

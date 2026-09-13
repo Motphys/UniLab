@@ -64,4 +64,4 @@ the deploy side.
 
 - {doc}`6-domain_randomization`
 - {doc}`7-safety_layers`
-- `src/unilab/dr/manager.py`
+- `src/unilab/managers/event_manager.py`

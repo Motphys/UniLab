@@ -31,7 +31,7 @@ flowchart LR
 | 阶段 | UniLab 产物 | 页面 |
 |---|---|---|
 | 训练 | 任务 owner YAML + 训练脚本 | {doc}`../../2-user_guide/1-training/1-cli_reference` |
-| 课程 + DR | `unilab.dr` + 任务侧 provider | {doc}`6-domain_randomization` |
+| 课程 + DR | Manager-Based event term | {doc}`6-domain_randomization` |
 | 跨后端健全性检查 | `--task <task> --sim <other_backend>` | {doc}`../2-sim_to_sim/1-backend_swap` |
 | ONNX 导出 | 训练回放脚本 + 部署辅助工具 | {doc}`5-onnx_runtime` |
 | 延迟 / 观测滞后 | 任务配置开关与部署侧日志 | {doc}`8-latency_budget` |

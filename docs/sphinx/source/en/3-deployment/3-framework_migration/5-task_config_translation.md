@@ -72,15 +72,15 @@ A side-by-side map of common config fields across Isaac Lab / Legged Gym
 * - Randomize friction
   - `EventTerm(...friction)`
   - `cfg.domain_rand.friction_range`
-  - `dr.friction.*` in owner YAML
+  - `env.events.<name>` using `geom_friction`
 * - Push robot
   - `EventTerm(...push)`
   - `cfg.domain_rand.push_robots`
-  - `dr.push.*`
+  - `env.events.push_robot`
 * - PD gain DR
   - `EventTerm(...stiffness)`
   - `cfg.domain_rand.randomize_motor_strength`
-  - `dr.actuator.pd_kp_factor`
+  - `env.events.pd_gains`
 ```
 
 ## Curriculum

@@ -72,15 +72,15 @@
 * - 随机化摩擦
   - `EventTerm(...friction)`
   - `cfg.domain_rand.friction_range`
-  - owner YAML 中的 `dr.friction.*`
+  - 使用 `geom_friction` 的 `env.events.<name>`
 * - 推搡机器人
   - `EventTerm(...push)`
   - `cfg.domain_rand.push_robots`
-  - `dr.push.*`
+  - `env.events.push_robot`
 * - PD 增益 DR
   - `EventTerm(...stiffness)`
   - `cfg.domain_rand.randomize_motor_strength`
-  - `dr.actuator.pd_kp_factor`
+  - `env.events.pd_gains`
 ```
 
 ## Curriculum

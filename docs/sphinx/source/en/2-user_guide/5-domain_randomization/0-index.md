@@ -3,16 +3,15 @@
 
 This page only describes the current domain randomization status of registered tasks in the repo. All conclusions come from the code; nothing is inferred from design intent.
 
-Two DR declaration paths exist today:
+Manager-Based event terms are the only DR declaration path:
 
 - **Manager-Based (Compatible) tasks**: reset / interval randomization is declared through Hydra `events:` manager terms in the owner YAML; reset-lifecycle events sample at reset, interval-lifecycle events perturb between steps. See the `events:` block of `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` for an example.
-- **Task-level provider path**: custom tasks (including tasks hosted in external repos) may declare `env.domain_rand.*` configuration through a `DomainRandomizationProvider` + `DomainRandomizationManager`. No in-repo task currently uses this path.
 
-The unified entry point of the legacy provider path lives in `NpEnv._init_domain_randomization()` and `DomainRandomizationManager`:
+The Manager-Based lifecycle is:
 
-- init path: the task provider produces an `InitRandomizationPlan`; the manager calls the backend's `apply_init_randomization(...)` during env initialization
-- reset path: the task provider produces a `ResetPlan`; the manager validates capability and then calls the backend's `set_state(..., randomization=...)`
-- interval path: the task provider produces an `IntervalRandomizationPlan`; the manager calls the backend's `apply_interval_randomization(...)` as needed before step
+- construction path: fixed model/tool identity is attached to `SceneCfg` before backend construction
+- reset path: event terms compose writes in `ResetStateTransaction`; the transaction calls `SimBackend.set_state(..., randomization=...)` once
+- interval path: event terms submit backend-owned interval plans through the public contract
 
 These three paths correspond to three lifecycle classes:
 
@@ -22,12 +21,11 @@ These three paths correspond to three lifecycle classes:
 
 ## Status Conclusions
 
-1. Manager-Based tasks do not register a DR provider; their reset/interval randomization consists of `events:` manager terms in the owner YAML, executed uniformly by the manager lifecycle. Custom tasks on the provider path instead go through the `DomainRandomizationManager` unified entry point.
-2. Provider-path owners define a `domain_rand` config dataclass, a `DomainRandomizationProvider`, and a `ResetPlan`; Manager-Based owners declare reset behavior through Hydra command/event terms. G1 motion reset perturbations belong to `MotionCommandCfg`, while WBT adds `EventTermCfg` reset and interval terms.
-3. What is "unified" today is mainly the entry point and execution flow, not every randomization item itself. The legacy path's shared helper `build_common_reset_randomization()` currently generates `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`.
-4. `ResetRandomizationPayload` can already express `gravity`, `body_iquat`, `body_inertia`, `kp`, `kd`, and `MuJoCoBackend` has declared support. Whether these are actually used still depends on whether the task provider samples and dispatches them.
-5. `MotrixBackend` currently supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, and interval push; and it requires all model actuators to be position actuators during initialization.
-6. Fixed mesh/tool identity is declared by `env.fixed_model_variants`; reset-time geometry fields remain behind backend capability declarations and never change that identity.
+1. Reset/interval randomization consists of `events:` manager terms in the owner YAML, executed uniformly by the manager lifecycle.
+2. Manager-Based owners declare reset behavior through Hydra command/event terms. G1 motion reset perturbations belong to `MotionCommandCfg`, while WBT adds `EventTermCfg` reset and interval terms.
+3. `ResetRandomizationPayload` expresses curated reset terms; a backend must advertise every requested term and own its derived-quantity obligation.
+4. `MotrixBackend` currently supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, and interval push; and it requires all model actuators to be position actuators during initialization.
+5. Fixed mesh/tool identity is declared by `env.fixed_model_variants`; reset-time geometry fields remain behind backend capability declarations and never change that identity.
 
 ## Uniformity Assessment Table
 
@@ -55,98 +53,27 @@ These three paths correspond to three lifecycle classes:
 | `AllegroInhandRotation` | Entity-scoped hand/ball reset; an explicitly configured grasp cache is sampled, otherwise `null` explicitly selects the model home pose; optional `joint_noise`, `ball_velocity_noise`, and `ball_z_offset` | none | owner YAML explicitly selects the home pose and zero reset noise; a configured missing or malformed cache fails closed |
 | `AllegroInhandRotationGrasp` | Reuses the rotation reset with `joint_noise=0.25`; Manager-Based termination checks fingertip distance, contact count, and ball height; recorder stores successful timeout rows | none | generates the 50k-row Allegro grasp cache and raises `RunComplete` after a successful save |
 
-## Current Unified DR Capabilities and Boundaries
+## Current DR Capabilities and Boundaries
 
-### 1. The Legacy Provider Entry Point Is Unified
+The owner YAML declares event terms; `ResetStateTransaction` composes selected
+rows and validates shapes; UniSim backends advertise and apply the curated
+payload. Task-specific reset sampling remains owned by command/event terms:
 
-The unified entry point of the legacy provider path is guaranteed by `NpEnv`
-and `DomainRandomizationManager`:
+- `G1MotionTracking` pose / velocity / joint noise is owned by its manager command.
+- Allegro grasp / object initial-state sampling is task-specific event logic.
+- Fixed model/tool identity is construction-time and never reset-time DR.
 
-- Tasks only need to register a provider
-- The manager uniformly performs capability validation
-- The backend is uniformly responsible for actually applying the randomization payload
-
-So from an execution-path perspective, provider-path tasks are unified;
-Manager-Based tasks instead execute the `events:` terms declared in the owner
-YAML through the manager lifecycle.
-
-### 2. The Shared Helpers Are Still Narrow
-
-The legacy path's `dr_utils.py` builds and validates common reset payloads:
-
-- reset common payload: `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`
-
-This means:
-
-- Provider-path tasks sample their task-specific state directly inside each provider
-- `G1MotionTracking`'s pose / velocity / joint noise is owned by its manager command
-- Allegro's grasp / object initial state sampling is entirely task-specific logic
-- `geom_size` scale is init-lifecycle model materialization and is not part of the reset common payload
-
-So today's "uniformity" is more about the contract and the calling convention than "all tasks share the same set of randomization-item schemas".
-
-### 3. Backend Capabilities Already Exceed What Tasks Currently Use
-
-`ResetRandomizationPayload` now contains:
-
-- `base_mass_delta`
-- `base_com_offset`
-- `gravity`
-- `body_iquat`
-- `body_inertia`
-- `kp`
-- `kd`
-
-Backend capability today:
-
-- `MuJoCoBackend`: supports the 7 reset terms above, plus interval push, interval body velocity delta (linear and world-frame angular), and interval body force/torque
-- `MotrixBackend`: supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, plus interval push; requires actuators to all be position actuators during initialization
-
-Notes:
-
-- The current `IntervalRandomizationPlan` supports `push_perturbation_limit`, `body_linear_velocity_delta`, `body_angular_velocity_delta`, `body_force`, and `body_torque`; among these, `body_force`/`body_torque` express hot-path direct external-wrench perturbations without exposing the backend-private `xfrc_applied` details.
-- The current MuJoCo backend's interval push and interval body force are both dispatched through `xfrc_applied`.
-- The Motrix backend currently still does not support direct body-force disturbance, so such owner configs must continue to be explicitly disabled.
-
-But on the task side, the current reality is: not every provider constructs these fields. The backend contract is the capability boundary; whether the task config and provider dispatch a payload is what determines whether a given task actually enables the corresponding DR item.
+A requested backend capability that is not advertised fails closed; there is no
+provider-side filtering fallback.
 
 ## Reset gravity Usage
 
-`gravity` is a reset-lifecycle DR: on each reset, a full MuJoCo gravity vector `(gx, gy, gz)` is sampled per env subset and dispatched to the backend via `ResetRandomizationPayload.gravity`. This vector expresses both direction and magnitude:
-
-- Direction: determined by the direction of `(gx, gy, gz)`.
-- Magnitude: determined by the vector norm `sqrt(gx^2 + gy^2 + gz^2)`.
-- Lifecycle: only sampled and written at reset; the env retains that gravity until the next reset re-samples it.
-- Backend: currently in UniLab, only the MuJoCo backend declares support for this reset term; the Motrix backend does not. Some tasks filter it by capability and skip it; others raise an error in the validate stage.
-
-The config entry lives under `env.domain_rand` in provider-path task owners;
-Manager-Based tasks have no `env.domain_rand`:
-
-```yaml
-env:
-  domain_rand:
-    randomize_gravity: true
-    gravity_range:
-      - [-0.2, -0.2, -10.5]
-      - [0.2, 0.2, -8.5]
-```
-
-Field semantics:
-
-- `randomize_gravity`: whether to enable gravity reset DR; defaults to `false`.
-- `gravity_range`: a `(2, 3)`-shaped per-dimension sampling range; the first and second rows give the upper and lower bounds of each component.
-- On each reset, each dimension is uniformly sampled within `[min(row0, row1), max(row0, row1)]`. The direction is not automatically normalized, and the gravity norm is not fixed.
-
-If you only want to randomize the magnitude while keeping the vertical-down direction, only open up the `z` component; to randomize both direction and magnitude, open up `x/y/z`. Enable it from the CLI with `env.domain_rand.randomize_gravity=true` and a `env.domain_rand.gravity_range=[...]` override on a provider-path task owner.
-
-Notes:
-
-- `gravity_range` must be convertible into a `(2, 3)` array; otherwise reset will raise an error when constructing the payload.
-- This term does not call `mj_setConst`; MuJoCo step / forward reads `mjModel.opt.gravity` directly.
-- Do not enable this term under the Motrix backend; the current Motrix capability does not include `gravity`.
-- The MuJoCo backend writes gravity through the `mjbatch` per-simulation model
-  expansion (`expand("gravity")`), which the pinned `mjbatch` build ships.
-- During training it is recommended to start from a small tilt range; otherwise sampling a too-large horizontal gravity early on may degrade the task into being unlearnable.
+`gravity` is a reset-lifecycle DR: on each reset, a full MuJoCo gravity vector
+`(gx, gy, gz)` is sampled per selected environment and dispatched through
+`ResetRandomizationPayload.gravity`. Configure it with a reset `EventTermCfg`
+that calls `randomize_physics_scene_gravity`; unsupported backends fail closed.
+A small tilt range is recommended because large horizontal gravity can make an
+early task unlearnable.
 
 ## Interval push Usage
 
@@ -203,13 +130,11 @@ The ownership boundary and MJWarp/CPU executor split are recorded in
 :hidden:
 
 1-configuration
-2-writing_providers
 ```
 ## Related Tasks
 
 - {doc}`G1 Motion Tracking <../4-tasks/2-motion_tracking>`: confirm motion assets and replay first before enabling DR.
 - {doc}`Go2 Rough Terrain <../4-tasks/1-locomotion>`: common items are mass, COM, friction, and push.
 
-For configuration examples, see {doc}`1-configuration`. For the developer
-provider interface and backend capability boundary, see
-{doc}`2-writing_providers` and {doc}`Domain Randomization Contract </en/4-developer_guide/2-contracts/4-dr_contract>`.
+For the backend capability boundary, see
+{doc}`Domain Randomization Contract </en/4-developer_guide/2-contracts/4-dr_contract>`.

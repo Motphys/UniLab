@@ -35,7 +35,7 @@ flowchart LR
 | Stage | UniLab artefact | Page |
 |---|---|---|
 | Train | Task owner YAML + training script | {doc}`../../2-user_guide/1-training/1-cli_reference` |
-| Curriculum + DR | `unilab.dr` + task-side providers | {doc}`6-domain_randomization` |
+| Curriculum + DR | Manager-Based event terms | {doc}`6-domain_randomization` |
 | Cross-backend sanity | `--task <task> --sim <other_backend>` | {doc}`../2-sim_to_sim/1-backend_swap` |
 | ONNX export | Training playback scripts + deploy helpers | {doc}`5-onnx_runtime` |
 | Latency / obs lag | Task config flags and deploy-side logs | {doc}`8-latency_budget` |

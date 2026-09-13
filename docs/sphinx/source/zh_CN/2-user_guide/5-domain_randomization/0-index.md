@@ -3,16 +3,11 @@
 
 本页仅描述仓库中已注册任务的域随机化现状。所有结论都来自代码；不从设计意图推断任何内容。
 
-当前存在两条 DR 声明路径：
+Manager-Based event term 是唯一 DR 声明路径：
 
 - **Manager-Based（Compatible）任务**：reset / interval 随机化通过 owner YAML 中的 Hydra `events:` manager term 声明；reset 生命周期的 event 在 reset 时采样，interval 生命周期的 event 在 step 之间施加扰动。例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 的 `events:` 段。
-- **任务级 provider 路径**：自定义任务（包括托管在外部仓库中的任务）可以通过 `DomainRandomizationProvider` + `DomainRandomizationManager` 声明 `env.domain_rand.*` 配置。当前仓库内没有任务使用该路径。
 
-legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization()` 和 `DomainRandomizationManager`：
 
-- init 路径：task provider 产生一个 `InitRandomizationPlan`；manager 在 env 初始化期间调用后端的 `apply_init_randomization(...)`
-- reset 路径：task provider 产生一个 `ResetPlan`；manager 验证能力，然后调用后端的 `set_state(..., randomization=...)`
-- interval 路径：task provider 产生一个 `IntervalRandomizationPlan`；manager 在 step 之前按需调用后端的 `apply_interval_randomization(...)`
 
 这三条路径对应三个生命周期类别：
 
@@ -22,12 +17,11 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 
 ## 状态结论
 
-1. Manager-Based 任务不注册 DR provider；它们的 reset/interval 随机化是 owner YAML 中的 `events:` manager term，由 manager 生命周期统一执行。走 provider 路径的自定义任务则经过 `DomainRandomizationManager` 统一入口。
-2. provider 路径的 owner 定义 `domain_rand` 配置 dataclass、`DomainRandomizationProvider` 和 `ResetPlan`；Manager-Based owner 则通过 Hydra command/event term 声明 reset 行为。G1 motion reset 扰动归 `MotionCommandCfg` 所有，WBT 另加 `EventTermCfg` reset 与 interval term。
-3. 今天所"统一"的主要是入口点和执行流程，而不是每一个随机化项本身。legacy 路径的共享辅助函数 `build_common_reset_randomization()` 目前生成 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`。
-4. `ResetRandomizationPayload` 已经可以表达 `gravity`、`body_iquat`、`body_inertia`、`kp`、`kd`，并且 `MuJoCoBackend` 已声明支持。这些是否实际被使用，仍取决于 task provider 是否对它们进行采样和 dispatch。
-5. `MotrixBackend` 目前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并且它要求在初始化期间所有模型 actuator 都是 position actuator。
-6. 固定 mesh/tool identity 由 `env.fixed_model_variants` 声明；reset-time geometry 字段仍位于 backend capability 声明之后，且不会改变该 identity。
+1. reset/interval 随机化由 owner YAML 中的 `events:` manager term 声明，并由 manager 生命周期统一执行。
+2. Manager-Based owner 通过 Hydra command/event term 声明 reset 行为。G1 motion reset 扰动归 `MotionCommandCfg` 所有，WBT 另加 `EventTermCfg` reset 与 interval term。
+3. `ResetRandomizationPayload` 表达 curated reset terms；backend 必须声明每个请求 term，并拥有其派生量重算义务。
+4. `MotrixBackend` 目前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并且它要求在初始化期间所有模型 actuator 都是 position actuator。
+5. 固定 mesh/tool identity 由 `env.fixed_model_variants` 声明；reset-time geometry 字段仍位于 backend capability 声明之后，且不会改变该 identity。
 
 ## 统一性评估表
 
@@ -55,94 +49,24 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 | `AllegroInhandRotation` | entity 范围的手/球 reset；显式配置 grasp cache 时进行采样，否则以 `null` 显式选择模型 home pose；可选 `joint_noise`、`ball_velocity_noise` 与 `ball_z_offset` | 无 | owner YAML 显式选择 home pose 与零 reset 噪声；配置的 cache 缺失或格式错误时 fail-closed |
 | `AllegroInhandRotationGrasp` | 复用 rotation reset 并设置 `joint_noise=0.25`；Manager-Based termination 检查指尖距离、接触数和球高度；recorder 保存成功 timeout rows | 无 | 生成 5 万行 Allegro grasp cache，成功保存后抛出 `RunComplete` |
 
-## 当前统一 DR 的能力与边界
+## 当前 DR 的能力与边界
 
-### 1. legacy provider 入口是统一的
+owner YAML 声明 event term；`ResetStateTransaction` 组合 selected rows 并校验
+shape；UniSim backend 声明并应用 curated payload。task-specific reset 采样仍由
+command/event term 拥有：
 
-legacy provider 路径的统一入口点由 `NpEnv` 和 `DomainRandomizationManager` 保证：
+- `G1MotionTracking` 的 pose / velocity / joint noise 归 manager command 所有。
+- Allegro grasp / object 初始状态采样是 task-specific event logic。
+- 固定 model/tool identity 是 construction-time，不是 reset-time DR。
 
-- 任务只需注册一个 provider
-- manager 统一执行能力验证
-- 后端统一负责实际施加随机化 payload
-
-因此从执行路径的角度看，provider 路径的任务是统一的；Manager-Based 任务则由 manager 生命周期统一执行 owner YAML 声明的 `events:` term。
-
-### 2. 共享辅助函数仍然较窄
-
-legacy 路径的 `dr_utils.py` 构造并校验通用 reset payload：
-
-- reset common payload：`base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`
-
-这意味着：
-
-- provider 路径的任务直接在各自的 provider 内部采样 task 专属状态
-- `G1MotionTracking` 的 pose / velocity / joint 噪声由其 manager command 所有
-- Allegro 的 grasp / 物体初始状态采样完全是 task 专属逻辑
-- `geom_size` 缩放是 init 生命周期的模型 materialization，不属于 reset common payload
-
-所以今天的"统一性"更多是关于 contract 和调用约定，而不是"所有任务共享同一套随机化项 schema"。
-
-### 3. 后端能力已经超出任务当前使用的范围
-
-`ResetRandomizationPayload` 现在包含：
-
-- `base_mass_delta`
-- `base_com_offset`
-- `gravity`
-- `body_iquat`
-- `body_inertia`
-- `kp`
-- `kd`
-
-当前的后端能力：
-
-- `MuJoCoBackend`：支持上述 7 个 reset 项，外加 interval push、interval body velocity delta（线速度与世界系角速度）和 interval body force/torque
-- `MotrixBackend`：支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd`，外加 interval push；要求在初始化期间 actuator 全部为 position actuator
-
-说明：
-
-- 当前的 `IntervalRandomizationPlan` 支持 `push_perturbation_limit`、`body_linear_velocity_delta`、`body_angular_velocity_delta`、`body_force` 和 `body_torque`；其中 `body_force`/`body_torque` 表达热路径上的直接外力/力矩扰动，而不暴露后端私有的 `xfrc_applied` 细节。
-- 当前 MuJoCo 后端的 interval push 和 interval body force 都通过 `xfrc_applied` dispatch。
-- Motrix 后端目前仍不支持直接 body-force 扰动，因此这类 owner 配置必须继续显式禁用。
-
-但在任务侧，当前的现实是：并非每个 provider 都构造这些字段。后端 contract 是能力边界；task 配置和 provider 是否 dispatch 一个 payload，才决定了某个任务是否实际启用对应的 DR 项。
+未显式声明支持的后端能力会 fail closed；不存在 provider 侧过滤回退。
 
 ## Reset gravity 用法
 
-`gravity` 是一个 reset 生命周期 DR：在每次 reset 时，会按 env 子集采样一个完整的 MuJoCo gravity 向量 `(gx, gy, gz)`，并通过 `ResetRandomizationPayload.gravity` dispatch 到后端。该向量同时表达方向和大小：
-
-- 方向：由 `(gx, gy, gz)` 的方向决定。
-- 大小：由向量范数 `sqrt(gx^2 + gy^2 + gz^2)` 决定。
-- 生命周期：仅在 reset 时采样和写入；env 会保留该重力，直到下一次 reset 重新采样。
-- 后端：当前在 UniLab 中，只有 MuJoCo 后端声明支持该 reset 项；Motrix 后端不支持。一些任务按能力过滤并跳过它；另一些任务在 validate 阶段抛出错误。
-
-配置入口位于 provider 路径任务 owner 的 `env.domain_rand` 下；Manager-Based 任务没有 `env.domain_rand`：
-
-```yaml
-env:
-  domain_rand:
-    randomize_gravity: true
-    gravity_range:
-      - [-0.2, -0.2, -10.5]
-      - [0.2, 0.2, -8.5]
-```
-
-字段语义：
-
-- `randomize_gravity`：是否启用 gravity reset DR；默认为 `false`。
-- `gravity_range`：一个形状为 `(2, 3)` 的逐维采样范围；第一行和第二行给出每个分量的上界和下界。
-- 在每次 reset 时，每个维度在 `[min(row0, row1), max(row0, row1)]` 内均匀采样。方向不会自动归一化，重力范数也不固定。
-
-如果你只想随机化大小而保持竖直向下的方向，只开放 `z` 分量；如果想同时随机化方向和大小，开放 `x/y/z`。在 provider 路径的任务 owner 上，可通过 CLI 以 `env.domain_rand.randomize_gravity=true` 与 `env.domain_rand.gravity_range=[...]` override 启用。
-
-说明：
-
-- `gravity_range` 必须可转换为 `(2, 3)` 数组；否则 reset 在构造 payload 时会抛出错误。
-- 该项不调用 `mj_setConst`；MuJoCo step / forward 直接读取 `mjModel.opt.gravity`。
-- 不要在 Motrix 后端下启用该项；当前 Motrix 能力不包含 `gravity`。
-- MuJoCo 后端通过 `mjbatch` 的 per-simulation 模型展开（`expand("gravity")`）
-  写入 gravity，钉住的 `mjbatch` 构建已包含该字段。
-- 在训练期间，建议从较小的倾斜范围开始；否则在早期采样到过大的水平重力，可能会使任务退化为不可学习。
+`gravity` 是 reset 生命周期 DR：每次 reset 按选中环境采样完整的 MuJoCo gravity
+向量 `(gx, gy, gz)`，并通过 `ResetRandomizationPayload.gravity` 提交。请通过调用
+`randomize_physics_scene_gravity` 的 reset `EventTermCfg` 配置；不支持的后端
+fail closed。建议从较小倾斜范围开始，避免早期训练任务不可学习。
 
 ## Interval push 用法
 
@@ -194,13 +118,11 @@ Reset-time model-field DR 保持在已选 identity 内。其 canonical 或 per-e
 :hidden:
 
 1-configuration
-2-writing_providers
 ```
 ## 相关任务
 
 - {doc}`G1 Motion Tracking <../4-tasks/2-motion_tracking>`：开启 DR 前先确认 motion 资产和 replay。
 - {doc}`Go2 Rough Terrain <../4-tasks/1-locomotion>`：常见的是 mass、COM、friction、push。
 
-有关配置示例，请参阅 {doc}`1-configuration`。有关开发者
-provider 接口和后端能力边界，请参阅
-{doc}`2-writing_providers` 和 {doc}`Domain Randomization Contract </zh_CN/4-developer_guide/2-contracts/4-dr_contract>`。
+有关后端能力边界，请参阅
+{doc}`Domain Randomization Contract </zh_CN/4-developer_guide/2-contracts/4-dr_contract>`。

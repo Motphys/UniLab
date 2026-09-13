@@ -1,56 +1,44 @@
 # Domain Randomization Contract
 
-Domain randomization is an env-owner provider contract plus backend capability
-application. User configuration examples live in
-{doc}`../../2-user_guide/5-domain_randomization/0-index`.
+Manager-Based event terms are the sole UniLab DR lifecycle. There is no task
+provider protocol and `NpEnv` no longer carries a DR manager.
 
-## Lifecycle Classes
+## Lifecycle
 
-- Init lifecycle: changes model identity or geometry. These changes run during
-  env/backend initialization, materialization, or cache construction.
-- Reset lifecycle: changes state or parameters within the same model identity.
-  Providers dispatch a reset randomization payload through `ResetPlan`.
-- Interval lifecycle: applies perturbations between steps, such as push or body
-  force plans.
+- **Construction identity:** `env.fixed_model_variants` materializes a final
+  read-only assignment and attaches a UniSim `FixedVariantPlan` to `SceneCfg`.
+  Backends realize it before their first forward and before CUDA graph capture.
+- **Reset:** event terms write through Entity bindings into
+  `ResetStateTransaction`; the transaction calls
+  `SimBackend.set_state(..., randomization=...)` once.
+- **Interval:** event terms use backend-owned interval plans through the public
+  `SimBackend` contract.
 
-Hot paths must not parse XML/assets or probe backend private methods with
-`getattr` or `hasattr`.
+## Capability Boundary
 
-## Provider Minimum
+Backend differences are explicit capabilities, not task-side branches:
 
-A task that uses DR should define:
+- `DomainRandomizationCapabilities.supported_reset_terms`
+- `supported_interval_terms`
+- fixed-variant layouts and source formats
+- per-environment playback support
+- curated reset-term contracts and derived-quantity obligations
 
-1. A task-owned domain-randomization config dataclass.
-2. A `DomainRandomizationProvider`.
-3. Reset behavior returning `ResetPlan` state and randomization payloads.
-4. Interval behavior through `IntervalRandomizationPlan` when needed.
-5. Env construction that calls `self._init_domain_randomization(...)`.
+An unadvertised requested term fails closed with the backend and term named.
+Manager code never imports MuJoCo or mjbatch and never accesses a backend model
+or pool.
 
-Shared types live in `unisim.dr.types` (interval term descriptors in
-`unisim.dr.interval`); both are re-exported from `src/unilab/dr/__init__.py`.
-Manager behavior lives in `src/unilab/dr/manager.py`.
+## Reset Payload And Defaults
 
-## Backend Capability Boundary
+`ResetRandomizationPayload` is a curated NumPy plan whose first dimension is the
+selected row count. Supported terms include the body mass/COM/inertia family,
+gravity, geometry friction/size/solver parameters, joint damping/armature/friction,
+and actuator gains. Derived fields such as geometry bounds are backend-owned and
+are never independently caller-supplied.
 
-Backend support is explicit. A reset or interval item only counts as a unified
-DR item when three pieces exist together:
-
-1. `ResetRandomizationPayload` has an explicit field, or
-   `IntervalRandomizationPlan.ops` carries an `IntervalTermOp` for the term.
-2. The backend declares and implements the capability.
-3. The task config/provider samples and dispatches that field or op.
-
-MuJoCo and Motrix differences stay in backend capability declarations,
-backend implementations, and owner YAMLs.
-
-## Manager Reset Defaults
-
-Manager-Based model-field terms do not compile engine assets or call legacy
-per-field getters. During cold-path binding, `ResetStateTransaction` asks
-UniSim for `SimBackend.get_reset_term_default(term)` and validates the result
-before exposing immutable columns to an `Entity`.
-
-The returned table is authoritative and has one of two layouts:
+During cold-path binding, `ResetStateTransaction` asks UniSim for
+`SimBackend.get_reset_term_default(term)`. The returned table is authoritative
+and has one of two layouts:
 
 - canonical model table, such as `(nbody,)` for `body_mass`;
 - per-environment fixed-variant table, such as `(num_envs, nbody)`.
@@ -59,103 +47,22 @@ For a selected reset subset, event terms use the corresponding per-env rows as
 their baseline. A write to a subset of model columns fills every unwritten
 column from that same env row before the transaction builds one dense payload.
 Missing capabilities, unsupported terms, non-floating tables, invalid tails, and
-per-env tables whose first dimension is not `num_envs` fail closed.
+per-env tables whose first dimension is not `num_envs` fail closed. This removes
+the former UniLab-side MuJoCo recompilation used to obtain inertia defaults.
 
-This boundary removes the former UniLab-side MuJoCo recompilation used to
-obtain `body_inertia` defaults; inertial identity and defaults belong to the
-backend that realized the fixed model variant.
-
-## Interval Term Descriptors
+## Interval Terms
 
 Interval plans are term-descriptor based: `IntervalRandomizationPlan.ops`
-carries a tuple of `IntervalTermOp` entries (term name, NumPy payload,
-optional `body_ids`) from `unisim.dr.interval`, re-exported through
-`unilab.dr`.
+carries `IntervalTermOp` entries from `unisim.dr.interval`, re-exported through
+`unilab.dr`. Builtin payload contracts are enforced by `IntervalTermOp.validate`;
+unknown backend-owned custom terms pass through to that backend's handler table.
+Ops and plans remain pickle-safe stdlib/NumPy data across spawn collectors.
 
-- Builtin term names are the `INTERVAL_TERM_*` constants; their payload
-  contracts are pinned by `INTERVAL_TERM_SPECS` (`push`: payload shape `(3,)`,
-  no `body_ids`; the four body terms: payload shape
-  `(num_envs, len(body_ids), 3)` with required `body_ids`).
-  `IntervalTermOp.validate()` enforces these contracts for builtin terms;
-  unknown custom terms pass validation through untouched.
-- Capability ownership stays with the backend:
-  `DomainRandomizationCapabilities.supported_interval_terms` is the
-  authoritative declaration, queried via `supports_interval_term` /
-  `get_unsupported_interval_terms`.
-- `DomainRandomizationManager.apply_interval_randomization_if_due` is generic:
-  it contains no term names and no per-term branches, so a backend-owned
-  custom term needs no manager change. Terms missing from the capability set
-  fail closed with `NotImplementedError` naming the backend type and the
-  terms; on the backend side, `SimBackend.apply_interval_randomization`
-  routes each op through its handler table and fails closed with the backend
-  class and term name when no handler exists.
-- Ops and plans must stay pickle-safe (protocol 4) across spawn-based
-  collector processes: stdlib + NumPy frozen dataclasses only.
-- The legacy plan fields (`push_perturbation_limit`, `body_ids`,
-  `body_linear_velocity_delta`, `body_angular_velocity_delta`, `body_force`,
-  `body_torque`) and the legacy `supports_interval_*` capability bools are
-  deprecated: `IntervalRandomizationPlan.iter_ops()` still adapts set legacy
-  fields into ops 1:1, and the bools remain as capability fallbacks. New
-  providers should populate `ops`; the legacy fields will be removed in the
-  next unisim-core major release.
+## Evidence
 
-## MuJoCo mjbatch Snapshot
-
-Current MuJoCo reset randomization writes the nine supported fields through
-`mjbatch` per-simulation model views: the backend expands a field with
-`Batch.expand(name)`, writes the targeted env rows, then refreshes derived
-constants with `Batch.set_const(ids)` before the fused reset runs `mj_forward`.
-This interface lives in the `mjbatch` package, not in this
-repository; the reset-term constants that map onto it are in
-`unisim.dr.types`.
-
-The supported reset fields and their per-env block shapes are below. The leading
-dimension is always `len(env_ids)`; the trailing block size is the field's full
-flat width in a single `mjModel`.
-
-| Field | Per-env block shape |
-| --- | --- |
-| `body_mass` | `nbody` |
-| `body_ipos` | `3 * nbody` |
-| `body_iquat` | `4 * nbody` |
-| `body_inertia` | `3 * nbody` |
-| `dof_armature` | `nv` |
-| `gravity` | `3` |
-| `geom_friction` | `3 * ngeom` |
-| `kp` | `nu` |
-| `kd` | `nu` |
-
-Refresh behavior is fixed by the backend: `body_mass`, `body_ipos`,
-`body_iquat`, `body_inertia`, and `dof_armature` trigger an `mj_setConst`
-refresh after the write, while `gravity`, `geom_friction`, `kp`, and `kd` do
-not.
-
-Two caveats:
-
-- `geom_size` is not in the supported reset fields. Geometry size is expressed
-  through init-lifecycle model materialization (see `GeomSizeOverride` /
-  `ModelVariantSpec` in `unisim.dr.types`), not reset randomization.
-- `gravity` reset randomization requires an `mjbatch` build that ships it
-  (`expand("gravity")` covers the `mjOption` vector). This repository depends
-  on the official `mujoco` package (`~=3.11.0`, with the default version pinned
-  by `uv.lock`) plus `mjbatch`, whose expandable fields include `gravity`.
-
-## Motor Control Extension
-
-Motor-actuator tasks that do not map policy output directly to backend position
-actuators should keep conversion in the env owner layer. Register a pre-step
-callback through `SimBackend.set_pre_step_control(...)`; the backend calls it
-before physics substeps and refreshes sensors after stepping.
-
-Go2W is the current all-motor actuator example: its env owner combines leg
-position targets and wheel torque, while kp/kd randomization stays in the env
-owner cache rather than leaking MuJoCo position-actuator mechanics into shared
-payloads.
-
-## Evidence In Repo
-
-- DR types: `unisim.dr.types` and `unisim.dr.interval`, re-exported by
-  `src/unilab/dr/__init__.py`
-- DR manager: `src/unilab/dr/manager.py`
-- Backend interface: `unisim.backend.base`
-- Provider interface: `src/unilab/dr/provider.py`
+- Manager lifecycle: `src/unilab/managers/event_manager.py`
+- Reset transaction: `src/unilab/base/reset_state.py`
+- Entity bindings: `src/unilab/base/entity.py`
+- Task-owned fixed variants: `src/unilab/base/variants.py`
+- Backend contract/capability types: `unisim.backend.base`, `unisim.dr.types`
+- ADR: {doc}`ADR-0010 Fixed Model Variant Ownership Boundary </adr/ADR-0010-fixed-model-variant-ownership-boundary>`

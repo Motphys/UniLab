@@ -1,38 +1,25 @@
 # Configuration
 
-Domain randomization is configured inside the selected task owner YAML. Use
-`--task` and `--sim` to select backend-specific behavior first, then override
-fields inside that selected owner.
+Domain randomization is configured inside the selected Manager-Based task owner
+YAML. Use `--task` and `--sim` to select backend-specific behavior first, then
+override fields inside that selected owner.
 
-Two declaration paths exist today:
+The lifecycle boundaries are:
 
-- Manager-Based (Compatible) tasks declare reset / interval randomization
-  through Hydra `events:` manager terms in the owner YAML, for example
-  `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`.
-- Tasks may also attach a task-level provider and configure legacy provider
-  fields under `env.domain_rand`; no in-repo task currently uses this path.
+- Fixed model/tool identity is declared once on `env.fixed_model_variants` and
+  realized during backend construction; it is not reset randomization.
+- Reset-lifecycle event terms perturb state or curated model parameters through
+  one `ResetStateTransaction` and one backend payload.
+- Interval-lifecycle event terms apply perturbations between steps.
 
-Common lifecycle boundaries:
-
-- Init-lifecycle items change model identity or geometry and must run during
-  env/backend initialization.
-- Reset-lifecycle items perturb state or model parameters at reset through a
-  backend-supported payload.
-- Interval-lifecycle items apply perturbations between steps.
-
-The detailed task status and field semantics are in {doc}`0-index`.
-
-Domain randomization is split by lifecycle: init, reset, and interval. The
-legacy path's manager is `src/unilab/dr/manager.py`; task providers live near
-the env owners, and backend capabilities are declared through
-`unisim.backend.base`.
+Backend support is declared through `unisim.backend.base`. A requested term that
+the selected backend does not advertise fails closed.
 
 ## Reset Gravity
 
 Use `--sim mujoco` when enabling gravity reset randomization; Motrix does not
-advertise the same gravity capability in the current backend. This item is only
-available on the task-level provider path (`env.domain_rand.randomize_gravity`
-and `env.domain_rand.gravity_range`), which no in-repo task currently uses.
+advertise the gravity reset capability. Configure gravity through a reset event
+term that calls `randomize_physics_scene_gravity`.
 
 ## Interval Push
 
@@ -48,9 +35,8 @@ uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
 ## Owner-Local Defaults
 
 Keep ranges in the task owner YAML when they are part of the task contract. For
-example, the rough quadruped family's base mass, center-of-mass, kp/kd, and
-push randomization are declared as event terms in the shared base
-`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml` (the `go2_joystick_rough`
-backend owners compose it through Hydra defaults).
+example, the rough quadruped family's base mass, center-of-mass, kp/kd, and push
+randomization are declared as event terms in the shared base
+`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`.
 
 For the full current inventory, see {doc}`0-index`.

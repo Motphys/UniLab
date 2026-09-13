@@ -1,7 +1,7 @@
 # Domain Randomization for Real-World Transfer
 
 This page is the deployment checklist for domain randomization. For the
-**contract** layer (what a DR provider must implement), see
+**contract** layer (what Manager-Based event terms and backends must implement), see
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`.
 
 ## What to randomize, in priority order
@@ -46,10 +46,8 @@ Manager-Based tasks declare reset and interval randomization through
 `env.events` in their owner YAML, executed by the manager lifecycle. See
 `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`.
 
-Tasks may also attach a task-level provider (the
-`DomainRandomizationProvider` interface in `src/unilab/dr/provider.py`) to
-`src/unilab/dr/manager.py`; no in-repo task currently uses this path. The
-capability boundary for both paths is described in
+The legacy task-level provider protocol has been removed. The capability
+boundary is described in
 {doc}`../../4-developer_guide/2-contracts/4-dr_contract`.
 
 ## Recipe: starting ranges

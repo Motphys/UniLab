@@ -1072,7 +1072,7 @@ def test_np_env_owns_substeps_autoreset_and_final_observation() -> None:
     assert initial_obs["critic"].shape == (2, 1)
     assert "log" in initial_info
     np.testing.assert_array_equal(initial.info["steps"], [0, 0])
-    assert env._dr_manager is None
+    assert not hasattr(env, "_dr_manager")
 
     state = env.step(np.array([[0.25], [0.5]], dtype=np.float32))
     assert backend.pre_step_control is None

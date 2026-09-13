@@ -57,4 +57,4 @@ G1 WBT owner，`history_length: 5` 让每个本体感受项携带 5 步历史并
 
 - {doc}`6-domain_randomization`
 - {doc}`7-safety_layers`
-- `src/unilab/dr/manager.py`
+- `src/unilab/managers/event_manager.py`
