@@ -10,6 +10,7 @@ import numpy as np
 from unisim.backend.base import BackendPlayRenderPlan, CameraCfg, DebugOverlayGetter
 
 from .scene import SceneCfg
+from .variants import FixedModelVariantCatalogCfg
 
 OnPlaybackFrameFn = Callable[[int, np.ndarray], "np.ndarray | None"]
 
@@ -33,6 +34,9 @@ class EnvCfg:
     """
 
     scene: SceneCfg | None = None
+    # Task-owned identity selected once during backend construction.  The
+    # descriptor remains engine-neutral; UniLab never compiles or opens it.
+    fixed_model_variants: FixedModelVariantCatalogCfg | None = None
     sim_dt: float = 0.01
     max_episode_seconds: Optional[float] = None
     ctrl_dt: float = 0.01
@@ -118,6 +122,13 @@ class EnvCfg:
         """
         if self.sim_dt > self.ctrl_dt:
             raise ValueError("sim_dt must be less than or equal to ctrl_dt")
+        if self.fixed_model_variants is not None and not isinstance(
+            self.fixed_model_variants, FixedModelVariantCatalogCfg
+        ):
+            raise TypeError(
+                "fixed_model_variants must be FixedModelVariantCatalogCfg or None, "
+                f"got {type(self.fixed_model_variants).__name__}"
+            )
         if (
             isinstance(self.superdex_num_workers, bool)
             or not isinstance(self.superdex_num_workers, int)

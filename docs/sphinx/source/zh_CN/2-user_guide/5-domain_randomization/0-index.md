@@ -16,8 +16,8 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 
 这三条路径对应三个生命周期类别：
 
-- **init 生命周期 DR**：改变模型 identity 或模型几何的项；只能在 env/backend 初始化和 materialization 期间生效，例如通过模型变体进行的物体 `geom_size` 缩放。
-- **reset 生命周期 DR**：不改变模型 identity，只在同一模型内改变参数或 reset 状态的项，例如 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`。
+- **construction 生命周期 identity**：固定 model/tool variant 及其 immutable env assignment，只在 backend construction/materialization 期间生效。
+- **reset 生命周期 DR**：不改变模型 identity，只在同一模型内改变参数或 reset 状态的项，例如 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`，以及 backend 显式声明支持的 geometry/model 字段。
 - **interval 生命周期 DR**：step 之间的外部扰动，例如 push。
 
 ## 状态结论
@@ -27,7 +27,7 @@ legacy provider 路径的统一入口点位于 `NpEnv._init_domain_randomization
 3. 今天所"统一"的主要是入口点和执行流程，而不是每一个随机化项本身。legacy 路径的共享辅助函数 `build_common_reset_randomization()` 目前生成 `base_mass_delta`、`base_com_offset`、`gravity`、`kp`、`kd`。
 4. `ResetRandomizationPayload` 已经可以表达 `gravity`、`body_iquat`、`body_inertia`、`kp`、`kd`，并且 `MuJoCoBackend` 已声明支持。这些是否实际被使用，仍取决于 task provider 是否对它们进行采样和 dispatch。
 5. `MotrixBackend` 目前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并且它要求在初始化期间所有模型 actuator 都是 position actuator。
-6. `geom_size` 不是 reset 生命周期字段；物体 geom 缩放由 init 生命周期的模型 materialization 处理。
+6. 固定 mesh/tool identity 由 `env.fixed_model_variants` 声明；reset-time geometry 字段仍位于 backend capability 声明之后，且不会改变该 identity。
 
 ## 统一性评估表
 
@@ -155,15 +155,35 @@ uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
   'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
 
-## `geom_size` 生命周期边界
+## 固定 Model/Tool Variant 边界
 
-`geom_size` 明确不属于 `ResetRandomizationPayload`，并且不得在热路径上通过 `BatchEnvPool.reset(..., randomization=...)` 修改。
+Manager-Based owner 在 environment config 中声明 fixed variants。Task 拥有
+名称、source descriptor 和最终 assignment，但不编译模型：
 
-原因在于 `geom_size` 会改变模型几何和模型 identity；正确的生命周期是：
+```yaml
+env:
+  fixed_model_variants:
+    variants:
+      - name: tool_a
+        source_model_file: tools/tool_a.xml
+      - name: tool_b
+        source_model_file: tools/tool_b.xml
+    assignment:
+      mode: round_robin
+```
 
-1. task provider 在 `build_init_randomization_plan(...)` 中生成模型变体以及 env 到模型的分配。
-2. MuJoCo 后端在冷路径上使用 `MjSpec` 修改 geom size，并编译 scale 专属的 `MjModel`。
-3. 后端使用长度为 `num_envs` 的模型序列构造 `BatchEnvPool`。
+`materialize_fixed_model_variants(...)` 会把它物化为形状 `(num_envs,)`、只读的
+`int32` assignment。Owner 也可以用 `mode: explicit` 提供全部名称。Assignment 是
+task identity：backend construction 后固定，reset event 不会重新采样。
+
+UniLab 不打开、解析或编译 `source_model_file`，也不持有 `MjSpec`、`MjModel`、
+mjbatch 或 Warp object。UniSim adapter 负责 source realization，并必须声明
+`supports_fixed_variants`。在该 contract 落地前，配置 fixed variants 的
+task 会在 env 构造前 fail closed。无法投影到统一 public
+state/action/sensor layout 的 heterogeneous variants 同样 fail closed。
+
+所有权边界以及 MJWarp/CPU executor 分工记录在
+{doc}`ADR-0010 </adr/ADR-0010-fixed-model-variant-ownership-boundary>`。
 
 ```{toctree}
 :hidden:
@@ -171,10 +191,6 @@ uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
 1-configuration
 2-writing_providers
 ```
-4. reset 阶段只在同一模型 identity 内执行状态和参数扰动；它不处理 `geom_size`。
-
-这条边界存在的目的是遵循冷路径 asset/model-metadata 访问原则：`step()`、`reset()` 和热路径 DR 不解析 XML、不读取 asset，也不在运行时基于 asset 元数据进行分支。
-
 ## 相关任务
 
 - {doc}`G1 Motion Tracking <../4-tasks/2-motion_tracking>`：开启 DR 前先确认 motion 资产和 replay。

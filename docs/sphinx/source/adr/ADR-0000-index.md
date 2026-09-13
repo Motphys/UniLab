@@ -23,6 +23,7 @@ orphan: true
 | [ADR-0007 UniSim Extraction Boundary](ADR-0007-unisim-extraction-boundary.md) | Physics package extraction | Accepted |
 | [ADR-0008 Debug Overlay Primitive Contract And Playback Session](ADR-0008-debug-overlay-primitive-contract-and-playback-session.md) | Debug overlay / playback session | Accepted |
 | [ADR-0009 SuperDex Native C++ Scene Batch Executor](ADR-0009-superdex-persistent-cpu-workers.md) | Backend CPU scene execution | Accepted |
+| [ADR-0010 Fixed Model Variant Ownership Boundary](ADR-0010-fixed-model-variant-ownership-boundary.md) | Fixed variants / cross-repository boundary | Proposed |
 
 ## ADR Governance
 

@@ -140,8 +140,14 @@ def _prepare_value(value: Any, *, annotation: Any, path: str) -> Any:
             for key, item in values.items()
         }
     if isinstance(value, list):
+        origin = get_origin(annotation)
+        args = get_args(annotation)
+        if origin in (list, tuple) and args:
+            item_annotation = args[0]
+        else:
+            item_annotation = Any
         return [
-            _prepare_value(item, annotation=Any, path=f"{path}[{index}]")
+            _prepare_value(item, annotation=item_annotation, path=f"{path}[{index}]")
             for index, item in enumerate(value)
         ]
     return value

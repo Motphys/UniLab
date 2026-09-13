@@ -16,8 +16,8 @@ The unified entry point of the legacy provider path lives in `NpEnv._init_domain
 
 These three paths correspond to three lifecycle classes:
 
-- **init-lifecycle DR**: items that change the model identity or model geometry; can only take effect during env/backend initialization and materialization, e.g. object `geom_size` scaling via model variants.
-- **reset-lifecycle DR**: items that do not change model identity, only change parameters or reset state within the same model, e.g. `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`.
+- **construction-lifecycle identity**: fixed model/tool variants and their immutable env assignment take effect only during backend construction/materialization.
+- **reset-lifecycle DR**: items that do not change model identity, only change parameters or reset state within the same model, e.g. `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`, and backend-declared geometry/model fields.
 - **interval-lifecycle DR**: external perturbations between steps, e.g. push.
 
 ## Status Conclusions
@@ -27,7 +27,7 @@ These three paths correspond to three lifecycle classes:
 3. What is "unified" today is mainly the entry point and execution flow, not every randomization item itself. The legacy path's shared helper `build_common_reset_randomization()` currently generates `base_mass_delta`, `base_com_offset`, `gravity`, `kp`, `kd`.
 4. `ResetRandomizationPayload` can already express `gravity`, `body_iquat`, `body_inertia`, `kp`, `kd`, and `MuJoCoBackend` has declared support. Whether these are actually used still depends on whether the task provider samples and dispatches them.
 5. `MotrixBackend` currently supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, and interval push; and it requires all model actuators to be position actuators during initialization.
-6. `geom_size` is not a reset-lifecycle field; object geom scale is handled by init-lifecycle model materialization.
+6. Fixed mesh/tool identity is declared by `env.fixed_model_variants`; reset-time geometry fields remain behind backend capability declarations and never change that identity.
 
 ## Uniformity Assessment Table
 
@@ -159,15 +159,38 @@ uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
   'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
 
-## `geom_size` Lifecycle Boundary
+## Fixed Model/Tool Variant Boundary
 
-`geom_size` is explicitly not part of `ResetRandomizationPayload`, and must not be modified on the hot path via `BatchEnvPool.reset(..., randomization=...)`.
+Manager-Based owners declare fixed variants on the environment config. The task
+owns names, source descriptors, and the final assignment; it does not compile a
+model:
 
-The reason is that `geom_size` changes model geometry and model identity; the correct lifecycle is:
+```yaml
+env:
+  fixed_model_variants:
+    variants:
+      - name: tool_a
+        source_model_file: tools/tool_a.xml
+      - name: tool_b
+        source_model_file: tools/tool_b.xml
+    assignment:
+      mode: round_robin
+```
 
-1. The task provider generates the model variants and env-to-model assignment in `build_init_randomization_plan(...)`.
-2. The MuJoCo backend modifies geom size on the cold path using `MjSpec` and compiles scale-specific `MjModel`s.
-3. The backend constructs `BatchEnvPool` with a model sequence of length `num_envs`.
+`materialize_fixed_model_variants(...)` turns the declaration into a read-only
+`int32` assignment with shape `(num_envs,)`. An owner may instead provide every
+name with `mode: explicit`. The assignment is task identity: it is fixed after
+backend construction and is not resampled by reset events.
+
+UniLab does not open, parse, or compile `source_model_file`, and does not hold
+`MjSpec`, `MjModel`, mjbatch, or Warp objects. UniSim adapters own source
+realization and must declare `supports_fixed_variants`. Until that
+contract lands, a task configured with fixed variants fails closed before env
+construction. Heterogeneous variants that cannot expose one public
+state/action/sensor layout also fail closed.
+
+The ownership boundary and MJWarp/CPU executor split are recorded in
+{doc}`ADR-0010 </adr/ADR-0010-fixed-model-variant-ownership-boundary>`.
 
 ```{toctree}
 :hidden:
@@ -175,10 +198,6 @@ The reason is that `geom_size` changes model geometry and model identity; the co
 1-configuration
 2-writing_providers
 ```
-4. The reset stage only performs state and parameter perturbations within the same model identity; it does not handle `geom_size`.
-
-This boundary exists to honor the cold-path asset/model-metadata access principle: `step()`, `reset()`, and hot-path DR do not parse XML, do not read assets, and do not branch at runtime based on asset metadata.
-
 ## Related Tasks
 
 - {doc}`G1 Motion Tracking <../4-tasks/2-motion_tracking>`: confirm motion assets and replay first before enabling DR.
