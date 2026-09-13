@@ -41,8 +41,9 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
-    # unisim-core package from the production PyPI index.
-    "unisim-core>=1.2.0",
+    # unisim-core package from the production PyPI index. >=1.2.1 is the
+    # first line whose mujoco adapter executes on the mjbatch-uni engine.
+    "unisim-core>=1.2.1",
     # RL algorithms and async runtimes (PPO/APPO/SAC/TD3 runners,
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
@@ -120,11 +121,12 @@ mujoco = [
     # mujoco==3.11.0 — switching MuJoCo versions requires an mjbatch rebuild,
     # not a UniLab config change.
     "mujoco~=3.11.0",
-    # mjbatch is consumed from the integration fork until its distribution
-    # identity (PyPI name vs git pin) is decided on the roadmap (#1552 open
-    # maintainer item). Its build backend pins mujoco==3.11.0 at build time,
-    # so isolated builds are correct and no compiler preflight is needed.
-    "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@cf4a83d",
+    # The batch engine is the unilabsim mjbatch fork, published on PyPI as
+    # mjbatch-uni (#1552). Its build backend pins mujoco==3.11.0 at build
+    # time, so isolated builds are correct and no compiler preflight is
+    # needed; prebuilt wheels cover cp310-cp313 on linux x86_64/aarch64 and
+    # macOS arm64.
+    "mjbatch-uni~=0.1.0",
 ]
 mjwarp = [
     # Keep the Warp backend on the same MuJoCo minor line as the host backend.
