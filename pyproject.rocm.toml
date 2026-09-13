@@ -73,13 +73,13 @@ mujoco = [
     # version. The MuJoCo physics backend (unisim.backend.mujoco.backend)
     # executes on the mjbatch native batch engine, which is built and
     # version-checked against mujoco==3.11.0 — switching MuJoCo versions
-    # requires an mjbatch rebuild, not a UniLab config change. mjbatch is
-    # consumed from the integration fork until its distribution identity
-    # (PyPI name vs git pin) is decided on the roadmap (#1552 open maintainer
-    # item); its build backend pins mujoco==3.11.0 at build time, so isolated
-    # builds are correct and no compiler preflight is needed.
+    # requires an mjbatch rebuild, not a UniLab config change. The batch
+    # engine is the unilabsim mjbatch fork, published on PyPI as
+    # mjbatch-uni (#1552); its build backend pins mujoco==3.11.0 at build
+    # time, so isolated builds are correct and no compiler preflight is
+    # needed.
     "mujoco~=3.11.0",
-    "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@cf4a83d",
+    "mjbatch-uni~=0.1.0",
 ]
 motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
