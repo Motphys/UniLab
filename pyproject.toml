@@ -44,7 +44,7 @@ dependencies = [
     # unisim-core package. Roadmap #1563 temporarily pins the pre-release
     # branch carrying fixed model variants; restore the published range after
     # the corresponding unisim-core release.
-    "unisim-core @ git+https://github.com/unilabsim/unisim.git@6506a4d30e03f419093fc17aa69a611f2212195d",
+    "unisim-core @ git+https://github.com/unilabsim/unisim.git@8eb587c0bcbecdf6a544401d0a376bff9f0db51b",
     # RL algorithms and async runtimes (PPO/APPO/SAC/TD3 runners,
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
@@ -125,7 +125,7 @@ mujoco = [
     # The batch engine is the unilabsim mjbatch fork. Roadmap #1563 pairs the
     # integration-only UniSim git pin with the matching pre-release executor
     # API; replace both after mjbatch-uni 0.2.x is published.
-    "mjbatch-uni @ git+https://github.com/unilabsim/mjbatch-uni.git@a1ff84a9957d85cbc556b109162012c55760055e",
+    "mjbatch-uni @ git+https://github.com/unilabsim/mjbatch-uni.git@5fb49b9fde7084557a91c583ebd876e4c0946c12",
 ]
 mjwarp = [
     # Keep the Warp backend on the same MuJoCo minor line as the host backend.
@@ -175,7 +175,7 @@ viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 # required-environments; elsewhere the extra is empty and the CLI reports a
 # targeted runtime diagnostic.
 superdex = [
-    "unisim-core[superdex] @ git+https://github.com/unilabsim/unisim.git@6506a4d30e03f419093fc17aa69a611f2212195d ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "unisim-core[superdex] @ git+https://github.com/unilabsim/unisim.git@8eb587c0bcbecdf6a544401d0a376bff9f0db51b ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [dependency-groups]

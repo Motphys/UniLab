@@ -1687,7 +1687,7 @@ wheels = [
 [[package]]
 name = "mjbatch-uni"
 version = "0.2.0"
-source = { git = "https://github.com/unilabsim/mjbatch-uni.git?rev=a1ff84a9957d85cbc556b109162012c55760055e#a1ff84a9957d85cbc556b109162012c55760055e" }
+source = { git = "https://github.com/unilabsim/mjbatch-uni.git?rev=5fb49b9fde7084557a91c583ebd876e4c0946c12#5fb49b9fde7084557a91c583ebd876e4c0946c12" }
 dependencies = [
     { name = "mujoco" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -3755,7 +3755,7 @@ requires-dist = [
     { name = "imageio-ffmpeg", specifier = ">=0.6.0" },
     { name = "lark", specifier = ">=1.3.1" },
     { name = "mediapy" },
-    { name = "mjbatch-uni", marker = "extra == 'mujoco'", git = "https://github.com/unilabsim/mjbatch-uni.git?rev=a1ff84a9957d85cbc556b109162012c55760055e" },
+    { name = "mjbatch-uni", marker = "extra == 'mujoco'", git = "https://github.com/unilabsim/mjbatch-uni.git?rev=5fb49b9fde7084557a91c583ebd876e4c0946c12" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.8.2" },
     { name = "mujoco", marker = "extra == 'mujoco'", specifier = "~=3.11.0" },
     { name = "ninja", marker = "sys_platform == 'linux'" },
@@ -3775,7 +3775,7 @@ requires-dist = [
     { name = "triton-rocm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==3.6.0", index = "https://download.pytorch.org/whl/rocm7.2" },
     { name = "typing-extensions" },
     { name = "unilab-rl", specifier = "==1.2.0" },
-    { name = "unisim-core", git = "https://github.com/unilabsim/unisim.git?rev=6506a4d30e03f419093fc17aa69a611f2212195d" },
+    { name = "unisim-core", git = "https://github.com/unilabsim/unisim.git?rev=8eb587c0bcbecdf6a544401d0a376bff9f0db51b" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
 ]
@@ -3816,7 +3816,7 @@ wheels = [
 [[package]]
 name = "unisim-core"
 version = "1.2.1"
-source = { git = "https://github.com/unilabsim/unisim.git?rev=6506a4d30e03f419093fc17aa69a611f2212195d#6506a4d30e03f419093fc17aa69a611f2212195d" }
+source = { git = "https://github.com/unilabsim/unisim.git?rev=8eb587c0bcbecdf6a544401d0a376bff9f0db51b#8eb587c0bcbecdf6a544401d0a376bff9f0db51b" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
