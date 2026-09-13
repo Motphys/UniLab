@@ -11,7 +11,7 @@ see the [UniLab repository](https://github.com/unilabsim/UniLab).
 UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英文记录重要版本变更；
 日常提交记录请参阅 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
-## 1.3.0 / 2026-09-13
+## Unreleased / 未发布
 
 - Add task-owned fixed model/tool variants and per-env playback support through
   the UniSim construction-time plan contract. A deterministic representative
