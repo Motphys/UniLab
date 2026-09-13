@@ -1033,8 +1033,16 @@ class FootstandMassRandomization(ManagerTermBase):
     ) -> None:
         del params
         ids = _env_ids(env, env_ids)
-        scale = env.rng.uniform(*self._scale_range, size=(ids.size, self._default_mass.size))
-        mass = self._default_mass[None, :] * scale
+        default_mass = (
+            self._default_mass[ids] if self._default_mass.ndim == 2 else self._default_mass[None, :]
+        )
+        if default_mass.shape[0] != ids.size:
+            default_mass = np.broadcast_to(
+                default_mass,
+                (ids.size, *default_mass.shape[1:]),
+            )
+        scale = env.rng.uniform(*self._scale_range, size=default_mass.shape)
+        mass = default_mass * scale
         mass[:, self._torso_index] += env.rng.uniform(*self._added_range, size=ids.size)
         if np.any(mass <= 0.0):
             raise ValueError("FootstandMassRandomization produced a non-positive body mass")

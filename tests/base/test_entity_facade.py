@@ -202,6 +202,14 @@ def test_manipulation_entity_maps_local_columns_and_binds_mocap_without_floating
             self._check("damping defaults")
             return np.ones(9)
 
+        def get_reset_term_default(self, term):
+            self._check(f"{term} defaults")
+            if term == "geom_size":
+                return np.ones((3, 3))
+            if term == "dof_damping":
+                return np.ones(9)
+            raise NotImplementedError(term)
+
         def get_joint_dof_indices(self, names):
             self._check("model DOF IDs")
             return np.array([{"hip": 7}[name] for name in names], dtype=np.int32)
@@ -248,9 +256,60 @@ def test_manipulation_entity_maps_local_columns_and_binds_mocap_without_floating
     np.testing.assert_array_equal(backend.payload.geom_size[0, :2], 1.0)
     assert backend.payload.dof_damping[0, 7] == 0.2
     np.testing.assert_array_equal(hand.read_mocap_pose()[ids], pose)
-    for name in ("geom size defaults", "damping defaults", "model DOF IDs", "mocap binding"):
+    for name in ("geom_size defaults", "dof_damping defaults", "model DOF IDs", "mocap binding"):
         assert backend.calls[name] == calls[name] == 1
     assert backend.calls["root-state layout"] == 0
+
+
+def test_entity_binding_selects_per_world_default_columns() -> None:
+    class Backend(_StrictBackendProfile):
+        def __init__(self):
+            super().__init__("mjwarp")
+            self.payload = None
+
+        def get_dr_capabilities(self):
+            return DomainRandomizationCapabilities(supported_reset_terms=frozenset(("body_mass",)))
+
+        def get_reset_term_default(self, term):
+            self._check("body_mass defaults")
+            if term != "body_mass":
+                raise NotImplementedError(term)
+            return np.asarray(
+                [[1.0 + env_id] * 10 for env_id in range(self.num_envs)],
+                dtype=np.float64,
+            )
+
+        def set_state(self, env_ids, qpos, qvel, randomization=None):
+            self.set_state_calls.append((env_ids, qpos, qvel))
+            self.payload = randomization
+
+    backend = Backend()
+    transaction = ResetStateTransaction(cast(SimBackend, backend))
+    entity = Entity(
+        "tool",
+        EntityCfg(body_names=("foot",)),
+        cast(SimBackend, backend),
+        reset_state=transaction,
+    )
+
+    body_ids, defaults = entity.bind_body_mass_write(term_name="variant_mass")
+    assert defaults.shape == (backend.num_envs, body_ids.size)
+    np.testing.assert_allclose(defaults[:, 0], [1.0, 2.0, 3.0])
+
+    ids = np.array([1], dtype=np.int32)
+    with transaction.scoped(ids):
+        entity.write_body_mass_to_sim(
+            np.asarray([[7.0]]),
+            body_ids,
+            ids,
+            term_name="variant_mass",
+        )
+
+    assert backend.payload is not None
+    expected_payload = np.full(10, 2.0)
+    expected_payload[backend.body_ids["foot"]] = 7.0
+    np.testing.assert_allclose(backend.payload.body_mass, expected_payload[None, :])
+    assert backend.calls["body_mass defaults"] == 1
 
 
 def _scene(backend_type: str = "mujoco") -> tuple[_StrictBackendProfile, EntityScene]:

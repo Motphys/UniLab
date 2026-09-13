@@ -16,7 +16,6 @@ from unilab.base.variants import (
     FixedModelVariantAssignmentCfg,
     FixedModelVariantCatalogCfg,
     FixedModelVariantCfg,
-    FixedModelVariantMaterialization,
     build_fixed_variant_plan,
     materialize_fixed_model_variants,
     prepare_fixed_model_variants,

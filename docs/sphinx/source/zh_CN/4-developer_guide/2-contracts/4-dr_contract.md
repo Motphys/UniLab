@@ -40,6 +40,27 @@ Backend 支持是显式的。只有当以下三个部分同时存在时，一个
 
 MuJoCo 与 Motrix 的差异保留在 backend 能力声明、backend 实现与 owner YAML 中。
 
+## Manager Reset 默认值
+
+Manager-Based model-field term 不编译 engine asset，也不调用旧版按字段拆分的
+getter。冷路径绑定时，`ResetStateTransaction` 通过 UniSim 的
+`SimBackend.get_reset_term_default(term)` 获取默认值，先做校验，再向
+`Entity` 暴露不可变列绑定。
+
+返回表是权威默认值，只有两种布局：
+
+- canonical model table，例如 `body_mass` 的 `(nbody,)`；
+- per-environment fixed-variant table，例如 `(num_envs, nbody)`。
+
+对一次 reset 的 selected rows，event term 使用对应 env row 作为基线。只写模型
+列子集时，transaction 会先用同一 env row 的默认值补齐未写列，然后构造一次
+dense payload。能力缺失、term 不支持、非浮点表、tail 形状错误，以及首维不是
+`num_envs` 的 per-env 表都会 fail closed。
+
+该边界移除了此前 UniLab 为获取 `body_inertia` 默认值而重新编译 MuJoCo 场景的
+路径；惯量 identity 与默认值由完成 fixed model variant realization 的 backend
+拥有。
+
 ## Interval Term 描述符
 
 Interval plan 基于 term 描述符：`IntervalRandomizationPlan.ops` 携带一个

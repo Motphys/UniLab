@@ -1803,16 +1803,12 @@ class Entity:
         self,
         body_ids: np.ndarray | Sequence[int] | slice | None = None,
         *,
-        default: np.ndarray,
-        default_mass: np.ndarray,
         term_name: str,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Bind entity-local body columns and caller-compiled default inertias.
+        """Bind entity-local body columns and authoritative default inertias.
 
-        ``default`` / ``default_mass`` are the full backend-width inertial
-        tables compiled from the scene model on the cold path; the transaction
-        cross-validates ``default_mass`` against the backend's authoritative
-        body-mass table before trusting the inertia rows.
+        The backend returns either canonical or per-environment default rows;
+        entity-local columns are selected without compiling a model in UniLab.
         """
         reset_state, local_ids, backend_ids = self._bind_body_randomization(
             body_ids,
@@ -1820,8 +1816,6 @@ class Entity:
         )
         _, defaults = reset_state.bind_body_inertia_write(
             backend_ids,
-            default=default,
-            default_mass=default_mass,
             term_name=f"{term_name}:{self.name}",
         )
         return self._readonly_local_binding(local_ids, defaults)

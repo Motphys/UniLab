@@ -43,6 +43,28 @@ DR item when three pieces exist together:
 MuJoCo and Motrix differences stay in backend capability declarations,
 backend implementations, and owner YAMLs.
 
+## Manager Reset Defaults
+
+Manager-Based model-field terms do not compile engine assets or call legacy
+per-field getters. During cold-path binding, `ResetStateTransaction` asks
+UniSim for `SimBackend.get_reset_term_default(term)` and validates the result
+before exposing immutable columns to an `Entity`.
+
+The returned table is authoritative and has one of two layouts:
+
+- canonical model table, such as `(nbody,)` for `body_mass`;
+- per-environment fixed-variant table, such as `(num_envs, nbody)`.
+
+For a selected reset subset, event terms use the corresponding per-env rows as
+their baseline. A write to a subset of model columns fills every unwritten
+column from that same env row before the transaction builds one dense payload.
+Missing capabilities, unsupported terms, non-floating tables, invalid tails, and
+per-env tables whose first dimension is not `num_envs` fail closed.
+
+This boundary removes the former UniLab-side MuJoCo recompilation used to
+obtain `body_inertia` defaults; inertial identity and defaults belong to the
+backend that realized the fixed model variant.
+
 ## Interval Term Descriptors
 
 Interval plans are term-descriptor based: `IntervalRandomizationPlan.ops`

@@ -189,6 +189,13 @@ contract lands, a task configured with fixed variants fails closed before env
 construction. Heterogeneous variants that cannot expose one public
 state/action/sensor layout also fail closed.
 
+Reset-time model-field DR stays inside the selected identity. Its canonical or
+per-env baselines come from the backend's declared
+`get_reset_term_default(term)` contract; Manager terms do not recompile the
+scene or apply a canonical baseline to every tool. When only part of a model
+table is randomized, unwritten columns retain the selected environment's
+variant baseline.
+
 The ownership boundary and MJWarp/CPU executor split are recorded in
 {doc}`ADR-0010 </adr/ADR-0010-fixed-model-variant-ownership-boundary>`.
 

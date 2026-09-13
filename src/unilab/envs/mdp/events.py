@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import math
 import re
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -22,7 +21,6 @@ from unilab.utils.rotation import np_quat_apply_batched, np_quat_from_euler_xyz,
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
-    from unilab.envs.manager_based_rl_env import ManagerBasedRlEnv as ManagerBasedRlEnvImpl
     from unilab.managers._types import ManagerBasedRlEnv
 
 
@@ -32,7 +30,6 @@ _XYZ_KEYS = ("x", "y", "z")
 _PD_GAIN_PARAM_NAMES = frozenset(("kp_range", "kd_range", "asset_cfg", "distribution", "operation"))
 _DISTRIBUTIONS = ("uniform", "log_uniform", "gaussian")
 _OPERATIONS = ("add", "scale", "abs")
-_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _gain_range(
@@ -249,6 +246,24 @@ def resolve_env_ids(env: ManagerBasedRlEnv, env_ids: np.ndarray | None) -> np.nd
     return env_ids
 
 
+def _selected_reset_defaults(
+    defaults: np.ndarray,
+    env_ids: np.ndarray,
+    *,
+    canonical_ndim: int,
+) -> np.ndarray:
+    """Select canonical or per-environment reset defaults for concrete rows."""
+    if defaults.ndim == canonical_ndim:
+        return np.broadcast_to(defaults, (env_ids.size, *defaults.shape))
+    if defaults.ndim == canonical_ndim + 1:
+        return defaults[env_ids]
+    raise ValueError(
+        f"Reset default table has shape {defaults.shape}; expected a canonical "
+        f"{canonical_ndim}-D table or a per-environment "
+        f"({env_ids.size}, *canonical) table"
+    )
+
+
 class _ModelFieldRandomizer(ManagerTermBase):
     """Cold-path-bound NumPy adapter for pinned mjlab model-field DR terms."""
 
@@ -364,9 +379,19 @@ class _ModelFieldRandomizer(ManagerTermBase):
             [index for index, value in enumerate(assigned) if value is not None],
             dtype=np.intp,
         )
+        canonical_ndim = 1 if self._field_width == 1 else 2
+        if defaults.ndim == canonical_ndim:
+            selected_defaults = defaults[selected]
+        elif defaults.ndim == canonical_ndim + 1:
+            selected_defaults = defaults[:, selected]
+        else:
+            raise ValueError(
+                f"EventManager term '{self._term_name}' bound an invalid default table with "
+                f"shape {defaults.shape}"
+            )
         return (
             local_ids[selected],
-            defaults[selected],
+            selected_defaults,
             tuple(names[index] for index in selected),
             [assigned[index] for index in selected],
         )
@@ -502,25 +527,32 @@ class _ModelFieldRandomizer(ManagerTermBase):
     ) -> None:
         del ranges, asset_cfg, distribution, operation, axes, shared_random
         ids = resolve_env_ids(env, env_ids)
-        defaults = self._defaults
-        scalar = defaults.ndim == 1
-        default_values = defaults[:, None] if scalar else defaults
-        values = np.broadcast_to(
-            default_values,
-            (len(ids), *default_values.shape),
-        ).copy()
+        canonical_ndim = 1 if self._field_width == 1 else 2
+        default_values = _selected_reset_defaults(
+            self._defaults,
+            ids,
+            canonical_ndim=canonical_ndim,
+        )
+        values = np.array(default_values, copy=True)
         for axis in self._axes:
             samples = self._sample_axis(env, axis, len(ids))
-            values[:, :, axis] = _apply_randomization_operation(
-                default_values[None, :, axis],
-                samples,
-                self._operation,
-            )
+            if self._field_width == 1:
+                values[...] = _apply_randomization_operation(
+                    default_values,
+                    samples,
+                    self._operation,
+                )
+            else:
+                values[..., axis] = _apply_randomization_operation(
+                    default_values[..., axis],
+                    samples,
+                    self._operation,
+                )
         if np.any(values < 0.0) or not np.isfinite(values).all():
             raise ValueError(
                 f"EventManager term '{self._term_name}' produced negative, NaN, or Inf values"
             )
-        self._write(values[:, :, 0] if scalar else values, ids)
+        self._write(values, ids)
 
 
 class GeomFriction(_ModelFieldRandomizer):
@@ -657,8 +689,16 @@ class PdGains(ManagerTermBase):
         kp = _sample_gain_range(env.rng, self._kp_range, shape, self._distribution)
         kd = _sample_gain_range(env.rng, self._kd_range, shape, self._distribution)
         if self._operation == "scale":
-            kp *= self._default_kp[None, :]
-            kd *= self._default_kd[None, :]
+            kp = kp * _selected_reset_defaults(
+                self._default_kp,
+                ids,
+                canonical_ndim=1,
+            )
+            kd = kd * _selected_reset_defaults(
+                self._default_kd,
+                ids,
+                canonical_ndim=1,
+            )
         self._entity.write_actuator_gains_to_sim(
             kp,
             kd,
@@ -768,8 +808,13 @@ class RandomizeRigidBodyMass(ManagerTermBase):
             (ids.size, self._body_ids.size),
             self._distribution,
         )
+        default_mass = _selected_reset_defaults(
+            self._default_mass,
+            ids,
+            canonical_ndim=1,
+        )
         values = _apply_randomization_operation(
-            self._default_mass[None, :],
+            default_mass,
             samples,
             self._operation,
         )
@@ -785,45 +830,6 @@ class RandomizeRigidBodyMass(ManagerTermBase):
 randomize_rigid_body_mass = RandomizeRigidBodyMass
 
 
-def _scene_inertial_defaults(
-    env: ManagerBasedRlEnv,
-    *,
-    term_name: str,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compile the configured MJCF scene on the cold path for inertial defaults.
-
-    Returns the full ``(nbody,)`` body-mass and ``(nbody, 3)`` principal-inertia
-    tables in model body order. ``SimBackend`` exposes no body-inertia getter,
-    so the defaults come from the same scene file the MuJoCo-family backends
-    compile; the reset transaction cross-validates the mass table against the
-    backend's authoritative values before trusting the inertia rows.
-    """
-    try:
-        import mujoco
-    except ImportError as exc:
-        raise NotImplementedError(
-            f"EventManager term '{term_name}' requires the mujoco package to compile "
-            "the scene model for inertial defaults"
-        ) from exc
-    scene = cast("ManagerBasedRlEnvImpl", env).cfg.scene
-    if scene is None:
-        raise ValueError(f"EventManager term '{term_name}' requires a configured scene model file")
-    model_file = str(scene.model_file)
-    candidates = [Path(model_file)]
-    if not Path(model_file).is_absolute():
-        candidates.append(_REPO_ROOT / model_file)
-    path = next((candidate for candidate in candidates if candidate.is_file()), None)
-    if path is None:
-        raise ValueError(
-            f"EventManager term '{term_name}' cannot locate scene model file "
-            f"{model_file!r} (tried {', '.join(str(candidate) for candidate in candidates)})"
-        )
-    model = mujoco.MjModel.from_xml_path(str(path))
-    mass = np.asarray(model.body_mass, dtype=np.float64)
-    inertia = np.asarray(model.body_inertia, dtype=np.float64)
-    return mass, inertia
-
-
 class RandomizeBodyMassInertia(ManagerTermBase):
     """Startup-style mass+inertia scaling via one shared per-env factor.
 
@@ -837,8 +843,8 @@ class RandomizeBodyMassInertia(ManagerTermBase):
     UniLab startup events have no reset-transaction write path, so this term
     runs in reset mode but samples the factor only once — at the first reset —
     and reapplies the cached per-env values on every later reset. Both writes
-    re-derive from immutable compile-time defaults, so reapplication is
-    idempotent and non-accumulating.
+    re-derive from immutable backend-authoritative defaults, so reapplication
+    is idempotent and non-accumulating.
     """
 
     _PARAMS = frozenset(("asset_cfg", "scale_range"))
@@ -868,21 +874,23 @@ class RandomizeBodyMassInertia(ManagerTermBase):
         self._scale_lo = float(bounds[0])
         self._scale_hi = float(bounds[1])
         self._entity = cast("Entity", env.scene[asset_cfg.name])
-        default_mass, default_inertia = _scene_inertial_defaults(env, term_name=term_name)
         self._body_ids, self._default_mass = self._entity.bind_body_mass_write(
             asset_cfg.body_ids,
             term_name=term_name,
         )
         inertia_ids, self._default_inertia = self._entity.bind_body_inertia_write(
             asset_cfg.body_ids,
-            default=default_inertia,
-            default_mass=default_mass,
             term_name=term_name,
         )
         if not np.array_equal(self._body_ids, inertia_ids):
             raise RuntimeError(
                 f"EventManager term '{term_name}' mass/inertia body bindings diverged: "
                 f"{self._body_ids.tolist()} != {inertia_ids.tolist()}"
+            )
+        if self._default_mass.ndim != self._default_inertia.ndim - 1:
+            raise ValueError(
+                f"EventManager term '{term_name}' mass and inertia default tables use "
+                "incompatible canonical/per-environment layouts"
             )
         self._scales: np.ndarray | None = None
 
@@ -903,14 +911,24 @@ class RandomizeBodyMassInertia(ManagerTermBase):
             )
             self._scales = np.exp(2.0 * alpha)
         scales = self._scales[ids]
+        default_mass = _selected_reset_defaults(
+            self._default_mass,
+            ids,
+            canonical_ndim=1,
+        )
+        default_inertia = _selected_reset_defaults(
+            self._default_inertia,
+            ids,
+            canonical_ndim=2,
+        )
         self._entity.write_body_mass_to_sim(
-            self._default_mass[None, :] * scales,
+            default_mass * scales,
             body_ids=self._body_ids,
             env_ids=ids,
             term_name="randomize_body_mass_inertia",
         )
         self._entity.write_body_inertia_to_sim(
-            self._default_inertia[None, :, :] * scales[:, :, None],
+            default_inertia * scales[:, :, None],
             body_ids=self._body_ids,
             env_ids=ids,
             term_name="randomize_body_mass_inertia",
@@ -978,7 +996,12 @@ class RandomizeRigidBodyCom(ManagerTermBase):
             ranges[:, 1],
             size=(ids.size, 3),
         )
-        values = self._default_ipos[None, :, :] + offsets[:, None, :]
+        default_ipos = _selected_reset_defaults(
+            self._default_ipos,
+            ids,
+            canonical_ndim=2,
+        )
+        values = default_ipos + offsets[:, None, :]
         self._entity.write_body_ipos_to_sim(
             values,
             body_ids=self._body_ids,
@@ -1040,8 +1063,13 @@ class RandomizePhysicsSceneGravity(ManagerTermBase):
             (ids.size, 3),
             self._distribution,
         )
+        default_gravity = _selected_reset_defaults(
+            self._default_gravity,
+            ids,
+            canonical_ndim=1,
+        )
         values = _apply_randomization_operation(
-            self._default_gravity[None, :],
+            default_gravity,
             samples,
             self._operation,
         )

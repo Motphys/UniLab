@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from unisim.backend.base import BackendMocapPoseBinding, BackendRootStateLayout, SimBackend
 from unisim.dr.types import (
+    RESET_TERM_BODY_MASS,
     RESET_TERM_KD,
     RESET_TERM_KP,
     DomainRandomizationCapabilities,
@@ -55,6 +56,13 @@ class _Backend:
     def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
         return self.default_kp.copy(), self.default_kd.copy()
 
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        if term == RESET_TERM_KP:
+            return self.default_kp.copy()
+        if term == RESET_TERM_KD:
+            return self.default_kd.copy()
+        raise NotImplementedError(term)
+
     def set_state(
         self,
         env_ids: np.ndarray,
@@ -97,20 +105,17 @@ class _ManipulationBackend(_Backend):
         self.default_calls += 1
         return np.ones((3, width)) if width else np.ones(2)
 
-    def get_geom_sizes(self):
-        return self._defaults(3)
-
-    def get_geom_solref(self):
-        return self._defaults(2)
-
-    def get_geom_solimp(self):
-        return self._defaults(5)
-
-    def get_dof_damping(self):
-        return self._defaults(0)
-
-    def get_dof_frictionloss(self):
-        return self._defaults(0)
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        widths = {
+            "geom_size": 3,
+            "geom_solref": 2,
+            "geom_solimp": 5,
+            "dof_damping": 0,
+            "dof_frictionloss": 0,
+        }
+        if term not in widths:
+            raise NotImplementedError(term)
+        return self._defaults(widths[term])
 
     def set_state(self, env_ids, qpos, qvel, randomization=None):
         self.events.append("state")
@@ -130,6 +135,70 @@ class _ManipulationBackend(_Backend):
             lambda: self.poses,
             write,
         )
+
+
+class _PerWorldBodyMassBackend(_Backend):
+    def __init__(self) -> None:
+        super().__init__()
+        self.default_calls = 0
+
+    def get_dr_capabilities(self):
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset((RESET_TERM_BODY_MASS,))
+        )
+
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        if term != RESET_TERM_BODY_MASS:
+            raise NotImplementedError(term)
+        self.default_calls += 1
+        return np.asarray(
+            [
+                [1.0, 10.0, 100.0],
+                [2.0, 20.0, 200.0],
+                [3.0, 30.0, 300.0],
+                [4.0, 40.0, 400.0],
+            ]
+        )
+
+
+class _InvalidDefaultBackend(_Backend):
+    def __init__(self, field: str, value: Any) -> None:
+        super().__init__()
+        self.field = field
+        self.value = value
+
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        return DomainRandomizationCapabilities(supported_reset_terms=frozenset((self.field,)))
+
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        if term != self.field:
+            raise NotImplementedError(term)
+        return self.value
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("body_mass", np.ones((2, 3), dtype=np.float64), "canonical 1-D table"),
+        (
+            "body_mass",
+            np.ones((3, 2), dtype=np.float64),
+            "canonical 1-D table or a per-environment \\(4, \\*canonical\\)",
+        ),
+        ("body_mass", np.ones(2, dtype=np.int32), "must be floating"),
+        ("gravity", np.ones(2, dtype=np.float64), "canonical 1-D table"),
+    ],
+)
+def test_reset_term_default_shapes_fail_closed(field: str, value: Any, match: str) -> None:
+    transaction = _transaction(_InvalidDefaultBackend(field, value))
+    with pytest.raises((TypeError, ValueError), match=match):
+        if field == "gravity":
+            transaction.bind_gravity_write(term_name="bad_default")
+        else:
+            transaction.bind_body_mass_write(
+                np.array([0], dtype=np.int32),
+                term_name="bad_default",
+            )
 
 
 @pytest.mark.parametrize(
@@ -158,6 +227,31 @@ def test_manipulation_fields_preserve_unselected_columns_and_bind_once(field, wi
     np.testing.assert_array_equal(backend.set_state_calls[-1][0], [0, 2])
     np.testing.assert_array_equal(getattr(payload, field)[:, 1], 0.25)
     np.testing.assert_array_equal(getattr(payload, field)[:, 0], 1.0)
+
+
+def test_per_world_body_mass_preserves_each_selected_rows_baseline() -> None:
+    backend = _PerWorldBodyMassBackend()
+    transaction = _transaction(backend)
+    columns = np.array([1, 2], dtype=np.int32)
+    _, defaults = transaction.bind_body_mass_write(columns, term_name="variant_mass")
+
+    assert defaults.shape == (backend.num_envs, columns.size)
+    np.testing.assert_allclose(defaults[:, 0], [10.0, 20.0, 30.0, 40.0])
+    np.testing.assert_allclose(defaults[:, 1], [100.0, 200.0, 300.0, 400.0])
+
+    ids = np.array([2, 0], dtype=np.int32)
+    with transaction.scoped(ids):
+        transaction.write_body_mass(
+            ids,
+            columns[:1],
+            np.full((ids.size, 1), 0.5),
+            term_name="variant_mass",
+        )
+
+    assert backend.default_calls == 1
+    payload = backend.randomization_calls[-1]
+    assert payload is not None and payload.body_mass is not None
+    np.testing.assert_allclose(payload.body_mass, [[1.0, 0.5, 100.0], [3.0, 0.5, 300.0]])
 
 
 def test_mocap_pose_is_staged_then_committed_after_generalized_state():

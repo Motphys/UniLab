@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -170,6 +171,7 @@ class _Backend:
         interval_angular_velocity_supported: bool = False,
         interval_force_supported: bool = False,
         interval_torque_supported: bool = False,
+        per_world_defaults: bool = False,
     ) -> None:
         self.root_layout_supported = root_layout_supported
         self.gain_supported = gain_supported
@@ -178,6 +180,7 @@ class _Backend:
         self.interval_angular_velocity_supported = interval_angular_velocity_supported
         self.interval_force_supported = interval_force_supported
         self.interval_torque_supported = interval_torque_supported
+        self.per_world_defaults = per_world_defaults
         self.default_qpos = np.asarray([0.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0])
         self.init_qvel = np.zeros(6)
         self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
@@ -186,11 +189,42 @@ class _Backend:
         self.body_quat = np.zeros((self.num_envs, 1, 4))
         self.body_quat[:, :, 0] = 1.0
         self.body_velocity = np.zeros((self.num_envs, 1, 3))
-        self.body_mass = np.array([10.0])
-        self.body_ipos = np.array([[0.0, 0.0, 0.0]])
-        self.gravity = np.array([0.0, 0.0, -9.81])
-        self.dof_armature = np.array([0.0] * 6 + [1.0, 2.0, 3.0])
-        self.geom_friction = np.array([[0.5, 0.01, 0.001], [0.7, 0.02, 0.002], [0.9, 0.03, 0.003]])
+        canonical_friction = np.array([[0.5, 0.01, 0.001], [0.7, 0.02, 0.002], [0.9, 0.03, 0.003]])
+        canonical_armature = np.array([0.0] * 6 + [1.0, 2.0, 3.0])
+        if per_world_defaults:
+            self.body_mass = np.asarray([[10.0 + env_id] for env_id in range(self.num_envs)])
+            self.body_ipos = np.asarray(
+                [[0.01 * env_id, 0.0, 0.0] for env_id in range(self.num_envs)]
+            )[:, None, :]
+            self.gravity = np.asarray(
+                [[0.0, 0.0, -9.81 - 0.1 * env_id] for env_id in range(self.num_envs)]
+            )
+            self.dof_armature = np.stack(
+                [canonical_armature * (1.0 + 0.1 * env_id) for env_id in range(self.num_envs)]
+            )
+            self.geom_friction = np.stack(
+                [canonical_friction * (1.0 + 0.1 * env_id) for env_id in range(self.num_envs)]
+            )
+            self.default_kp = np.stack(
+                [
+                    np.asarray([10.0, 20.0, 30.0]) * (1.0 + 0.1 * env_id)
+                    for env_id in range(self.num_envs)
+                ]
+            )
+            self.default_kd = np.stack(
+                [
+                    np.asarray([1.0, 2.0, 3.0]) * (1.0 + 0.1 * env_id)
+                    for env_id in range(self.num_envs)
+                ]
+            )
+        else:
+            self.body_mass = np.array([10.0])
+            self.body_ipos = np.array([[0.0, 0.0, 0.0]])
+            self.gravity = np.array([0.0, 0.0, -9.81])
+            self.dof_armature = canonical_armature
+            self.geom_friction = canonical_friction
+            self.default_kp = np.asarray([10.0, 20.0, 30.0])
+            self.default_kd = np.asarray([1.0, 2.0, 3.0])
         self.interval_plans: list[IntervalRandomizationPlan] = []
 
     def get_body_ids(self, names) -> np.ndarray:
@@ -266,23 +300,22 @@ class _Backend:
             supports_interval_body_torque=self.interval_torque_supported,
         )
 
-    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
-        return np.array([10.0, 20.0, 30.0]), np.array([1.0, 2.0, 3.0])
-
-    def get_body_mass(self) -> np.ndarray:
-        return self.body_mass.copy()
-
-    def get_body_ipos(self) -> np.ndarray:
-        return self.body_ipos.copy()
-
-    def get_gravity(self) -> np.ndarray:
-        return self.gravity.copy()
-
-    def get_dof_armature(self) -> np.ndarray:
-        return self.dof_armature.copy()
-
-    def get_geom_friction(self) -> np.ndarray:
-        return self.geom_friction.copy()
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        if not self.get_dr_capabilities().supports_reset_term(term):
+            raise NotImplementedError(term)
+        values = {
+            RESET_TERM_KP: self.default_kp,
+            RESET_TERM_KD: self.default_kd,
+            RESET_TERM_BODY_MASS: self.body_mass,
+            RESET_TERM_BODY_IPOS: self.body_ipos,
+            RESET_TERM_DOF_ARMATURE: self.dof_armature,
+            RESET_TERM_GEOM_FRICTION: self.geom_friction,
+            RESET_TERM_GRAVITY: self.gravity,
+        }
+        try:
+            return np.array(values[term], copy=True)
+        except KeyError as exc:
+            raise NotImplementedError(term) from exc
 
     def apply_interval_randomization(self, plan: IntervalRandomizationPlan) -> None:
         self.interval_plans.append(plan)
@@ -325,6 +358,7 @@ def _transaction_env(
     interval_angular_velocity_supported: bool = False,
     interval_force_supported: bool = False,
     interval_torque_supported: bool = False,
+    per_world_defaults: bool = False,
     body_names: tuple[str, ...] | None = ("base",),
     rng_seed: int = 5,
     step_dt: float = 0.02,
@@ -337,6 +371,7 @@ def _transaction_env(
         interval_angular_velocity_supported=interval_angular_velocity_supported,
         interval_force_supported=interval_force_supported,
         interval_torque_supported=interval_torque_supported,
+        per_world_defaults=per_world_defaults,
     )
     transaction = ResetStateTransaction(cast(SimBackend, backend))
     scene = EntityScene(
@@ -447,6 +482,40 @@ def test_pd_gains_event_supports_log_uniform_absolute_sampling() -> None:
     assert np.all((payload.kp >= 0.25) & (payload.kp <= 4.0))
     assert np.all((payload.kd >= 0.5) & (payload.kd <= 2.0))
     assert np.unique(payload.kp[0]).size > 1
+
+
+def test_pd_gains_event_uses_selected_per_world_default_rows() -> None:
+    env, backend, transaction = _transaction_env(
+        per_world_defaults=True,
+        rng_seed=11,
+    )
+    manager = EventManager(
+        {
+            "randomize_pd": EventTermCfg(
+                func=mdp.pd_gains,
+                mode="reset",
+                params={
+                    "kp_range": (2.0, 2.0),
+                    "kd_range": (3.0, 3.0),
+                    "asset_cfg": SceneEntityCfg(
+                        "robot",
+                        actuator_names=["a2", "a0"],
+                        preserve_order=True,
+                    ),
+                },
+            )
+        },
+        env,
+    )
+    ids = np.array([0, 2], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+
+    payload = backend.randomization_calls[-1]
+    assert payload is not None
+    np.testing.assert_allclose(payload.kp, [[20.0, 20.0, 60.0], [24.0, 24.0, 72.0]])
+    np.testing.assert_allclose(payload.kd, [[3.0, 2.0, 9.0], [3.6, 2.4, 10.8]])
 
 
 @pytest.mark.parametrize(
@@ -602,6 +671,46 @@ def test_model_field_terms_use_cached_selectors_and_one_dense_reset_payload() ->
     expected_friction[0, 0] *= 2.0
     expected_friction[2, 0] *= 3.0
     np.testing.assert_allclose(payload.geom_friction, [expected_friction] * 2)
+
+
+def test_model_field_term_uses_selected_per_world_default_rows() -> None:
+    env, backend, transaction = _transaction_env(
+        per_world_defaults=True,
+        rng_seed=23,
+    )
+    manager = EventManager(
+        {
+            "armature": EventTermCfg(
+                func=mdp.joint_armature,
+                mode="reset",
+                params={
+                    "asset_cfg": SceneEntityCfg(
+                        "robot",
+                        joint_names=("j2", "j0"),
+                        preserve_order=True,
+                    ),
+                    "ranges": (2.0, 2.0),
+                    "operation": "scale",
+                },
+            )
+        },
+        env,
+    )
+    ids = np.array([0, 2], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        mdp.reset_scene_to_default(env, ids)
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+
+    payload = backend.randomization_calls[-1]
+    assert payload is not None and payload.dof_armature is not None
+    np.testing.assert_allclose(
+        payload.dof_armature,
+        [
+            [0.0] * 6 + [2.0, 2.0, 6.0],
+            [0.0] * 6 + [2.4, 2.4, 7.2],
+        ],
+    )
 
 
 def test_model_field_aliases_are_identical_and_capability_gaps_fail_cold() -> None:
@@ -1267,14 +1376,48 @@ def test_rigid_body_com_event_consumes_live_params_between_applies() -> None:
     np.testing.assert_allclose(second, [[[0.5, 0.0, -0.2]]] * 2)
 
 
-class _InertiaBackend(_Backend):
-    """Fake backend with a world-body row so MJCF-compiled inertial defaults align."""
+def test_manager_model_field_terms_do_not_import_engine_packages() -> None:
+    source = inspect.getsource(mdp.events)
+    assert "import mujoco" not in source
+    assert "import mjbatch" not in source
 
-    def __init__(self, *, inertia_supported: bool = True) -> None:
-        super().__init__()
+
+class _InertiaBackend(_Backend):
+    """Fake backend with authoritative world/body inertial default rows."""
+
+    def __init__(
+        self,
+        *,
+        inertia_supported: bool = True,
+        per_world_defaults: bool = False,
+    ) -> None:
+        super().__init__(per_world_defaults=per_world_defaults)
         self.inertia_supported = inertia_supported
         # Row 0 is the world body, matching the compiled MJCF body table.
-        self.body_mass = np.array([0.0, 10.0])
+        self.body_mass = (
+            np.asarray([[0.0, 10.0 + 0.5 * env_id] for env_id in range(self.num_envs)])
+            if per_world_defaults
+            else np.array([0.0, 10.0])
+        )
+        if per_world_defaults:
+            self.body_inertia = np.stack(
+                [
+                    np.asarray(
+                        [
+                            [0.0, 0.0, 0.0],
+                            [
+                                0.1 + 0.01 * env_id,
+                                0.2 + 0.01 * env_id,
+                                0.3 + 0.01 * env_id,
+                            ],
+                        ]
+                    )
+                    for env_id in range(self.num_envs)
+                ],
+                axis=0,
+            )
+        else:
+            self.body_inertia = np.asarray([[0.0, 0.0, 0.0], [0.1, 0.2, 0.3]])
         self.body_pos = np.zeros((self.num_envs, 2, 3))
         self.body_quat = np.zeros((self.num_envs, 2, 4))
         self.body_quat[:, :, 0] = 1.0
@@ -1304,25 +1447,22 @@ class _InertiaBackend(_Backend):
             supports_interval_body_torque=capabilities.supports_interval_body_torque,
         )
 
-
-_MASS_INERTIA_SCENE_XML = (
-    '<mujoco><worldbody><body name="base" pos="0 0 0.5">'
-    "<freejoint/>"
-    '<inertial pos="0 0 0" mass="10.0" diaginertia="0.1 0.2 0.3"/>'
-    '<geom type="sphere" size="0.1"/>'
-    "</body></worldbody></mujoco>"
-)
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        if term == RESET_TERM_BODY_INERTIA and self.inertia_supported:
+            return self.body_inertia.copy()
+        return super().get_reset_term_default(term)
 
 
 def _mass_inertia_env(
-    tmp_path,
     *,
     inertia_supported: bool = True,
+    per_world_defaults: bool = False,
     rng_seed: int = 5,
 ) -> tuple[ManagerBasedRlEnv, _InertiaBackend, ResetStateTransaction]:
-    model_file = tmp_path / "mass_inertia_scene.xml"
-    model_file.write_text(_MASS_INERTIA_SCENE_XML, encoding="utf-8")
-    backend = _InertiaBackend(inertia_supported=inertia_supported)
+    backend = _InertiaBackend(
+        inertia_supported=inertia_supported,
+        per_world_defaults=per_world_defaults,
+    )
     transaction = ResetStateTransaction(cast(SimBackend, backend))
     scene = EntityScene(
         {
@@ -1344,7 +1484,6 @@ def _mass_inertia_env(
             rng=np.random.default_rng(rng_seed),
             scene=scene,
             step_dt=0.02,
-            cfg=SimpleNamespace(scene=SimpleNamespace(model_file=str(model_file))),
         ),
     )
     return env, backend, transaction
@@ -1366,8 +1505,8 @@ def _mass_inertia_manager(env: ManagerBasedRlEnv) -> EventManager:
     )
 
 
-def test_randomize_body_mass_inertia_scales_once_and_replays_cached_factor(tmp_path) -> None:
-    env, backend, transaction = _mass_inertia_env(tmp_path, rng_seed=11)
+def test_randomize_body_mass_inertia_scales_once_and_replays_cached_factor() -> None:
+    env, backend, transaction = _mass_inertia_env(rng_seed=11)
     manager = _mass_inertia_manager(env)
     ids = np.array([0, 2], dtype=np.int32)
 
@@ -1407,27 +1546,56 @@ def test_randomize_body_mass_inertia_scales_once_and_replays_cached_factor(tmp_p
     np.testing.assert_allclose(replay.body_inertia[0, 1], payload.body_inertia[1, 1])
 
 
-def test_randomize_body_mass_inertia_capability_gap_fails_during_construction(tmp_path) -> None:
-    env, backend, _ = _mass_inertia_env(tmp_path, inertia_supported=False)
+def test_randomize_body_mass_inertia_capability_gap_fails_during_construction() -> None:
+    env, backend, _ = _mass_inertia_env(inertia_supported=False)
     with pytest.raises(NotImplementedError, match="body_inertia randomization.*unsupported"):
         _mass_inertia_manager(env)
     assert backend.set_state_calls == []
 
 
-def test_randomize_body_mass_inertia_cross_check_fails_on_model_divergence(tmp_path) -> None:
-    env, backend, _ = _mass_inertia_env(tmp_path)
-    backend.body_mass = np.array([0.0, 11.0])  # backend model drifted from the scene file
-    with pytest.raises(ValueError, match="does not match backend"):
-        _mass_inertia_manager(env)
-    assert backend.set_state_calls == []
+def test_randomize_body_mass_inertia_uses_selected_per_world_baselines() -> None:
+    env, backend, transaction = _mass_inertia_env(
+        per_world_defaults=True,
+        rng_seed=11,
+    )
+    manager = EventManager(
+        {
+            "mass_inertia": EventTermCfg(
+                func=mdp.randomize_body_mass_inertia,
+                mode="reset",
+                params={
+                    "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                    "scale_range": (2.0, 2.0),
+                },
+            )
+        },
+        env,
+    )
+    ids = np.array([0, 2], dtype=np.int32)
+
+    with transaction.scoped(ids):
+        mdp.reset_scene_to_default(env, ids)
+        manager.apply(mode="reset", env_ids=ids, global_env_step_count=0)
+
+    payload = backend.randomization_calls[-1]
+    assert payload is not None
+    assert payload.body_mass is not None
+    assert payload.body_inertia is not None
+    np.testing.assert_allclose(payload.body_mass[:, 1], [20.0, 22.0])
+    np.testing.assert_allclose(payload.body_mass[:, 0], 0.0)
+    np.testing.assert_allclose(
+        payload.body_inertia[:, 1, :],
+        [[0.2, 0.4, 0.6], [0.24, 0.44, 0.64]],
+    )
+    np.testing.assert_allclose(payload.body_inertia[:, 0, :], 0.0)
 
 
 @pytest.mark.parametrize(
     "scale_range",
     [(0.9, 0.1), (0.0, 1.05)],
 )
-def test_randomize_body_mass_inertia_rejects_invalid_scale_range(tmp_path, scale_range) -> None:
-    env, backend, _ = _mass_inertia_env(tmp_path)
+def test_randomize_body_mass_inertia_rejects_invalid_scale_range(scale_range) -> None:
+    env, backend, _ = _mass_inertia_env()
     with pytest.raises(ValueError, match="scale_range"):
         EventManager(
             {

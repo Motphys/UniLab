@@ -33,6 +33,29 @@ from unisim.dr.types import (
 
 from unilab.utils.rotation import np_quat_apply_inverse
 
+_RANDOMIZATION_TERM_TAILS: dict[str, tuple[int, ...]] = {
+    RESET_TERM_BODY_INERTIA: (3,),
+    RESET_TERM_BODY_MASS: (),
+    RESET_TERM_BODY_IPOS: (3,),
+    RESET_TERM_DOF_ARMATURE: (),
+    RESET_TERM_DOF_DAMPING: (),
+    RESET_TERM_DOF_FRICTIONLOSS: (),
+    RESET_TERM_GEOM_FRICTION: (3,),
+    RESET_TERM_GEOM_SIZE: (3,),
+    RESET_TERM_GEOM_SOLIMP: (5,),
+    RESET_TERM_GEOM_SOLREF: (2,),
+    RESET_TERM_GRAVITY: (),
+    RESET_TERM_KD: (),
+    RESET_TERM_KP: (),
+}
+
+
+def _randomization_term_tail(field: str) -> tuple[int, ...]:
+    try:
+        return _RANDOMIZATION_TERM_TAILS[field]
+    except KeyError as exc:
+        raise ValueError(f"unknown reset randomization term {field!r}") from exc
+
 
 class ResetStateTransaction:
     """Reusable, fail-closed transaction for reset-mode state mutation."""
@@ -131,17 +154,21 @@ class ResetStateTransaction:
         """Bind immutable geom_size defaults through the declared backend capability."""
         default = self._materialize_randomization_default(
             RESET_TERM_GEOM_SIZE,
-            getter=self._backend.get_geom_sizes,
             expected_tail=(3,),
             term_name=term_name,
         )
         columns = self._validate_columns(
             column_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=RESET_TERM_GEOM_SIZE),
             capability="geom_size IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_GEOM_SIZE,
+        )
+        return self._readonly_binding(columns, selected)
 
     def write_geom_size(
         self,
@@ -170,17 +197,21 @@ class ResetStateTransaction:
         """Bind immutable geom_solref defaults through the declared backend capability."""
         default = self._materialize_randomization_default(
             RESET_TERM_GEOM_SOLREF,
-            getter=self._backend.get_geom_solref,
             expected_tail=(2,),
             term_name=term_name,
         )
         columns = self._validate_columns(
             column_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=RESET_TERM_GEOM_SOLREF),
             capability="geom_solref IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_GEOM_SOLREF,
+        )
+        return self._readonly_binding(columns, selected)
 
     def write_geom_solref(
         self,
@@ -209,17 +240,21 @@ class ResetStateTransaction:
         """Bind immutable geom_solimp defaults through the declared backend capability."""
         default = self._materialize_randomization_default(
             RESET_TERM_GEOM_SOLIMP,
-            getter=self._backend.get_geom_solimp,
             expected_tail=(5,),
             term_name=term_name,
         )
         columns = self._validate_columns(
             column_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=RESET_TERM_GEOM_SOLIMP),
             capability="geom_solimp IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_GEOM_SOLIMP,
+        )
+        return self._readonly_binding(columns, selected)
 
     def write_geom_solimp(
         self,
@@ -248,17 +283,21 @@ class ResetStateTransaction:
         """Bind immutable dof_damping defaults through the declared backend capability."""
         default = self._materialize_randomization_default(
             RESET_TERM_DOF_DAMPING,
-            getter=self._backend.get_dof_damping,
-            expected_tail=None,
+            expected_tail=(),
             term_name=term_name,
         )
         columns = self._validate_columns(
             column_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=RESET_TERM_DOF_DAMPING),
             capability="dof_damping IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_DOF_DAMPING,
+        )
+        return self._readonly_binding(columns, selected)
 
     def write_dof_damping(
         self,
@@ -287,17 +326,24 @@ class ResetStateTransaction:
         """Bind immutable dof_frictionloss defaults through the declared backend capability."""
         default = self._materialize_randomization_default(
             RESET_TERM_DOF_FRICTIONLOSS,
-            getter=self._backend.get_dof_frictionloss,
-            expected_tail=None,
+            expected_tail=(),
             term_name=term_name,
         )
         columns = self._validate_columns(
             column_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(
+                default,
+                field=RESET_TERM_DOF_FRICTIONLOSS,
+            ),
             capability="dof_frictionloss IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_DOF_FRICTIONLOSS,
+        )
+        return self._readonly_binding(columns, selected)
 
     def write_dof_frictionloss(
         self,
@@ -326,17 +372,21 @@ class ResetStateTransaction:
         """Bind body-mass columns and immutable backend defaults on the cold path."""
         default = self._materialize_randomization_default(
             RESET_TERM_BODY_MASS,
-            getter=self._backend.get_body_mass,
-            expected_tail=None,
+            expected_tail=(),
             term_name=term_name,
         )
         columns = self._validate_columns(
             body_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=RESET_TERM_BODY_MASS),
             capability="body mass IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_BODY_MASS,
+        )
+        return self._readonly_binding(columns, selected)
 
     def bind_body_ipos_write(
         self,
@@ -347,106 +397,60 @@ class ResetStateTransaction:
         """Bind body inertial-position columns and immutable backend defaults."""
         default = self._materialize_randomization_default(
             RESET_TERM_BODY_IPOS,
-            getter=self._backend.get_body_ipos,
             expected_tail=(3,),
             term_name=term_name,
         )
         columns = self._validate_columns(
             body_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=RESET_TERM_BODY_IPOS),
             capability="body ipos IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_BODY_IPOS,
+        )
+        return self._readonly_binding(columns, selected)
 
     def bind_body_inertia_write(
         self,
         body_ids: np.ndarray,
         *,
-        default: np.ndarray,
-        default_mass: np.ndarray,
         term_name: str,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Bind body-inertia columns with caller-supplied cold-path defaults.
+        """Bind body-inertia columns and authoritative backend defaults.
 
-        ``SimBackend`` has no body-inertia getter, so the caller compiles the
-        scene model on the cold path and supplies the full ``(nbody, 3)``
-        principal-inertia table in backend body-id order. ``default_mass`` is
-        the full ``(nbody,)`` table from the same compile and is
-        cross-validated against the backend's authoritative body-mass table,
-        which fail-closed pins the body set and row ordering.
+        UniSim returns either a canonical ``(nbody, 3)`` table or a per-world
+        ``(num_envs, nbody, 3)`` table. No caller-side model compilation or
+        body-order cross-check is needed.
         """
-        mass_default = self._materialize_randomization_default(
-            RESET_TERM_BODY_MASS,
-            getter=self._backend.get_body_mass,
-            expected_tail=None,
-            term_name=term_name,
-        )
-        try:
-            capabilities = self._backend.get_dr_capabilities()
-        except (AttributeError, NotImplementedError) as exc:
-            raise self._capability_error(term_name, "body_inertia randomization", exc) from exc
-        unsupported = capabilities.get_unsupported_reset_terms(
-            frozenset((RESET_TERM_BODY_INERTIA,))
-        )
-        if unsupported:
-            raise self._capability_error(
-                term_name,
-                "body_inertia randomization",
-                NotImplementedError(f"unsupported reset payload field: {RESET_TERM_BODY_INERTIA}"),
-            )
-        reference = self._validate_randomization_default_table(
-            default_mass,
-            expected_shape=mass_default.shape,
-            capability="default body_mass cross-check",
-            term_name=term_name,
-        )
-        if not np.allclose(reference, mass_default, rtol=1e-4, atol=1e-9):
-            raise ValueError(
-                f"EventManager term '{term_name}' caller-compiled body_mass table does not "
-                f"match backend '{self._backend.backend_type}' defaults; the cold-path scene "
-                "compile diverges from the backend model (e.g. fragments adding bodies)"
-            )
-        inertia = self._validate_randomization_default_table(
-            default,
-            expected_shape=(mass_default.shape[0], 3),
-            capability="default body_inertia",
+        inertia = self._materialize_randomization_default(
+            RESET_TERM_BODY_INERTIA,
+            expected_tail=(3,),
             term_name=term_name,
         )
         if np.any(inertia < 0.0):
             raise ValueError(
                 f"EventManager term '{term_name}' default body_inertia contains negative values"
             )
-        cached = self._randomization_defaults.get(RESET_TERM_BODY_INERTIA)
-        if cached is None:
-            inertia.setflags(write=False)
-            self._randomization_defaults[RESET_TERM_BODY_INERTIA] = inertia
-            self._randomization_values[RESET_TERM_BODY_INERTIA] = np.empty(
-                (self._num_envs, *inertia.shape),
-                dtype=inertia.dtype,
-            )
-            self._randomization_dirty_masks[RESET_TERM_BODY_INERTIA] = np.zeros(
-                self._num_envs, dtype=np.bool_
-            )
-        elif not np.array_equal(cached, inertia):
-            raise ValueError(
-                f"EventManager term '{term_name}' supplied a body_inertia default table that "
-                "differs from the table already bound on this transaction"
-            )
-        default_table = self._randomization_defaults[RESET_TERM_BODY_INERTIA]
         columns = self._validate_columns(
             body_ids,
-            width=default_table.shape[0],
+            width=self._randomization_default_width(default=inertia, field=RESET_TERM_BODY_INERTIA),
             capability="body inertia IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default_table[columns])
+        selected = self._select_randomization_default_columns(
+            inertia,
+            columns,
+            field=RESET_TERM_BODY_INERTIA,
+        )
+        return self._readonly_binding(columns, selected)
 
     def bind_gravity_write(self, *, term_name: str) -> np.ndarray:
         """Bind the immutable backend gravity vector on the cold path."""
         return self._materialize_randomization_default(
             RESET_TERM_GRAVITY,
-            getter=self._backend.get_gravity,
             expected_tail=(),
             term_name=term_name,
         )
@@ -460,17 +464,21 @@ class ResetStateTransaction:
         """Bind DOF-armature columns and immutable backend defaults."""
         default = self._materialize_randomization_default(
             RESET_TERM_DOF_ARMATURE,
-            getter=self._backend.get_dof_armature,
-            expected_tail=None,
+            expected_tail=(),
             term_name=term_name,
         )
         columns = self._validate_columns(
             dof_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=RESET_TERM_DOF_ARMATURE),
             capability="DOF armature IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_DOF_ARMATURE,
+        )
+        return self._readonly_binding(columns, selected)
 
     def bind_geom_friction_write(
         self,
@@ -481,17 +489,21 @@ class ResetStateTransaction:
         """Bind geom-friction rows and immutable backend defaults."""
         default = self._materialize_randomization_default(
             RESET_TERM_GEOM_FRICTION,
-            getter=self._backend.get_geom_friction,
             expected_tail=(3,),
             term_name=term_name,
         )
         columns = self._validate_columns(
             geom_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=RESET_TERM_GEOM_FRICTION),
             capability="geom friction IDs",
             term_name=term_name,
         )
-        return self._readonly_binding(columns, default[columns])
+        selected = self._select_randomization_default_columns(
+            default,
+            columns,
+            field=RESET_TERM_GEOM_FRICTION,
+        )
+        return self._readonly_binding(columns, selected)
 
     def write_body_mass(
         self,
@@ -571,7 +583,11 @@ class ResetStateTransaction:
         mask = self._randomization_dirty_masks[RESET_TERM_GRAVITY]
         uninitialized = ids[~mask[ids]]
         if uninitialized.size:
-            buffer[uninitialized] = default
+            buffer[uninitialized] = self._randomization_default_rows(
+                default,
+                uninitialized,
+                field=RESET_TERM_GRAVITY,
+            )
         buffer[ids] = gravity
         mask[ids] = True
         self._dirty_mask[ids] = True
@@ -628,8 +644,22 @@ class ResetStateTransaction:
         self._materialize_default_actuator_gains(term_name)
         assert self._default_kp is not None
         assert self._default_kd is not None
-        selected_kp = np.array(self._default_kp[columns], copy=True)
-        selected_kd = np.array(self._default_kd[columns], copy=True)
+        selected_kp = np.array(
+            self._select_randomization_default_columns(
+                self._default_kp,
+                columns,
+                field=RESET_TERM_KP,
+            ),
+            copy=True,
+        )
+        selected_kd = np.array(
+            self._select_randomization_default_columns(
+                self._default_kd,
+                columns,
+                field=RESET_TERM_KD,
+            ),
+            copy=True,
+        )
         selected_kp.setflags(write=False)
         selected_kd.setflags(write=False)
         bound_columns = np.array(columns, copy=True)
@@ -677,8 +707,16 @@ class ResetStateTransaction:
         assert self._kd is not None
         uninitialized = ids[~self._gain_dirty_mask[ids]]
         if uninitialized.size:
-            self._kp[uninitialized] = self._default_kp
-            self._kd[uninitialized] = self._default_kd
+            self._kp[uninitialized] = self._randomization_default_rows(
+                self._default_kp,
+                uninitialized,
+                field=RESET_TERM_KP,
+            )
+            self._kd[uninitialized] = self._randomization_default_rows(
+                self._default_kd,
+                uninitialized,
+                field=RESET_TERM_KD,
+            )
         if ids.size and columns.size:
             self._kp[ids[:, None], columns[None, :]] = kp_values
             self._kd[ids[:, None], columns[None, :]] = kd_values
@@ -1000,12 +1038,24 @@ class ResetStateTransaction:
                 "actuator gain randomization",
                 NotImplementedError(f"unsupported reset payload fields: {detail}"),
             )
-        try:
-            kp, kd = self._backend.get_actuator_gains()
-        except (AttributeError, NotImplementedError) as exc:
-            raise self._capability_error(term_name, "default actuator gains", exc) from exc
-        default_kp = self._validate_gain_vector(kp, "default actuator kp", term_name)
-        default_kd = self._validate_gain_vector(kd, "default actuator kd", term_name)
+        default_kp = self._fetch_reset_term_default(
+            RESET_TERM_KP,
+            expected_tail=(),
+            term_name=term_name,
+        )
+        default_kd = self._fetch_reset_term_default(
+            RESET_TERM_KD,
+            expected_tail=(),
+            term_name=term_name,
+        )
+        for name, default in ((RESET_TERM_KP, default_kp), (RESET_TERM_KD, default_kd)):
+            width = self._randomization_default_width(default, field=name)
+            if width != self._backend.num_actuators:
+                raise ValueError(
+                    f"EventManager term '{term_name}' default actuator {name} on backend "
+                    f"'{self._backend.backend_type}' has model width {width}; expected "
+                    f"{self._backend.num_actuators}"
+                )
         self._default_kp = default_kp
         self._default_kd = default_kd
         self._kp = np.empty(
@@ -1021,8 +1071,7 @@ class ResetStateTransaction:
         self,
         field: str,
         *,
-        getter,
-        expected_tail: tuple[int, ...] | None,
+        expected_tail: tuple[int, ...],
         term_name: str,
     ) -> np.ndarray:
         cached = self._randomization_defaults.get(field)
@@ -1039,8 +1088,28 @@ class ResetStateTransaction:
                 f"{field} randomization",
                 NotImplementedError(f"unsupported reset payload field: {field}"),
             )
+        default = self._fetch_reset_term_default(
+            field,
+            expected_tail=expected_tail,
+            term_name=term_name,
+        )
+        self._randomization_defaults[field] = default
+        self._randomization_values[field] = np.empty(
+            (self._num_envs, *self._canonical_default_shape(default, field=field)),
+            dtype=default.dtype,
+        )
+        self._randomization_dirty_masks[field] = np.zeros(self._num_envs, dtype=np.bool_)
+        return default
+
+    def _fetch_reset_term_default(
+        self,
+        field: str,
+        *,
+        expected_tail: tuple[int, ...],
+        term_name: str,
+    ) -> np.ndarray:
         try:
-            value = getter()
+            value = self._backend.get_reset_term_default(field)
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error(term_name, f"default {field}", exc) from exc
         if not isinstance(value, np.ndarray):
@@ -1049,14 +1118,21 @@ class ResetStateTransaction:
                 f"'{self._backend.backend_type}' must return np.ndarray, got "
                 f"{type(value).__name__}"
             )
-        expected_ndim = 1 if expected_tail is None else 1 + len(expected_tail)
-        if value.ndim != expected_ndim:
+        canonical_ndim = 1 + len(expected_tail)
+        canonical_shape = value.ndim == canonical_ndim
+        per_env_shape = value.ndim == canonical_ndim + 1 and value.shape[0] == self._num_envs
+        if field == RESET_TERM_GRAVITY:
+            canonical_shape = value.shape == (3,)
+            per_env_shape = value.shape == (self._num_envs, 3)
+        if not canonical_shape and not per_env_shape:
             raise ValueError(
                 f"EventManager term '{term_name}' capability 'default {field}' on backend "
                 f"'{self._backend.backend_type}' returned shape {value.shape}; expected "
-                f"{expected_ndim}-D"
+                f"a canonical {canonical_ndim}-D table or a per-environment "
+                f"({self._num_envs}, *canonical) table"
             )
-        if expected_tail is not None and value.shape[1:] != expected_tail:
+        tail_slice = 2 if per_env_shape else 1
+        if value.shape[tail_slice:] != expected_tail:
             raise ValueError(
                 f"EventManager term '{term_name}' capability 'default {field}' on backend "
                 f"'{self._backend.backend_type}' returned shape {value.shape}; expected tail "
@@ -1074,12 +1150,6 @@ class ResetStateTransaction:
             )
         default = np.array(value, copy=True)
         default.setflags(write=False)
-        self._randomization_defaults[field] = default
-        self._randomization_values[field] = np.empty(
-            (self._num_envs, *default.shape),
-            dtype=default.dtype,
-        )
-        self._randomization_dirty_masks[field] = np.zeros(self._num_envs, dtype=np.bool_)
         return default
 
     def _require_randomization_default(self, field: str, term_name: str) -> np.ndarray:
@@ -1091,32 +1161,61 @@ class ResetStateTransaction:
                 "during manager construction before writing it"
             ) from exc
 
-    def _validate_randomization_default_table(
+    def _default_is_per_env(
         self,
-        value: np.ndarray,
+        default: np.ndarray,
         *,
-        expected_shape: tuple[int, ...],
-        capability: str,
-        term_name: str,
+        field: str,
+    ) -> bool:
+        canonical_ndim = 1 + len(_randomization_term_tail(field))
+        if default.ndim == canonical_ndim:
+            return False
+        if default.ndim == canonical_ndim + 1 and default.shape[0] == self._num_envs:
+            return True
+        raise RuntimeError(
+            f"Reset transaction cached an invalid '{field}' default table with shape "
+            f"{default.shape}"
+        )
+
+    def _canonical_default_shape(
+        self,
+        default: np.ndarray,
+        *,
+        field: str,
+    ) -> tuple[int, ...]:
+        shape = (
+            default.shape[1:] if self._default_is_per_env(default, field=field) else default.shape
+        )
+        return tuple(int(value) for value in shape)
+
+    def _randomization_default_width(
+        self,
+        default: np.ndarray,
+        *,
+        field: str,
+    ) -> int:
+        axis = 1 if self._default_is_per_env(default, field=field) else 0
+        return int(default.shape[axis])
+
+    def _select_randomization_default_columns(
+        self,
+        default: np.ndarray,
+        columns: np.ndarray,
+        *,
+        field: str,
     ) -> np.ndarray:
-        """Validate a caller-supplied cold-path default table and detach a copy."""
-        if not isinstance(value, np.ndarray):
-            raise TypeError(
-                f"EventManager term '{term_name}' {capability} must be np.ndarray, got "
-                f"{type(value).__name__}"
-            )
-        if value.shape != expected_shape:
-            raise ValueError(
-                f"EventManager term '{term_name}' {capability} has shape {value.shape}; "
-                f"expected {expected_shape}"
-            )
-        if not np.issubdtype(value.dtype, np.floating):
-            raise TypeError(
-                f"EventManager term '{term_name}' {capability} must be floating, got {value.dtype}"
-            )
-        if not np.isfinite(value).all():
-            raise ValueError(f"EventManager term '{term_name}' {capability} contains NaN or Inf")
-        return np.array(value, copy=True)
+        if self._default_is_per_env(default, field=field):
+            return default[:, columns]
+        return default[columns]
+
+    def _randomization_default_rows(
+        self,
+        default: np.ndarray,
+        env_ids: np.ndarray,
+        *,
+        field: str,
+    ) -> np.ndarray:
+        return default[env_ids] if self._default_is_per_env(default, field=field) else default
 
     def _readonly_binding(
         self,
@@ -1147,7 +1246,7 @@ class ResetStateTransaction:
         default = self._require_randomization_default(field, term_name)
         columns = self._validate_columns(
             column_ids,
-            width=default.shape[0],
+            width=self._randomization_default_width(default, field=field),
             capability=f"{field} column IDs",
             term_name=term_name,
         )
@@ -1161,7 +1260,11 @@ class ResetStateTransaction:
         mask = self._randomization_dirty_masks[field]
         uninitialized = ids[~mask[ids]]
         if uninitialized.size:
-            buffer[uninitialized] = default
+            buffer[uninitialized] = self._randomization_default_rows(
+                default,
+                uninitialized,
+                field=field,
+            )
         if ids.size and columns.size:
             buffer[ids[:, None], columns[None, :]] = selected
         mask[ids] = True

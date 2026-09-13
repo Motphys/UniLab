@@ -182,6 +182,11 @@ mjbatch 或 Warp object。UniSim adapter 负责 source realization，并必须�
 task 会在 env 构造前 fail closed。无法投影到统一 public
 state/action/sensor layout 的 heterogeneous variants 同样 fail closed。
 
+Reset-time model-field DR 保持在已选 identity 内。其 canonical 或 per-env
+基线来自 backend 声明的 `get_reset_term_default(term)` contract；Manager term
+不会重新编译场景，也不会把 canonical 基线套到每个工具上。只随机化模型表的一
+部分时，未写入的列保留所选环境的 variant 基线。
+
 所有权边界以及 MJWarp/CPU executor 分工记录在
 {doc}`ADR-0010 </adr/ADR-0010-fixed-model-variant-ownership-boundary>`。
 

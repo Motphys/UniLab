@@ -110,6 +110,9 @@ backend 名称、可选 package import、executor introspection 或异常降级�
   descriptor/final assignment，并保留各自 capability 差异。
 - Fixed identity 与 reset-time model-field DR 分离：前者 immutable，后者由
   Manager-Based reset transaction 一次性提交。
+- Manager model-field 默认值只能来自 UniSim 的
+  `SimBackend.get_reset_term_default(term)`；canonical 与 per-world 表由 backend
+  权威返回，UniLab 不再为了 `body_inertia` 重新编译 MuJoCo scene。
 
 ## Evidence In Repo
 
@@ -117,6 +120,8 @@ backend 名称、可选 package import、executor introspection 或异常降级�
 - `src/unilab/base/base.py`
 - `src/unilab/base/config_materialization.py`
 - `src/unilab/envs/manager_based_rl_env.py`
+- `src/unilab/base/reset_state.py`
+- `src/unilab/base/entity.py`
 - `tests/base/test_fixed_model_variants.py`
 
 ## Related Documents

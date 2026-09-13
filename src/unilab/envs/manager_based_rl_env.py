@@ -784,7 +784,7 @@ def make_manager_based_rl_env(
         )
 
     cfg.validate()
-    if cfg.fixed_model_variants is not None:
+    if cfg.fixed_model_variants is not None and cfg.scene is not None:
         # Validate the complete task identity before allocating backend resources.
         cfg.scene.fixed_variant_plan = build_fixed_variant_plan(
             materialize_fixed_model_variants(cfg.fixed_model_variants, num_envs)
