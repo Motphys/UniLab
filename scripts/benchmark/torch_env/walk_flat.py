@@ -8,9 +8,9 @@ Faithful xp-port of the NumPy computation in the collector-timed sections of
   termination, `_compute_reward` (9 active terms under the SAC scales incl.
   per-term logging every 4 steps), `_compute_obs` (noise + concat, walk
   profile), and the done-triggered curriculum bookkeeping.
-- `G1WalkDomainRandomizationProvider.build_reset_plan` /
-  `build_reset_observation` (qpos/qvel sampling, commands, gait phase, kp/kd
-  payload, obs rebuild at batch n_reset).
+- the pre-migration reset computations now owned by Manager-Based command and
+  event terms (qpos/qvel sampling, commands, gait phase, kp/kd payload, obs
+  rebuild at batch n_reset).
 - `NpEnv._reset_done_envs` scatter/gather (terminal-obs double copy, obs/info
   scatter).
 

@@ -39,7 +39,7 @@ Hydra owner YAML 身份与后端选择规则。
 :::{grid-item-card} 域随机化契约
 :link: 2-contracts/4-dr_contract
 :link-type: doc
-DR provider 的 init、reset、interval 与后端能力边界。
+Manager-Based construction、reset、interval 与后端能力边界。
 :::
 
 ::::

@@ -1179,7 +1179,7 @@ def _format_set_state_sub_ms(result: CollectorResult, key: str) -> str:
     """Format a backend set_state sub-timing as ``ms (%of set_state)``.
 
     The percentage is relative to ``dr_reset_set_state_ms`` (the outer
-    wall-clock measurement in DomainRandomizationManager), not to env_step_ms,
+    wall-clock measurement around Manager-Based reset state submission), not to env_step_ms,
     so a reader can see which sub-step dominates set_state.
     """
     stat = result.env_step_timing_ms_per_vector_step.get(key)

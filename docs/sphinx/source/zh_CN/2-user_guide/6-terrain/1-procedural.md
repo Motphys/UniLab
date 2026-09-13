@@ -26,7 +26,8 @@
 5. `go2.xml` 是机器人模型；`locomotion_task.xml` 是用于崎岖地形的 task fragment，包含与地形 `floor` 关联的接触传感器以及 task 级别的 `home` keyframe。
 6. 后端实例持有冷路径场景产物，直到 env `close()`；`terrain_origins` 通过一个后端场景属性回传给 env，用于 spawn / curriculum。
 
-`step()` / `reset()` / DR provider 永远不会读取 XML 或访问 asset 文件；所有与地形相关的事情都发生在冷路径上。
+`step()`、`reset()` 和 Manager-Based event term 永远不会读取 XML 或访问 asset
+文件；所有与地形相关的事情都发生在冷路径上。
 
 ## 1. 直接训练
 

@@ -12,10 +12,7 @@ from unisim.dr.types import (
     RESET_TERM_GRAVITY,
     RESET_TERM_KD,
     RESET_TERM_KP,
-    GeomSizeOverride,
-    InitRandomizationPlan,
     IntervalRandomizationPlan,
-    ModelVariantSpec,
     ResetRandomizationPayload,
 )
 
@@ -402,39 +399,6 @@ def test_motrix_root_layout_uses_selected_body_floating_base_indices() -> None:
         backend.get_root_state_layout("fixed")
     with pytest.raises(ValueError, match="missing.*not found"):
         backend.get_root_state_layout("missing")
-
-
-def test_motrix_backend_applies_init_geom_size_overrides(monkeypatch, tmp_path) -> None:
-    mod, fake_model = _install_fake_motrix(monkeypatch, tmp_path)
-    backend = mod.MotrixBackend(
-        SceneCfg(model_file="source.xml"),
-        num_envs=3,
-        sim_dt=0.01,
-        base_name="base",
-    )
-
-    backend.apply_init_randomization(
-        InitRandomizationPlan(
-            model_assignments=np.asarray([0, 1, 1], dtype=np.int32),
-            model_variants=(
-                ModelVariantSpec(
-                    geom_size_overrides=(
-                        GeomSizeOverride(geom_name="floor", size=(0.1, 0.2, 0.0)),
-                    ),
-                ),
-                ModelVariantSpec(
-                    geom_size_overrides=(
-                        GeomSizeOverride(geom_name="floor", size=(0.3, 0.4, 0.0)),
-                    ),
-                ),
-            ),
-        )
-    )
-
-    np.testing.assert_allclose(
-        fake_model.geoms[0].size_override,
-        np.asarray([[0.1, 0.2], [0.3, 0.4], [0.3, 0.4]], dtype=np.float64),
-    )
 
 
 def test_motrix_backend_default_override_caches_are_float32(monkeypatch, tmp_path) -> None:

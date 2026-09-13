@@ -39,7 +39,7 @@ Hydra owner YAML identity and backend-selection rules.
 :::{grid-item-card} Domain randomization contract
 :link: 2-contracts/4-dr_contract
 :link-type: doc
-Init, reset, interval, and backend capability boundaries for DR providers.
+Manager-Based construction, reset, interval, and backend capability boundaries.
 :::
 
 ::::

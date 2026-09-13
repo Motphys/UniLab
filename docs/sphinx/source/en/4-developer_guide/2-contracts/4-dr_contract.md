@@ -20,9 +20,8 @@ Backend differences are explicit capabilities, not task-side branches:
 
 - `DomainRandomizationCapabilities.supported_reset_terms`
 - `supported_interval_terms`
-- fixed-variant layouts and source formats
+- fixed-variant layouts
 - per-environment playback support
-- curated reset-term contracts and derived-quantity obligations
 
 An unadvertised requested term fails closed with the backend and term named.
 Manager code never imports MuJoCo or mjbatch and never accesses a backend model
@@ -53,8 +52,8 @@ the former UniLab-side MuJoCo recompilation used to obtain inertia defaults.
 ## Interval Terms
 
 Interval plans are term-descriptor based: `IntervalRandomizationPlan.ops`
-carries `IntervalTermOp` entries from `unisim.dr.interval`, re-exported through
-`unilab.dr`. Builtin payload contracts are enforced by `IntervalTermOp.validate`;
+carries `IntervalTermOp` entries from `unisim.dr.interval`. Builtin payload
+contracts are enforced by `IntervalTermOp.validate`;
 unknown backend-owned custom terms pass through to that backend's handler table.
 Ops and plans remain pickle-safe stdlib/NumPy data across spawn collectors.
 

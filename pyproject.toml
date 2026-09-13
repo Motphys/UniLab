@@ -44,7 +44,7 @@ dependencies = [
     # unisim-core package. Roadmap #1563 temporarily pins the pre-release
     # branch carrying fixed model variants; restore the published range after
     # the corresponding unisim-core release.
-    "unisim-core @ git+https://github.com/unilabsim/unisim.git@8eb587c0bcbecdf6a544401d0a376bff9f0db51b",
+    "unisim-core @ git+https://github.com/unilabsim/unisim.git@c47e93a362b8fcd6b3c256bbf4545d660b2968ce",
     # RL algorithms and async runtimes (PPO/APPO/SAC/TD3 runners,
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
@@ -175,7 +175,7 @@ viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 # required-environments; elsewhere the extra is empty and the CLI reports a
 # targeted runtime diagnostic.
 superdex = [
-    "unisim-core[superdex] @ git+https://github.com/unilabsim/unisim.git@8eb587c0bcbecdf6a544401d0a376bff9f0db51b ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "unisim-core[superdex] @ git+https://github.com/unilabsim/unisim.git@c47e93a362b8fcd6b3c256bbf4545d660b2968ce ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [dependency-groups]

@@ -32,7 +32,7 @@ A side-by-side map of common config fields across Isaac Lab / Legged Gym
 * - Observation noise
   - `noise.obs.*`
   - `cfg.noise.add_noise`
-  - DR provider; see DR docs
+  - `env.observations.<group>.<term>.noise`
 ```
 
 ## Reward

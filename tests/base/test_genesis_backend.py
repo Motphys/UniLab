@@ -30,10 +30,7 @@ from unisim.backend.genesis.dependencies import (
 )
 from unisim.backend.genesis.materialization import preserve_torch_globals
 from unisim.dr.types import (
-    GeomSizeOverride,
-    InitRandomizationPlan,
     IntervalRandomizationPlan,
-    ModelVariantSpec,
     ResetRandomizationPayload,
 )
 
@@ -484,15 +481,6 @@ def test_interval_randomization_and_body_force(fake_genesis, tiny_model_file: st
     with pytest.raises(ValueError, match="requires body_ids"):
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(body_force=np.zeros((4, 1, 3), dtype=np.float32))
-        )
-    with pytest.raises(NotImplementedError, match="init-lifecycle randomization"):
-        backend.apply_init_randomization(
-            InitRandomizationPlan(
-                model_assignments=np.zeros(4, dtype=np.int32),
-                model_variants=(
-                    ModelVariantSpec(geom_size_overrides=(GeomSizeOverride("foot_geom", (0.1,)),)),
-                ),
-            )
         )
 
 

@@ -1,7 +1,7 @@
 """Spawn-origin managers for locomotion tasks.
 
 ``BaseSpawnManager`` is a no-op default: every env spawns at the world origin
-(plus the existing per-env xy jitter from the dr_provider). Used whenever the
+(plus per-env xy jitter from the reset event term). Used whenever the
 env has no procedural terrain — flat scenes don't need spatial separation
 
 ``TerrainSpawnManager`` overrides this for terrain scenes: it indexes

@@ -19,9 +19,8 @@ Backend 差异是显式 capability，不是 task-side 分支：
 
 - `DomainRandomizationCapabilities.supported_reset_terms`
 - `supported_interval_terms`
-- fixed-variant layout 与 source format
+- fixed-variant layout
 - per-environment playback 支持
-- curated reset-term contract 与派生量重算义务
 
 未声明支持的请求 term 会携带 backend 与 term 名称 fail closed。Manager code 不
 import MuJoCo 或 mjbatch，也不访问 backend model/pool。
@@ -48,8 +47,8 @@ MuJoCo XML 的路径。
 ## Interval Terms
 
 Interval plan 基于 term descriptor：`IntervalRandomizationPlan.ops` 携带来自
-`unisim.dr.interval` 并经 `unilab.dr` re-export 的 `IntervalTermOp`。内置 payload
-contract 由 `IntervalTermOp.validate` 强制；未知 backend-owned custom term 传给该
+`unisim.dr.interval` 的 `IntervalTermOp`。内置 payload contract 由
+`IntervalTermOp.validate` 强制；未知 backend-owned custom term 传给该
 backend handler table。Ops 与 plans 保持 stdlib/NumPy 数据，可跨 spawn collector
 pickle。
 

@@ -64,7 +64,7 @@ payload. Task-specific reset sampling remains owned by command/event terms:
 - Fixed model/tool identity is construction-time and never reset-time DR.
 
 A requested backend capability that is not advertised fails closed; there is no
-provider-side filtering fallback.
+filtering or silent fallback.
 
 ## Reset gravity Usage
 

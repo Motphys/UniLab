@@ -32,7 +32,7 @@
 * - 观测噪声
   - `noise.obs.*`
   - `cfg.noise.add_noise`
-  - DR provider；参见 DR 文档
+  - `env.observations.<group>.<term>.noise`
 ```
 
 ## Reward

@@ -59,7 +59,7 @@ command/event term 拥有：
 - Allegro grasp / object 初始状态采样是 task-specific event logic。
 - 固定 model/tool identity 是 construction-time，不是 reset-time DR。
 
-未显式声明支持的后端能力会 fail closed；不存在 provider 侧过滤回退。
+未显式声明支持的后端能力会 fail closed；不存在过滤或静默回退。
 
 ## Reset gravity 用法
 

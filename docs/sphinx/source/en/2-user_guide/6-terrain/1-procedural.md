@@ -27,7 +27,8 @@ During env construction:
 5. `go2.xml` is the robot model; `locomotion_task.xml` is the task fragment for rough terrain and contains the contact sensors associated with the terrain `floor` plus the task-level `home` keyframe.
 6. The backend instance owns the cold-path scene artifacts until env `close()`; `terrain_origins` is passed back to env via a backend scene attribute, used for spawn / curriculum.
 
-`step()` / `reset()` / DR provider never read XML or access asset files; everything terrain-related happens on the cold path.
+`step()`, `reset()`, and Manager-Based event terms never read XML or access
+asset files; everything terrain-related happens on the cold path.
 
 ## 1. Direct Training
 

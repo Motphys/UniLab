@@ -79,12 +79,6 @@ MuJoCo and Motrix adapters that implement `SimBackend`.
 ::::{grid} 1 1 3 3
 :gutter: 3
 
-:::{grid-item-card} 🎲 `unilab.dr`
-:link: dr/index
-:link-type: doc
-Declarative domain randomization manager.
-:::
-
 :::{grid-item-card} 🏞 `unilab.terrains`
 :link: terrains/index
 :link-type: doc
