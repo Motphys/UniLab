@@ -21,7 +21,7 @@ source-exclude = [
 
 [project]
 name = "unilab"
-version = "1.2.0"
+version = "1.3.0"
 description = "Configurable, contract-driven robot learning across physics backends"
 readme = "README.md"
 license = "Apache-2.0"
@@ -41,10 +41,10 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
-    # unisim-core package. Roadmap #1563 temporarily pins the pre-release
-    # branch carrying fixed model variants; restore the published range after
-    # the corresponding unisim-core release.
-    "unisim-core @ git+https://github.com/unilabsim/unisim.git@a020f8bf15581c8b343b523ef3986ccb43f86c68",
+    # unisim-core package. Roadmap #1563 temporarily pins the release candidate
+    # carrying fixed model variants; replace it with the published 1.3.x line
+    # after the corresponding unisim-core release.
+    "unisim-core @ git+https://github.com/unilabsim/unisim.git@206056376452003ba488cb3e61fcddb1d32d6038",
     # RL algorithms and async runtimes (PPO/APPO/SAC/TD3 runners,
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
@@ -122,10 +122,8 @@ mujoco = [
     # mujoco==3.11.0 — switching MuJoCo versions requires an mjbatch rebuild,
     # not a UniLab config change.
     "mujoco~=3.11.0",
-    # The batch engine is the unilabsim mjbatch fork. Roadmap #1563 pairs the
-    # integration-only UniSim git pin with the matching pre-release executor
-    # API; replace both after mjbatch-uni 0.2.x is published.
-    "mjbatch-uni @ git+https://github.com/unilabsim/mjbatch-uni.git@5fb49b9fde7084557a91c583ebd876e4c0946c12",
+    # The batch engine is the published unilabsim mjbatch fork.
+    "mjbatch-uni~=0.2.0",
 ]
 mjwarp = [
     # Keep the Warp backend on the same MuJoCo minor line as the host backend.
@@ -175,7 +173,7 @@ viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 # required-environments; elsewhere the extra is empty and the CLI reports a
 # targeted runtime diagnostic.
 superdex = [
-    "unisim-core[superdex] @ git+https://github.com/unilabsim/unisim.git@a020f8bf15581c8b343b523ef3986ccb43f86c68 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "unisim-core[superdex] @ git+https://github.com/unilabsim/unisim.git@206056376452003ba488cb3e61fcddb1d32d6038 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [dependency-groups]

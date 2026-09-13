@@ -11,7 +11,17 @@ see the [UniLab repository](https://github.com/unilabsim/UniLab).
 UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英文记录重要版本变更；
 日常提交记录请参阅 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
-## Unreleased / 未发布
+## 1.3.0 / 2026-09-13
+
+- Add task-owned fixed model/tool variants and per-env playback support through
+  the UniSim construction-time plan contract. A deterministic representative
+  SimToolReal mesh workload covers CPU and MJWarp rollout parity, reset-time
+  mass/inertia DR, and one PPO learning iteration. The `mujoco` extra now uses
+  the published `mjbatch-uni~=0.2.0` executor API.
+  新增 task-owned fixed model/tool variants，并通过 UniSim construction-time
+  plan contract 支持 per-env playback。确定性 SimToolReal mesh 代表性工作负载
+  覆盖 CPU/MJWarp rollout parity、reset-time mass/inertia DR 与一次 PPO learning
+  iteration。`mujoco` extra 改用已发布的 `mjbatch-uni~=0.2.0` executor API。
 
 - Retire the legacy DomainRandomization provider protocol (roadmap
   [#1563](https://github.com/Motphys/UniLab/issues/1563),
@@ -35,10 +45,9 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
   `mjbatch` native batch engine across the repository (roadmap
   [#1552](https://github.com/unilabsim/UniLab/issues/1552),
   [#1553](https://github.com/unilabsim/UniLab/issues/1553)). The `mujoco`
-  extra now installs `mujoco~=3.11.0` plus `mjbatch` pinned to the
-  [integration fork](https://github.com/unilabsim/mjbatch); the fork's final
-  distribution identity (PyPI package vs git pin, and prebuilt wheels) is the
-  roadmap's open maintainer item. The `sim=mujoco` CLI runtime check now gates
+  extra now installs `mujoco~=3.11.0` plus the published
+  [mjbatch-uni](https://github.com/unilabsim/mjbatch-uni) 0.2.x line. The
+  `sim=mujoco` CLI runtime check now gates
   on the `mjbatch` module. A post-swap ablation slimmed the pinned fork's
   API ([#1557](https://github.com/unilabsim/UniLab/issues/1557)): the
   per-substep callback is `fn(k, state, ctrl)` (no `callback_sensordata`
@@ -48,9 +57,9 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
   characterized by the #1554 drift baseline.
   全仓库将 `mujoco-uni-runtime` 依赖（`mujoco_uni` 导入）替换为 `mjbatch`
   原生 batch 引擎（roadmap #1552、#1553）。`mujoco` extra 现安装
-  `mujoco~=3.11.0` 加钉住的 [集成 fork](https://github.com/unilabsim/mjbatch)
-  `mjbatch`；fork 的最终分发身份（PyPI package 还是 git 钉版、是否提供预编译
-  wheel）是 roadmap 上的待定维护事项。`sim=mujoco` 的 CLI 运行时检查改为检查
+  `mujoco~=3.11.0` 与已发布的
+  [mjbatch-uni](https://github.com/unilabsim/mjbatch-uni) 0.2.x。
+  `sim=mujoco` 的 CLI 运行时检查改为检查
   `mjbatch` 模块。替换后的消融精简了钉住 fork 的 API（#1557）：per-substep
   回调为 `fn(k, state, ctrl)`（不再有 `callback_sensordata` 参数），
   `steps_done` / `stop_on_warning` 已移除，hfield 扫描器只输出高度并自带
