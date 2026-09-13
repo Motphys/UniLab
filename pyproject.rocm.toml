@@ -27,7 +27,7 @@ dependencies = [
     # unisim-core package. Roadmap #1563 temporarily pins the pre-release
     # branch carrying fixed model variants; restore the published range after
     # the corresponding unisim-core release.
-    "unisim-core @ git+https://github.com/unilabsim/unisim.git@c47e93a362b8fcd6b3c256bbf4545d660b2968ce",
+    "unisim-core @ git+https://github.com/unilabsim/unisim.git@a020f8bf15581c8b343b523ef3986ccb43f86c68",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
     "unilab-rl==1.2.0",

@@ -5225,8 +5225,8 @@ requires-dist = [
     { name = "trimesh", marker = "extra == 'viser'", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
     { name = "unilab-rl", specifier = "==1.2.0" },
-    { name = "unisim-core", git = "https://github.com/unilabsim/unisim.git?rev=c47e93a362b8fcd6b3c256bbf4545d660b2968ce" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", git = "https://github.com/unilabsim/unisim.git?rev=c47e93a362b8fcd6b3c256bbf4545d660b2968ce" },
+    { name = "unisim-core", git = "https://github.com/unilabsim/unisim.git?rev=a020f8bf15581c8b343b523ef3986ccb43f86c68" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", git = "https://github.com/unilabsim/unisim.git?rev=a020f8bf15581c8b343b523ef3986ccb43f86c68" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
@@ -5270,7 +5270,7 @@ wheels = [
 [[package]]
 name = "unisim-core"
 version = "1.2.1"
-source = { git = "https://github.com/unilabsim/unisim.git?rev=c47e93a362b8fcd6b3c256bbf4545d660b2968ce#c47e93a362b8fcd6b3c256bbf4545d660b2968ce" }
+source = { git = "https://github.com/unilabsim/unisim.git?rev=a020f8bf15581c8b343b523ef3986ccb43f86c68#a020f8bf15581c8b343b523ef3986ccb43f86c68" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
