@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import numpy as np
@@ -13,6 +14,68 @@ from unilab.tasks.manipulation.simtool_real import (
     build_representative_simtool_real_env_cfg,
     write_representative_simtool_real_sources,
 )
+
+
+class _PpoVecEnvWrapper:
+    """Minimal CPU RSL-RL adapter for the representative training smoke."""
+
+    def __init__(self, env: Any, device: str = "cpu") -> None:
+        import torch
+
+        from unilab.utils.tensor import to_torch
+
+        self._torch = torch
+        self._to_torch = to_torch
+        self.env = env
+        self.cfg = env.cfg
+        self.device = device
+        self.num_envs = env.num_envs
+        self.observation_space = env.observation_space
+        self.action_space = env.action_space
+        self.num_obs = int(env.obs_groups_spec["obs"])
+        self.num_privileged_obs = self.num_obs
+        self.num_actions = int(env.action_space.shape[0])
+        self.episode_returns = torch.zeros(self.num_envs, device=device)
+        self.episode_lengths = torch.zeros(self.num_envs, device=device)
+        self.episode_length_buf = self.episode_lengths
+        self.max_episode_length = np.ceil(env.cfg.max_episode_seconds / env.cfg.ctrl_dt)
+        self.reset()
+
+    def _observations(self, obs: dict[str, np.ndarray]) -> Any:
+        from tensordict import TensorDict
+
+        actor = self._to_torch(obs["obs"], self.device)
+        return TensorDict(
+            {"actor": actor, "policy": actor},
+            batch_size=self.num_envs,
+            device=self.device,
+        )
+
+    def step(self, actions: Any) -> tuple[Any, Any, Any, dict[str, Any]]:
+        actions_np = (
+            actions.detach().cpu().numpy() if isinstance(actions, self._torch.Tensor) else actions
+        )
+        state = self.env.step(actions_np)
+        rewards = self._to_torch(state.reward, self.device)
+        dones = self._to_torch(state.terminated | state.truncated, self.device).bool()
+        self.episode_returns += rewards
+        self.episode_lengths += 1
+        return self._observations(state.obs), rewards, dones, {"time_outs": dones}
+
+    def reset(self) -> tuple[Any, dict[str, Any]]:
+        if self.env.state is None:
+            self.env.init_state()
+        obs, _ = self.env.reset(np.arange(self.num_envs, dtype=np.int32))
+        self.episode_returns[:] = 0
+        self.episode_lengths[:] = 0
+        return self._observations(obs), {}
+
+    def get_observations(self) -> Any:
+        assert self.env.state is not None
+        return self._observations(self.env.state.obs)
+
+    def get_privileged_observations(self) -> Any:
+        return self.get_observations()
 
 
 def _object_names(
@@ -155,3 +218,62 @@ def test_cpu_and_mjwarp_representative_rollouts_match_on_cuda(
     finally:
         mjwarp_env.close()
         cpu_env.close()
+
+
+@pytest.mark.slow
+def test_cpu_representative_fixed_tools_complete_one_ppo_iteration(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip(
+        "unisim.backend.mujoco.backend",
+        reason="SimToolReal PPO smoke requires the MuJoCo adapter",
+    )
+    pytest.importorskip("rsl_rl", reason="SimToolReal PPO smoke requires rsl_rl")
+    from rsl_rl.runners import OnPolicyRunner
+    from uni_rl.algos.rsl_rl import normalize_ppo_train_cfg
+
+    from unilab.structured_configs import PPOConfig
+
+    sources = write_representative_simtool_real_sources(tmp_path)
+    cfg = build_representative_simtool_real_env_cfg(sources)
+    env = make_manager_based_rl_env(cfg, num_envs=12, backend_type="mujoco")
+    wrapped = _PpoVecEnvWrapper(env)
+    train_cfg = PPOConfig().to_dict()
+    train_cfg.update(
+        {
+            "runner": {"logger": "none"},
+            "num_steps_per_env": 2,
+            "empirical_normalization": False,
+            "policy": {
+                "actor_hidden_dims": [16],
+                "critic_hidden_dims": [16],
+                "activation": "elu",
+                "init_noise_std": 1.0,
+            },
+        }
+    )
+    train_cfg["algorithm"]["num_learning_epochs"] = 1
+    train_cfg["algorithm"]["num_mini_batches"] = 1
+    train_cfg = normalize_ppo_train_cfg(train_cfg)
+
+    try:
+        with TemporaryDirectory() as log_dir:
+            runner = OnPolicyRunner(wrapped, train_cfg, log_dir=log_dir, device="cpu")
+            runner.learn(num_learning_iterations=1, init_at_random_ep_len=True)
+            parameters = [
+                parameter.detach().cpu().numpy()
+                for parameter in (
+                    *runner.alg.actor.parameters(),
+                    *runner.alg.critic.parameters(),
+                )
+            ]
+            optimizer_steps = [
+                int(state["step"].item())
+                for state in runner.alg.optimizer.state.values()
+                if "step" in state
+            ]
+    finally:
+        env.close()
+    assert parameters
+    assert all(np.isfinite(parameter).all() for parameter in parameters)
+    assert sum(optimizer_steps) > 0
