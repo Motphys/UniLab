@@ -95,6 +95,14 @@ def _as_column_index(ids: np.ndarray) -> slice | np.ndarray:
     return index
 
 
+def _readonly_array(values: np.ndarray) -> np.ndarray:
+    result = np.asarray(values)
+    if result.flags.writeable:
+        result = result.copy()
+    result.setflags(write=False)
+    return result
+
+
 # Matching semantics derived from mujocolab/mjlab v1.6.0 (0fb8a681),
 # src/mjlab/utils/lab_api/string.py. Copyright 2025, The mjlab Developers;
 # adapted for the UniLab NumPy facade under Apache-2.0.
@@ -2217,11 +2225,7 @@ class Entity:
         local_ids: np.ndarray,
         defaults: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        bound_ids = np.array(local_ids, copy=True)
-        bound_ids.setflags(write=False)
-        bound_defaults = np.array(defaults, copy=True)
-        bound_defaults.setflags(write=False)
-        return bound_ids, bound_defaults
+        return _readonly_array(local_ids), _readonly_array(defaults)
 
     def _materialize_joint_model_dof_ids(self) -> np.ndarray:
         """Resolve full model DOF addresses once for reset-time model fields."""

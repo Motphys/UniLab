@@ -28,9 +28,8 @@ from unilab.base.np_env import NpEnv, NpEnvState
 from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg, resolve_scene_default_qpos
 from unilab.base.variants import (
-    build_fixed_variant_plan,
-    materialize_fixed_model_variants,
-    require_fixed_model_variant_support,
+    _build_fixed_variant_plan,
+    _require_fixed_variant_support,
 )
 from unilab.dtype_config import get_global_dtype
 from unilab.managers import (
@@ -786,9 +785,7 @@ def make_manager_based_rl_env(
     cfg.validate()
     if cfg.fixed_model_variants is not None and cfg.scene is not None:
         # Validate the complete task identity before allocating backend resources.
-        cfg.scene.fixed_variant_plan = build_fixed_variant_plan(
-            materialize_fixed_model_variants(cfg.fixed_model_variants, num_envs)
-        )
+        cfg.scene.fixed_variant_plan = _build_fixed_variant_plan(cfg.fixed_model_variants, num_envs)
     # Constrain the process before backend materialization so native pools size
     # themselves from the rank-owned CPU block.
     apply_env_cpu_runtime(cfg.cpu_ids)
@@ -807,7 +804,9 @@ def make_manager_based_rl_env(
     )
     try:
         if cfg.scene.fixed_variant_plan is not None:
-            require_fixed_model_variant_support(backend.get_dr_capabilities())
+            _require_fixed_variant_support(
+                backend.get_dr_capabilities(), cfg.scene.fixed_variant_plan
+            )
         return ManagerBasedRlEnv(cfg, backend, num_envs)
     except Exception:
         backend.cleanup_scene_assets()

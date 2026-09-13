@@ -27,7 +27,7 @@ dependencies = [
     # unisim-core package. Roadmap #1563 temporarily pins the pre-release
     # branch carrying fixed model variants; restore the published range after
     # the corresponding unisim-core release.
-    "unisim-core @ git+https://github.com/unilabsim/unisim.git@199cf7802cf93d8e64be54d4e43693856ed8a43f",
+    "unisim-core @ git+https://github.com/unilabsim/unisim.git@6506a4d30e03f419093fc17aa69a611f2212195d",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
     "unilab-rl==1.2.0",
@@ -81,7 +81,7 @@ mujoco = [
     # time, so isolated builds are correct and no compiler preflight is
     # needed.
     "mujoco~=3.11.0",
-    "mjbatch-uni @ git+https://github.com/unilabsim/mjbatch-uni.git@0006734ade970eb040815eca28205e72a20c533d",
+    "mjbatch-uni @ git+https://github.com/unilabsim/mjbatch-uni.git@a1ff84a9957d85cbc556b109162012c55760055e",
 ]
 motrix = ["motrixsim-core==0.8.2"]
 viser = ["viser>=1.0.26", "trimesh>=3.21.7"]

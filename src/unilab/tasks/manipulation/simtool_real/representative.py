@@ -13,7 +13,6 @@ from pathlib import Path
 from unilab.base.entity import EntityCfg
 from unilab.base.scene import SceneCfg
 from unilab.base.variants import (
-    FixedModelVariantAssignmentCfg,
     FixedModelVariantCatalogCfg,
     FixedModelVariantCfg,
 )
@@ -39,7 +38,7 @@ f 2 3 4
 
 
 @dataclass(frozen=True)
-class RepresentativeSimToolRealVariant:
+class _VariantSpec:
     """Parameters that vary while preserving the representative public layout."""
 
     name: str
@@ -52,9 +51,6 @@ class RepresentativeSimToolRealVariant:
 class RepresentativeSimToolRealSourceSet:
     """Materialized absolute sources ready for UniSim backend consumption."""
 
-    output_dir: Path
-    mesh_file: Path
-    variants: tuple[RepresentativeSimToolRealVariant, ...]
     model_files: tuple[Path, ...]
 
 
@@ -75,11 +71,11 @@ def write_representative_simtool_real_sources(
     mesh_file = root / "simtool_handle.obj"
     mesh_file.write_text(_TETRAHEDRON_OBJ, encoding="utf-8")
 
-    variants: list[RepresentativeSimToolRealVariant] = []
+    variants: list[_VariantSpec] = []
     model_files: list[Path] = []
     for index in range(variant_count):
         name = f"tool_{index:04d}"
-        variant = RepresentativeSimToolRealVariant(
+        variant = _VariantSpec(
             name=name,
             mass_kg=0.4 + 0.25 * index,
             mesh_scale=(1.0 + 0.08 * index, 0.9 + 0.06 * index, 0.8 + 0.05 * index),
@@ -90,12 +86,7 @@ def write_representative_simtool_real_sources(
         variants.append(variant)
         model_files.append(model_file)
 
-    return RepresentativeSimToolRealSourceSet(
-        output_dir=root,
-        mesh_file=mesh_file,
-        variants=tuple(variants),
-        model_files=tuple(model_files),
-    )
+    return RepresentativeSimToolRealSourceSet(model_files=tuple(model_files))
 
 
 def build_representative_simtool_real_env_cfg(
@@ -120,10 +111,8 @@ def build_representative_simtool_real_env_cfg(
         ),
         fixed_model_variants=FixedModelVariantCatalogCfg(
             variants=tuple(
-                FixedModelVariantCfg(variant.name, str(path))
-                for variant, path in zip(sources.variants, sources.model_files, strict=True)
+                FixedModelVariantCfg(path.stem, str(path)) for path in sources.model_files
             ),
-            assignment=FixedModelVariantAssignmentCfg(mode="round_robin"),
         ),
         sim_dt=0.002,
         ctrl_dt=0.01,
@@ -171,7 +160,7 @@ def build_representative_simtool_real_env_cfg(
 
 
 def _variant_xml(
-    variant: RepresentativeSimToolRealVariant,
+    variant: _VariantSpec,
     mesh_file: Path,
 ) -> str:
     scale = " ".join(f"{value:.6f}" for value in variant.mesh_scale)

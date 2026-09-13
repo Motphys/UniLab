@@ -92,12 +92,12 @@ env:
         source_model_file: tools/tool_a.xml
       - name: tool_b
         source_model_file: tools/tool_b.xml
-    assignment:
-      mode: round_robin
+    # 省略 explicit_variant_names 时使用确定性 round-robin assignment。
+    explicit_variant_names: [tool_a, tool_b]
 ```
 
-`materialize_fixed_model_variants(...)` 会把它物化为形状 `(num_envs,)`、只读的
-`int32` assignment。Owner 也可以用 `mode: explicit` 提供全部名称。Assignment 是
+Manager factory 会把它物化为形状 `(num_envs,)`、只读的 `int32` assignment；
+空 explicit list 选择 round-robin。Assignment 是
 task identity：backend construction 后固定，reset event 不会重新采样。
 
 UniLab 不打开、解析或编译 `source_model_file`，也不持有 `MjSpec`、`MjModel`、

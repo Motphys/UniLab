@@ -57,6 +57,14 @@ def _randomization_term_tail(field: str) -> tuple[int, ...]:
         raise ValueError(f"unknown reset randomization term {field!r}") from exc
 
 
+def _readonly_array(values: np.ndarray) -> np.ndarray:
+    result = np.asarray(values)
+    if result.flags.writeable:
+        result = result.copy()
+    result.setflags(write=False)
+    return result
+
+
 class ResetStateTransaction:
     """Reusable, fail-closed transaction for reset-mode state mutation."""
 
@@ -644,27 +652,21 @@ class ResetStateTransaction:
         self._materialize_default_actuator_gains(term_name)
         assert self._default_kp is not None
         assert self._default_kd is not None
-        selected_kp = np.array(
+        selected_kp = _readonly_array(
             self._select_randomization_default_columns(
                 self._default_kp,
                 columns,
                 field=RESET_TERM_KP,
-            ),
-            copy=True,
+            )
         )
-        selected_kd = np.array(
+        selected_kd = _readonly_array(
             self._select_randomization_default_columns(
                 self._default_kd,
                 columns,
                 field=RESET_TERM_KD,
-            ),
-            copy=True,
+            )
         )
-        selected_kp.setflags(write=False)
-        selected_kd.setflags(write=False)
-        bound_columns = np.array(columns, copy=True)
-        bound_columns.setflags(write=False)
-        return bound_columns, selected_kp, selected_kd
+        return _readonly_array(columns), selected_kp, selected_kd
 
     def write_actuator_gains(
         self,
@@ -1222,11 +1224,7 @@ class ResetStateTransaction:
         columns: np.ndarray,
         selected_default: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        bound_columns = np.array(columns, copy=True)
-        bound_columns.setflags(write=False)
-        selected = np.array(selected_default, copy=True)
-        selected.setflags(write=False)
-        return bound_columns, selected
+        return _readonly_array(columns), _readonly_array(selected_default)
 
     def _write_selected_randomization(
         self,

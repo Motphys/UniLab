@@ -2,14 +2,12 @@
 
 from .representative import (
     RepresentativeSimToolRealSourceSet,
-    RepresentativeSimToolRealVariant,
     build_representative_simtool_real_env_cfg,
     write_representative_simtool_real_sources,
 )
 
 __all__ = [
     "RepresentativeSimToolRealSourceSet",
-    "RepresentativeSimToolRealVariant",
     "build_representative_simtool_real_env_cfg",
     "write_representative_simtool_real_sources",
 ]

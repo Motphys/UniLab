@@ -36,8 +36,8 @@ executor 细节或 live engine objects 上移到 task 层。
 
 UniLab 只拥有任务选择语义：
 
-- 声明 named fixed model/tool variant source catalog；
-- 在冷路径生成最终 env-to-variant assignment；
+- 声明 named fixed model/tool variant source catalog 与 optional explicit names；
+- 在冷路径直接生成 UniSim construction-time plan；
 - 保持 assignment 在 backend construction/materialization 后不可变；
 - 不打开、解析或编译 variant source，不持有 `MjSpec`、`MjModel`、mjbatch object、
   Warp array 或任何 backend-private handle。
@@ -57,9 +57,10 @@ same-layout compiler coherence、mesh dedup、per-world arrays、CUDA graph capt
 ### Task Configuration And Assignment
 
 `EnvCfg.fixed_model_variants` 是 task owner 的声明性 catalog。每个 entry 只有
-name 与 source path descriptor；assignment 支持 deterministic `round_robin` 或
-task 已经展开的 explicit names。materialization 输出 `int32`、形状 `(num_envs,)`
-的 final index array，并标记 read-only。backend-local copies 可以存在，但不能改写
+name 与 source path descriptor；空 `explicit_variant_names` 选择 deterministic
+round-robin，非空列表表示 task 已经展开的 exact assignment。Manager factory 直接
+生成携带 read-only `int32`、形状 `(num_envs,)` final index array 的 UniSim plan；
+不公开第二个 materialization 对象。backend-local copies 可以存在，但不能改写
 task final identity。
 
 Assignment 是 construction-time task identity，不在 reset 时重采样。reset event terms

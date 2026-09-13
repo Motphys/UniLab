@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import resource
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -12,6 +12,11 @@ from typing import Any
 
 import numpy as np
 
+ROOT_DIR = Path(__file__).resolve().parents[3]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+
+from scripts.benchmark.core.mem_profile import current_memory_bytes, peak_rss_bytes
 from unilab.envs import make_manager_based_rl_env
 from unilab.tasks.manipulation.simtool_real import (
     build_representative_simtool_real_env_cfg,
@@ -20,12 +25,10 @@ from unilab.tasks.manipulation.simtool_real import (
 
 
 def _rss_bytes() -> int:
-    status = Path("/proc/self/status")
-    if status.is_file():
-        for line in status.read_text(encoding="utf-8").splitlines():
-            if line.startswith("VmRSS:"):
-                return int(line.split()[1]) * 1024
-    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) * 1024
+    value = current_memory_bytes().get("rss_bytes")
+    if not isinstance(value, int):
+        raise RuntimeError("current RSS is unavailable")
+    return value
 
 
 def run_benchmark(
@@ -64,7 +67,7 @@ def run_benchmark(
         state = env.step(actions)
     measured_steps_seconds = time.perf_counter() - step_started
 
-    peak_rss_bytes = _rss_bytes()
+    peak_rss = peak_rss_bytes()
     plan = cfg.scene.fixed_variant_plan
     assert plan is not None
     result: dict[str, Any] = {
@@ -86,7 +89,7 @@ def run_benchmark(
             "rss_before_source_bytes": rss_before_source,
             "rss_before_env_bytes": rss_before_env,
             "rss_after_construction_bytes": rss_after_construction,
-            "peak_rss_bytes": peak_rss_bytes,
+            "peak_rss_bytes": peak_rss,
             "construction_delta_bytes": rss_after_construction - rss_before_env,
         },
     }
@@ -115,7 +118,7 @@ def main() -> None:
     if args.num_envs <= 0:
         raise SystemExit("num-envs must be positive")
     if min(args.num_variants, args.steps, args.warmup_steps) < 0:
-        raise SystemExit("num-envs, num-variants, steps, and warmup-steps must be non-negative")
+        raise SystemExit("num-variants, steps, and warmup-steps must be non-negative")
     if args.num_variants == 0 or args.steps == 0:
         raise SystemExit("num-variants and steps must be positive")
     with tempfile.TemporaryDirectory(prefix="simtool-real-fixed-tools-") as temporary:

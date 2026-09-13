@@ -100,14 +100,14 @@ env:
         source_model_file: tools/tool_a.xml
       - name: tool_b
         source_model_file: tools/tool_b.xml
-    assignment:
-      mode: round_robin
+    # Omit explicit_variant_names for deterministic round-robin assignment.
+    explicit_variant_names: [tool_a, tool_b]
 ```
 
-`materialize_fixed_model_variants(...)` turns the declaration into a read-only
-`int32` assignment with shape `(num_envs,)`. An owner may instead provide every
-name with `mode: explicit`. The assignment is task identity: it is fixed after
-backend construction and is not resampled by reset events.
+The Manager factory turns the declaration into a read-only `int32` assignment
+with shape `(num_envs,)`; an empty explicit list selects round-robin.
+The assignment is task identity: it is fixed after backend construction and is
+not resampled by reset events.
 
 UniLab does not open, parse, or compile `source_model_file`, and does not hold
 `MjSpec`, `MjModel`, mjbatch, or Warp objects. UniSim adapters own source
