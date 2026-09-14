@@ -5,8 +5,9 @@ training logger 提交一次指标。终端面板按固定 2 Hz 时钟刷新，�
 `training.logger=tensorboard`（默认）或 `training.logger=wandb` 决定持久化 backend，
 backend 保留每个 iteration 未经时间平滑的值。
 
-本文先说明所有算法共用的日志目录，再详细说明 SAC / TD3 / FlashSAC 与 APPO 共用的
-off-policy 终端视图。表中的“终端字段”与 backend key 一一对应；后缀 `_ms` 均为毫秒。
+本文先说明所有算法共用的日志目录和 Manager-Based reward 指标契约，再详细说明
+SAC / TD3 / FlashSAC 与 APPO 共用的 off-policy 终端视图。表中的“终端字段”与
+backend key 一一对应；后缀 `_ms` 均为毫秒。
 
 ## 日志目录与 backend
 
@@ -44,6 +45,23 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
 `training.wandb_notes` 和 `training.wandb_mode`。`ExperimentTracker` 会写
 `run_config.json` 与 `run_summary.json`；RSL-RL PPO 在 W&B 模式下还会接管
 RSL-RL writer。MuJoCo run 若产生 `play_video.mp4`，该视频会上传至 W&B。
+
+## Manager-Based reward 指标
+
+Manager-Based 环境把结构化指标放在 `info["log"]` 中。RSL-RL PPO logger 会把该字典里
+带斜杠的条目转发到 TensorBoard / W&B，同时写出自己原生的聚合训练指标。reward 相关
+key 的契约如下：
+
+| Key | 归属 | 含义 |
+| --- | --- | --- |
+| `reward/<term>` | UniLab `RewardManager` | 当前 reward 计算的分项诊断：`raw_value * weight` 在所有 env 上的平均值，不经过 `dt` 缩放 |
+| `Train/mean_reward` | RSL-RL PPO 原生 logger | 已完成 episode return 的聚合平均值；查看整体训练进度使用它 |
+| `Train/mean_episode_length` | RSL-RL PPO 原生 logger | 已完成 episode 长度的聚合平均值 |
+| `Episode_Termination/<term>` | UniLab `TerminationManager` | 本次 reset 的 env 中触发该 termination term 的数量；这是独立诊断，不是 reward |
+| `Episode_Reward/<term>` | 已移除 | 历史版本中的按 term 归一化累计值；它与 `reward/<term>` 语义不同却形成重复树，因此被有意移除 |
+
+历史 TensorBoard event 文件不可重写，因此变更前的旧 run 仍可能显示
+`Episode_Reward/<term>`；新的 Manager-Based run 不应再产生它。
 
 ## Off-policy 终端视图
 

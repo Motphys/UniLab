@@ -6,9 +6,10 @@ refreshes on a fixed 2 Hz clock and shows a two-second sliding average;
 `training.logger=tensorboard` (the default) or `training.logger=wandb` selects the
 persistent backend, which keeps each unsmoothed iteration value.
 
-This page first covers the log directory shared by all algorithms, then documents the
-off-policy terminal used by SAC / TD3 / FlashSAC and APPO. Every terminal field in the
-tables maps directly to one backend key; an `_ms` suffix always means milliseconds.
+This page first covers the log directory shared by all algorithms and the
+Manager-Based reward metric contract, then documents the off-policy terminal used by
+SAC / TD3 / FlashSAC and APPO. Every terminal field in the tables maps directly to one
+backend key; an `_ms` suffix always means milliseconds.
 
 ## Log Directory and Backend
 
@@ -46,6 +47,24 @@ Shared fields include `training.wandb_project`, `training.wandb_entity`,
 `training.wandb_notes`, and `training.wandb_mode`. `ExperimentTracker` writes
 `run_config.json` and `run_summary.json`; RSL-RL PPO also connects its writer in W&B
 mode. A MuJoCo `play_video.mp4` is uploaded when the run produces one.
+
+## Manager-Based Reward Metrics
+
+Manager-Based environments place structured metrics in `info["log"]`. The RSL-RL PPO
+logger forwards slash-prefixed entries in that dictionary to TensorBoard / W&B and also
+writes its own native aggregate training metrics. The reward-related keys have the
+following contract:
+
+| Key | Owner | Meaning |
+| --- | --- | --- |
+| `reward/<term>` | UniLab `RewardManager` | Per-term diagnostic for the current reward computation: the mean across environments of `raw_value * weight`, before `dt` scaling |
+| `Train/mean_reward` | Native RSL-RL PPO logger | Aggregate mean completed-episode return; use this for overall training progress |
+| `Train/mean_episode_length` | Native RSL-RL PPO logger | Aggregate mean completed-episode length |
+| `Episode_Termination/<term>` | UniLab `TerminationManager` | Count of reset environments for which that termination term fired; this is a distinct diagnostic and is not a reward |
+| `Episode_Reward/<term>` | Removed | Historical normalized cumulative per-term value; it is intentionally no longer emitted because it duplicated `reward/<term>` with a different meaning |
+
+Historical TensorBoard event files are immutable, so runs made before this change can
+still display `Episode_Reward/<term>`. New Manager-Based runs should not emit it.
 
 ## Off-policy Terminal
 
