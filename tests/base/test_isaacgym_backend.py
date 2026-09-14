@@ -252,7 +252,9 @@ def test_dependencies_missing_runtime_is_actionable(
 ) -> None:
     monkeypatch.setenv(ENV_HOME, str(tmp_path / "empty"))
     monkeypatch.delenv(ENV_PYTHON, raising=False)
-    with pytest.raises(IsaacGymDependencyError, match="setup_isaacgym_env.sh"):
+    with pytest.raises(
+        IsaacGymDependencyError, match="could not find the Python 3.8 worker interpreter"
+    ):
         resolve_isaacgym_runtime()
 
 

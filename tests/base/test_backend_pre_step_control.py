@@ -7,8 +7,17 @@ import pytest
 from unisim.backend.base import SimBackend
 
 
+def _contract_backend(fn=None):
+    """A minimal owner object exposing the pre-step-control contract methods."""
+    backend = SimpleNamespace(_pre_step_control_fn=fn)
+    backend._convert_pre_step_control = lambda ctrl: SimBackend._convert_pre_step_control(
+        backend, ctrl
+    )
+    return backend
+
+
 def test_pre_step_control_default_noop() -> None:
-    backend = SimpleNamespace(_pre_step_control_fn=None)
+    backend = _contract_backend()
     ctrl = np.zeros((2, 3), dtype=np.float32)
 
     out = SimBackend._apply_pre_step_control(backend, ctrl)  # type: ignore[arg-type]
@@ -17,7 +26,7 @@ def test_pre_step_control_default_noop() -> None:
 
 
 def test_pre_step_control_applies_registered_converter() -> None:
-    backend = SimpleNamespace(_pre_step_control_fn=None)
+    backend = _contract_backend()
     ctrl = np.array([[1.0, 2.0, 3.0]], dtype=np.float32)
 
     SimBackend.set_pre_step_control(  # type: ignore[arg-type]
@@ -34,7 +43,7 @@ def test_pre_step_control_applies_registered_converter() -> None:
 
 
 def test_pre_step_control_rejects_shape_mismatch() -> None:
-    backend = SimpleNamespace(_pre_step_control_fn=lambda current_backend, ctrl: ctrl[:, :1])
+    backend = _contract_backend(lambda current_backend, ctrl: ctrl[:, :1])
     ctrl = np.zeros((2, 3), dtype=np.float32)
 
     with pytest.raises(ValueError, match="pre-step control must return shape"):
@@ -70,6 +79,7 @@ class _FakeMjBatch:
         }
         self.step_calls: list[dict] = []
         self.callback_controls: list[np.ndarray] = []
+        self.callback_channels: list[np.ndarray] = []
 
     def bind(self, name: str, dtype=None) -> np.ndarray:
         return self._bufs[name]
@@ -81,19 +91,28 @@ class _FakeMjBatch:
         history=None,
         *,
         callback=None,
+        substep_sensor_copyout=None,
     ) -> None:
         self.step_calls.append(
             {
                 "nstep": nstep,
                 "callback": callback,
+                "substep_sensor_copyout": substep_sensor_copyout,
             }
         )
         state = self._state
         ctrl_buf = self._bufs["ctrl"]
         for k in range(nstep):
             if callback is not None:
-                callback(k, state, ctrl_buf)
+                if substep_sensor_copyout is None:
+                    callback(k, state, ctrl_buf)
+                else:
+                    start, stop = substep_sensor_copyout
+                    callback(k, state, ctrl_buf, self._bufs["sensordata"][:, start:stop])
                 self.callback_controls.append(ctrl_buf.copy())
+                # The persistent wrench channel as the substep's physics
+                # sees it: composed after the callback, before integration.
+                self.callback_channels.append(self._bufs["xfrc_applied"].copy())
             state += 1.0
         # End-of-call copy-out of the bound input/derived fields.
         self._bufs["qpos"][:] = state[:, self.qpos_slice]
@@ -118,6 +137,7 @@ def _fake_mujoco_backend(pre_step_control_fn=None):
     pool = _FakeMjBatch()
     backend = object.__new__(MuJoCoBackend)
     backend._pre_step_control_fn = pre_step_control_fn
+    backend._tracked_sensor_copyout_range = None
     backend._num_envs = 1
     backend._np_dtype = np.float32
     backend.nq = pool._nq
@@ -219,7 +239,7 @@ def test_mujoco_step_writes_xfrc_absolutely_and_clears_pending() -> None:
     np.testing.assert_allclose(backend._pending_xfrc_applied, [[0.0] * 6])
 
 
-def test_mujoco_step_with_pre_step_control_stages_xfrc_before_dispatch() -> None:
+def test_mujoco_step_with_pre_step_control_applies_staged_xfrc_each_substep() -> None:
     backend = _fake_mujoco_backend()
     backend._pending_xfrc_applied = np.full((1, 6), 7.0, dtype=np.float64)
 
@@ -230,11 +250,18 @@ def test_mujoco_step_with_pre_step_control_stages_xfrc_before_dispatch() -> None
 
     pool = backend._pool
     assert len(pool.step_calls) == 1
-    # The callback protocol writes ctrl only; the wrench rides its own channel.
+    # The staged wrench is recomposed onto the persistent channel before every
+    # substep; each recorded channel is the wrench that substep's physics
+    # actually consumed.
     assert len(pool.callback_controls) == 2
     for cb_control in pool.callback_controls:
         np.testing.assert_allclose(cb_control, [[1.5, 0.5]])
-    np.testing.assert_allclose(backend._xfrc_view.reshape(1, -1), [[7.0] * 6])
+    assert len(pool.callback_channels) == 2
+    for channel in pool.callback_channels:
+        np.testing.assert_allclose(channel.reshape(1, -1), [[7.0] * 6])
+    # The call finishes by clearing the persistent channel and the staging
+    # buffer so nothing leaks into the next control step.
+    np.testing.assert_allclose(backend._xfrc_view.reshape(1, -1), [[0.0] * 6])
     np.testing.assert_allclose(backend._pending_xfrc_applied, [[0.0] * 6])
 
 

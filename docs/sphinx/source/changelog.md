@@ -67,6 +67,29 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   Reward manager 不再在 reset extras 中重复输出 `Episode_Reward/*`；既有
   episode log 仍是这些指标的数据源（#1570）。
 
+### Changed / 变更
+
+- The MuJoCo executor dependency is pinned to `mjbatch-uni~=0.2.1` and
+  `unisim-core` moves to `>=1.4.0`
+  ([unisim#71](https://github.com/unilabsim/unisim/issues/71),
+  [mjbatch_uni#28](https://github.com/unilabsim/mjbatch_uni/issues/28)).
+  unisim-core 1.4.0 adds per-environment gravity reset, the cross-backend
+  body wrench/torque contract, and per-substep callback wrenches through
+  `PreStepControlOutput`; on the MuJoCo pre-step control path the executor's
+  split-substep sensor copyout now refreshes tracked body state at every
+  substep boundary (about 14x faster than the previous host-side recompute,
+  with bit-identical trajectories). Tests that pinned the previous executor
+  callback protocol and Isaac worker diagnostic text were updated to the
+  published contracts.
+  MuJoCo 执行器依赖固定为 `mjbatch-uni~=0.2.1`，`unisim-core` 升级到
+  `>=1.4.0`（unisim#71、mjbatch_uni#28）。unisim-core 1.4.0 新增逐环境
+  重力 reset、跨后端 body wrench/torque 契约，以及通过
+  `PreStepControlOutput` 的逐子步 callback wrench；MuJoCo pre-step control
+  路径改用执行器的 split-substep 传感器增量拷出，在每个子步边界刷新
+  tracked body state（相比此前主机端重算约 14 倍加速，轨迹逐位一致）。
+  原先固定旧执行器 callback 协议与 Isaac worker 诊断文案的测试已更新到
+  已发布契约。
+
 ## 1.2.0 (2026-09-10)
 
 ### Breaking changes / 破坏性变更

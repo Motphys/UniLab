@@ -184,7 +184,9 @@ def test_dependencies_override_and_missing_layout(
     empty = tmp_path / "empty"
     monkeypatch.setenv(ENV_HOME, str(empty))
     monkeypatch.delenv(ENV_PYTHON, raising=False)
-    with pytest.raises(IsaacSimDependencyError, match="setup_isaacsim_env.sh"):
+    with pytest.raises(
+        IsaacSimDependencyError, match="could not find the Python 3.11 worker interpreter"
+    ):
         resolve_isaacsim_runtime()
 
 
