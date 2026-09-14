@@ -39,8 +39,6 @@ class RewardManager(ManagerBase):
 
       When ``scale_by_dt=True`` (default):
         - ``reward_buf`` (returned by ``compute()``) = raw_value * weight * dt
-        - ``_episode_sums`` (cumulative rewards) are scaled by dt
-        - ``Episode_Reward/*`` logged metrics are scaled by dt
 
       When ``scale_by_dt=False``:
         - ``reward_buf`` = raw_value * weight (no dt scaling)
@@ -71,9 +69,6 @@ class RewardManager(ManagerBase):
 
         self.cfg = deepcopy(cfg)
         super().__init__(env=env)
-        self._episode_sums = dict()
-        for term_name in self._term_names:
-            self._episode_sums[term_name] = np.zeros(self.num_envs, dtype=np.float32)
         self._reward_buf = np.zeros(self.num_envs, dtype=np.float32)
         self._step_reward = np.zeros((self.num_envs, len(self._term_names)), dtype=np.float32)
         # Scratch for the weighted term value, reused across terms to avoid a
@@ -107,14 +102,9 @@ class RewardManager(ManagerBase):
     def reset(self, env_ids: np.ndarray | slice | None = None) -> dict[str, float]:
         if env_ids is None:
             env_ids = slice(None)
-        extras = {}
-        for key in self._episode_sums.keys():
-            episodic_sum_avg = float(np.mean(self._episode_sums[key][env_ids]))
-            extras["Episode_Reward/" + key] = episodic_sum_avg / self._env.max_episode_length_s
-            self._episode_sums[key][env_ids] = 0.0
         for term_cfg in self._class_term_cfgs:
             term_cfg.func.reset(env_ids=env_ids)
-        return extras
+        return {}
 
     def compute(self, dt: float) -> np.ndarray:
         if not np.isfinite(dt) or (self._scale_by_dt and dt <= 0.0):
@@ -142,7 +132,6 @@ class RewardManager(ManagerBase):
             np.multiply(value, term_cfg.weight, out=scratch)
             scratch *= scale
             self._reward_buf += scratch
-            self._episode_sums[name] += scratch
             np.divide(scratch, scale, out=self._step_reward[:, term_idx])
         return self._reward_buf
 

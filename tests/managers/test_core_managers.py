@@ -171,8 +171,11 @@ def test_reward_dt_scaling_reset_and_config_immutability(fake_env: FakeEnv) -> N
     manager = RewardManager(cfg, fake_env)
     np.testing.assert_allclose(manager.compute(dt=0.25), fake_env.value * 0.5)
     assert manager.get_active_iterable_terms(2) == [("stateful", [4.0])]
-    extras = manager.reset(np.array([1, 2]))
-    assert extras["Episode_Reward/stateful"] == pytest.approx(0.375)
+    reset_ids = np.array([1, 2])
+    extras = manager.reset(reset_ids)
+    assert extras == {}
+    assert not any(key.startswith("Episode_Reward/") for key in extras)
+    assert manager.get_term_cfg("stateful").func.reset_ids is reset_ids
     assert cfg["stateful"].func is StatefulReward
     assert isinstance(manager.get_term_cfg("stateful").func, StatefulReward)
 

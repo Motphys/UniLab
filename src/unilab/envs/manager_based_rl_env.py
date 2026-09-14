@@ -629,8 +629,8 @@ class ManagerBasedRlEnv(NpEnv):
             if self._autoreset_reset_active:
                 # Autoreset runs at the tail of step(): keep this step's
                 # per-step log entries (reward/* etc., computed pre-reset) and
-                # layer the reset extras (Episode_Reward/* etc.) on top, so
-                # consumers still see the transition's reward breakdown.
+                # layer manager reset extras on top, so consumers still see the
+                # transition's metrics.
                 step_log = self._state.info.get("log")
                 if step_log:
                     log = {**step_log, **log}
