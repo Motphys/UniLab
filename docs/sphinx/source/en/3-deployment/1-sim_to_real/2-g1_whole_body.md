@@ -97,7 +97,8 @@ within the term, and terms are concatenated in declaration order:
 
 The motion command contributes the reference joint position and velocity
 (`29 + 29`) ahead of the observation terms. Per-term oldest-first ordering is
-guarded by `tests/scripts/test_obs_alignment_g1_wbt.py`; mirror that ordering
+guaranteed by the `ObservationManager` per-term history buffers
+(`tests/managers/test_observation_buffers_noise.py`); mirror that ordering
 on hardware or the policy reads a permuted vector.
 
 ## 3. Actuator interface

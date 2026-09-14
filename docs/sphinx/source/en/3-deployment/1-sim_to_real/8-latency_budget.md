@@ -10,7 +10,7 @@ budgets as robot-specific measurements, not UniLab defaults.
 | --- | --- | --- |
 | One-step action delay | Manager action term `simulate_action_latency` declarations in task owners | Executes the previous action instead of the current action. |
 | G1 WBT observation history | Per-term `history_length` in `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml` | Per-term history for `base_ang_vel`, `joint_pos`, `joint_vel`, and `actions`. |
-| Obs history ordering guard | `tests/scripts/test_obs_alignment_g1_wbt.py` | Asserts per-term oldest-first flatten for the G1 WBT actor obs. |
+| Obs history ordering | `ObservationManager` per-term history buffers (`tests/managers/test_observation_buffers_noise.py`) | Per-term oldest-first flatten for the G1 WBT actor obs. |
 
 ## Action Latency
 

@@ -109,43 +109,6 @@ def make_go1_pool(nbatch, nthread):
 """
 
 
-def test_batch_import_diagnostic_is_preserved() -> None:
-    output = _run_clean_python(
-        """
-        import json
-
-        try:
-            from drake_uni.batch_env import batch_available, batch_import_error
-        except ImportError as exc:
-            captured_error = exc
-
-            def batch_available():
-                return False
-
-            def batch_import_error():
-                return captured_error
-
-        error = batch_import_error()
-        summary = {
-            "available": bool(batch_available()),
-            "error_type": None if error is None else type(error).__name__,
-            "missing_module": getattr(error, "name", None),
-        }
-        print(json.dumps(summary, sort_keys=True))
-        """
-    )
-    summary = json.loads(output.strip().splitlines()[-1])
-    if summary["available"]:
-        assert summary["error_type"] is None
-        assert summary["missing_module"] is None
-    else:
-        assert summary["error_type"] == "ModuleNotFoundError"
-        assert summary["missing_module"] in {
-            "drake_uni",
-            "drake_uni.compiled._drake_env_pool",
-        }
-
-
 def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
     output = _run_clean_python(
         """
@@ -284,41 +247,6 @@ def test_drake_uni_runtime_import_is_lazy_and_pydrake_free() -> None:
     }
 
 
-def test_unilab_drake_public_surface_excludes_batch_backend_symbol() -> None:
-    output = _run_clean_python(
-        """
-        import json
-
-        import unilab.base.backend_factory as backend_root
-        import unisim.backend.drake as drake_pkg
-        from unisim.backend.drake import backend as backend_module
-
-        try:
-            from unisim.backend.drake.backend import DrakeUniBatchBackend  # noqa: F401
-        except ImportError:
-            direct_import = "failed"
-        else:
-            direct_import = "succeeded"
-
-        summary = {
-            "direct_import": direct_import,
-            "root_has_batch": hasattr(backend_root, "DrakeUniBatchBackend"),
-            "subpackage_has_batch": hasattr(drake_pkg, "DrakeUniBatchBackend"),
-            "module_has_batch": hasattr(backend_module, "DrakeUniBatchBackend"),
-            "module_all_has_batch": "DrakeUniBatchBackend" in backend_module.__all__,
-        }
-        print(json.dumps(summary, sort_keys=True))
-        """
-    )
-    assert json.loads(output.strip().splitlines()[-1]) == {
-        "direct_import": "failed",
-        "module_all_has_batch": False,
-        "module_has_batch": False,
-        "root_has_batch": False,
-        "subpackage_has_batch": False,
-    }
-
-
 @pytest.mark.skipif(
     not _batch_extension_built(),
     reason="optional Drake batch extension has not been built",
@@ -336,7 +264,6 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
         output = pool.step(state, 2, control, None, True)
         sensor_data = output["sensor_data"]
         summary = {
-            "forward_removed": not hasattr(pool, "forward"),
             "state_only_has_sensor_data": "sensor_data" in state_only,
             "state_shape": list(output["state"].shape),
             "sensor_shape": list(sensor_data.shape),
@@ -355,7 +282,6 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
     summary = json.loads(output.strip().splitlines()[-1])
     assert summary.pop("num_filtered_geometries") > 0
     assert summary == {
-        "forward_removed": True,
         "has_sensor_data": True,
         "nthread": 1,
         "sensor_finite": True,

@@ -91,7 +91,8 @@ Actor 观测宽度是 `env.observations.actor.terms` 下各项 `dim * history_le
 ```
 
 motion command 在观测项之前贡献参考关节位置与速度（`29 + 29`）。逐项的最旧优先
-顺序由 `tests/scripts/test_obs_alignment_g1_wbt.py` 守护；硬件侧必须镜像该顺序，
+顺序由 `ObservationManager` 的逐项历史缓冲实现保证
+（`tests/managers/test_observation_buffers_noise.py`）；硬件侧必须镜像该顺序，
 否则策略读到的是被置换过的向量。
 
 ## 3. 执行器接口

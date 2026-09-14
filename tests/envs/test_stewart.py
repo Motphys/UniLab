@@ -199,20 +199,12 @@ def test_stewart_owner_materializes_complete_plain_manager_cfg(
     _assert_no_omegaconf(env_cfg)
 
 
-def test_stewart_registry_is_manager_only_and_legacy_overrides_fail_closed() -> None:
+def test_stewart_registry_is_manager_only() -> None:
     registry.ensure_registries()
     assert registry.list_registered_envs()["StewartBalance"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
         "available_backends": ["mujoco", "motrix", "drake"],
     }
-
-    for legacy_override in (
-        {"reward_config": {}},
-        {"platform_radius": 0.8},
-        {"action_smooth": 0.6},
-    ):
-        with pytest.raises(ValueError, match="has no attribute"):
-            apply_cfg_overrides(ManagerBasedRlEnvCfg(), legacy_override)
 
 
 def test_stewart_terms_do_not_access_physics_implementations() -> None:

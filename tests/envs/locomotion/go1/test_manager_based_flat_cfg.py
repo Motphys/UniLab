@@ -275,14 +275,6 @@ def test_go1_flat_and_rough_registries_are_manager_only() -> None:
         "available_backends": ["mujoco", "motrix"],
     }
 
-    for legacy_override in (
-        {"reward_config": {}},
-        {"domain_rand": {"randomize_base_mass": True}},
-        {"control_config": {"Kp": 35.0}},
-    ):
-        with pytest.raises(ValueError, match="has no attribute"):
-            apply_cfg_overrides(ManagerBasedRlEnvCfg(), legacy_override)
-
 
 @pytest.mark.parametrize(
     ("backend", "owner", "expected_events"),

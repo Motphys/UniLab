@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 单步动作延迟 | task owner 中 Manager action term 的 `simulate_action_latency` 声明 | 执行上一步动作而非当前动作。 |
 | G1 WBT 观测历史 | `src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml` 中逐 term 的 `history_length` | 为 `base_ang_vel`、`joint_pos`、`joint_vel` 与 `actions` 提供逐项历史。 |
-| 观测历史顺序守护 | `tests/scripts/test_obs_alignment_g1_wbt.py` | 断言 G1 WBT actor 观测按逐项最旧优先展平。 |
+| 观测历史顺序 | `ObservationManager` 逐项历史缓冲（`tests/managers/test_observation_buffers_noise.py`） | G1 WBT actor 观测按逐项最旧优先展平。 |
 
 ## 动作延迟
 

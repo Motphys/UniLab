@@ -153,15 +153,6 @@ def test_learner_without_initial_sync_tensors_fails_with_type_error():
         runner._dp_init_broadcast()
 
 
-def test_close_closes_dp_sync_idempotently():
-    dp_sync = _FakeDpSync()
-    runner = _runner_with(_SyncLearner(), dp_sync)
-    # Avoid the full AsyncRunner.close(); only the dp_sync branch is under test.
-    runner.dp_sync.close()
-    runner.dp_sync.close()
-    assert [name for name, _ in dp_sync.calls] == ["close", "close"]
-
-
 def test_close_restores_terminal_and_ipc_before_destroying_process_group(monkeypatch):
     from uni_rl.offpolicy.runner import OffPolicyRunner
 
@@ -497,11 +488,6 @@ def _build_sac_runner_with_dp_fakes(monkeypatch: pytest.MonkeyPatch, overrides: 
     monkeypatch.setattr(owner_module, "DoubleBufferOffPolicyRunner", _FakeRunner)
     runner = module.build_runner("sac", cfg, log_dir="/tmp/dp_sync_test_run")
     return runner.kwargs
-
-
-def test_offpolicy_config_has_no_periodic_parameter_sync_interval():
-    cfg = _offpolicy_cfg()
-    assert "dp_sync_interval" not in cfg.training
 
 
 def test_build_runner_single_rank_keeps_dp_sync_none(monkeypatch: pytest.MonkeyPatch):

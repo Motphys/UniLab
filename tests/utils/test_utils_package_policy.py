@@ -1,7 +1,4 @@
-import importlib
 from pathlib import Path
-
-import pytest
 
 import unilab.utils
 
@@ -38,12 +35,3 @@ def test_repo_has_no_package_level_utils_imports() -> None:
             if path.resolve() == current_file:
                 continue
             assert "from unilab.utils import" not in path.read_text(encoding="utf-8"), path
-
-
-def test_algo_layer_no_longer_lives_in_unilab() -> None:
-    """The algo/IPC/logging layers moved to uni_rl (issue #1480)."""
-    assert not (Path("src/unilab/algos")).exists()
-    assert not (Path("src/unilab/ipc")).exists()
-    assert not (Path("src/unilab/logging")).exists()
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("unilab.algos.common")

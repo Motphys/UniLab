@@ -359,9 +359,6 @@ def test_set_state_returns_schema_conformant_timing() -> None:
     assert timing["set_state_host_cache_refresh_ms"] > 0.0
     assert timing["set_state_mask_ms"] == 0.0
     assert timing["set_state_pool_reset_ms"] == 0.0
-    # Legacy collapsed keys are gone.
-    assert "set_state_reset_ms" not in timing
-    assert "set_state_cache_refresh_ms" not in timing
 
     empty = backend.set_state(
         np.asarray([], dtype=np.int32),

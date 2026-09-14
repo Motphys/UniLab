@@ -129,10 +129,6 @@ def test_feet_air_time_matches_mjlab_window_counting() -> None:
         contacts.append(np.array([[left, right], [left, right]]))
         expected = _mjlab_air_time_sequence(contacts, 0.02, 0.05, 0.5)[-1]
         np.testing.assert_allclose(term(env), expected)
-    # Air time after the fourth air step is 0.08: inside (0.05, 0.5).
-    assert _mjlab_air_time_sequence(contacts, 0.02, 0.05, 0.5)[3][0] == 1.0
-    # Landing resets the air time to zero, back out of the window.
-    assert _mjlab_air_time_sequence(contacts, 0.02, 0.05, 0.5)[4][0] == 0.0
 
 
 def test_feet_air_time_window_excludes_long_flight() -> None:

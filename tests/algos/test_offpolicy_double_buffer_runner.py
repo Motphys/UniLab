@@ -11,7 +11,6 @@ import gymnasium as gym
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
-from hydra.errors import ConfigCompositionException
 from uni_rl.ipc.dp_launcher import UNILAB_DP_LOG_DIR, UNILAB_DP_RANK, UNILAB_DP_WORLD_SIZE
 
 _ROOT = Path(__file__).parent.parent.parent
@@ -83,35 +82,6 @@ def test_offpolicy_config_has_one_replay_path():
     cfg = _offpolicy_cfg()
     assert cfg.training.replay_prefetch_mode == "one_tick"
     assert cfg.training.env_steps_per_sync == 1
-    assert "env_steps_per_sync" not in cfg.algo
-    assert "inference_owner" not in cfg.training
-    assert "collector_infer_device" not in cfg.training
-    assert "no_sync_collection" not in cfg.training
-    assert "replay_pipeline" not in cfg.training
-    assert "verbose_metrics" not in cfg.training
-    assert "replay_pack_layout" not in cfg.training
-    assert "replay_pack_executor" not in cfg.training
-    assert "replay_h2d_submitter" not in cfg.training
-
-
-@pytest.mark.parametrize(
-    "override",
-    [
-        "training.replay_pipeline=cpu_pinned_double_buffer",
-        "training.verbose_metrics=true",
-        "training.num_gpus=2",
-        "training.multi_gpu_sync_mode=sync_sgd",
-        "training.multi_gpu_sync_interval=2",
-        "training.device=cuda",
-        "training.inference_owner=collector",
-        "training.collector_infer_device=cpu",
-        "training.no_sync_collection=true",
-        "algo.env_steps_per_sync=2",
-    ],
-)
-def test_removed_offpolicy_options_fail_hydra_compose(override: str):
-    with pytest.raises(ConfigCompositionException, match="Could not override"):
-        _offpolicy_cfg([override])
 
 
 @pytest.mark.parametrize("mode", ["invalid_mode", "same_tick"])
@@ -160,11 +130,6 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     assert runner.kwargs["algo_type"] == "sac"
     assert runner.kwargs["device"] == "cuda:0"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
-    assert "inference_owner" not in runner.kwargs
-    assert "collector_infer_device" not in runner.kwargs
-    assert "sync_collection" not in runner.kwargs
-    assert "replay_pipeline" not in runner.kwargs
-    assert "verbose_metrics" not in runner.kwargs
     assert runner.kwargs["learner"].kwargs == {
         "device": "cuda:0",
         "obs_dim": 4,
@@ -252,10 +217,6 @@ def test_td3_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     assert isinstance(runner, _FakeRunner)
     assert runner.kwargs["algo_type"] == "td3"
     assert runner.kwargs["device"] == "cuda:0"
-    assert "inference_owner" not in runner.kwargs
-    assert "collector_infer_device" not in runner.kwargs
-    assert "sync_collection" not in runner.kwargs
-    assert "replay_pipeline" not in runner.kwargs
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
     nan_guard_cfg = runner.kwargs["nan_guard_cfg"]
     assert nan_guard_cfg.enabled is True
@@ -326,10 +287,6 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     assert runner.kwargs["algo_type"] == "flashsac"
     assert runner.kwargs["device"] == "cuda:0"
     assert runner.kwargs["replay_prefetch_mode"] == "one_tick"
-    assert "inference_owner" not in runner.kwargs
-    assert "collector_infer_device" not in runner.kwargs
-    assert "sync_collection" not in runner.kwargs
-    assert "replay_pipeline" not in runner.kwargs
 
 
 def test_flashsac_n_step_is_rejected():

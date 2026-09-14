@@ -291,11 +291,6 @@ def test_offpolicy_config_devices_compose():
     assert resolve_dp_topology(cfg.training.devices) == (0, 1)
 
 
-def test_offpolicy_config_has_no_redundant_singular_device():
-    cfg = _offpolicy_cfg()
-    assert "device" not in cfg.training
-
-
 # ---------------------------------------------------------------------------
 # apply_dp_rank_config / N=1 equivalence
 # ---------------------------------------------------------------------------

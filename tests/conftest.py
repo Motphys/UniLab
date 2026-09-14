@@ -25,8 +25,6 @@ import os
 import shutil
 
 import pytest
-import torch
-from uni_rl.ipc.rollout_ring_buffer import RolloutRingBuffer
 
 # ---------------------------------------------------------------------------
 # Dummy flat env — no MuJoCo required
@@ -39,9 +37,6 @@ from uni_rl.ipc.rollout_ring_buffer import RolloutRingBuffer
 from tests._test_registry.dummy_flat_env import (  # noqa: E402  (side-effect import)
     DUMMY_ENV_NAME as _DUMMY_ENV_NAME,
 )
-
-_DUMMY_OBS_DIM = 8
-_DUMMY_ACT_DIM = 3
 
 # Make the dummy env discoverable inside spawn collector subprocesses.
 _existing = os.environ.get("UNILAB_EXTRA_REGISTRY_PACKAGES", "")
@@ -89,36 +84,6 @@ def _isolate_training_logs_for_tests(tmp_path_factory: pytest.TempPathFactory):
         print(f"Preserving UniLab test training logs after failure: {log_root}")
     else:
         shutil.rmtree(log_root, ignore_errors=True)
-
-
-@pytest.fixture
-def mp_ctx():
-    return torch.multiprocessing.get_context("spawn")
-
-
-@pytest.fixture
-def tiny_storage():
-    storage = RolloutRingBuffer(
-        num_envs=4,
-        num_steps=10,
-        obs_dim=_DUMMY_OBS_DIM,
-        action_dim=_DUMMY_ACT_DIM,
-        num_slots=2,
-        create=True,
-    )
-    yield storage
-    storage.cleanup()
-
-
-@pytest.fixture
-def tiny_weight_shapes():
-    """Small MLP param shapes dict — linear(8,16) + bias, linear(16,3) + bias."""
-    return {
-        "layer1.weight": torch.Size([16, 8]),
-        "layer1.bias": torch.Size([16]),
-        "layer2.weight": torch.Size([3, 16]),
-        "layer2.bias": torch.Size([3]),
-    }
 
 
 @pytest.fixture

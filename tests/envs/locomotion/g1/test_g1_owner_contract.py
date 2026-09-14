@@ -591,10 +591,22 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert hydra_cfg.training.play_render_mode == "auto"
     if backend == "isaacgym":
         assert env_cfg.isaacgym_device_id == 0
+        # The subprocess backend consumes the self-contained MJCF scene
+        # directly; scene fragments and generated terrain stay unset.
+        assert env_cfg.scene.fragment_files == []
+        assert env_cfg.scene.terrain is None
+        # Effort-mode dofs carry no PD gains, so the owner disables kp/kd
+        # randomization like the mjwarp/motrix owners.
+        assert env_cfg.events["pd_gains"] is None
         # Native rendering (viewer + camera-sensor record) is supported;
         # playback stays on the base config's auto mode.
         assert hydra_cfg.training.play_render_mode == "auto"
     if backend == "genesis":
+        assert env_cfg.genesis_device_id == 0
+        # The in-process backend consumes the self-contained MJCF scene
+        # directly; scene fragments and generated terrain stay unset.
+        assert env_cfg.scene.fragment_files == []
+        assert env_cfg.scene.terrain is None
         # Re-declares the MJCF <option integrator="implicitfast"> that Genesis
         # drops at import; the other global options keep Genesis defaults.
         assert env_cfg.genesis_integrator == "implicitfast"
@@ -669,17 +681,6 @@ def test_g1_walk_registries_are_manager_only() -> None:
         "config_factory": "ManagerBasedRlEnvCfg",
         "available_backends": ["mujoco", "motrix"],
     }
-
-    for legacy_override in (
-        {"reward_config": {}},
-        {"domain_rand": {"randomize_kp": True}},
-        {"control_config": {"action_scale": 0.25}},
-        {"gait_phase_init_mode": "offset_phase"},
-        {"reset_base_qvel_limit": 0.5},
-        {"noise_config": {"level": 1.0}},
-    ):
-        with pytest.raises(ValueError, match="has no attribute"):
-            apply_cfg_overrides(ManagerBasedRlEnvCfg(), legacy_override)
 
 
 @pytest.mark.parametrize(

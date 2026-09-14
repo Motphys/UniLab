@@ -287,14 +287,6 @@ def test_footstand_registry_has_no_legacy_config_or_factory() -> None:
     }
     meta = registry._envs["Go2FootStand"]
     assert all(factory is make_manager_based_rl_env for factory in meta.env_factory_dict.values())
-    for legacy_override in (
-        {"reward_config": {}},
-        {"domain_rand": {"randomize_floor_friction": True}},
-        {"control_config": {"action_scale": 0.4}},
-        {"obs_history_len": 15},
-    ):
-        with pytest.raises(ValueError, match="has no attribute"):
-            apply_cfg_overrides(ManagerBasedRlEnvCfg(), legacy_override)
 
 
 @pytest.mark.parametrize("backend", ("mujoco", "motrix"))

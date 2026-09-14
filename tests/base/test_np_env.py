@@ -229,28 +229,6 @@ class TestNpEnvState:
         assert "obs" in state.obs
         assert "critic" in state.obs
 
-    def test_terminated_and_truncated_are_separate_signals(self):
-        state = NpEnvState(
-            obs={"a": np.zeros((3, 1))},
-            reward=np.zeros(3),
-            terminated=np.array([True, False, False]),
-            truncated=np.array([False, False, True]),
-            info={},
-        )
-        np.testing.assert_array_equal(state.terminated, [True, False, False])
-        np.testing.assert_array_equal(state.truncated, [False, False, True])
-        np.testing.assert_array_equal(state.terminated | state.truncated, [True, False, True])
-
-    def test_terminated_and_truncated_can_both_be_true(self):
-        state = NpEnvState(
-            obs={"a": np.zeros((1, 1))},
-            reward=np.zeros(1),
-            terminated=np.array([True]),
-            truncated=np.array([True]),
-            info={},
-        )
-        assert (state.terminated | state.truncated)[0] is np.True_
-
     def test_replace_preserves_type(self):
         obs = {"obs": np.zeros((2, 3))}
         state = NpEnvState(

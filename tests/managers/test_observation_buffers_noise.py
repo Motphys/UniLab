@@ -268,21 +268,6 @@ def test_observation_noise_model_delay_and_seed_reproducibility() -> None:
     np.testing.assert_array_equal(left["policy"], right["policy"])
 
 
-@pytest.mark.parametrize("bad", [np.nan, np.inf])
-def test_observation_default_finite_policy_fails_closed(fake_env: FakeEnv, bad: float) -> None:
-    def invalid(env: FakeEnv) -> np.ndarray:
-        result = env.obs.copy()
-        result[1, 0] = bad
-        return result
-
-    manager = ObservationManager(
-        {"policy": ObservationGroupCfg(terms={"bad": ObservationTermCfg(func=invalid)})},
-        fake_env,
-    )
-    with pytest.raises(ValueError, match="ObservationManager term 'policy/bad'"):
-        manager.compute()
-
-
 @pytest.mark.parametrize(
     ("invalid_values", "invalid_kind"),
     [

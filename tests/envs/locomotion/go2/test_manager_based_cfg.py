@@ -266,7 +266,7 @@ def test_go2_flat_owner_materializes_complete_plain_manager_cfg(
     _assert_no_omegaconf(env_cfg)
 
 
-def test_go2_flat_registry_has_no_legacy_config_fallback() -> None:
+def test_go2_flat_registry_is_manager_only() -> None:
     registry.ensure_registries()
     bare_cfg = registry.materialize_env_config("Go2JoystickFlat")
 
@@ -278,13 +278,6 @@ def test_go2_flat_registry_has_no_legacy_config_fallback() -> None:
         "config_factory": "ManagerBasedRlEnvCfg",
         "available_backends": ["mujoco", "motrix", "drake", "superdex"],
     }
-    for legacy_override in (
-        {"reward_config": {}},
-        {"domain_rand": {"randomize_kp": True}},
-        {"control_config": {"action_scale": 0.4}},
-    ):
-        with pytest.raises(ValueError, match="has no attribute"):
-            apply_cfg_overrides(ManagerBasedRlEnvCfg(), legacy_override)
 
 
 @pytest.mark.parametrize(

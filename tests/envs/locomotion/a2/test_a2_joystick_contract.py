@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from pathlib import Path
@@ -269,23 +268,12 @@ def test_a2_owner_declares_all_randomization_as_manager_events() -> None:
     assert push.is_global_time is True
 
 
-def test_a2_registry_has_no_legacy_config_or_runtime_fallback() -> None:
+def test_a2_registry_is_manager_only() -> None:
     registry.ensure_registries()
-    module = importlib.import_module("unilab.tasks.locomotion.a2.joystick")
-    assert not hasattr(module, "A2JoystickCfg")
-    assert not hasattr(module, "A2JoystickFlatEnv")
-    assert not hasattr(module, "A2JoystickDomainRandomizationProvider")
     assert registry.list_registered_envs()["A2JoystickFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
         "available_backends": ["mujoco"],
     }
-    for legacy_override in (
-        {"reward_config": {}},
-        {"domain_rand": {"randomize_kp": True}},
-        {"control_config": {"action_scale": 0.4}},
-    ):
-        with pytest.raises(ValueError, match="has no attribute"):
-            apply_cfg_overrides(ManagerBasedRlEnvCfg(), legacy_override)
 
 
 def test_a2_registry_executes_real_manager_runtime() -> None:

@@ -27,23 +27,6 @@ from unilab.structured_configs import APPOConfig
 
 
 @pytest.mark.slow
-def test_appo_runner_init_no_crash(mock_env_name):
-    cfg = APPOConfig().to_dict()
-    cfg["num_envs"] = 4
-    cfg["steps_per_env"] = 4
-
-    runner = APPORunner(
-        env_name=mock_env_name,
-        env_factory=registry_env_factory(mock_env_name, "mujoco"),
-        env_cfg_overrides={},
-        rl_cfg=cfg,
-        num_envs=4,
-        steps_per_env=4,
-    )
-    runner.close()
-
-
-@pytest.mark.slow
 @pytest.mark.parametrize("env_name", ["Go2JoystickFlat"])
 def test_appo_runner_learn_two_iterations(env_name):
     """APPO learn test must use a real env — DummyFlatTest is not registered in

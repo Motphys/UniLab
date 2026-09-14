@@ -174,18 +174,6 @@ def test_offpolicy_td3_defaults():
     assert cfg.algo.algo_params.log_std_min == pytest.approx(-1.6)
 
 
-def test_offpolicy_td3_g1_task_overrides():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "td3"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_walk_flat/mujoco"])
-    assert cfg.training.task_name == "G1WalkFlat"
-    assert cfg.algo.max_iterations == 100000
-    assert cfg.env.actions.joint_pos.scale == pytest.approx(1.0)
-
-
 def test_offpolicy_flashsac_g1_task_overrides():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
@@ -294,7 +282,6 @@ def test_appo_g1_task_overrides():
     assert cfg.algo.max_iterations == 500
     assert cfg.algo.save_interval == 100
     assert cfg.training.task_name == "G1WalkFlat"
-    assert "obs_profile" not in cfg.env
     assert "curriculum" not in cfg.env
 
 
@@ -315,22 +302,6 @@ def test_ppo_go1_max_iterations():
     assert cfg.algo.algorithm.enable_compile is False
 
 
-def test_ppo_compile_overrides():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose(
-            "config",
-            overrides=[
-                "task=go1_joystick_flat/mujoco",
-                "algo.algorithm.enable_compile=false",
-            ],
-        )
-    assert cfg.algo.algorithm.enable_compile is False
-
-
 def test_ppo_g1_num_envs():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
@@ -341,7 +312,6 @@ def test_ppo_g1_num_envs():
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 2200
     assert cfg.training.task_name == "G1WalkFlat"
-    assert "obs_profile" not in cfg.env
     assert "curriculum" not in cfg.env
 
 

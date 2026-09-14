@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 MigrationStatus = Literal["Compatible", "Adapted"]
-MigrationTarget = Literal["complete", "mba", "compatibility"]
+MigrationTarget = Literal["complete", "mba"]
 
 
 @dataclass(frozen=True)

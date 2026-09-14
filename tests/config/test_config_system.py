@@ -132,14 +132,11 @@ def test_algo_config_composes(algo_dir: str, config_name: str):
     assert cfg.training.sim_backend == "mujoco"
 
 
-def test_task_files_keep_full_identity_without_hidden_backend_marker():
+def test_backend_task_files_keep_full_identity():
     for path in sorted(CONF_DIR.glob("*/task/**/*.yaml")):
         cfg = OmegaConf.load(path)
         cfg_dict_raw = OmegaConf.to_container(cfg, resolve=True) or {}
         assert isinstance(cfg_dict_raw, dict)
-        assert "_selected_sim_backend" not in cfg_dict_raw, (
-            f"task has hidden backend marker: {path}"
-        )
         if path.stem not in _BACKENDS:
             continue
         training_raw = cfg_dict_raw.get("training", {})
@@ -165,15 +162,6 @@ def test_supported_task_composes(
     assert cfg.training.task_name, f"{task_file} should resolve task_name"
     assert cfg.training.sim_backend == backend, f"{task_file} should set backend"
     _assert_reward_populated(cfg, task_file)
-
-
-def test_offpolicy_g1_walk_flat_motrix_sac_preserves_backend_overrides():
-    cfg = _compose("sac", overrides=["task=g1_walk_flat/motrix"])
-
-    assert cfg.algo.num_envs == 2048
-    assert cfg.algo.max_iterations == 5000
-    assert cfg.reward.tracking_lin_vel.weight == pytest.approx(2.2)
-    assert cfg.env.events.pd_gains is None
 
 
 def test_offpolicy_g1_walk_flat_mujoco_td3_uses_td3_task_owner():

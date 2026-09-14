@@ -4,9 +4,12 @@ Pin the post-migration production registry so no legacy fallback or dual
 registration can come back:
 
 - the production registry matches the declared production task matrix,
-- only the three approved families use the frozen LegacyFactoryAdapter seam,
-- every other registered factory is one of the canonical manager-runtime
-  callables (generic factory plus the three maintainer-approved wrappers),
+- every registered factory is one of the canonical manager-runtime
+  callables (generic factory plus the maintainer-approved wrappers),
+
+The legacy ``EnvCfg -> NpEnv`` factory seam (``unilab.tasks.compatibility``)
+has been removed: legacy task factories cannot coexist with the canonical
+Manager-Based runtime, and this suite keeps it that way.
 
 Scope note: the registry has no unregister API and no provenance tracking, and
 the pytest session pollutes it with fixture-only envs (``DummyFlatTest`` via
@@ -25,9 +28,7 @@ import subprocess
 import sys
 import textwrap
 
-from unilab.tasks.migration_matrix import PRODUCTION_TASK_NAMES, migration_record
-
-ADAPTER_FACTORY = ("unilab.tasks.compatibility", "LegacyFactoryAdapter")
+from unilab.tasks.migration_matrix import PRODUCTION_TASK_NAMES
 
 CANONICAL_MANAGER_RUNTIME_FACTORIES = (
     ("unilab.envs.manager_based_rl_env", "make_manager_based_rl_env"),
@@ -104,48 +105,18 @@ def test_production_registry_matches_declared_task_matrix() -> None:
     assert empty == [], f"registered tasks without any backend: {empty}"
 
 
-def test_only_approved_families_use_the_frozen_compatibility_seam() -> None:
-    factories = _production_factories()
-    approved_compatibility_tasks = {
-        task_name
-        for task_name in PRODUCTION_TASK_NAMES
-        if migration_record(task_name).target == "compatibility"
-    }
-    adapter_tasks = {
-        task_name
-        for task_name, backends in factories.items()
-        if any(factory == ADAPTER_FACTORY for factory in backends.values())
-    }
-
-    assert adapter_tasks == approved_compatibility_tasks, (
-        "LegacyFactoryAdapter is a frozen seam: only compatibility-recorded tasks may use it, "
-        f"unexpected={sorted(adapter_tasks - approved_compatibility_tasks)}, "
-        f"missing={sorted(approved_compatibility_tasks - adapter_tasks)}"
-    )
-
-    offenders = [
-        f"{task_name}/{backend_type}: {factory[1]}"
-        for task_name in sorted(approved_compatibility_tasks)
-        for backend_type, factory in factories[task_name].items()
-        if factory != ADAPTER_FACTORY
-    ]
-    assert offenders == [], (
-        "approved compatibility families must route every backend through "
-        f"LegacyFactoryAdapter: {offenders}"
-    )
-
-
-def test_all_other_factories_are_the_canonical_manager_runtime_factories() -> None:
+def test_all_factories_are_the_canonical_manager_runtime_factories() -> None:
     factories = _production_factories()
 
     offenders = [
         f"{task_name}/{backend_type}: {factory[0]}.{factory[1]}"
         for task_name, backends in sorted(factories.items())
         for backend_type, factory in sorted(backends.items())
-        if factory != ADAPTER_FACTORY and factory not in CANONICAL_MANAGER_RUNTIME_FACTORIES
+        if factory not in CANONICAL_MANAGER_RUNTIME_FACTORIES
     ]
     assert offenders == [], (
-        "non-adapter factories must be one of the canonical manager-runtime "
-        f"factories {[qualname for _, qualname in CANONICAL_MANAGER_RUNTIME_FACTORIES]}: "
+        "registered factories must be one of the canonical manager-runtime "
+        f"factories {[qualname for _, qualname in CANONICAL_MANAGER_RUNTIME_FACTORIES]}; "
+        "legacy task factories do not coexist with the Manager-Based runtime: "
         f"{offenders}"
     )

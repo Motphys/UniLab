@@ -65,8 +65,9 @@ actor keeps the command and anchor-orientation terms at one step while the
 `base_ang_vel`, `joint_pos`, `joint_vel`, and `actions` terms declare
 `history_length: 5`. `ObservationManager` owns and flattens those per-term
 histories; the actor uses the configured encoder-biased joint-position term while
-the critic keeps the clean term. Per-term oldest-first ordering is guarded by
-`tests/scripts/test_obs_alignment_g1_wbt.py`; the hardware-side contract is
+the critic keeps the clean term. Per-term oldest-first ordering is guaranteed by
+the `ObservationManager` per-term history buffers
+(`tests/managers/test_observation_buffers_noise.py`); the hardware-side contract is
 documented in the sim-to-real deployment guide. When a Motrix sim2sim replay needs
 a checkpoint from another log root, pass the absolute path through `uv run eval`:
 
