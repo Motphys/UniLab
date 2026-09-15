@@ -276,32 +276,6 @@ _OWNER_CASES = (
         id="sac-isaacsim",
     ),
     pytest.param(
-        "sac",
-        ("task=g1_walk_rough/mujoco",),
-        "G1WalkRough",
-        "mujoco",
-        29,
-        1.0,
-        "scene_rough.xml",
-        _OFFPOLICY_REWARDS,
-        (*_RESET_EVENTS, "pd_gains"),
-        True,
-        id="sac-rough-mujoco",
-    ),
-    pytest.param(
-        "sac",
-        ("task=g1_walk_rough/motrix",),
-        "G1WalkRough",
-        "motrix",
-        29,
-        1.0,
-        "scene_rough.xml",
-        _OFFPOLICY_REWARDS,
-        _RESET_EVENTS,
-        True,
-        id="sac-rough-motrix",
-    ),
-    pytest.param(
         "td3",
         ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
@@ -588,10 +562,6 @@ def test_g1_walk_registries_are_manager_only() -> None:
             "newton",
         ],
     }
-    assert metadata["G1WalkRough"] == {
-        "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco", "motrix"],
-    }
 
 
 @pytest.mark.parametrize(
@@ -798,12 +768,6 @@ _PENALTY_CURRICULUM_CASES = (
         ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
         id="sac-walk-flat",
-    ),
-    pytest.param(
-        "sac",
-        ("task=g1_walk_rough/mujoco",),
-        "G1WalkRough",
-        id="sac-walk-rough",
     ),
     pytest.param(
         "td3",

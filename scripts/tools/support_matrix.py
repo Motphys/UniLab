@@ -81,17 +81,15 @@ _MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS: frozenset[tuple[str, str]] = froz
 _TASK_ORDER = {
     "go2_joystick_flat": 0,
     "g1_walk_flat": 1,
-    "g1_walk_rough": 2,
-    "g1_motion_tracking": 3,
-    "g1_flip_tracking": 4,
-    "x2_wall_flip_tracking": 5,
-    "allegro_inhand": 6,
-    "allegro_sac": 7,
+    "g1_motion_tracking": 2,
+    "g1_flip_tracking": 3,
+    "x2_wall_flip_tracking": 4,
+    "allegro_inhand": 5,
+    "allegro_sac": 6,
 }
 _TASK_LABELS = {
     "go2_joystick_flat": "Go2 joystick",
     "g1_walk_flat": "G1 walk flat",
-    "g1_walk_rough": "G1 walk rough",
     "g1_motion_tracking": "G1 motion tracking",
     "g1_flip_tracking": "G1 flip tracking",
     "x2_wall_flip_tracking": "X2 wall flip tracking",

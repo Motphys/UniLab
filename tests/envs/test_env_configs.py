@@ -59,15 +59,6 @@ def _g1_manager_override(
     from unilab.base.config_adapter import BackendAdapter
 
     repo_root = Path(__file__).parents[2]
-    if task == "g1_walk_rough":
-        # There is no ppo g1_walk_rough owner; use the SAC owner instead.
-        with initialize_config_dir(
-            config_dir=str(repo_root / "src" / "unilab" / "conf" / "sac"), version_base="1.3"
-        ):
-            cfg = compose("config", overrides=[f"task={task}/mujoco"])
-        return BackendAdapter(
-            cfg, root_dir=repo_root, algo_name="sac"
-        ).build_task_env_cfg_override()
     with initialize_config_dir(
         config_dir=str(repo_root / "src" / "unilab" / "conf" / config_group), version_base="1.3"
     ):
@@ -538,7 +529,6 @@ def test_allegro_grasp_recorder_close_autosaves_and_io_failure_is_fail_closed(
 # Environments that don't need special config overrides
 _STANDARD_ENVS = [
     "G1WalkFlat",
-    "G1WalkRough",
     "AllegroInhandRotation",
     "AllegroInhandRotationGrasp",
 ]
@@ -561,8 +551,6 @@ def test_env_reset_and_step(env_name: str):
     env_cfg_override = None
     if env_name == "G1WalkFlat":
         env_cfg_override = _g1_manager_override("g1_walk_flat")
-    elif env_name == "G1WalkRough":
-        env_cfg_override = _g1_manager_override("g1_walk_rough")
     elif env_name == "AllegroInhandRotation":
         env_cfg_override = _allegro_manager_override()
     elif env_name == "AllegroInhandRotationGrasp":

@@ -38,7 +38,6 @@ _MBA_TASKS = frozenset(
 _G1_LOCOMOTION_TASKS = frozenset(
     {
         "G1WalkFlat",
-        "G1WalkRough",
     }
 )
 

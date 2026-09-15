@@ -7,7 +7,7 @@ Manager-Based runtime. Unitree production variants live in the downstream
 ## Core reference tasks
 
 - Go2 joystick: `go2_joystick_flat`
-- G1 walking: `g1_walk_flat`, `g1_walk_rough`
+- G1 walking: `g1_walk_flat`
 - G1 motion tracking reference profiles: see {doc}`2-motion_tracking`
 
 ```bash

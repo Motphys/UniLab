@@ -6,7 +6,6 @@ Usage:
 
     # Single task + backend:
     uv run scripts/benchmark/env/benchmark_env_step.py task=g1_walk_flat/motrix
-    uv run scripts/benchmark/env/benchmark_env_step.py task=g1_walk_rough/mujoco
 
     # mjwarp backend (Phase 1: g1_walk_flat only) requires extra deps:
     uv run --with mujoco-warp --with warp-lang \\
@@ -185,44 +184,6 @@ def _ppo_owner_yaml_cfg(
     )
 
 
-def _sac_owner_yaml_cfg(
-    task_id: str,
-    backend: str,
-    env_cfg_cls: Callable[[], Any],
-    config_overrides: list[str],
-) -> Any:
-    yaml_backend = _hydra_yaml_backend(backend)
-    return _owner_yaml_cfg(
-        config_root="sac",
-        algo_name="sac",
-        overrides=[f"task={task_id}/{yaml_backend}"],
-        config_overrides=config_overrides,
-        env_cfg_cls=env_cfg_cls,
-    )
-
-
-def _materialize_g1_rough_benchmark_scene() -> str:
-    import shutil
-    import xml.etree.ElementTree as ET
-
-    source_dir = ROOT_DIR / "src" / "unilab" / "assets" / "robots" / "g1"
-    output_dir = Path("/tmp/unilab_benchmark_g1_rough_scene")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    for name in ("g1.xml",):
-        shutil.copy2(source_dir / name, output_dir / name)
-    for name in ("assets", "textures", "hfields"):
-        shutil.copytree(source_dir / name, output_dir / name, dirs_exist_ok=True)
-
-    tree = ET.parse(source_dir / "scene_rough.xml")
-    hfield = tree.getroot().find("./asset/hfield[@name='hfield']")
-    if hfield is not None:
-        hfield.set("file", "hfields/hfield.png")
-    output_path = output_dir / "scene_rough.xml"
-    tree.write(output_path)
-    return str(output_path)
-
-
 def _manager_env_cls() -> Callable[..., Any]:
     from unilab.envs import make_manager_based_rl_env
 
@@ -239,12 +200,6 @@ def _g1_flat_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs import ManagerBasedRlEnvCfg
 
     return _ppo_owner_yaml_cfg("g1_walk_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
-
-
-def _g1_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs import ManagerBasedRlEnvCfg
-
-    return _sac_owner_yaml_cfg("g1_walk_rough", backend, ManagerBasedRlEnvCfg, config_overrides)
 
 
 def _g1_motion_tracking_cfg(backend: str, config_overrides: list[str]) -> Any:
@@ -279,14 +234,6 @@ TASK_CONFIGS: dict[str, TaskConfig] = {
         env_cls_factory=_g1_walk_env_cls,
         backends=("mujoco", "motrix", "mjwarp"),
     ),
-    "g1_rough": TaskConfig(
-        task_id="g1_walk_rough",
-        env_name="G1WalkRough",
-        cfg_factory=_g1_rough_cfg,
-        env_cls_factory=_g1_walk_env_cls,
-        aliases=("sac/g1_walk_rough",),
-        backends=("mujoco", "motrix", "mjwarp"),
-    ),
     "g1_mt": TaskConfig(
         task_id="g1_motion_tracking",
         env_name="G1MotionTracking",
@@ -305,7 +252,6 @@ TASK_COLORS = {
     "go2": "#54A24B",
     "g1": "#F58518",
     "g1_mt": "#B279A2",
-    "g1_rough": "#E45756",
 }
 BACKEND_STYLES = {
     "mujoco": {"marker": "o", "linestyle": "-", "hatch": "//"},
@@ -653,8 +599,6 @@ def _short_task_label(task_name: str) -> str:
     name = task_name.lower()
     if "motiontracking" in name:
         return "g1_mt"
-    if "rough" in name and name.startswith("g1"):
-        return "g1_rough"
     for prefix in ("go2", "g1"):
         if name.startswith(prefix):
             return prefix

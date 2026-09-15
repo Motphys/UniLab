@@ -212,22 +212,6 @@ def test_offpolicy_flashsac_go2_task_overrides():
     assert cfg.env.actions.joint_pos.scale == pytest.approx(0.4)
 
 
-def test_offpolicy_g1_rough_terrain_task_overrides():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "sac"), version_base="1.3"):
-        cfg = compose(
-            "config",
-            overrides=["task=g1_walk_rough/mujoco"],
-        )
-    assert cfg.algo.algo == "sac"
-    assert cfg.training.task_name == "G1WalkRough"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.env.scene.model_file.endswith("scene_rough.xml")
-
-
 def test_g1_task_owner_yamls_preserve_legacy_and_walk_observation_profiles():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
@@ -248,7 +232,6 @@ def test_g1_task_owner_yamls_preserve_legacy_and_walk_observation_profiles():
     assert uses_walk_profile("appo", ["task=g1_walk_flat/mujoco"]) is False
     assert uses_walk_profile("sac", ["task=g1_walk_flat/mujoco"]) is True
     assert uses_walk_profile("sac", ["task=g1_walk_flat/motrix"]) is True
-    assert uses_walk_profile("sac", ["task=g1_walk_rough/mujoco"]) is True
     assert uses_walk_profile("td3", ["task=g1_walk_flat/mujoco"]) is True
     assert uses_walk_profile("flashsac", ["task=g1_walk_flat/mujoco"]) is True
 

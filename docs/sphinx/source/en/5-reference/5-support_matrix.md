@@ -94,7 +94,6 @@ rendering/playback paths remain unsupported.
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested | - | - | - | - | - |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - | - | - | - |
 | SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Tested | Tested | Configured | Tested | - |
-| SAC (torch) | `g1_walk_rough` (G1 walk rough) | Tested | - | Tested | - | - | - | - | - |
 | SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | - | - | - | - | - |
 | SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Registered | - | - | - | - | - |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered | - | - | - | - | - |

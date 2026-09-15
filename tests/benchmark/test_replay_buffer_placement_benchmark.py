@@ -65,7 +65,6 @@ def test_default_discovery_includes_existing_offpolicy_mujoco_tasks() -> None:
 
     assert skipped == []
     assert ("sac", "g1_walk_flat") in targets
-    assert ("sac", "g1_walk_rough") in targets
     assert ("sac", "g1_motion_tracking") in targets
     assert ("flashsac", "g1_walk_flat") in targets
     assert ("flashsac", "go2_joystick_flat") in targets

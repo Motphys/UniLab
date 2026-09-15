@@ -20,7 +20,6 @@ CPU and XPU training are unsupported; there is no alternate replay pipeline.
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco
-uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
 ```
 
 ## Key Fields

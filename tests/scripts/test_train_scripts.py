@@ -2210,13 +2210,6 @@ def test_offpolicy_flashsac_g1_walk_flat_task_composes() -> None:
     assert cfg.training.sim_backend == "mujoco"
 
 
-def test_offpolicy_g1_rough_terrain_task_composes() -> None:
-    cfg = _offpolicy_cfg(["task=g1_walk_rough/mujoco"])
-
-    assert cfg.training.task_name == "G1WalkRough"
-    assert cfg.training.sim_backend == "mujoco"
-
-
 def test_offpolicy_rejects_algo_argument_mismatch():
     """build_runner must reject an algo argument inconsistent with cfg.algo.algo."""
     cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"])

@@ -6,7 +6,7 @@ runtime。Unitree production 变体由下游 `unitree_rl_unilab` 包维护。
 ## 核心参考任务
 
 - Go2 joystick: `go2_joystick_flat`
-- G1 walking: `g1_walk_flat`, `g1_walk_rough`
+- G1 walking: `g1_walk_flat`
 - G1 motion tracking 参考配置：见 {doc}`2-motion_tracking`
 
 ```bash

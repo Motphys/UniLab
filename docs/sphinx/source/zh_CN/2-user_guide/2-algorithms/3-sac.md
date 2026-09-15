@@ -17,7 +17,6 @@ submission。CPU 与 XPU training 不受支持，也不存在第二套 replay pi
 
 ```bash
 uv run train --algo sac --task g1_walk_flat --sim mujoco
-uv run train --algo sac --task g1_walk_rough --sim motrix training.no_play=true
 ```
 
 ## 关键字段

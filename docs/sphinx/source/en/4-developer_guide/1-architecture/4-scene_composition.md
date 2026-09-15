@@ -101,14 +101,14 @@ Disallowed on hot paths:
 - Probing backend-private scene methods instead of using explicit contracts.
 - Regenerating terrain after env construction.
 
-## Go2 Rough Terrain Evidence
+## Terrain Contract Evidence
 
-The current procedural terrain user-facing path is Go2 rough terrain:
+The core repository keeps the terrain contract and its materialization tests,
+but it does not own a production rough-terrain task:
 
-- Task owner: `src/unilab/tasks/locomotion/g1/manager_terms.py`
 - Terrain generator: `unisim.terrain.generator`
 - MuJoCo materializer: `unisim.backend.mujoco.xml`
 - Motrix materializer: `unisim.backend.motrix.scene`
-- Owner YAMLs: `src/unilab/conf/sac/task/g1_walk_rough/{mujoco,motrix}.yaml`
+- Contract coverage: `tests/utils/test_xml_utils.py`
 
 User instructions are in {doc}`../../2-user_guide/6-terrain/1-procedural`.

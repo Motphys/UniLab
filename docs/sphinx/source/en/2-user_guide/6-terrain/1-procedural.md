@@ -28,10 +28,10 @@ env:
         seed: 42
 ```
 
-UniLab does not retain a procedural-terrain production owner. The retained
-`g1_walk_rough` task uses the static-heightfield form of the same cold-path
-scene contract, while generator composition itself is covered by core terrain
-and backend materialization tests.
+UniLab does not retain a procedural-terrain production owner. Generator
+composition and backend materialization are covered by core terrain and
+materialization tests; task owners that enable the capability carry their own
+training evidence.
 
 ## Materialization boundary
 
@@ -47,15 +47,10 @@ During `registry.make(...)`:
 Step and reset never parse robot XML or inspect asset metadata. They consume
 cached IDs and public backend capabilities.
 
-## Example
+## Owner integration
 
-Use the retained rough-scene reference task:
-
-```bash
-uv run train --algo sac --task g1_walk_rough --sim mujoco training.no_play=true
-```
-
-Custom owners can tune the terrain grid and seed through Hydra:
+Select a task owner that declares `env.scene.terrain`, then tune the terrain
+grid and seed through Hydra:
 
 ```text
 env.scene.terrain.generator.num_rows=4

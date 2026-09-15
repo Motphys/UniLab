@@ -29,7 +29,6 @@ Manager-Based event term 是唯一 DR 声明路径：
 | --- | --- | --- | --- | --- | --- |
 | `Go2JoystickFlat` | Hydra `events:` term | 是：owner YAML 声明 reset event | root-state reset + `pd_gains` kp/kd | 无 | `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | Hydra `events:` term | 是：Hydra `EventTermCfg` + Manager-Based reset term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
-| `G1WalkRough` | Hydra `events:` term | 是：与 `G1WalkFlat` 相同的 Manager-Based event term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
 | `G1MotionTracking` | Hydra command term | 是：Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame、root pose/velocity 与 joint-position 采样 | 无 | `motion_tracking/common/manager_terms.py` |
 | `G1WBTObs` | Hydra `events:` term | 是：同一 motion command + Hydra `EventTermCfg` | motion reset 加 mass/COM/PD/friction/encoder-bias event | interval velocity kick | `motion_tracking/g1/manager_terms.py` |
 | `AllegroInhandRotation` | Hydra `events:` term | 是：Hydra `EventTermCfg` + Manager-Based reset term | entity 范围的手/球 reset | 无 | `allegro_inhand/manager_terms.py` |
@@ -41,7 +40,6 @@ Manager-Based event term 是唯一 DR 声明路径：
 | --- | --- | --- | --- |
 | `Go2JoystickFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；command 采样；经 `pd_gains` 的 kp/kd | 无 | event term 在 `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` 中默认声明并启用 |
 | `G1WalkFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；带平面死区的 command 采样；`gait_phase` 采样；经 `pd_gains` 的 kp/kd 随机化 | 无 | mujoco owner 默认启用 kp/kd；motrix/mjwarp owner 默认禁用 |
-| `G1WalkRough` | 与 `G1WalkFlat` 相同（共享 owner base，rough 场景） | 无 | 与 `G1WalkFlat` 相同的默认值 |
 | `G1MotionTracking` | Motion-command frame 采样；root 位姿扰动 `x/y/z/roll/pitch/yaw`；root 速度扰动 `x/y/z/roll/pitch/yaw`；通过 public entity soft limit clip 的关节位置噪声；action-manager 状态 reset | 无 | base owner 中 `pose_range`、`velocity_range` 与 `joint_position_range` 默认有非零扰动 |
 | `G1WBTObs` | 同一 motion reset 加 base mass、base COM、PD gain、足端摩擦和 encoder-bias event term | `push_by_setting_velocity` | WBT owner 显式启用上述全部 event term；能力不支持时直接报错，不回退 |
 | `AllegroInhandRotation` | entity 范围的手/球 reset；显式配置 grasp cache 时进行采样，否则以 `null` 显式选择模型 home pose；可选 `joint_noise`、`ball_velocity_noise` 与 `ball_z_offset` | 无 | owner YAML 显式选择 home pose 与零 reset 噪声；配置的 cache 缺失或格式错误时 fail-closed |
@@ -119,7 +117,6 @@ Reset-time model-field DR 保持在已选 identity 内。其 canonical 或 per-e
 ## 相关任务
 
 - {doc}`G1 Motion Tracking <../4-tasks/2-motion_tracking>`：开启 DR 前先确认 motion 资产和 replay。
-- {doc}`Go2 Rough Terrain <../4-tasks/1-locomotion>`：常见的是 mass、COM、friction、push。
 
 有关后端能力边界，请参阅
 {doc}`Domain Randomization Contract </zh_CN/4-developer_guide/2-contracts/4-dr_contract>`。

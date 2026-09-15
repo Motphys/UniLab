@@ -26,9 +26,9 @@ env:
         seed: 42
 ```
 
-UniLab 不保留 procedural-terrain production owner。保留的 `g1_walk_rough`
-任务使用同一冷路径 scene contract 的静态 heightfield 形式；generator 组合
-本身由核心 terrain 与 backend materialization 测试覆盖。
+UniLab 不保留 procedural-terrain production owner。generator 组合与 backend
+materialization 由核心 terrain 和 materialization 测试覆盖；启用该能力的
+task owner 需要自行持有训练证据。
 
 ## 物化边界
 
@@ -44,15 +44,10 @@ UniLab 不保留 procedural-terrain production owner。保留的 `g1_walk_rough`
 step 和 reset 不解析机器人 XML，也不检查 asset metadata；它们只消费缓存
 ID 和公开 backend capability。
 
-## 示例
+## Owner 集成
 
-使用保留的 rough-scene reference task：
-
-```bash
-uv run train --algo sac --task g1_walk_rough --sim mujoco training.no_play=true
-```
-
-自定义 owner 可以通过 Hydra 调整 terrain 网格与 seed：
+选择声明了 `env.scene.terrain` 的 task owner，然后通过 Hydra 调整 terrain
+网格与 seed：
 
 ```text
 env.scene.terrain.generator.num_rows=4
