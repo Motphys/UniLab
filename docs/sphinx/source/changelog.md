@@ -37,11 +37,14 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Changed / 变更
 
-- Raised the UniSim dependency to `unisim-core>=1.4.1` (including the
-  optional SuperDex extra) to consume the published IsaacGym fixed-variant
-  adapter; the UniLab package version is unchanged.
-  将 UniSim 依赖提升到 `unisim-core>=1.4.1`（含可选 SuperDex extra），以消费
-  已发布的 IsaacGym fixed-variant adapter；UniLab 包版本保持不变。
+- Raised both UniSim requirement sites—the base dependency and the optional
+  `superdex` extra's version constraint—to `unisim-core>=1.4.1` so every
+  installed UniSim build includes the published IsaacGym fixed-variant
+  adapter. SuperDex support predates this release; the UniLab package version
+  is unchanged.
+  将两处 UniSim 约束——基础依赖与可选 `superdex` extra 的版本约束——同时提升到
+  `unisim-core>=1.4.1`，确保所有安装的 UniSim 构建都包含已发布的 IsaacGym
+  fixed-variant adapter。SuperDex 后端并非本版本新增；UniLab 包版本保持不变。
 
 ## 1.3.0 (2026-09-14)
 
