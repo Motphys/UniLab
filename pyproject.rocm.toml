@@ -24,10 +24,10 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
-    # unisim-core package. The 1.4.0 release carries the fixed model variant,
-    # per-world reset-default, per-env gravity, and substep body-wrench
-    # contracts.
-    "unisim-core>=1.4.0",
+    # unisim-core package. The 1.4.1 release carries the fixed model variant,
+    # per-world reset-default, per-env gravity, substep body-wrench, and
+    # IsaacGym fixed-variant contracts.
+    "unisim-core>=1.4.1",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
     "unilab-rl==1.2.0",

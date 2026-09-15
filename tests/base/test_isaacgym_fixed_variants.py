@@ -96,9 +96,6 @@ def _make_backend(
         worker_timeout_s=30.0,
     )
     assert isinstance(backend, IsaacGymBackend)
-    if not backend.get_dr_capabilities().supports_fixed_variants:
-        backend.close()
-        pytest.skip("installed unisim-core does not implement IsaacGym fixed variants")
     return backend
 
 
@@ -197,9 +194,6 @@ def test_real_isaacgym_runtime_fixed_variants(tmp_path: Path) -> None:
         worker_timeout_s=120.0,
     )
     assert isinstance(backend, IsaacGymBackend)
-    if not backend.get_dr_capabilities().supports_fixed_variants:
-        backend.close()
-        pytest.skip("installed unisim-core does not implement IsaacGym fixed variants")
     try:
         backend.materialize()
         assert [backend.get_playback_model(index) for index in range(3)] == [

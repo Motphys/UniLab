@@ -35,6 +35,14 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   运行，记录源生成、构造时间、worker 实时 RSS 与 control/physics/env-step
   速率，并输出版本化 JSON artifact 供 #1579 support 决策使用。
 
+### Changed / 变更
+
+- Raised the UniSim dependency to `unisim-core>=1.4.1` (including the
+  optional SuperDex extra) to consume the published IsaacGym fixed-variant
+  adapter; the UniLab package version is unchanged.
+  将 UniSim 依赖提升到 `unisim-core>=1.4.1`（含可选 SuperDex extra），以消费
+  已发布的 IsaacGym fixed-variant adapter；UniLab 包版本保持不变。
+
 ## 1.3.0 (2026-09-14)
 
 ### Breaking changes / 破坏性变更
