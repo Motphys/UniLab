@@ -44,6 +44,14 @@ parameter is parsed from the XML rather than read from the importer.
   `get_joint_range()` still reports the XML values. Joint `armature` and
   `frictionloss` (resolved through MJCF default classes) are applied to the
   PhysX dofs.
+- **Fixed model variants**: `env.fixed_model_variants` is realized by
+  actor-level asset selection. Each complete MJCF source is loaded once and
+  every environment's actor is created from its immutable assignment row;
+  dof/body counts and name order must match the canonical variant, while
+  internal PhysX shape counts may differ. Playback resolves the assigned
+  source and native rendering already shows that environment's actor. No
+  production task ships an IsaacGym fixed-variant owner yet, and 600-variant
+  scale remains gated on benchmark #1579.
 
 ## Prerequisites
 

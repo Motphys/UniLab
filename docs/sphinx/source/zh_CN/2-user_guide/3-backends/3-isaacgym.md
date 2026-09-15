@@ -35,6 +35,12 @@ benchmark 脚本
 - **关节限位**：importer 会丢弃 joint range，因此 PhysX 侧没有关节
   限位；`get_joint_range()` 仍返回 XML 值。关节 `armature` 与
   `frictionloss`（经 MJCF default class 解析）会应用到 PhysX dof。
+- **固定模型变体**：`env.fixed_model_variants` 通过 actor 级资产选择实现。
+  每个完整 MJCF 源只装载一次，每个环境的 actor 按不可变 assignment 行创建；
+  dof/body 数量与名称顺序必须与规范变体一致，内部 PhysX shape 数量可以不同。
+  playback 解析对应 source，原生渲染展示的就是该环境的 actor。当前还没有
+  生产任务提供 IsaacGym fixed-variant owner，600 变体规模仍以 benchmark
+  #1579 为 gate。
 
 ## 前置条件
 

@@ -27,6 +27,10 @@ the IsaacSim render handshake; ``capture_uniform``, ``capture_float``, and
 ``capture_wrong_shape`` return malformed camera frames.
 Model dims come from ``UNILAB_ISAACGYM_MOCK_DOF_NAMES`` /
 ``UNILAB_ISAACGYM_MOCK_BODY_NAMES`` (comma-separated).
+Fixed-variant INIT payloads are validated and echoed: the mock checks one
+dof-field table and one optional keyframe per variant, applies each env's
+assigned keyframe, and returns ``fixed_variant_count`` /
+``fixed_variant_assignment`` in the handshake.
 """
 
 from __future__ import annotations
@@ -63,6 +67,8 @@ class _MockSim:
         startup_render_mode: str | None = None,
         startup_width: int = 1280,
         startup_height: int = 720,
+        variant_assignment: List[int] | None = None,
+        variant_count: int | None = None,
     ):
         self.graphics_enabled = graphics_enabled
         self.startup_render_mode = startup_render_mode
@@ -84,6 +90,8 @@ class _MockSim:
         self.capture_ready = False
         self.capture_width = 0
         self.capture_height = 0
+        self.variant_assignment = variant_assignment
+        self.variant_count = variant_count
 
     def attach(self, slots: Dict[str, Dict[str, Any]]) -> None:
         from multiprocessing import resource_tracker, shared_memory
@@ -124,9 +132,15 @@ class _MockSim:
             self.root[:, 0:3] += self.root[:, 7:10] * dt
         self.write_state_slots()
 
-    def apply_keyframe(self, qpos_values: Any, joint_names: List[str]) -> None:
+    def apply_keyframe(
+        self,
+        qpos_values: Any,
+        joint_names: List[str],
+        env_ids: List[int] | None = None,
+    ) -> None:
         """Apply the INIT keyframe pose with the same name-mapping rules as the
         real worker (root columns pass through in the mock's wxyz convention)."""
+        selected = list(range(self.num_envs)) if env_ids is None else list(env_ids)
         qpos = np.asarray(qpos_values, dtype=np.float32).reshape(-1)
         expected = 7 + self.num_dof
         if qpos.size != expected:
@@ -142,9 +156,31 @@ class _MockSim:
                 raise RuntimeError(
                     "isaacgym asset dof %r is missing from mjcf_joint_names" % dof_name
                 )
-            self.dof[:, dof_index, 0] = qpos[7 + index_by_name[dof_name]]
-        self.root[:, 0:3] = qpos[0:3]
-        self.root[:, 3:7] = qpos[3:7]
+            self.dof[selected, dof_index, 0] = qpos[7 + index_by_name[dof_name]]
+        self.root[selected, 0:3] = qpos[0:3]
+        self.root[selected, 3:7] = qpos[3:7]
+
+    def apply_variant_keyframes(
+        self,
+        qpos_by_variant: List[Any],
+        joint_names: List[str],
+    ) -> None:
+        """Apply the assigned variant's INIT keyframe to each environment."""
+        if self.variant_assignment is None:
+            raise RuntimeError("variant keyframes require a variant assignment")
+        if len(qpos_by_variant) != len(set(self.variant_assignment)):
+            raise RuntimeError(
+                "variant keyframe table has %d rows for %d assigned variants"
+                % (len(qpos_by_variant), len(set(self.variant_assignment)))
+            )
+        if any(value is None for value in qpos_by_variant):
+            raise RuntimeError("every assigned variant must provide a keyframe")
+        for env_index, variant_index in enumerate(self.variant_assignment):
+            self.apply_keyframe(
+                qpos_by_variant[variant_index],
+                joint_names,
+                env_ids=[env_index],
+            )
 
     def set_state(self, count: int) -> None:
         env_ids = self.slots["reset_env_ids"][:count].astype(np.int64)
@@ -176,6 +212,11 @@ class _MockSim:
             "env_origins": [[float(i) * 2.0, 0.0, 0.0] for i in range(self.num_envs)],
             "collision_filtering_applied": True,
         }
+        if self.variant_assignment is not None:
+            if self.variant_count is None:
+                raise RuntimeError("variant assignment requires a variant count")
+            result["fixed_variant_count"] = self.variant_count
+            result["fixed_variant_assignment"] = list(self.variant_assignment)
         if self.startup_render_mode is not None:
             result.update(
                 {
@@ -287,6 +328,27 @@ def main(argv: List[str]) -> int:
         if cmd == protocol.CMD_INIT:
             if behavior == "fail_init":
                 raise RuntimeError("mock init failure")
+            variant_files = payload.get("variant_model_files")
+            variant_assignment: List[int] | None = None
+            variant_count: int | None = None
+            if variant_files is not None:
+                variant_count = len(variant_files)
+                variant_assignment = [
+                    int(value) for value in payload.get("variant_assignment") or []
+                ]
+                if len(variant_assignment) != int(payload["num_envs"]):
+                    raise RuntimeError(
+                        "variant assignment has %d entries for %d envs"
+                        % (len(variant_assignment), int(payload["num_envs"]))
+                    )
+                if any(value < 0 or value >= variant_count for value in variant_assignment):
+                    raise RuntimeError("variant assignment contains an invalid index")
+                variant_fields = payload.get("variant_dof_fields") or []
+                if len(variant_fields) != variant_count:
+                    raise RuntimeError(
+                        "variant dof-field table has %d rows for %d variants"
+                        % (len(variant_fields), variant_count)
+                    )
             sim = _MockSim(
                 num_envs=int(payload["num_envs"]),
                 sim_dt=float(payload["sim_dt"]),
@@ -303,9 +365,19 @@ def main(argv: List[str]) -> int:
                 ),
                 startup_width=int(payload.get("render_width", 1280)),
                 startup_height=int(payload.get("render_height", 720)),
+                variant_assignment=variant_assignment,
+                variant_count=variant_count,
             )
+            variant_keyframes = payload.get("variant_keyframe_qpos")
             keyframe_qpos = payload.get("keyframe_qpos")
-            if keyframe_qpos is not None:
+            if variant_keyframes is not None:
+                if variant_count is None or len(variant_keyframes) != variant_count:
+                    raise RuntimeError("variant keyframe row count mismatch")
+                if any(value is not None for value in variant_keyframes):
+                    sim.apply_variant_keyframes(
+                        variant_keyframes, payload.get("mjcf_joint_names") or []
+                    )
+            elif keyframe_qpos is not None:
                 sim.apply_keyframe(keyframe_qpos, payload.get("mjcf_joint_names") or [])
             return protocol.CMD_META, sim.meta(behavior)
         assert sim is not None
