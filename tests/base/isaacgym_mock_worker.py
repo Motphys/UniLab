@@ -168,10 +168,12 @@ class _MockSim:
         """Apply the assigned variant's INIT keyframe to each environment."""
         if self.variant_assignment is None:
             raise RuntimeError("variant keyframes require a variant assignment")
-        if len(qpos_by_variant) != len(set(self.variant_assignment)):
+        if self.variant_count is None:
+            raise RuntimeError("variant assignment requires a variant count")
+        if len(qpos_by_variant) != self.variant_count:
             raise RuntimeError(
-                "variant keyframe table has %d rows for %d assigned variants"
-                % (len(qpos_by_variant), len(set(self.variant_assignment)))
+                "variant keyframe table has %d rows for %d variants"
+                % (len(qpos_by_variant), self.variant_count)
             )
         if any(value is None for value in qpos_by_variant):
             raise RuntimeError("every assigned variant must provide a keyframe")
