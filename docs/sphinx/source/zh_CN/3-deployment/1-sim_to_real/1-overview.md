@@ -83,7 +83,7 @@ flowchart LR
 :link: 3-go2_locomotion
 :link-type: doc
 
-Go2 与 Go2W 上的摇杆 + 崎岖地形策略。
+Go2 上的摇杆平地策略。
 :::
 
 :::{grid-item-card} ✋ Allegro 手内操作

@@ -95,7 +95,7 @@ Humanoid motion tracking deployment, joint clamp ranges, IMU alignment.
 :link: 3-go2_locomotion
 :link-type: doc
 
-Joystick + rough terrain policies on Go2 and Go2W.
+Joystick-flat policies on Go2.
 :::
 
 :::{grid-item-card} ✋ Allegro in-hand

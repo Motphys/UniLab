@@ -9,7 +9,7 @@ Usage:
     uv run python -m unilab.scripts.play_interactive --algo ppo --task go2_joystick_flat --sim mujoco
 
     # Policy playback and keyboard command control
-    uv run python -m unilab.scripts.play_interactive --algo ppo --task go2_joystick_rough --sim mujoco \
+    uv run python -m unilab.scripts.play_interactive --algo ppo --task go2_joystick_flat --sim mujoco \
       interactive.action_mode=policy interactive.keyboard=true
 
     # Show target bodies / reward debug overlays

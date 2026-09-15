@@ -146,11 +146,11 @@ recommendation 元数据。
 
 | 机器人 / 任务族 | 有仓库证据的算法路径 | 后端证据 |
 | --- | --- | --- |
-| Go1 joystick | PPO、APPO、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。APPO 有已测试的 MuJoCo 行和 Motrix registered 行。TD3 有 `go1_joystick_flat` 的 Motrix owner YAML。 |
 | Go2 joystick | PPO、FlashSAC、TD3 | PPO 有已测试的 MuJoCo 与 Motrix 行。FlashSAC 有 `go2_joystick_flat` 的 MuJoCo owner YAML；TD3 有 `go2_joystick_flat` 的 Motrix owner YAML。 |
-| Go2W joystick | PPO | `src/unilab/conf/ppo/task/go2w_joystick_*` 下存在 MuJoCo 与 Motrix flat/rough 变体的 PPO owner YAML。 |
-| G1 locomotion / tracking | PPO、APPO、SAC、TD3 | PPO、APPO、SAC 都为 G1 任务提供了已提交的 MuJoCo 与 Motrix owner YAML；TD3 有一个 `g1_walk_flat` 的 MuJoCo owner。 |
+| G1 reference locomotion / tracking | PPO、APPO、SAC、TD3 | PPO、APPO、SAC 都为保留的 G1 任务提供了已提交的 MuJoCo 与 Motrix owner YAML；TD3 有一个 `g1_walk_flat` 的 MuJoCo owner。 |
 | Allegro in-hand | PPO、APPO | PPO 和 APPO 为 Allegro in-hand 任务提供了已提交的 MuJoCo 与 Motrix owner YAML。 |
+
+Unitree production 任务族由 `unitree_rl_unilab` 维护，不计入核心仓库证据。
 
 ```{toctree}
 :hidden:

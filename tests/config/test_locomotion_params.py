@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -43,7 +42,6 @@ G1_BEYONDMIMIC_ACTION_SCALE = [
     0.07450087032950714,
     0.07450087032950714,
 ]
-G1_23DOF_BEYONDMIMIC_ACTION_SCALE = G1_BEYONDMIMIC_ACTION_SCALE[:13] + [0.43857731392336724] * 10
 X2_ACTION_SCALE = [0.25] * 29
 
 
@@ -290,13 +288,13 @@ def test_appo_g1_task_overrides():
 # ---------------------------------------------------------------------------
 
 
-def test_ppo_go1_max_iterations():
+def test_ppo_go2_max_iterations():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
 
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=go1_joystick_flat/mujoco"])
+        cfg = compose("config", overrides=["task=go2_joystick_flat/mujoco"])
     assert cfg.algo.max_iterations == 151
     assert "actor" in cfg.algo.obs_groups
     assert cfg.algo.algorithm.enable_compile is False
@@ -326,37 +324,6 @@ def test_ppo_go2_num_envs():
     assert cfg.algo.max_iterations == 151
 
 
-def test_ppo_go2_footstand_uses_hydra_owned_manager_task():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=go2_footstand/mujoco"])
-
-    assert cfg.training.task_name == "Go2FootStand"
-    assert cfg.training.sim_backend == "mujoco"
-    assert cfg.algo.num_envs == 4096
-    assert cfg.env.sim_dt == pytest.approx(0.004)
-    assert cfg.env.ctrl_dt == pytest.approx(0.02)
-    assert cfg.env.max_episode_seconds == pytest.approx(10.0)
-    assert cfg.env.observations.policy.terms.frame.history_length == 15
-    assert cfg.env.observations.critic.terms.frame.history_length == 15
-    assert cfg.env.actions.joint_pos.action_scale == pytest.approx(0.3)
-    assert cfg.env.actions.joint_pos.clip_actions == pytest.approx(1.0)
-    assert cfg.env.terminations.footstand.params.energy_threshold == pytest.approx(200.0)
-    assert cfg.reward.footstand.params.scales.energy == pytest.approx(-0.003)
-    assert cfg.reward.footstand.params.scales.dof_acc == pytest.approx(-2.5e-7)
-    assert cfg.reward.footstand.params.scales.rear_leg_symmetry == pytest.approx(-0.2)
-    assert cfg.reward.footstand.params.scales.knee_clearance == pytest.approx(-0.5)
-    assert cfg.reward.footstand.params.knee_height_target == pytest.approx(0.08)
-    assert cfg.env.events.floor_friction is not None
-    assert cfg.env.events.link_mass is not None
-    assert cfg.env.events.torso_com is not None
-    assert cfg.env.events.joint_armature is not None
-    assert cfg.env.events.reset_joints is not None
-
-
 def test_ppo_g1_motion_tracking():
     from hydra import compose, initialize_config_dir
     from hydra.core.global_hydra import GlobalHydra
@@ -367,55 +334,6 @@ def test_ppo_g1_motion_tracking():
     assert cfg.training.task_name == "G1MotionTracking"
     assert cfg.algo.max_iterations == 15000
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
-
-
-def test_ppo_g1_motion_tracking_deploy():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_motion_tracking_deploy/mujoco"])
-    assert cfg.training.task_name == "G1MotionTrackingDeploy"
-    assert cfg.algo.max_iterations == 15000
-    assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
-    assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert cfg.env.observations.actor.terms.base_ang_vel.params.sensor_name == "pelvis_gyro"
-    assert cfg.env.actions.joint_pos.scale[".*_(hip_pitch|hip_yaw)_joint"] == pytest.approx(
-        G1_BEYONDMIMIC_ACTION_SCALE[0]
-    )
-    assert cfg.env.actions.joint_pos.scale[".*_wrist_(pitch|yaw)_joint"] == pytest.approx(
-        G1_BEYONDMIMIC_ACTION_SCALE[20]
-    )
-
-
-@pytest.mark.parametrize(
-    ("task", "expected"),
-    [
-        ("g1_motion_tracking_deploy", G1_BEYONDMIMIC_ACTION_SCALE),
-        ("g1_23dof_motion_tracking_deploy", G1_23DOF_BEYONDMIMIC_ACTION_SCALE),
-    ],
-)
-def test_ppo_g1_motion_tracking_deploy_action_scale_expands_in_joint_order(
-    task: str,
-    expected: list[float],
-) -> None:
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=[f"task={task}/mujoco"])
-
-    scales = cfg.env.actions.joint_pos.scale
-    resolved: list[float] = []
-    for joint_name in cfg.env.scene.entities.robot.joint_names:
-        matches = [
-            float(value) for pattern, value in scales.items() if re.fullmatch(pattern, joint_name)
-        ]
-        assert len(matches) == 1, f"{joint_name} matched {len(matches)} action-scale patterns"
-        resolved.append(matches[0])
-    assert resolved == pytest.approx(expected)
 
 
 def test_ppo_g1_box_tracking():
@@ -459,36 +377,6 @@ def test_ppo_g1_flip_tracking():
     assert cfg.env.terminations.anchor_pos.params.threshold == pytest.approx(0.5)
     assert cfg.env.terminations.ee_body_pos.params.threshold == pytest.approx(0.5)
     assert cfg.env.terminations.undesired_contacts is not None
-    assert cfg.reward.motion_body_pos.weight == pytest.approx(2.0)
-    assert cfg.reward.motion_body_ori.weight == pytest.approx(1.5)
-    assert cfg.reward.motion_ee_body_pos_z.weight == pytest.approx(2.0)
-    assert cfg.reward.action_rate_l2.weight == pytest.approx(-0.005)
-    assert cfg.reward.undesired_contacts.weight == pytest.approx(-0.1)
-
-
-def test_ppo_g1_wall_flip_tracking():
-    from hydra import compose, initialize_config_dir
-    from hydra.core.global_hydra import GlobalHydra
-
-    GlobalHydra.instance().clear()
-    with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
-        cfg = compose("config", overrides=["task=g1_wall_flip_tracking/mujoco"])
-    assert cfg.training.task_name == "G1WallFlipTracking"
-    assert cfg.algo.num_envs == 1024
-    assert cfg.algo.max_iterations == 20000
-    assert cfg.algo.empirical_normalization is True
-    assert cfg.algo.obs_groups.critic == ["critic"]
-    assert cfg.algo.algorithm.entropy_coef == pytest.approx(0.005)
-    assert cfg.algo.algorithm.desired_kl == pytest.approx(0.01)
-    assert cfg.env.commands.motion.params.sampling_mode == "start"
-    assert cfg.env.commands.motion.params.truncate_on_clip_end is False
-    assert cfg.env.sim_dt == pytest.approx(0.005)
-    assert cfg.env.actions.joint_pos.scale[".*_(hip_pitch|hip_yaw)_joint"] == pytest.approx(
-        G1_BEYONDMIMIC_ACTION_SCALE[0]
-    )
-    assert cfg.env.scene.model_file.endswith("scene_flat_with_wall.xml")
-    assert cfg.reward.motion_joint_pos.weight == pytest.approx(0.5)
-    assert cfg.reward.motion_joint_vel.weight == pytest.approx(0.25)
     assert cfg.reward.motion_body_pos.weight == pytest.approx(2.0)
     assert cfg.reward.motion_body_ori.weight == pytest.approx(1.5)
     assert cfg.reward.motion_ee_body_pos_z.weight == pytest.approx(2.0)

@@ -105,10 +105,17 @@ def test_macos_motrix_finds_uv_venv_mxpython_when_not_on_path(
     assert command[0] == str(fake_mxpython)
 
 
-def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
+def test_train_profile_routes_to_owner_variant(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "find_spec",
+        lambda name: object() if name in {"mujoco", "mjbatch"} else None,
+    )
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go1_joystick_flat"
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
     owner_dir.mkdir(parents=True)
     (owner_dir / "mujoco_nodr.yaml").write_text(
         "training:\n  sim_backend: mujoco\n",
@@ -118,7 +125,7 @@ def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
     command = cli.build_command(
         mode="train",
         algo="ppo",
-        task="go1_joystick_flat",
+        task="go2_joystick_flat",
         sim="mujoco",
         profile="nodr",
         overrides=[],
@@ -127,7 +134,7 @@ def test_train_profile_routes_to_owner_variant(tmp_path: Path) -> None:
 
     assert command[1:] == [
         str(tmp_path / "scripts" / "train_rsl_rl.py"),
-        "task=go1_joystick_flat/mujoco_nodr",
+        "task=go2_joystick_flat/mujoco_nodr",
     ]
 
 
@@ -493,7 +500,7 @@ def test_eval_fallback_prefers_same_profile_owner(
 ) -> None:
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go1_joystick_flat"
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
     owner_dir.mkdir(parents=True)
     (owner_dir / "mujoco_nodr.yaml").write_text(
         "training:\n  sim_backend: mujoco\n", encoding="utf-8"
@@ -505,7 +512,7 @@ def test_eval_fallback_prefers_same_profile_owner(
     command = cli.build_command(
         mode="eval",
         algo="ppo",
-        task="go1_joystick_flat",
+        task="go2_joystick_flat",
         sim="motrix",
         profile="nodr",
         overrides=[],
@@ -513,7 +520,7 @@ def test_eval_fallback_prefers_same_profile_owner(
         root=tmp_path,
     )
 
-    assert "task=go1_joystick_flat/mujoco_nodr" in command
+    assert "task=go2_joystick_flat/mujoco_nodr" in command
     assert "training.sim_backend=motrix" in command
 
 
@@ -522,7 +529,7 @@ def test_eval_fallback_without_same_profile_sibling_fails(
 ) -> None:
     (tmp_path / "scripts").mkdir(parents=True)
     (tmp_path / "scripts" / "train_rsl_rl.py").write_text("", encoding="utf-8")
-    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go1_joystick_flat"
+    owner_dir = tmp_path / "conf" / "ppo" / "task" / "go2_joystick_flat"
     owner_dir.mkdir(parents=True)
     (owner_dir / "mujoco.yaml").write_text("training:\n  sim_backend: mujoco\n", encoding="utf-8")
     _pretend_motrix_is_installed(monkeypatch)
@@ -532,7 +539,7 @@ def test_eval_fallback_without_same_profile_sibling_fails(
         cli.build_command(
             mode="eval",
             algo="ppo",
-            task="go1_joystick_flat",
+            task="go2_joystick_flat",
             sim="motrix",
             profile="nodr",
             overrides=[],
@@ -748,12 +755,11 @@ def _register_play_interactive_demo(monkeypatch: pytest.MonkeyPatch) -> str:
 def test_demo_registry_contains_expected_entries() -> None:
     assert set(demo.DEMO_REGISTRY) == {
         "dance",
-        "wallflip",
         "boxtracking",
         "teaser",
     }
     assert demo.DEMO_REGISTRY["teaser"].entry == "teaser"
-    for name in ("dance", "wallflip", "boxtracking"):
+    for name in ("dance", "boxtracking"):
         spec = demo.DEMO_REGISTRY[name]
         assert spec.entry == "eval"
         assert spec.sim == "motrix"

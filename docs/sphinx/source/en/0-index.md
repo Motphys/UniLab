@@ -153,11 +153,12 @@ committed benchmark manifest or separate recommendation metadata.
 
 | Robot / task family | Algorithm paths with repo evidence | Backend evidence |
 | --- | --- | --- |
-| Go1 joystick | PPO, APPO, TD3 | PPO has tested MuJoCo and Motrix rows. APPO has tested MuJoCo rows and Motrix registered rows. TD3 has a Motrix owner YAML for `go1_joystick_flat`. |
 | Go2 joystick | PPO, FlashSAC, TD3 | PPO has tested MuJoCo and Motrix rows. FlashSAC has MuJoCo owner YAMLs for `go2_joystick_flat`; TD3 has a Motrix owner YAML for `go2_joystick_flat`. |
-| Go2W joystick | PPO | PPO owner YAMLs exist for MuJoCo and Motrix flat/rough variants under `src/unilab/conf/ppo/task/go2w_joystick_*`. |
-| G1 locomotion / tracking | PPO, APPO, SAC, TD3 | PPO, APPO, and SAC include committed MuJoCo and Motrix owner YAMLs for G1 tasks; TD3 has a `g1_walk_flat` MuJoCo owner. |
+| G1 reference locomotion / tracking | PPO, APPO, SAC, TD3 | PPO, APPO, and SAC include committed MuJoCo and Motrix owner YAMLs for retained G1 tasks; TD3 has a `g1_walk_flat` MuJoCo owner. |
 | Allegro in-hand | PPO, APPO | PPO and APPO have committed MuJoCo and Motrix owner YAMLs for Allegro in-hand tasks. |
+
+Unitree production task families are maintained in `unitree_rl_unilab` and are
+not counted as core repository evidence.
 
 ```{toctree}
 :hidden:

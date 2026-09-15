@@ -28,21 +28,20 @@ uv run scripts/audit_sim2sim_contracts.py
 
 | Task | 判定 | 分歧 |
 |---|---|---|
-| allegro_inhand · allegro_inhand_grasp · g1_climb_tracking · g1_motion_tracking · g1_wall_flip_tracking · go1_joystick_rough · go2_footstand · go2_handstand · go2_joystick_flat · go2_joystick_rough · go2w_joystick_flat · go2w_joystick_rough | ✅ | 无 |
+| allegro_inhand · allegro_inhand_grasp · g1_motion_tracking · go2_handstand · go2_joystick_flat | ✅ | 无 |
 | g1_box_tracking | ❌ | `empirical_normalization` false↔true；`obs_groups` critic 组差异 |
 | g1_flip_tracking | ❌ | `empirical_normalization` true↔false；`obs_groups`；`action_scale` 29 维↔默认 0.25；`sampling_mode` 两后端运行时同为 `start`（无害） |
 | g1_walk_flat | ❌ | `env.actions.joint_pos.scale` 0.25↔0.5；`empirical_normalization` false↔true；`obs_groups` |
-| go1_joystick_flat | ❌ | `empirical_normalization` false↔true |
-| g1_motion_tracking_deploy | ⚪ | 仅 mujoco |
 
 ## `src/unilab/conf/appo/task/`
 
 | Task | 判定 | 分歧 |
 |---|---|---|
-| allegro_inhand · g1_climb_tracking · g1_motion_tracking · go2_joystick_flat | ✅ | 无 |
+| allegro_inhand · g1_motion_tracking · go2_joystick_flat | ✅ | 无 |
 | g1_flip_tracking | ❌ | `action_scale` 29 维↔默认 0.25；`sampling_mode` 同为 `start`（无害） |
-| g1_wall_flip_tracking | ❌ | `action_scale` 29 维↔默认 0.25；`sampling_mode` `start`↔默认 `adaptive` |
-| g1_walk_flat · go1_joystick_flat | ⚪ | 仅 mujoco |
+| g1_walk_flat | ⚪ | 仅 mujoco |
+
+已迁移的 Unitree owner 由 `unitree_rl_unilab` 自行维护 contract audit；核心状态表不再声称覆盖它们。
 
 ## 其它配置树
 

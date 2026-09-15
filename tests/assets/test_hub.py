@@ -246,12 +246,9 @@ def test_robot_asset_specs_cover_hf_hosted_robots():
     from unilab.assets.hub import ROBOT_ASSET_SPECS
 
     expected = {
-        "a2",
         "allegro_hand",
         "g1",
-        "go1",
         "go2",
-        "go2w",
         "x2",
     }
     assert set(ROBOT_ASSET_SPECS) == expected

@@ -23,18 +23,17 @@ pytest.importorskip(
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
 APPO_MUJOCO_SMOKE_TASKS = [
-    "go1_joystick_flat/mujoco",
+    "go2_joystick_flat/mujoco",
     "go2_joystick_flat/mujoco",
     "g1_walk_flat/mujoco",
     "g1_motion_tracking/mujoco",
     "g1_flip_tracking/mujoco",
-    "g1_wall_flip_tracking/mujoco",
 ]
 
 APPO_MOTION_SMOKE_TASKS = {
     "g1_motion_tracking/mujoco",
     "g1_flip_tracking/mujoco",
-    "g1_wall_flip_tracking/mujoco",
+    "g1_box_tracking/mujoco",
 }
 
 

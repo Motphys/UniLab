@@ -37,7 +37,7 @@ Usage:
 
     # Single task / smoke run:
     uv run scripts/tools/capture_mujoco_drift_baseline.py \
-        --tasks go2w_joystick_flat/mujoco --steps 50 --output /tmp/drift_smoke
+        --tasks go2_joystick_flat/mujoco --steps 50 --output /tmp/drift_smoke
 
     # Determinism check: run twice into different dirs, compare array contents.
 """
@@ -73,11 +73,10 @@ from unilab.training import ensure_registries
 CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf"
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "scripts" / "tools" / "drift_baseline" / "before"
 
-# Default tasks: Go2WJoystickFlat exercises the per-substep state-feedback
-# control path (Go2WMixedAction via SimBackend.set_pre_step_control), the
-# highest-risk surface for the executor swap; Go2JoystickFlat covers the plain
-# position-action path on the same robot family.
-DEFAULT_TASKS = ("go2w_joystick_flat/mujoco", "go2_joystick_flat/mujoco")
+# Default task: the retained Go2JoystickFlat owner covers the plain
+# position-action path. Wheeled-leg drift evidence now belongs to the Unitree
+# downstream repository.
+DEFAULT_TASKS = ("go2_joystick_flat/mujoco",)
 
 # Executor determinism contract: pin the pool worker count via cpu_ids so
 # every run steps an identical partition. Recorded in metadata for the AFTER

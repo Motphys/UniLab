@@ -22,19 +22,9 @@ _ROOT = Path(__file__).parents[2]
 
 _PROFILE_IDENTITIES = (
     "G1BoxTracking",
-    "G1BoxTracking23Dof",
-    "G1ClimbTracking",
-    "G1ClimbTracking23Dof",
     "G1FlipTracking",
-    "G1FlipTracking23Dof",
     "G1FlipTrackingSAC",
-    "G1FlipTrackingSAC23Dof",
-    "G1WallFlipTracking",
-    "G1WallFlipTracking23Dof",
-    "G1WallFlipTrackingSAC",
-    "G1WallFlipTrackingSAC23Dof",
     "G1WBTObs",
-    "G1WBTObs23Dof",
     "X2WallFlipTracking",
 )
 
@@ -45,43 +35,7 @@ _PPO_PROFILES = (
         "scene_flat_with_largebox.xml",
         "sub3_largebox_003_boxconverted.npz",
     ),
-    (
-        "g1_23dof_box_tracking",
-        "G1BoxTracking23Dof",
-        "scene_flat_23dof_with_largebox.xml",
-        "sub3_largebox_003_boxconverted_23dof.npz",
-    ),
-    (
-        "g1_climb_tracking",
-        "G1ClimbTracking",
-        "scene_climb_20_z_scale_1.xml",
-        "climb_20_z_scale_1.0.npz",
-    ),
-    (
-        "g1_23dof_climb_tracking",
-        "G1ClimbTracking23Dof",
-        "scene_climb_20_z_scale_1_23dof.xml",
-        "climb_20_z_scale_1.0_23dof.npz",
-    ),
     ("g1_flip_tracking", "G1FlipTracking", "scene_flat.xml", "flip_360_001__A304.npz"),
-    (
-        "g1_23dof_flip_tracking",
-        "G1FlipTracking23Dof",
-        "scene_flat_23dof.xml",
-        "flip_360_001__A304_23dof.npz",
-    ),
-    (
-        "g1_wall_flip_tracking",
-        "G1WallFlipTracking",
-        "scene_flat_with_wall.xml",
-        "flip_from_wall_104__A304.npz",
-    ),
-    (
-        "g1_23dof_wall_flip_tracking",
-        "G1WallFlipTracking23Dof",
-        "scene_flat_23dof_with_wall.xml",
-        "flip_from_wall_104__A304_23dof.npz",
-    ),
     (
         "x2_wall_flip_tracking",
         "X2WallFlipTracking",
@@ -98,31 +52,7 @@ _APPO_PROFILES = tuple(
 
 _SAC_PROFILES = (
     ("g1_flip_tracking", "G1FlipTrackingSAC", "scene_flat.xml", "flip_360_001__A304.npz"),
-    (
-        "g1_23dof_flip_tracking",
-        "G1FlipTrackingSAC23Dof",
-        "scene_flat_23dof.xml",
-        "flip_360_001__A304_23dof.npz",
-    ),
-    (
-        "g1_wall_flip_tracking",
-        "G1WallFlipTrackingSAC",
-        "scene_flat_with_wall.xml",
-        "flip_from_wall_104__A304.npz",
-    ),
-    (
-        "g1_23dof_wall_flip_tracking",
-        "G1WallFlipTrackingSAC23Dof",
-        "scene_flat_23dof_with_wall.xml",
-        "flip_from_wall_104__A304_23dof.npz",
-    ),
     ("g1_wbt_obs", "G1WBTObs", "scene_flat.xml", "dance1_subject2_part.npz"),
-    (
-        "g1_23dof_wbt_obs",
-        "G1WBTObs23Dof",
-        "scene_flat_23dof.xml",
-        "dance1_subject2_part_23dof.npz",
-    ),
 )
 
 _OWNER_CASES = (
@@ -154,9 +84,6 @@ _LEGACY_G1_ACTION_SCALE = (
 
 _LEGACY_SCALAR_ACTION_SCALE = {
     ("ppo", "g1_flip_tracking", "motrix"): 0.25,
-    ("ppo", "g1_23dof_flip_tracking", "motrix"): 0.25,
-    ("appo", "g1_wall_flip_tracking", "motrix"): 0.25,
-    ("appo", "g1_23dof_wall_flip_tracking", "motrix"): 0.25,
 }
 
 
@@ -290,15 +217,8 @@ def test_motion_profile_action_scale_matches_legacy_runtime(
         "replay_queue_size",
     ),
     (
-        ("g1_climb_tracking", "mujoco", 1.2, 1.1, False, 24, None),
-        ("g1_climb_tracking", "motrix", 1.2, 1.1, False, 24, None),
-        ("g1_23dof_climb_tracking", "mujoco", 1.2, 1.1, False, 24, None),
-        ("g1_23dof_climb_tracking", "motrix", 1.2, 1.1, False, 24, None),
-        ("g1_23dof_flip_tracking", "mujoco", 1.2, 1.1, False, 24, None),
-        ("g1_23dof_flip_tracking", "motrix", 2.0, 1.5, True, 24, None),
-        ("g1_wall_flip_tracking", "motrix", 2.0, 1.5, True, 24, None),
-        ("g1_23dof_wall_flip_tracking", "mujoco", 2.0, 1.5, True, 20, 5),
-        ("g1_23dof_wall_flip_tracking", "motrix", 2.0, 1.5, True, 24, None),
+        ("g1_flip_tracking", "mujoco", 2.0, 1.5, True, 24, None),
+        ("g1_flip_tracking", "motrix", 2.0, 1.5, True, 24, None),
     ),
 )
 def test_appo_profiles_preserve_training_owner_contract(
@@ -319,7 +239,7 @@ def test_appo_profiles_preserve_training_owner_contract(
     assert owner.training.replay_queue_size == replay_queue_size
 
 
-@pytest.mark.parametrize("task", ("g1_flip_tracking", "g1_23dof_flip_tracking"))
+@pytest.mark.parametrize("task", ("g1_flip_tracking",))
 def test_ppo_motrix_flip_profiles_keep_actor_normalization_disabled(task: str) -> None:
     owner = _compose_owner("ppo", task, "motrix")
 
@@ -330,13 +250,7 @@ def test_ppo_motrix_flip_profiles_keep_actor_normalization_disabled(task: str) -
 
 @pytest.mark.parametrize(
     "task",
-    (
-        "g1_23dof_box_tracking",
-        "g1_23dof_climb_tracking",
-        "g1_23dof_flip_tracking",
-        "g1_23dof_wall_flip_tracking",
-        "x2_wall_flip_tracking",
-    ),
+    ("x2_wall_flip_tracking",),
 )
 def test_ppo_profiles_without_legacy_play_overrides_stay_disabled(task: str) -> None:
     owner = _compose_owner("ppo", task, "mujoco")
@@ -345,7 +259,7 @@ def test_ppo_profiles_without_legacy_play_overrides_stay_disabled(task: str) -> 
     assert owner.play_profile.env is None
 
 
-@pytest.mark.parametrize("task", ("g1_box_tracking", "g1_23dof_box_tracking"))
+@pytest.mark.parametrize("task", ("g1_box_tracking",))
 def test_box_motrix_drops_unconsumed_algorithm_noise_config(task: str) -> None:
     owner = _compose_owner("ppo", task, "motrix")
 
@@ -363,17 +277,11 @@ def test_all_motion_profiles_have_one_manager_factory_and_both_backends() -> Non
         }
 
 
-def test_box_wall_wbt_and_x2_profiles_keep_only_owner_differences() -> None:
+def test_box_flip_wbt_and_x2_profiles_keep_only_owner_differences() -> None:
     from unilab.tasks.motion_tracking.g1.manager_terms import BoxMotionCommandCfg
 
     _, box, _ = _materialize_profile("ppo", "g1_box_tracking", "mujoco", "G1BoxTracking")
     _, flip, _ = _materialize_profile("sac", "g1_flip_tracking", "mujoco", "G1FlipTrackingSAC")
-    _, wall, _ = _materialize_profile(
-        "sac",
-        "g1_wall_flip_tracking",
-        "mujoco",
-        "G1WallFlipTrackingSAC",
-    )
     _, wbt, _ = _materialize_profile("sac", "g1_wbt_obs", "mujoco", "G1WBTObs")
     _, x2, _ = _materialize_profile("ppo", "x2_wall_flip_tracking", "mujoco", "X2WallFlipTracking")
 
@@ -386,9 +294,6 @@ def test_box_wall_wbt_and_x2_profiles_keep_only_owner_differences() -> None:
 
     assert flip.commands["motion"].params.sampling_mode == "mixed"
     assert flip.commands["motion"].params.sampling_start_ratio == pytest.approx(0.1)
-    assert wall.commands["motion"].params.sampling_mode == "uniform"
-    assert wall.terminations["undesired_contacts"] is None
-    assert wall.terminations["anchor_pos"].params["threshold"] == pytest.approx(1.0e9)
 
     actor_terms = wbt.observations["actor"].terms
     critic_terms = wbt.observations["critic"].terms
@@ -494,7 +399,6 @@ def test_joint_acc_reset_updates_selected_rows_without_pairwise_indexing() -> No
         ("ppo", "x2_wall_flip_tracking", "X2WallFlipTracking", "mujoco", 154, 430, 29),
         ("ppo", "x2_wall_flip_tracking", "X2WallFlipTracking", "motrix", 154, 430, 29),
         ("sac", "g1_wbt_obs", "G1WBTObs", "mujoco", 514, 289, 29),
-        ("sac", "g1_23dof_wbt_obs", "G1WBTObs23Dof", "mujoco", 412, 259, 23),
     ),
 )
 def test_representative_motion_profiles_reset_and_step(

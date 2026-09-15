@@ -164,13 +164,6 @@ def test_support_matrix_does_not_promote_unvalidated_mjwarp_entries():
     assert appo_row.cells["mjwarp"].level == EvidenceLevel.REGISTERED
 
 
-def test_support_matrix_marks_appo_go1_backends_as_tested():
-    row = _row("APPO (torch)", "go1_joystick_flat")
-
-    assert row.cells["mujoco"].level == EvidenceLevel.TESTED
-    assert row.cells["motrix"].level == EvidenceLevel.TESTED
-
-
 def test_support_matrix_marks_allegro_appo_backends_as_tested():
     allegro_appo_row = _row("APPO (torch)", "allegro_inhand")
 

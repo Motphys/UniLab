@@ -50,7 +50,6 @@ except ImportError:
 
 
 DEFAULT_ROBOT_XMLS = {
-    "go1": Path("src/unilab/assets/robots/go1/scene_flat.xml"),
     "go2": Path("src/unilab/assets/robots/go2/scene_flat.xml"),
     "g1": Path("src/unilab/assets/robots/g1/scene_flat.xml"),
 }

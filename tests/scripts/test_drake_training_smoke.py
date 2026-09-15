@@ -26,7 +26,7 @@ def _drake_batch_available() -> bool:
     not _drake_batch_available(),
     reason="optional DrakeUni batch extension has not been built",
 )
-@pytest.mark.parametrize("task", ["go1_joystick_flat/drake", "go2_joystick_flat/drake"])
+@pytest.mark.parametrize("task", ["go2_joystick_flat/drake", "go2_joystick_flat/drake"])
 def test_drake_ppo_one_iteration_training_smoke(task: str, tmp_path: Path) -> None:
     """Drake task configs can run the real RSL-RL training entry point."""
     result = subprocess.run(

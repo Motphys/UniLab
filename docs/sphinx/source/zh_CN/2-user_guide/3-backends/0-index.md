@@ -61,8 +61,8 @@ UniLab 通过 task owner config 选择仿真器。常规用法下，使用 `--ta
 {doc}`../../5-reference/5-support_matrix`。
 
 ```bash
-uv run train --algo ppo --task go1_joystick_flat --sim mujoco
-uv run train --algo ppo --task go1_joystick_flat --sim motrix
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco
+uv run train --algo ppo --task go2_joystick_flat --sim motrix
 uv run train --algo ppo --task g1_walk_flat --sim isaacsim
 ```
 
@@ -89,8 +89,8 @@ Owner YAML 位置：
 - `--render-mode none` 禁用回放。
 
 ```bash
-uv run eval --algo ppo --task go1_joystick_flat --sim mujoco --load-run -1
-uv run eval --algo ppo --task go1_joystick_flat --sim motrix --load-run -1 \
+uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 \
   --render-mode record
 ```
 

@@ -60,7 +60,7 @@
 :::{grid-item-card} 🐕 Go2 运动
 :link: 1-sim_to_real/3-go2_locomotion
 :link-type: doc
-摇杆、崎岖地形、Go2W 轮足。
+Go2 joystick-flat 部署。
 :::
 
 :::{grid-item-card} 🤚 Allegro 手内操作

@@ -5,7 +5,7 @@
 
 Manager-Based event term 是唯一 DR 声明路径：
 
-- **Manager-Based（Compatible）任务**：reset / interval 随机化通过 owner YAML 中的 Hydra `events:` manager term 声明；reset 生命周期的 event 在 reset 时采样，interval 生命周期的 event 在 step 之间施加扰动。例如 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 的 `events:` 段。
+- **Manager-Based（Compatible）任务**：reset / interval 随机化通过 owner YAML 中的 Hydra `events:` manager term 声明；reset 生命周期的 event 在 reset 时采样，interval 生命周期的 event 在 step 之间施加扰动。例如 `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` 的 `events:` 段。
 
 
 
@@ -27,7 +27,6 @@ Manager-Based event term 是唯一 DR 声明路径：
 
 | Task | 声明路径 | 结构化形式？ | reset 形式 | interval 形式 | Code |
 | --- | --- | --- | --- | --- | --- |
-| `Go1JoystickFlat` | Hydra `events:` term | 是：owner YAML 声明 reset/interval event | root-state reset + base mass/COM + `pd_gains` | `push_by_setting_velocity` event | `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` |
 | `Go2JoystickFlat` | Hydra `events:` term | 是：owner YAML 声明 reset event | root-state reset + `pd_gains` kp/kd | 无 | `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | Hydra `events:` term | 是：Hydra `EventTermCfg` + Manager-Based reset term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
 | `G1WalkRough` | Hydra `events:` term | 是：与 `G1WalkFlat` 相同的 Manager-Based event term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
@@ -40,7 +39,6 @@ Manager-Based event term 是唯一 DR 声明路径：
 
 | Task | 当前已实现的 reset 域随机化 | 当前已实现的 interval 域随机化 | 默认状态 |
 | --- | --- | --- | --- |
-| `Go1JoystickFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；command 采样（`UniformVelocityCommandCfg`）；经 `randomize_rigid_body_mass` 的 base mass；经 `randomize_rigid_body_com` 的 base COM；经 `pd_gains` 的 kp/kd | `push_by_setting_velocity` interval event | 上述 event term 全部在 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 中默认声明并启用 |
 | `Go2JoystickFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；command 采样；经 `pd_gains` 的 kp/kd | 无 | event term 在 `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` 中默认声明并启用 |
 | `G1WalkFlat` | 经 `reset_root_state_uniform` 的 base xy/yaw 与 base qvel；带平面死区的 command 采样；`gait_phase` 采样；经 `pd_gains` 的 kp/kd 随机化 | 无 | mujoco owner 默认启用 kp/kd；motrix/mjwarp owner 默认禁用 |
 | `G1WalkRough` | 与 `G1WalkFlat` 相同（共享 owner base，rough 场景） | 无 | 与 `G1WalkFlat` 相同的默认值 |
@@ -71,11 +69,10 @@ fail closed。建议从较小倾斜范围开始，避免早期训练任务不可
 ## Interval push 用法
 
 Manager-Based 任务通过 `env.events.push_robot` term 配置周期推扰。例如，
-`src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 使用
-`push_by_setting_velocity`，间隔为 15 秒，并按轴声明速度范围。
+保留的 `g1_wbt_obs` owner 使用 `push_by_setting_velocity`，并按轴声明速度范围。
 
 ```bash
-uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
+uv run train --algo sac --task g1_wbt_obs --sim mujoco \
   'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
 

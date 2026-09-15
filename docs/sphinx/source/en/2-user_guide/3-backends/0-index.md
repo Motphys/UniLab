@@ -63,8 +63,8 @@ The support matrix is generated from registry, owner YAML, and tests; use it as
 the current evidence source: {doc}`../../5-reference/5-support_matrix`.
 
 ```bash
-uv run train --algo ppo --task go1_joystick_flat --sim mujoco
-uv run train --algo ppo --task go1_joystick_flat --sim motrix
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco
+uv run train --algo ppo --task go2_joystick_flat --sim motrix
 uv run train --algo ppo --task g1_walk_flat --sim isaacsim
 ```
 
@@ -92,8 +92,8 @@ The selected owner YAML sets `training.sim_backend` as an identity field.
 - `--render-mode none` disables playback.
 
 ```bash
-uv run eval --algo ppo --task go1_joystick_flat --sim mujoco --load-run -1
-uv run eval --algo ppo --task go1_joystick_flat --sim motrix --load-run -1 \
+uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
+uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 \
   --render-mode record
 ```
 

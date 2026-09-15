@@ -86,7 +86,6 @@ _OBSERVATION_TERMS = (
 )
 
 _POSE_WEIGHTS_29 = [0.01, 1.0, 5.0, 0.01, 5.0, 5.0] * 2 + [50.0] * 17
-_POSE_WEIGHTS_23 = [0.01, 1.0, 5.0, 0.01, 5.0, 5.0] * 2 + [50.0] * 11
 
 _OWNER_CASES = (
     pytest.param(
@@ -183,45 +182,6 @@ _OWNER_CASES = (
         id="ppo-isaacsim",
     ),
     pytest.param(
-        "ppo",
-        ("task=g1_23dof_walk_flat/mujoco",),
-        "G1Walk23DofFlat",
-        "mujoco",
-        23,
-        0.25,
-        "scene_flat_23dof.xml",
-        _PPO_WALK_FLAT_REWARDS,
-        (*_RESET_EVENTS, "pd_gains"),
-        False,
-        id="ppo-23dof-mujoco",
-    ),
-    pytest.param(
-        "ppo",
-        ("task=g1_23dof_walk_flat/motrix",),
-        "G1Walk23DofFlat",
-        "motrix",
-        23,
-        0.5,
-        "scene_flat_23dof.xml",
-        (*_PPO_WALK_FLAT_REWARDS, *_MOTRIX_EXTRA_REWARDS),
-        _RESET_EVENTS,
-        False,
-        id="ppo-23dof-motrix",
-    ),
-    pytest.param(
-        "ppo",
-        ("task=g1_23dof_walk_rough/mujoco",),
-        "G1Walk23DofRough",
-        "mujoco",
-        23,
-        0.25,
-        "scene_rough_23dof.xml",
-        _PPO_REWARDS,
-        (*_RESET_EVENTS, "pd_gains"),
-        True,
-        id="ppo-23dof-rough-mujoco",
-    ),
-    pytest.param(
         "appo",
         ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
@@ -233,19 +193,6 @@ _OWNER_CASES = (
         (*_RESET_EVENTS, "pd_gains"),
         False,
         id="appo-mujoco",
-    ),
-    pytest.param(
-        "appo",
-        ("task=g1_23dof_walk_flat/mujoco",),
-        "G1Walk23DofFlat",
-        "mujoco",
-        23,
-        0.25,
-        "scene_flat_23dof.xml",
-        _PPO_REWARDS,
-        (*_RESET_EVENTS, "pd_gains"),
-        False,
-        id="appo-23dof-mujoco",
     ),
     pytest.param(
         "sac",
@@ -355,32 +302,6 @@ _OWNER_CASES = (
         id="sac-rough-motrix",
     ),
     pytest.param(
-        "sac",
-        ("task=g1_23dof_walk_flat/mujoco",),
-        "G1Walk23DofFlat",
-        "mujoco",
-        23,
-        1.0,
-        "scene_flat_23dof.xml",
-        _OFFPOLICY_REWARDS,
-        (*_RESET_EVENTS, "pd_gains"),
-        True,
-        id="sac-23dof-mujoco",
-    ),
-    pytest.param(
-        "sac",
-        ("task=g1_23dof_walk_rough/motrix",),
-        "G1Walk23DofRough",
-        "motrix",
-        23,
-        1.0,
-        "scene_rough_23dof.xml",
-        _OFFPOLICY_REWARDS,
-        _RESET_EVENTS,
-        True,
-        id="sac-23dof-rough-motrix",
-    ),
-    pytest.param(
         "td3",
         ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
@@ -417,8 +338,6 @@ _WALK_PROFILE_IDS = {
     "sac-isaacsim",
     "sac-rough-mujoco",
     "sac-rough-motrix",
-    "sac-23dof-mujoco",
-    "sac-23dof-rough-motrix",
     "td3-mujoco",
     "flashsac-mujoco",
 }
@@ -623,7 +542,7 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert hydra_cfg.play_profile.enabled is False
 
     pose = env_cfg.rewards["pose"]
-    expected_weights = _POSE_WEIGHTS_29 if num_dof == 29 else _POSE_WEIGHTS_23
+    expected_weights = _POSE_WEIGHTS_29
     if case_id == "flashsac-mujoco":
         expected_weights = [2.0 if i in (1, 7) else w for i, w in enumerate(expected_weights)]
     assert list(pose.params["pose_weights"]) == pytest.approx(expected_weights)
@@ -673,14 +592,6 @@ def test_g1_walk_registries_are_manager_only() -> None:
         "config_factory": "ManagerBasedRlEnvCfg",
         "available_backends": ["mujoco", "motrix"],
     }
-    assert metadata["G1Walk23DofFlat"] == {
-        "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco", "motrix"],
-    }
-    assert metadata["G1Walk23DofRough"] == {
-        "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco", "motrix"],
-    }
 
 
 @pytest.mark.parametrize(
@@ -715,26 +626,6 @@ def test_g1_walk_registries_are_manager_only() -> None:
             98,
             101,
             id="sac-mujoco",
-        ),
-        pytest.param(
-            "ppo",
-            ("task=g1_23dof_walk_flat/mujoco",),
-            "G1Walk23DofFlat",
-            "mujoco",
-            23,
-            80,
-            83,
-            id="ppo-23dof-mujoco",
-        ),
-        pytest.param(
-            "ppo",
-            ("task=g1_23dof_walk_rough/mujoco",),
-            "G1Walk23DofRough",
-            "mujoco",
-            23,
-            80,
-            83,
-            id="ppo-23dof-rough-mujoco",
         ),
     ),
 )
@@ -915,18 +806,6 @@ _PENALTY_CURRICULUM_CASES = (
         id="sac-walk-rough",
     ),
     pytest.param(
-        "sac",
-        ("task=g1_23dof_walk_flat/mujoco",),
-        "G1Walk23DofFlat",
-        id="sac-23dof-walk-flat",
-    ),
-    pytest.param(
-        "sac",
-        ("task=g1_23dof_walk_rough/mujoco",),
-        "G1Walk23DofRough",
-        id="sac-23dof-walk-rough",
-    ),
-    pytest.param(
         "td3",
         ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
@@ -959,16 +838,6 @@ def test_offpolicy_penalty_curriculum_matches_legacy_effective_schedule(
     assert params["level_down_threshold"] == pytest.approx(150.0)
     assert params["level_up_threshold"] == pytest.approx(750.0)
     assert params["degree"] == pytest.approx(0.001)
-
-
-def test_ppo_penalty_curriculum_matches_legacy_effective_schedule() -> None:
-    # The on-policy runner builds a single env per training run, so the legacy
-    # effective schedule equals the declared 0.5 -> 1.0 range.
-    _, env_cfg, _ = _materialize("ppo", ("task=g1_23dof_walk_rough/mujoco",), "G1Walk23DofRough")
-    params = env_cfg.curriculum["penalty_scaling"].params
-    assert params["initial_scale"] == pytest.approx(0.5)
-    assert params["min_scale"] == pytest.approx(0.5)
-    assert params["max_scale"] == pytest.approx(1.0)
 
 
 def _genesis_runtime_available() -> bool:

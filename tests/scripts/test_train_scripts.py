@@ -44,7 +44,7 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
         if offpolicy:
             normalized.append("task=g1_walk_flat/mujoco")
         else:
-            normalized.append("task=go1_joystick_flat/mujoco")
+            normalized.append("task=go2_joystick_flat/mujoco")
     return normalized
 
 
@@ -301,12 +301,12 @@ def test_offpolicy_hydra_algo_td3():
     assert cfg.algo.algo == "td3"
 
 
-def test_offpolicy_go1_motrix_task_is_not_configured():
-    """SAC has no Go1 Motrix owner config; use PPO for Go1 joystick tasks."""
+def test_offpolicy_go2_motrix_task_is_not_configured():
+    """SAC has no Go2 Motrix owner config; use PPO for Go2 joystick tasks."""
     from hydra.errors import MissingConfigException
 
-    with pytest.raises(MissingConfigException, match="task/go1_joystick_flat/motrix"):
-        _offpolicy_cfg(["task=go1_joystick_flat/motrix"])
+    with pytest.raises(MissingConfigException, match="task/go2_joystick_flat/motrix"):
+        _offpolicy_cfg(["task=go2_joystick_flat/motrix"])
 
 
 def test_offpolicy_g1_walk_flat_motrix_resolved_algo_matches_task_owner():
@@ -407,9 +407,9 @@ def test_offpolicy_isaacsim_training_and_eval_use_separate_render_overrides():
     assert play_override["isaacsim_render_mode"] == "record"
 
 
-def test_ppo_go1_resolved_algo_matches_old_motrix_behavior():
-    """Equivalence: PPO Go1 algo hyperparams match pre-refactor motrix values."""
-    cfg = _ppo_cfg(["task=go1_joystick_flat/motrix"])
+def test_ppo_go2_resolved_algo_matches_old_motrix_behavior():
+    """Equivalence: PPO Go2 algo hyperparams match pre-refactor motrix values."""
+    cfg = _ppo_cfg(["task=go2_joystick_flat/motrix"])
 
     assert cfg.algo.max_iterations == 151
     assert cfg.algo.empirical_normalization is True
@@ -471,18 +471,6 @@ def test_ppo_task_go2_aligns_mujoco_with_motrix_defaults():
     assert cfg.algo.algorithm.entropy_coef == pytest.approx(1.0e-3)
 
 
-def test_ppo_go1_drake_batch_config_matches_current_contact_support():
-    cfg = _ppo_cfg(["task=go1_joystick_flat/drake"])
-
-    assert cfg.env.drake_backend_mode == "batch"
-    assert cfg.env.drake_nthread == 0
-    assert cfg.reward.contact is None
-    assert cfg.env.events.base_mass is None
-    assert cfg.env.events.base_com is None
-    assert cfg.env.events.pd_gains is None
-    assert cfg.env.events.push_robot is None
-
-
 def test_ppo_go2_drake_batch_config_matches_go2_training_defaults():
     cfg = _ppo_cfg(["task=go2_joystick_flat/drake"])
 
@@ -503,22 +491,22 @@ def test_ppo_go2_drake_batch_config_matches_go2_training_defaults():
     assert cfg.reward.contact is None
 
 
-def test_build_ppo_env_cfg_override_go1_motrix(
+def test_build_ppo_env_cfg_override_go2_motrix(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go1_joystick_flat/motrix"])
+    cfg = _ppo_cfg(["task=go2_joystick_flat/motrix"])
 
     env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
     assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(1.0)
-    assert env_cfg_override["rewards"]["contact"] is None
+    assert env_cfg_override["rewards"]["contact"]["func"].endswith("feet_phase_contact")
     assert env_cfg_override["commands"]["twist"]["ranges"] == {
         "lin_vel_x": [0.5, 0.5],
         "lin_vel_y": [0.0, 0.0],
         "ang_vel_z": [0.0, 0.0],
     }
-    assert env_cfg_override["events"]["push_robot"] is None
+    assert env_cfg_override["events"]["pd_gains"] is None
 
 
 def test_build_ppo_env_cfg_override_g1_motrix(
@@ -2255,7 +2243,7 @@ def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_cont
 ):
     monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
+    cfg = _ppo_cfg(["task=go2_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
 
     monkeypatch.chdir(tmp_path)
@@ -2284,7 +2272,7 @@ def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
 ):
     monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
+    cfg = _ppo_cfg(["task=go2_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
     cfg.algo.checkpoint = 12
 
@@ -2319,7 +2307,7 @@ def test_train_rsl_rl_motrix_auto_play_is_interactive(
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(
         [
-            "task=go2_joystick_rough/motrix",
+            "task=go2_joystick_flat/motrix",
             "training.play_only=true",
             "training.play_steps=37",
             "training.render_spacing=2.5",
@@ -2413,7 +2401,7 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(
         [
-            "task=go2_joystick_rough/motrix",
+            "task=go2_joystick_flat/motrix",
             "training.play_only=true",
             "training.play_render_mode=record",
             "training.play_steps=37",
@@ -2548,13 +2536,13 @@ def test_play_interactive_parses_explicit_cli():
     mod = _play_interactive()
 
     parsed = mod._parse_interactive_cli(
-        ["--algo", "ppo", "--task", "go1_joystick_flat", "--sim", "mujoco"]
+        ["--algo", "ppo", "--task", "go2_joystick_flat", "--sim", "mujoco"]
     )
 
     assert parsed.algo == "ppo"
-    assert parsed.task == "go1_joystick_flat"
+    assert parsed.task == "go2_joystick_flat"
     assert parsed.sim == "mujoco"
-    assert parsed.overrides == ["task=go1_joystick_flat/mujoco"]
+    assert parsed.overrides == ["task=go2_joystick_flat/mujoco"]
 
 
 @pytest.mark.parametrize("algo", ["appo", "sac", "td3"])
@@ -2573,18 +2561,18 @@ def test_play_interactive_cli_respects_owner_action_mode_and_user_override():
     mod = _play_interactive()
 
     default_parsed = mod._parse_interactive_cli(
-        ["--algo", "ppo", "--task", "go2_joystick_rough", "--sim", "mujoco"]
+        ["--algo", "ppo", "--task", "go2_joystick_flat", "--sim", "mujoco"]
     )
     default_cfg = mod._compose_interactive_config(default_parsed.algo, default_parsed.overrides)
 
-    assert default_cfg.interactive.action_mode == "policy"
+    assert default_cfg.interactive.action_mode == "zero"
 
     parsed = mod._parse_interactive_cli(
         [
             "--algo",
             "ppo",
             "--task",
-            "go2_joystick_rough",
+            "go2_joystick_flat",
             "--sim",
             "mujoco",
             "interactive.action_mode=random",
@@ -2593,7 +2581,7 @@ def test_play_interactive_cli_respects_owner_action_mode_and_user_override():
     cfg = mod._compose_interactive_config(parsed.algo, parsed.overrides)
 
     assert parsed.overrides == [
-        "task=go2_joystick_rough/mujoco",
+        "task=go2_joystick_flat/mujoco",
         "interactive.action_mode=random",
     ]
     assert cfg.interactive.action_mode == "random"
@@ -2604,14 +2592,14 @@ def test_play_interactive_rejects_unknown_algo_flag():
 
     with pytest.raises(SystemExit):
         mod._parse_interactive_cli(
-            ["--algo=unknown", "--task", "go1_joystick_flat", "--sim", "mujoco"]
+            ["--algo=unknown", "--task", "go2_joystick_flat", "--sim", "mujoco"]
         )
 
 
 def test_play_interactive_dynamic_compose_supports_algo_roots():
     mod = _play_interactive()
 
-    ppo_cfg = mod._compose_interactive_config("ppo", ["task=go1_joystick_flat/mujoco"])
+    ppo_cfg = mod._compose_interactive_config("ppo", ["task=go2_joystick_flat/mujoco"])
     appo_cfg = mod._compose_interactive_config("appo", ["task=allegro_inhand/mujoco"])
     sac_cfg = mod._compose_interactive_config("sac", ["task=g1_walk_flat/mujoco"])
     td3_cfg = mod._compose_interactive_config("td3", ["task=g1_walk_flat/mujoco"])
@@ -2788,7 +2776,7 @@ def test_train_rsl_rl_play_uses_shared_playback_session_factory(
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(
         [
-            "task=go1_joystick_flat/mujoco",
+            "task=go2_joystick_flat/mujoco",
             "training.play_only=true",
             "training.play_render_mode=record",
             "training.play_steps=5",

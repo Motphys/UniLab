@@ -204,7 +204,7 @@ cat <<EOF
 export UNILAB_BENCHMARK_HOLOSOMA_DEPS="$ISAACGYM_HOME"
 export UNILAB_BENCHMARK_HSGYM_PYTHON="$HSGYM_PYTHON"
 export UNILAB_BENCHMARK_HSGYM_LIB="$ENV_ROOT/lib"
-# URDF 模型树（go1_description/ 等）需自备，指向其根目录：
+# URDF 模型树（go2_description/ 等）需自备，指向其根目录：
 export UNILAB_BENCHMARK_MODELS_ROOT="<path-to-your-urdf-models-root>"
 
 # 训练后端（task=<task>/isaacgym）默认从 ~/.unilab/isaacgym 自动发现运行时；

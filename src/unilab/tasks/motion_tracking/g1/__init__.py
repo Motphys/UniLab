@@ -7,25 +7,11 @@ from .motion_box_loader import BoxMotionData, BoxMotionLoader
 
 G1_MOTION_TASKS = (
     "G1MotionTracking",
-    "G1MotionTrackingDeploy",
-    "G1MotionTracking23Dof",
-    "G1MotionTracking23DofDeploy",
     "G1MotionTrackingSAC",
-    "G1MotionTrackingSAC23Dof",
     "G1BoxTracking",
-    "G1BoxTracking23Dof",
-    "G1ClimbTracking",
-    "G1ClimbTracking23Dof",
     "G1FlipTracking",
-    "G1FlipTracking23Dof",
     "G1FlipTrackingSAC",
-    "G1FlipTrackingSAC23Dof",
-    "G1WallFlipTracking",
-    "G1WallFlipTracking23Dof",
-    "G1WallFlipTrackingSAC",
-    "G1WallFlipTrackingSAC23Dof",
     "G1WBTObs",
-    "G1WBTObs23Dof",
 )
 
 for _task_name in G1_MOTION_TASKS:

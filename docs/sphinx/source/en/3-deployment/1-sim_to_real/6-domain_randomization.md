@@ -44,7 +44,7 @@ range in the task owner only after recording why that range is plausible.
 
 Manager-Based tasks declare reset and interval randomization through
 `env.events` in their owner YAML, executed by the manager lifecycle. See
-`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`.
+`src/unilab/conf/sac/task/g1_wbt_obs/mujoco.yaml`.
 
 The legacy task-level provider protocol has been removed. The capability
 boundary is described in
@@ -52,10 +52,10 @@ boundary is described in
 
 ## Recipe: starting ranges
 
-Use the selected owner YAML as the source of truth. Go2 rough owners compose
-`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`, which declares
-base mass, COM, PD gains, and interval push. This excerpt shows its PD-gain
-term; evaluate absolute gain ranges together with the robot's control settings.
+Use the selected owner YAML as the source of truth. The retained G1 WBT owner
+declares base mass, COM, PD gains, encoder bias, and interval push. This
+excerpt shows a PD-gain term; evaluate absolute gain ranges together with the
+robot's control settings.
 
 ```yaml
 env:

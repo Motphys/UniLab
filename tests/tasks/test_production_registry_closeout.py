@@ -14,10 +14,10 @@ Manager-Based runtime, and this suite keeps it that way.
 Scope note: the registry has no unregister API and no provenance tracking, and
 the pytest session pollutes it with fixture-only envs (``DummyFlatTest`` via
 ``UNILAB_EXTRA_REGISTRY_PACKAGES``, the cartpole fixtures reusing
-``ManagerBasedRlEnvCfg``/``make_manager_based_rl_env``). The registry snapshot
-is therefore taken in a fresh subprocess with that env var scrubbed
-(``tests/base/test_backend_imports.py`` idiom), so only the production
-``unilab.tasks`` bootstrap contributes registrations.
+``ManagerBasedRlEnvCfg``/``make_manager_based_rl_env``). Installed ecosystem
+packages may also deliberately contribute third-party task entry points. The
+registry snapshot is therefore taken in a fresh subprocess that imports only
+the core ``unilab.tasks`` bootstrap modules, not the global entry-point set.
 """
 
 from __future__ import annotations
@@ -43,10 +43,13 @@ CANONICAL_MANAGER_RUNTIME_FACTORIES = (
 _SNAPSHOT_CODE = textwrap.dedent(
     """
     import json
+    import importlib
 
     from unilab.base import registry
+    from unilab.tasks import __unilab_registry_modules__
 
-    registry.ensure_registries()
+    for module_name in __unilab_registry_modules__:
+        importlib.import_module(module_name)
     snapshot = {
         name: {
             backend: [
@@ -65,11 +68,12 @@ _snapshot_cache: dict[str, dict[str, tuple[str, str]]] | None = None
 
 
 def _production_factories() -> dict[str, dict[str, tuple[str, str]]]:
-    """Snapshot the production registry in a clean interpreter.
+    """Snapshot the core production registry in a clean interpreter.
 
     Returns ``{task: {backend: (factory_module, factory_qualname)}}``. The
-    subprocess scrubs ``UNILAB_EXTRA_REGISTRY_PACKAGES`` so fixture-only test
-    envs injected by ``tests/conftest.py`` cannot leak into the snapshot.
+    The subprocess deliberately bypasses ``ensure_registries()`` so installed
+    ecosystem entry points and fixture-only test envs cannot leak into the
+    core production snapshot.
     """
     global _snapshot_cache
     if _snapshot_cache is None:

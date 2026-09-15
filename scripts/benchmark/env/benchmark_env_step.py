@@ -13,7 +13,7 @@ Usage:
         scripts/benchmark/env/benchmark_env_step.py task=g1_walk_flat/mjwarp
 
     # Override bench params:
-    uv run scripts/benchmark/env/benchmark_env_step.py task=go1_joystick_flat/mujoco num_envs=4096 num_steps=500
+    uv run scripts/benchmark/env/benchmark_env_step.py task=go2_joystick_flat/mujoco num_envs=4096 num_steps=500
 
     # Save to custom locations:
     uv run scripts/benchmark/env/benchmark_env_step.py --out-json tmp/env_step.json --plot-dir tmp/env_step_plots
@@ -223,12 +223,6 @@ def _materialize_g1_rough_benchmark_scene() -> str:
     return str(output_path)
 
 
-def _go1_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs import ManagerBasedRlEnvCfg
-
-    return _ppo_owner_yaml_cfg("go1_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
-
-
 def _manager_env_cls() -> Callable[..., Any]:
     from unilab.envs import make_manager_based_rl_env
 
@@ -239,34 +233,6 @@ def _go2_cfg(backend: str, config_overrides: list[str]) -> Any:
     from unilab.envs import ManagerBasedRlEnvCfg
 
     return _ppo_owner_yaml_cfg("go2_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides)
-
-
-def _go2_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs import ManagerBasedRlEnvCfg
-
-    return _ppo_owner_yaml_cfg(
-        "go2_joystick_rough", backend, ManagerBasedRlEnvCfg, config_overrides
-    )
-
-
-def _go2w_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs import ManagerBasedRlEnvCfg
-
-    return _ppo_owner_yaml_cfg(
-        "go2w_joystick_flat", backend, ManagerBasedRlEnvCfg, config_overrides
-    )
-
-
-def _go2w_rough_cfg(backend: str, config_overrides: list[str]) -> Any:
-    from unilab.envs import ManagerBasedRlEnvCfg
-
-    return _ppo_owner_yaml_cfg(
-        "go2w_joystick_rough", backend, ManagerBasedRlEnvCfg, config_overrides
-    )
-
-
-def _go2w_env_cls() -> Callable[..., Any]:
-    return _manager_env_cls()
 
 
 def _g1_flat_cfg(backend: str, config_overrides: list[str]) -> Any:
@@ -299,40 +265,12 @@ def _g1_walk_env_cls() -> type:
 
 
 TASK_CONFIGS: dict[str, TaskConfig] = {
-    "go1": TaskConfig(
-        task_id="go1_joystick_flat",
-        env_name="Go1JoystickFlat",
-        cfg_factory=_go1_cfg,
-        env_cls_factory=_manager_env_cls,
-        backends=("mujoco", "motrix", "mjwarp"),
-    ),
     "go2": TaskConfig(
         task_id="go2_joystick_flat",
         env_name="Go2JoystickFlat",
         cfg_factory=_go2_cfg,
         env_cls_factory=_manager_env_cls,
         backends=("mujoco", "motrix", "mjwarp"),
-    ),
-    "go2_rough": TaskConfig(
-        task_id="go2_joystick_rough",
-        env_name="Go2JoystickRough",
-        cfg_factory=_go2_rough_cfg,
-        env_cls_factory=_manager_env_cls,
-        backends=("mujoco", "motrix"),
-    ),
-    "go2w": TaskConfig(
-        task_id="go2w_joystick_flat",
-        env_name="Go2WJoystickFlat",
-        cfg_factory=_go2w_cfg,
-        env_cls_factory=_go2w_env_cls,
-        backends=("mujoco", "motrix", "mjwarp"),
-    ),
-    "go2w_rough": TaskConfig(
-        task_id="go2w_joystick_rough",
-        env_name="Go2WJoystickRough",
-        cfg_factory=_go2w_rough_cfg,
-        env_cls_factory=_manager_env_cls,
-        backends=("mujoco", "motrix"),
     ),
     "g1": TaskConfig(
         task_id="g1_walk_flat",
@@ -364,15 +302,10 @@ DEFAULT_NUM_STEPS = 20
 DEFAULT_WARMUP_STEPS = 5
 
 TASK_COLORS = {
-    "go1": "#4C78A8",
     "go2": "#54A24B",
-    "go2_rough": "#8CD17D",
     "g1": "#F58518",
     "g1_mt": "#B279A2",
     "g1_rough": "#E45756",
-    "go2w": "#72B7B2",
-    "go2w_rough": "#499894",
-    "go2w_rough_tiles": "#499894",
 }
 BACKEND_STYLES = {
     "mujoco": {"marker": "o", "linestyle": "-", "hatch": "//"},
@@ -488,7 +421,7 @@ def _matching_task_config(task_path: str) -> TaskConfig | None:
 
 def _resolve_task_and_backend(hydra_overrides: list[str]) -> tuple[str, TaskConfig, str]:
     """Resolve the benchmark owner selected by ``task=<task>/<backend>``."""
-    task_key = "go1"
+    task_key = "go2"
     task_config = TASK_CONFIGS[task_key]
     sim_backend: str | None = None
 
@@ -716,17 +649,13 @@ def _print_single_report(result: dict[str, Any]) -> None:
 
 
 def _short_task_label(task_name: str) -> str:
-    """Shorten 'Go1JoystickFlat' → 'go1'."""
+    """Shorten canonical registry names for benchmark plot labels."""
     name = task_name.lower()
     if "motiontracking" in name:
         return "g1_mt"
     if "rough" in name and name.startswith("g1"):
         return "g1_rough"
-    if name.startswith("go2w") and "roughtiles" in name:
-        return "go2w_rough_tiles"
-    if name.startswith("go2w"):
-        return "go2w"
-    for prefix in ("go1", "go2", "g1"):
+    for prefix in ("go2", "g1"):
         if name.startswith(prefix):
             return prefix
     return task_name[:8]

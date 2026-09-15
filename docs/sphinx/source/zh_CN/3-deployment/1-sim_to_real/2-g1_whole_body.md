@@ -48,9 +48,6 @@ uv run eval --algo ppo --task g1_motion_tracking --sim motrix --load-run -1
   - 514
   - 无状态估计：`motion_anchor_pos_b` 与 `base_lin_vel` 置为 `null`，使用
     pelvis IMU，proprio 项带 `history_length: 5`。
-* - `src/unilab/conf/ppo/task/g1_motion_tracking_deploy/mujoco.yaml`
-  - 154
-  - 单步 mimic actor 布局，按关节分组的 `scale` 正则映射。
 ```
 
 ::::{admonition} 观测宽度应从 composed config 读取，而不是照抄本表
@@ -101,8 +98,8 @@ motion command 在观测项之前贡献参考关节位置与速度（`29 + 29`�
 之前钳制到场景的关节范围内。
 
 - `scale` 即 `env.actions.joint_pos.scale`。它可能是**标量**（`g1_wbt_obs` 为
-  `2.0`），也可能是按 actuator 解析的**正则 → 数值映射**
-  （`g1_motion_tracking_deploy` 把关节名模式映射到不同数值）。必须原样复现 owner
+  `2.0`），也可能是按 actuator 解析的**正则 → 数值映射**（Unitree deploy owner
+  把关节名模式映射到不同数值）。必须原样复现 owner
   解析后的逐 actuator 向量——不要对映射取平均、取其中一项，也不要把标量广播到
   映射型 owner 上。
 - `default_angles` 由 `use_default_offset: true` 决定，即 owner 场景中 `stand`

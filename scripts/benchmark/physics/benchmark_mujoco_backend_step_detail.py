@@ -19,7 +19,7 @@ Usage:
     uv run scripts/benchmark/physics/benchmark_mujoco_backend_step_detail.py
 
     uv run scripts/benchmark/physics/benchmark_mujoco_backend_step_detail.py \
-        --tasks go1_joystick_flat,go2_joystick_flat,g1_walk_flat \
+        --tasks go2_joystick_flat,g1_walk_flat \
         --env-nums 256,512,1024,2048,4096,8192 \
         --nsteps 1,2,3,4
 
@@ -87,7 +87,6 @@ DEFAULT_OUTPUT_JSON = (
 )
 
 TASK_COLORS = {
-    "go1_joystick_flat": "#4C78A8",
     "go2_joystick_flat": "#54A24B",
     "g1_walk_flat": "#F58518",
 }

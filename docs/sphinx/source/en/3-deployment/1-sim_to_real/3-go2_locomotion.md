@@ -1,8 +1,7 @@
-# Go2 / Go2W Locomotion Deployment
+# Go2 Locomotion Deployment
 
-Joystick-driven locomotion (flat + rough) plus the wheel-legged Go2W
-variant. The hardware story for both is similar; this page calls out the
-deltas.
+This page describes the retained `go2_joystick_flat` reference owner. Unitree
+production deployment variants are documented by their ecosystem package.
 
 ## Observation contract
 
@@ -26,16 +25,16 @@ deltas.
   - 3
   - operator input
 * - Joint positions
-  - 12 (Go2) / 16 (Go2W)
+  - 12
   - encoder
 * - Joint velocities
-  - 12 / 16
+  - 12
   - encoder velocity after the deploy controller's filtering path
 * - Previous action
-  - 12 / 16
+  - 12
   - last policy output
 * - Foot contact
-  - 4 (Go2 only)
+  - 4
   - contact sensor or estimated from foot height
 ```
 
@@ -45,23 +44,6 @@ The policy is trained against the observation terms emitted by the selected env
 owner. If deployment cannot provide the same base-velocity signal, train a
 variant whose actor observation matches the estimator you can run on the robot.
 ::::
-
-## Rough terrain caveat
-
-For `go2_joystick_rough` the policy expects elevated terrain features. On a
-flat indoor surface the rough-trained policy will be *more conservative*
-than necessary but should still be validated through replay before hardware
-bring-up. For deployment on slopes / debris:
-
-- Choose ground-friction DR ranges from measured deployment surfaces.
-- Train with terrain curriculum: see
-  {doc}`../../2-user_guide/6-terrain/1-procedural`.
-
-## Go2W wheel ↔ leg dispatch
-
-Go2W policies output **continuous wheel velocity** for the rear wheel
-joints and **position targets** for the legs. The action vector ordering
-must match `src/unilab/assets/robots/go2w/`. Verify with `unilab-export-scene`.
 
 ## See also
 

@@ -17,7 +17,7 @@ MuJoCo 是已提交 owner 配置中的默认后端路径。其 Python 依赖为�
 
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco
-uv run train --algo appo --task go1_joystick_flat --sim mujoco training.no_play=true
+uv run train --algo appo --task go2_joystick_flat --sim mujoco training.no_play=true
 uv run train --algo sac --task g1_walk_flat --sim mujoco
 ```
 

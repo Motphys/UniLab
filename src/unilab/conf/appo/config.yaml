@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: go1_joystick_flat/mujoco
+  - task: go2_joystick_flat/mujoco
 
 algo:
   algo: appo
@@ -51,7 +51,7 @@ algo:
     enable_compile: false
 
 training:
-  task_name: Go1JoystickFlat
+  task_name: Go2JoystickFlat
   device: null
   collector_device: null
   logger: tensorboard

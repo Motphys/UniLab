@@ -81,7 +81,7 @@ export UNILAB_BENCHMARK_HSGYM_LIB="$UNILAB_BENCHMARK_HOLOSOMA_DEPS/miniconda3/en
 ## 验证
 
 用 benchmark 脚本验证环境可用。benchmark 从 URDF 加载机器人模型，
-URDF 模型树（`go1_description/`、`g1_description/` 等）需自备，通过
+URDF 模型树（`go2_description/`、`g1_description/` 等）需自备，通过
 `--models-root` 或 `UNILAB_BENCHMARK_MODELS_ROOT` 指向其根目录：
 
 ```bash

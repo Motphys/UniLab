@@ -68,7 +68,7 @@ def _normalize_overrides(overrides: list[str] | None, *, offpolicy: bool = False
         if offpolicy:
             normalized.append("task=g1_walk_flat/mujoco")
         else:
-            normalized.append("task=go1_joystick_flat/mujoco")
+            normalized.append("task=go2_joystick_flat/mujoco")
     return normalized
 
 

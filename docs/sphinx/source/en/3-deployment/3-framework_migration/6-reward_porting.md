@@ -8,7 +8,7 @@ entity facade and managers, and return NumPy arrays of shape `(num_envs,)`.
 
 The `twist` command below must be defined in the owner's `env.commands`.
 The tracking and action-rate entries follow
-`src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`; the joint-limit and
+`src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml`; the joint-limit and
 termination entries illustrate existing helpers whose weights need task-specific
 evaluation.
 

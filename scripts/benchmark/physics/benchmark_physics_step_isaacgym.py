@@ -2,7 +2,7 @@
 """
 Benchmark Isaac Gym physics execution using URDF assets.
 
-Benchmarks Isaac Gym across go1/go2/g1 locomotion robots and outputs JSON + plots
+Benchmarks Isaac Gym across go2/g1 locomotion robots and outputs JSON + plots
 aligned with scripts/benchmark/physics/benchmark_physics_step_mj_step.py.
 
 Run without creating any new environment:
@@ -107,13 +107,6 @@ class BenchRecord:
 
 
 TASK_SPECS = {
-    "go1_joystick_flat": TaskSpec(
-        owner_task_id="go1_joystick_flat",
-        display_name="go1_joystick_flat",
-        asset_root=DEFAULT_MODELS_ROOT,
-        asset_file="go1_description/urdf/go1.urdf",
-        initial_height=0.40,
-    ),
     "go2_joystick_flat": TaskSpec(
         owner_task_id="go2_joystick_flat",
         display_name="go2_joystick_flat",
@@ -130,16 +123,12 @@ TASK_SPECS = {
     ),
 }
 TASK_ALIASES = {
-    "Go1JoystickFlat": "go1_joystick_flat",
     "Go2JoystickFlat": "go2_joystick_flat",
     "G1WalkFlat": "g1_walk_flat",
-    "task=go1_joystick_flat/isaacgym": "go1_joystick_flat",
     "task=go2_joystick_flat/isaacgym": "go2_joystick_flat",
     "task=g1_walk_flat/isaacgym": "g1_walk_flat",
-    "go1_joystick_flat/isaacgym": "go1_joystick_flat",
     "go2_joystick_flat/isaacgym": "go2_joystick_flat",
     "g1_walk_flat/isaacgym": "g1_walk_flat",
-    "go1": "go1_joystick_flat",
     "go2": "go2_joystick_flat",
     "g1": "g1_walk_flat",
 }
@@ -437,7 +426,7 @@ def main():
         "--models-root",
         type=str,
         default=str(DEFAULT_MODELS_ROOT),
-        help="Root containing go1_description/go2_description/g1_description URDFs",
+        help="Root containing go2_description/g1_description URDFs",
     )
     parser.add_argument("--tasks", type=str, default=",".join(DEFAULT_TASK_IDS))
     parser.add_argument(

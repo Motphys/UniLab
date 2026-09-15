@@ -26,24 +26,12 @@ class TaskMigrationRecord:
 
 _MBA_TASKS = frozenset(
     {
-        "A2JoystickFlat",
         "AllegroInhandRotation",
         "AllegroInhandRotationGrasp",
         # #1534 starts directly on the canonical manager runtime; no legacy seam.
         "FR3JointTarget",
-        "Go1JoystickFlat",
-        "Go2FootStand",
         "Go2JoystickFlat",
-        "Go2WJoystickFlat",
         "StewartBalance",
-    }
-)
-
-_ROUGH_TASKS = frozenset(
-    {
-        "Go1JoystickRough",
-        "Go2JoystickRough",
-        "Go2WJoystickRough",
     }
 )
 
@@ -51,44 +39,28 @@ _G1_LOCOMOTION_TASKS = frozenset(
     {
         "G1WalkFlat",
         "G1WalkRough",
-        "G1Walk23DofFlat",
-        "G1Walk23DofRough",
     }
 )
 
 _MOTION_CORE_TASKS = frozenset(
     {
         "G1MotionTracking",
-        "G1MotionTracking23Dof",
-        "G1MotionTracking23DofDeploy",
-        "G1MotionTrackingDeploy",
         "G1MotionTrackingSAC",
-        "G1MotionTrackingSAC23Dof",
     }
 )
 
 _MOTION_TASKS = frozenset(
     {
         "G1BoxTracking",
-        "G1BoxTracking23Dof",
-        "G1ClimbTracking",
-        "G1ClimbTracking23Dof",
         "G1FlipTracking",
-        "G1FlipTracking23Dof",
         "G1FlipTrackingSAC",
-        "G1FlipTrackingSAC23Dof",
-        "G1WallFlipTracking",
-        "G1WallFlipTracking23Dof",
-        "G1WallFlipTrackingSAC",
-        "G1WallFlipTrackingSAC23Dof",
         "G1WBTObs",
-        "G1WBTObs23Dof",
         "X2WallFlipTracking",
     }
 )
 
 PRODUCTION_TASK_NAMES = frozenset(
-    _MBA_TASKS | _ROUGH_TASKS | _G1_LOCOMOTION_TASKS | _MOTION_CORE_TASKS | _MOTION_TASKS
+    _MBA_TASKS | _G1_LOCOMOTION_TASKS | _MOTION_CORE_TASKS | _MOTION_TASKS
 )
 
 
@@ -107,21 +79,6 @@ def migration_record(task_name: str) -> TaskMigrationRecord:
             "complete",
             "Hydra owner YAML materializes the canonical NumPy Manager-Based runtime.",
             "Keep the manager contract and regression evidence current.",
-        )
-    if task_name in _ROUGH_TASKS:
-        return TaskMigrationRecord(
-            task_name,
-            "quadruped_rough",
-            "Compatible",
-            "complete",
-            "Hydra owners materialize shared terrain, height-scan, reset, and curriculum manager terms on the canonical runtime.",
-            "Keep the shared rough-family contract and both backend owners in sync. "
-            "Known intentional divergence from the legacy rough env (recorded 2026-08): "
-            "the legacy reward terms feet_gait, feet_air_time(+variance), "
-            "feet_contact_without_cmd, feet_height_body, feet_slide, contact_forces, "
-            "undesired_contacts, joint_mirror, joint_power, joint_torques_l2, "
-            "joint_acc_l2(+wheel) have no manager port and are not part of the "
-            "manager-based rough reward set.",
         )
     if task_name in _G1_LOCOMOTION_TASKS:
         return TaskMigrationRecord(

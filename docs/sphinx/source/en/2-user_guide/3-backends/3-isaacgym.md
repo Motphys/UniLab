@@ -97,7 +97,7 @@ export UNILAB_BENCHMARK_HSGYM_LIB="$UNILAB_BENCHMARK_HOLOSOMA_DEPS/miniconda3/en
 
 Validate the environment with the benchmark script. The benchmark loads robot
 models from URDF, so you must provide your own URDF model tree
-(`go1_description/`, `g1_description/`, ...) and point `--models-root` or
+(`go2_description/`, `g1_description/`, ...) and point `--models-root` or
 `UNILAB_BENCHMARK_MODELS_ROOT` at its root directory:
 
 ```bash

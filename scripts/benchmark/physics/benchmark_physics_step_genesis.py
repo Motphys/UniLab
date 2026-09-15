@@ -3,7 +3,7 @@
 Benchmark Genesis physics execution.
 
 Benchmarks Genesis across current locomotion owner task ids
-(go1_joystick_flat/go2_joystick_flat/g1_walk_flat) and outputs JSON + plots
+(go2_joystick_flat/g1_walk_flat) and outputs JSON + plots
 aligned with scripts/benchmark/physics/benchmark_physics_step_mj_step.py.
 Legacy env names remain accepted as aliases.
 

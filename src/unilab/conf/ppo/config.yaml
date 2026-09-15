@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - task: go1_joystick_flat/mujoco
+  - task: go2_joystick_flat/mujoco
 
 algo:
   algo: ppo
@@ -55,7 +55,7 @@ algo:
     disable_finite_checks: true
 
 training:
-  task_name: Go1JoystickFlat
+  task_name: Go2JoystickFlat
   # list[int] | null; null/[] keeps single-device behavior, [d] selects one
   # CUDA device, and [d0..dN-1] launches one RSL-RL worker per device.
   # algo.num_envs is per rank; do not set this together with training.device.

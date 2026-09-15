@@ -129,7 +129,6 @@ def test_registry_bootstrap_and_config_imports_do_not_require_mujoco():
         ensure_registries()
         assert callable(create_backend)
         assert registry.contains("G1MotionTracking")
-        assert registry.contains("G1MotionTrackingDeploy")
         assert registry.contains("X2WallFlipTracking")
         assert registry.contains("AllegroInhandRotation")
         metadata = registry.list_registered_envs()
@@ -713,27 +712,7 @@ def test_allegro_grasp_manager_runtime_uses_zero_increment_action(sim_backend: s
 
 _MOTION_CORE_RUNTIME_CASES = (
     pytest.param("ppo", "g1_motion_tracking", "G1MotionTracking", 160, 286, 29, False),
-    pytest.param(
-        "ppo",
-        "g1_motion_tracking_deploy",
-        "G1MotionTrackingDeploy",
-        154,
-        286,
-        29,
-        False,
-    ),
-    pytest.param("ppo", "g1_23dof_motion_tracking", "G1MotionTracking23Dof", 130, 256, 23, False),
-    pytest.param(
-        "ppo",
-        "g1_23dof_motion_tracking_deploy",
-        "G1MotionTracking23DofDeploy",
-        124,
-        256,
-        23,
-        False,
-    ),
     pytest.param("appo", "g1_motion_tracking", "G1MotionTracking", 160, 286, 29, False),
-    pytest.param("appo", "g1_23dof_motion_tracking", "G1MotionTracking23Dof", 130, 256, 23, False),
     pytest.param(
         "sac",
         "g1_motion_tracking",
@@ -741,15 +720,6 @@ _MOTION_CORE_RUNTIME_CASES = (
         160,
         289,
         29,
-        True,
-    ),
-    pytest.param(
-        "sac",
-        "g1_23dof_motion_tracking",
-        "G1MotionTrackingSAC23Dof",
-        130,
-        259,
-        23,
         True,
     ),
 )
@@ -760,13 +730,7 @@ def test_g1_motion_core_registrations_are_manager_only() -> None:
 
     ensure_registries()
     metadata = registry.list_registered_envs()
-    for task_name in (
-        "G1MotionTracking",
-        "G1MotionTrackingDeploy",
-        "G1MotionTracking23Dof",
-        "G1MotionTracking23DofDeploy",
-        "G1MotionTrackingSAC23Dof",
-    ):
+    for task_name in ("G1MotionTracking",):
         assert metadata[task_name] == {
             "config_factory": "ManagerBasedRlEnvCfg",
             "available_backends": ["mujoco", "motrix"],

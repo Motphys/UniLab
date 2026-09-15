@@ -15,13 +15,6 @@ class LocomotionTaskSpec:
 
 
 _TASK_SPECS = {
-    "go1_joystick_flat": LocomotionTaskSpec(
-        owner_task_id="go1_joystick_flat",
-        env_task_name="Go1JoystickFlat",
-        display_name="go1_joystick_flat",
-        config_cls=ManagerBasedRlEnvCfg,
-        model_file="src/unilab/assets/robots/go1/scene_flat.xml",
-    ),
     "go2_joystick_flat": LocomotionTaskSpec(
         owner_task_id="go2_joystick_flat",
         env_task_name="Go2JoystickFlat",

@@ -52,7 +52,7 @@ Motion-tracking deployment notes for the G1 path.
 :::{grid-item-card} Go2 locomotion
 :link: 3-go2_locomotion
 :link-type: doc
-Joystick, rough terrain, and Go2W deployment notes.
+Go2 joystick-flat deployment notes.
 :::
 
 :::{grid-item-card} Allegro in-hand

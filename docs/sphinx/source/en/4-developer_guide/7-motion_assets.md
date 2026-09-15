@@ -87,8 +87,9 @@ Alternatively, pre-download into the in-repo directory with `--local-dir`
 Robot binary meshes and textures (for example `.STL`, `.obj`, and `.png`) are
 externalized the same way, on the Hugging Face dataset repo
 [unilabsim/unilab-robots](https://huggingface.co/datasets/unilabsim/unilab-robots).
-The registered robots are a2, allegro_hand, g1, go2,
-and x2 (`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`).
+The registered core robots are allegro_hand, g1, go2, and x2
+(`ROBOT_ASSET_SPECS` in `src/unilab/assets/hub.py`). Unitree production robot
+metadata is resolved by `unitree_rl_unilab`.
 Their mesh/texture directories download lazily on first use and land under
 their original paths (for example `src/unilab/assets/robots/g1/assets/` and
 `robots/g1/textures/` for G1), so the original relative XML paths remain

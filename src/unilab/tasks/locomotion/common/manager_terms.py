@@ -1,6 +1,6 @@
 """Shared Manager-Based terms and term bases for the locomotion families.
 
-The equations come from UniLab's existing Go1/Go2 joystick tasks and are reused
+The equations come from UniLab's quadruped joystick tasks and are reused
 by quadruped and biped owners alike.  The adaptation uses community
 ``func + params`` terms, NumPy, and the base-owned sensor facade.  Reward terms
 that read named XML sensors live in ``sensor_reward_terms.py`` and build on the

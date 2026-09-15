@@ -317,17 +317,17 @@ def test_build_wandb_settings_defaults_for_shared_workspace():
     settings = build_wandb_settings(
         {"wandb_project": "unilab"},
         algo_name="ppo",
-        task_name="Go1JoystickFlat",
+        task_name="Go2JoystickFlat",
         sim_backend="mujoco",
-        log_dir="logs/rsl_rl_train/Go1JoystickFlat/2026-04-02_00-00-00_mujoco",
+        log_dir="logs/rsl_rl_train/Go2JoystickFlat/2026-04-02_00-00-00_mujoco",
     )
 
     assert settings["project"] == "unilab"
-    assert settings["group"] == "Go1JoystickFlat"
+    assert settings["group"] == "Go2JoystickFlat"
     assert settings["job_type"] == "ppo"
-    assert settings["name"].startswith("ppo__Go1JoystickFlat__")
+    assert settings["name"].startswith("ppo__Go2JoystickFlat__")
     assert "ppo" in settings["tags"]
-    assert "Go1JoystickFlat" in settings["tags"]
+    assert "Go2JoystickFlat" in settings["tags"]
     assert "mujoco" in settings["tags"]
 
 
@@ -391,7 +391,7 @@ def test_onpolicy_logger_reuses_existing_wandb_run(monkeypatch):
 
     logger = OnPolicyLogger(
         algo_name="PPO",
-        env_name="Go1JoystickFlat",
+        env_name="Go2JoystickFlat",
         log_backend="wandb",
     )
 
@@ -426,14 +426,14 @@ def test_onpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
 
     logger = OnPolicyLogger(
         algo_name="PPO",
-        env_name="Go1JoystickFlat",
+        env_name="Go2JoystickFlat",
         log_backend="wandb",
         wandb_project="unilab",
         wandb_entity="team",
-        wandb_name="ppo-go1",
-        wandb_group="go1",
+        wandb_name="ppo-go2",
+        wandb_group="go2",
         wandb_job_type="train",
-        wandb_tags=["ppo", "go1"],
+        wandb_tags=["ppo", "go2"],
         wandb_notes="notes",
     )
 
@@ -442,13 +442,13 @@ def test_onpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
     init_call = fake_wandb.init_calls[0]
     assert init_call["project"] == "unilab"
     assert init_call["entity"] == "team"
-    assert init_call["name"] == "ppo-go1"
-    assert init_call["group"] == "go1"
+    assert init_call["name"] == "ppo-go2"
+    assert init_call["group"] == "go2"
     assert init_call["job_type"] == "train"
-    assert init_call["tags"] == ["ppo", "go1"]
+    assert init_call["tags"] == ["ppo", "go2"]
     assert init_call["notes"] == "notes"
     assert init_call["config"]["algo"] == "PPO"
-    assert init_call["config"]["env"] == "Go1JoystickFlat"
+    assert init_call["config"]["env"] == "Go2JoystickFlat"
     assert init_call["config"]["num_envs"] == 4096
 
     logger.finish()

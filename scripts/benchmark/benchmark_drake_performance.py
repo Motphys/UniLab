@@ -95,11 +95,6 @@ class StepProfiler:
 
 
 def _task_specs() -> dict[str, TaskSpec]:
-    def go1_cfg() -> Any:
-        from unilab.envs import ManagerBasedRlEnvCfg
-
-        return ManagerBasedRlEnvCfg()
-
     def manager_env() -> Callable[..., Any]:
         from unilab.envs import make_manager_based_rl_env
 
@@ -111,7 +106,6 @@ def _task_specs() -> dict[str, TaskSpec]:
         return ManagerBasedRlEnvCfg()
 
     return {
-        "go1_joystick_flat": TaskSpec(go1_cfg, manager_env),
         "go2_joystick_flat": TaskSpec(go2_cfg, manager_env),
     }
 
@@ -321,7 +315,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--tasks",
-        default="go1_joystick_flat,go2_joystick_flat",
+        default="go2_joystick_flat",
         help="Comma-separated task ids with committed Drake YAML owners.",
     )
     parser.add_argument("--backends", default="drake,mujoco", help="Comma-separated backends.")

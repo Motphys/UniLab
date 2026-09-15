@@ -51,9 +51,6 @@ differ per owner — two G1 examples:
   - 514
   - No state estimation: `motion_anchor_pos_b` and `base_lin_vel` are set to
     `null`, pelvis IMU, `history_length: 5` on the proprio terms.
-* - `src/unilab/conf/ppo/task/g1_motion_tracking_deploy/mujoco.yaml`
-  - 154
-  - Single-step mimic actor layout, per-joint-group `scale` regex map.
 ```
 
 ::::{admonition} Read the width off the composed config, not off this table
@@ -107,8 +104,8 @@ Map actor output as `action * scale + default_angles`, then clamp to the
 scene's joint range before the target reaches the motor driver.
 
 - `scale` is `env.actions.joint_pos.scale`. It may be a **scalar** (`2.0` for
-  `g1_wbt_obs`) or a **regex → value map** resolved per actuator
-  (`g1_motion_tracking_deploy` maps joint-name patterns to distinct values).
+  `g1_wbt_obs`) or a **regex → value map** resolved per actuator. Unitree's
+  deploy owners map joint-name patterns to distinct values.
   Reproduce the owner's resolved per-actuator vector exactly — do not average a
   map, take one entry, or broadcast a scalar over a map owner.
 - `default_angles` follows from `use_default_offset: true`, i.e. the `stand`

@@ -15,8 +15,8 @@ all `num_envs` robots out on a grid using `cfg.render_spacing`.
 
 Usage:
     uv run scripts/visualize_task_env.py --task Go2JoystickFlat
-    uv run scripts/visualize_task_env.py --task Go2JoystickRough --num_envs 16
-    uv run scripts/visualize_task_env.py --task Go1JoystickFlat --backend motrix --num_envs 4
+    uv run scripts/visualize_task_env.py --task G1WalkFlat --num_envs 16
+    uv run scripts/visualize_task_env.py --task Go2JoystickFlat --backend motrix --num_envs 4
 """
 
 # pyright: reportAttributeAccessIssue=false
@@ -98,7 +98,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--task",
         type=str,
         default="Go2JoystickFlat",
-        help="Registered task name (e.g. Go2JoystickFlat, Go2JoystickRough, Go1JoystickFlat).",
+        help="Registered task name (e.g. Go2JoystickFlat, G1WalkFlat).",
     )
     parser.add_argument(
         "--backend",

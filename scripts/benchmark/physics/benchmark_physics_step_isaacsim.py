@@ -75,13 +75,6 @@ class BenchRecord:
 
 
 TASK_SPECS: Dict[str, TaskSpec] = {
-    "go1_joystick_flat": TaskSpec(
-        owner_task_id="go1_joystick_flat",
-        display_name="go1_joystick_flat",
-        usd_file="go1_description/go1.usd",
-        articulation_root_prim="base",
-        initial_height=0.40,
-    ),
     "go2_joystick_flat": TaskSpec(
         owner_task_id="go2_joystick_flat",
         display_name="go2_joystick_flat",
@@ -98,10 +91,8 @@ TASK_SPECS: Dict[str, TaskSpec] = {
     ),
 }
 TASK_ALIASES = {
-    "Go1JoystickFlat": "go1_joystick_flat",
     "Go2JoystickFlat": "go2_joystick_flat",
     "G1WalkFlat": "g1_walk_flat",
-    "go1": "go1_joystick_flat",
     "go2": "go2_joystick_flat",
     "g1": "g1_walk_flat",
     **{f"task={task}/isaacsim": task for task in TASK_SPECS},
@@ -568,7 +559,7 @@ def main() -> None:
         "--usd-root",
         type=str,
         default=str(DEFAULT_USD_ROOT),
-        help="Directory containing go1/go2/g1 USD assets",
+        help="Directory containing go2/g1 USD assets",
     )
     parser.add_argument("--tasks", type=str, default=",".join(DEFAULT_TASK_IDS))
     parser.add_argument(

@@ -100,7 +100,7 @@ def _rough_sub_terrains() -> dict[str, SubTerrainCfg]:
 
 @dataclass(kw_only=True)
 class QuadrupedRoughTerrainCfg(TerrainGeneratorCfg):
-    """Shared seven-terrain production generator for Go1, Go2, and Go2W."""
+    """Shared seven-terrain production generator for quadruped rough owners."""
 
     seed: int | None = 42
     curriculum: bool = False

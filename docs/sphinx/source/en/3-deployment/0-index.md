@@ -61,7 +61,7 @@ End-to-end pipeline + go/no-go checklist.
 :::{grid-item-card} 🐕 Go2 locomotion
 :link: 1-sim_to_real/3-go2_locomotion
 :link-type: doc
-Joystick, rough terrain, Go2W wheels.
+Go2 joystick-flat deployment.
 :::
 
 :::{grid-item-card} 🤚 Allegro in-hand

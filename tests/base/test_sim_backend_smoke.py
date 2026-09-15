@@ -29,7 +29,6 @@ def _xml(robot: str, scene: str = "scene_flat.xml") -> str:
 
 BASIC_ROBOTS = [
     pytest.param(dict(model_file=_xml("g1"), base_name="pelvis"), id="g1"),
-    pytest.param(dict(model_file=_xml("go1"), base_name="trunk"), id="go1"),
     pytest.param(dict(model_file=_xml("go2"), base_name="base"), id="go2"),
 ]
 
@@ -502,18 +501,17 @@ def test_backend_batch_sensor_data_matches_individual_sensors(backend_type):
         pytest.importorskip("motrixsim")
 
     from unilab.base.backend_factory import create_backend
-    from unilab.tasks.locomotion.go2w.base import JOINT_SENSOR_PREFIXES
 
     bkd = create_backend(
         backend_type,
-        SceneCfg(model_file=_xml("go2w", "scene_flat.xml")),
+        SceneCfg(model_file=_xml("go2", "scene_flat.xml")),
         NUM_ENVS,
         SIM_DT,
-        base_name="base_link",
+        base_name="base",
     )
     bkd.materialize()
 
-    names = tuple(f"{prefix}_pos" for prefix in JOINT_SENSOR_PREFIXES[:4])
+    names = ("FR_pos", "FL_pos", "gyro", "upvector")
     expected = np.concatenate(
         [np.asarray(bkd.get_sensor_data(name)).reshape(NUM_ENVS, -1) for name in names],
         axis=1,

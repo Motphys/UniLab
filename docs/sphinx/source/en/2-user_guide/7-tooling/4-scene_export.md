@@ -9,7 +9,7 @@ For task-level materialization checks, use the script that constructs an env
 from the registry and owner config:
 
 ```bash
-uv run scripts/visualize_task_env.py --task Go2JoystickRough --backend mujoco --num_envs 4
+uv run scripts/visualize_task_env.py --task G1WalkFlat --backend mujoco --num_envs 4
 ```
 
 `tests/test_export_scene.py` covers the export helper, including `scene.xml`

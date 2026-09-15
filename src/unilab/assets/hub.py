@@ -37,16 +37,12 @@ _HF_OFFICIAL_ENDPOINT = "https://huggingface.co"
 # label only feed the ``unilab-pull-assets`` summary line; resolution keys
 # off the marker file.
 ROBOT_ASSET_SPECS: dict[str, tuple[tuple[str, str, str, str], ...]] = {
-    "a2": (("robots/a2/assets", "a2/base_link.STL", "**/*.STL", "STL"),),
     "allegro_hand": (("robots/allegro_hand/assets", "base_link.stl", "**/*", "asset"),),
     "g1": (
         ("robots/g1/assets", "head_link.STL", "**/*", "asset"),
         ("robots/g1/textures", "floor.png", "*.png", "PNG"),
     ),
-    "go1": (("robots/go1/assets", "trunk.stl", "*.stl", "STL"),),
     "go2": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
-    # go2w points its meshdir at ``../go2/assets``.
-    "go2w": (("robots/go2/assets", "base_0.obj", "**/*", "asset"),),
     "x2": (("robots/x2/meshes", "pelvis.STL", "*.STL", "STL"),),
 }
 

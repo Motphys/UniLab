@@ -62,9 +62,9 @@ def test_derive_worker_seed_is_deterministic_and_distinct_from_base_seed():
 @pytest.mark.parametrize(
     ("config_dir", "overrides"),
     [
-        ("ppo", ["task=go1_joystick_flat/mujoco"]),
-        ("ppo", ["task=go1_joystick_flat/mujoco", "algo.seed=41"]),
-        ("appo", ["task=go1_joystick_flat/mujoco"]),
+        ("ppo", ["task=go2_joystick_flat/mujoco"]),
+        ("ppo", ["task=go2_joystick_flat/mujoco", "algo.seed=41"]),
+        ("appo", ["task=go2_joystick_flat/mujoco"]),
         ("sac", ["task=g1_walk_flat/mujoco"]),
         ("td3", ["task=g1_walk_flat/mujoco"]),
     ],

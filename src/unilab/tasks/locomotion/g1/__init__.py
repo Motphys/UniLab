@@ -18,14 +18,6 @@ registry.register_env_config("G1WalkRough", ManagerBasedRlEnvCfg)
 registry.register_env("G1WalkRough", make_g1_walk_env, sim_backend="mujoco")
 registry.register_env("G1WalkRough", make_g1_walk_env, sim_backend="motrix")
 
-registry.register_env_config("G1Walk23DofFlat", ManagerBasedRlEnvCfg)
-registry.register_env("G1Walk23DofFlat", make_g1_walk_env, sim_backend="mujoco")
-registry.register_env("G1Walk23DofFlat", make_g1_walk_env, sim_backend="motrix")
-
-registry.register_env_config("G1Walk23DofRough", ManagerBasedRlEnvCfg)
-registry.register_env("G1Walk23DofRough", make_g1_walk_env, sim_backend="mujoco")
-registry.register_env("G1Walk23DofRough", make_g1_walk_env, sim_backend="motrix")
-
 __all__ = [
     "G1WalkManagerBasedEnv",
     "make_g1_walk_env",

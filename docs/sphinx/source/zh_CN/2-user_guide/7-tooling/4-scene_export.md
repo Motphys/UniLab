@@ -5,7 +5,7 @@
 对于 task 级别的实例化检查，请使用从 registry 和 owner config 构造 env 的脚本：
 
 ```bash
-uv run scripts/visualize_task_env.py --task Go2JoystickRough --backend mujoco --num_envs 4
+uv run scripts/visualize_task_env.py --task G1WalkFlat --backend mujoco --num_envs 4
 ```
 
 `tests/test_export_scene.py` 覆盖了导出辅助逻辑，包括 `scene.xml` 的创建、可重新加载性以及 zip 输出。

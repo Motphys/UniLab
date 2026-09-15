@@ -53,7 +53,7 @@ def _normalize_overrides(algo_dir: str, overrides: list[str] | None) -> list[str
         if algo_dir in ("sac", "td3", "flashsac"):
             normalized.append("task=g1_walk_flat/mujoco")
         else:
-            normalized.append("task=go1_joystick_flat/mujoco")
+            normalized.append("task=go2_joystick_flat/mujoco")
 
     return normalized
 
@@ -193,20 +193,6 @@ def test_offpolicy_td3_go2_joystick_flat_motrix_composes():
     assert cfg.reward.base_height.params.target_height == pytest.approx(0.3)
 
 
-def test_offpolicy_td3_go1_joystick_flat_motrix_composes():
-    cfg = _compose(
-        "td3",
-        overrides=["task=go1_joystick_flat/motrix"],
-    )
-
-    assert cfg.training.task_name == "Go1JoystickFlat"
-    assert cfg.training.sim_backend == "motrix"
-    assert cfg.algo.algo == "td3"
-    assert cfg.reward.tracking_lin_vel.weight == pytest.approx(1.0)
-    assert cfg.reward.contact is None
-    assert cfg.env.events.push_robot is None
-
-
 def test_offpolicy_g1_walk_flat_mjwarp_owner_preserves_sac_contract():
     mujoco_cfg = _compose("sac", overrides=["task=g1_walk_flat/mujoco"])
     mjwarp_cfg = _compose("sac", overrides=["task=g1_walk_flat/mjwarp"])
@@ -279,21 +265,6 @@ def test_appo_adaptive_lr_factors_are_overridden_only_by_dex_hand_owners():
     assert allegro_motrix_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.5)
 
 
-def test_ppo_go1_motrix_preserves_reward_and_algo_values():
-    cfg = _compose("ppo", overrides=["task=go1_joystick_flat/motrix"])
-
-    assert cfg.algo.max_iterations == 151
-    assert cfg.algo.empirical_normalization is True
-    assert cfg.algo.policy.init_noise_std == pytest.approx(0.5)
-    assert cfg.algo.algorithm.learning_rate == pytest.approx(3.0e-4)
-    assert cfg.reward.tracking_lin_vel.weight == pytest.approx(1.0)
-    assert cfg.reward.contact is None
-    assert cfg.env.commands.twist.ranges.lin_vel_x == [0.5, 0.5]
-    assert cfg.env.commands.twist.ranges.lin_vel_y == [0.0, 0.0]
-    assert cfg.env.commands.twist.ranges.ang_vel_z == [0.0, 0.0]
-    assert cfg.env.events.push_robot is None
-
-
 def test_ppo_go2_motrix_preserves_backend_env_overrides():
     cfg = _compose("ppo", overrides=["task=go2_joystick_flat/motrix"])
 
@@ -303,64 +274,6 @@ def test_ppo_go2_motrix_preserves_backend_env_overrides():
     assert cfg.env.commands.twist.ranges.lin_vel_x == [0.5, 0.5]
     assert cfg.env.commands.twist.ranges.lin_vel_y == [0.0, 0.0]
     assert cfg.env.commands.twist.ranges.ang_vel_z == [0.0, 0.0]
-
-
-def test_ppo_go2w_mujoco_uses_motor_owner_dr_path():
-    cfg = _compose("ppo", overrides=["task=go2w_joystick_flat/mujoco"])
-
-    assert cfg.training.task_name == "Go2WJoystickFlat"
-    assert cfg.training.sim_backend == "mujoco"
-    command = cfg.env.commands.twist
-    assert command.ranges.lin_vel_x == [0.0, 1.0]
-    assert command.ranges.lin_vel_y == [0.0, 0.0]
-    assert command.ranges.ang_vel_z == [-1.0, 1.0]
-    action = cfg.env.actions.motor
-    assert action.leg_action_scale == pytest.approx(0.5)
-    assert action.leg_kp == pytest.approx(50.0)
-    assert action.leg_kd == pytest.approx(1.5)
-    assert action.wheel_action_scale == pytest.approx(10.0)
-    assert action.wheel_kd == pytest.approx(0.5)
-    gains = cfg.env.events.motor_gains.params
-    assert gains.kp_multiplier_range == [1.0, 1.0]
-    assert gains.kd_multiplier_range == [1.0, 1.0]
-    assert cfg.reward.tracking_ang_vel.weight == pytest.approx(0.75)
-    assert cfg.reward.orientation.weight == pytest.approx(-2.0)
-    assert cfg.reward.upward.weight == pytest.approx(1.0)
-    assert cfg.reward.base_height.params.target_height == pytest.approx(0.4)
-    assert cfg.reward.torques.weight < 0.0
-
-
-def test_ppo_go2w_motrix_uses_motor_owner_dr_path():
-    cfg = _compose("ppo", overrides=["task=go2w_joystick_flat/motrix"])
-
-    assert cfg.training.task_name == "Go2WJoystickFlat"
-    assert cfg.training.sim_backend == "motrix"
-    assert cfg.env.render_offset_mode == "zero"
-    command = cfg.env.commands.twist
-    assert command.ranges.lin_vel_x == [0.0, 1.0]
-    assert command.ranges.lin_vel_y == [0.0, 0.0]
-    assert command.ranges.ang_vel_z == [-1.0, 1.0]
-    action = cfg.env.actions.motor
-    assert action.leg_action_scale == pytest.approx(0.5)
-    assert action.leg_kp == pytest.approx(50.0)
-    assert action.leg_kd == pytest.approx(1.5)
-    assert action.wheel_action_scale == pytest.approx(10.0)
-    assert action.wheel_kd == pytest.approx(0.5)
-    assert cfg.reward.tracking_ang_vel.weight == pytest.approx(0.75)
-    assert cfg.reward.orientation.weight == pytest.approx(-2.0)
-    assert cfg.reward.upward.weight == pytest.approx(1.0)
-    assert cfg.reward.torques.weight < 0.0
-
-
-def test_ppo_go2w_motrix_uses_motor_owner_scene_path():
-    cfg = _compose("ppo", overrides=["task=go2w_joystick_flat/motrix"])
-
-    assert cfg.training.task_name == "Go2WJoystickFlat"
-    assert cfg.training.sim_backend == "motrix"
-    assert str(cfg.env.scene.model_file).endswith("src/unilab/assets/robots/go2w/scene_flat.xml")
-    assert cfg.env.scene.default_keyframe_name == "home"
-    assert cfg.env.actions.motor.wheel_action_scale == pytest.approx(10.0)
-    assert cfg.reward.torques.weight < 0.0
 
 
 def test_offpolicy_g1_walk_flat_motrix_preserves_backend_env_overrides():

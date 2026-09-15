@@ -31,32 +31,8 @@ def _go2_mujoco_robot() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "go2" / "go2_mujoco.xml")
 
 
-def _go1_robot() -> str:
-    return str(ASSETS_ROOT_PATH / "robots" / "go1" / "go1.xml")
-
-
-def _go1_mujoco_robot() -> str:
-    return str(ASSETS_ROOT_PATH / "robots" / "go1" / "go1_mujoco.xml")
-
-
-def _go2w_robot() -> str:
-    return str(ASSETS_ROOT_PATH / "robots" / "go2w" / "go2w.xml")
-
-
-def _go2w_mujoco_robot() -> str:
-    return str(ASSETS_ROOT_PATH / "robots" / "go2w" / "go2w_mujoco.xml")
-
-
 def _go2_locomotion_task() -> str:
     return str(ASSETS_ROOT_PATH / "robots" / "go2" / "locomotion_task.xml")
-
-
-def _go1_locomotion_task() -> str:
-    return str(ASSETS_ROOT_PATH / "robots" / "go1" / "locomotion_task.xml")
-
-
-def _go2w_locomotion_task() -> str:
-    return str(ASSETS_ROOT_PATH / "robots" / "go2w" / "locomotion_task.xml")
 
 
 def _geom_id(model, mujoco, name: str) -> int:
@@ -232,85 +208,6 @@ def test_materialize_mujoco_hfield_attached_scene_composes_robot_and_task_fragme
     assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_KEY, "home") >= 0
     assert mujoco.mj_name2id(reloaded_model, mujoco.mjtObj.mjOBJ_HFIELD, "terrain_hfield") >= 0
     assert mujoco.mj_name2id(reloaded_model, mujoco.mjtObj.mjOBJ_GEOM, "floor") >= 0
-
-
-def test_materialize_mujoco_hfield_attached_scene_preserves_go1_collision_xml(
-    tmp_path,
-) -> None:
-    mujoco = pytest.importorskip("mujoco")
-
-    from unilab.terrains import TerrainGeneratorCfg, flat
-
-    cfg = TerrainGeneratorCfg(
-        size=(4.0, 4.0),
-        horizontal_scale=0.2,
-        border_width=0.0,
-        num_rows=1,
-        num_cols=1,
-        sub_terrains={"flat": flat()},
-    )
-
-    model, terrain_origins = materialize_mujoco_hfield_attached_scene(
-        model_file=_go1_mujoco_robot(),
-        terrain_cfg=cfg,
-        output_dir=tmp_path,
-        fragment_files=[_go1_locomotion_task()],
-    )
-
-    assert terrain_origins.shape == (1, 1, 3)
-    assert model.opt.ccd_iterations == 500
-    _assert_geom_contact_params(
-        model,
-        mujoco,
-        name="FL",
-        condim=6,
-        margin=0.005,
-        friction=(0.8, 0.02, 0.01),
-    )
-    _assert_geom_contact_params(
-        model,
-        mujoco,
-        name="FL_thigh_geom",
-        condim=1,
-        margin=0.001,
-        friction=(0.0, 0.0, 0.0),
-    )
-    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "FL_foot_contact") >= 0
-
-
-def test_materialize_mujoco_hfield_attached_scene_preserves_go2w_collision_xml(
-    tmp_path,
-) -> None:
-    mujoco = pytest.importorskip("mujoco")
-
-    from unilab.terrains import TerrainGeneratorCfg, flat
-
-    cfg = TerrainGeneratorCfg(
-        size=(4.0, 4.0),
-        horizontal_scale=0.2,
-        border_width=0.0,
-        num_rows=1,
-        num_cols=1,
-        sub_terrains={"flat": flat()},
-    )
-
-    model, terrain_origins = materialize_mujoco_hfield_attached_scene(
-        model_file=_go2w_mujoco_robot(),
-        terrain_cfg=cfg,
-        output_dir=tmp_path,
-        fragment_files=[_go2w_locomotion_task()],
-    )
-
-    assert terrain_origins.shape == (1, 1, 3)
-    assert model.opt.ccd_iterations == 500
-    _assert_geom_contact_params(
-        model,
-        mujoco,
-        name="FL_wheel_collision",
-        condim=6,
-        margin=0.005,
-        friction=(0.8, 0.02, 0.01),
-    )
 
 
 def test_materialize_mujoco_hfield_attached_scene_accepts_repo_relative_fragments(

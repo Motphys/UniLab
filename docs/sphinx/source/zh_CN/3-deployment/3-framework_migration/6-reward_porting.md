@@ -7,7 +7,7 @@ Manager-Based reward 接收 env，通过 entity facade 和各 manager 读取批�
 ## 跟踪、平滑与关节限制
 
 以下示例的 `twist` command 必须由 owner 的 `env.commands` 定义。
-跟踪与动作平滑项参考 `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml`；
+跟踪与动作平滑项参考 `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml`；
 关节限制与终止项展示现有 helper 的配置方式，权重应按任务评估。
 
 ```yaml

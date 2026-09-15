@@ -22,18 +22,17 @@ Backend 支持通过 `unisim.backend.base` 显式声明。所选 backend 未声�
 ## Interval Push
 
 Manager-Based 任务通过 `env.events.push_robot` term 配置周期推扰。例如，
-`src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` 使用
-`push_by_setting_velocity`，间隔为 15 秒，并按轴声明速度范围。
+保留的 `g1_wbt_obs` owner 使用 `push_by_setting_velocity`，并按轴声明速度范围。
 
 ```bash
-uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
+uv run train --algo sac --task g1_wbt_obs --sim mujoco \
   'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
 
 ## Owner 本地默认值
 
 当取值范围是任务 contract 的一部分时，将其保留在 task owner YAML 中。例如，
-rough 四足家族的 base mass、质心、kp/kd 和 push 随机化作为 event term 声明在
-共享 base `src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`。
+rough 任务族可以把 base mass、质心、kp/kd 和 push 随机化作为 event term
+声明在自己的共享 owner base 中。
 
 完整当前清单见 {doc}`0-index`。

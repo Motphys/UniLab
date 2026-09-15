@@ -9,13 +9,13 @@ owner YAMLs under `src/unilab/conf/` and summarized in {doc}`../../5-reference/5
 :::{grid-item-card} Locomotion
 :link: 1-locomotion
 :link-type: doc
-Go1, Go2, Go2W, and G1 walking owners.
+Go2 and G1 core reference owners; Unitree production variants are downstream.
 :::
 
 :::{grid-item-card} Motion tracking
 :link: 2-motion_tracking
 :link-type: doc
-G1 motion tracking, flips, climbs, wall flips, and box tracking.
+G1/X2 motion-tracking reference profiles.
 :::
 
 :::{grid-item-card} Manipulation

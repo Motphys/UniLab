@@ -5,7 +5,7 @@ This page only describes the current domain randomization status of registered t
 
 Manager-Based event terms are the only DR declaration path:
 
-- **Manager-Based (Compatible) tasks**: reset / interval randomization is declared through Hydra `events:` manager terms in the owner YAML; reset-lifecycle events sample at reset, interval-lifecycle events perturb between steps. See the `events:` block of `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` for an example.
+- **Manager-Based (Compatible) tasks**: reset / interval randomization is declared through Hydra `events:` manager terms in the owner YAML; reset-lifecycle events sample at reset, interval-lifecycle events perturb between steps. See the `events:` block of `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` for an example.
 
 The Manager-Based lifecycle is:
 
@@ -31,7 +31,6 @@ These three paths correspond to three lifecycle classes:
 
 | Task | Declaration path | Structured form? | reset form | interval form | Code |
 | --- | --- | --- | --- | --- | --- |
-| `Go1JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset/interval events | root-state reset + base mass/COM + `pd_gains` | `push_by_setting_velocity` event | `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` |
 | `Go2JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset events | root-state reset + `pd_gains` kp/kd | none | `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | Hydra `events:` terms | Yes: Hydra `EventTermCfg` + Manager-Based reset terms | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
 | `G1WalkRough` | Hydra `events:` terms | Yes: same Manager-Based event terms as `G1WalkFlat` | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
@@ -44,7 +43,6 @@ These three paths correspond to three lifecycle classes:
 
 | Task | Currently implemented reset domain randomization | Currently implemented interval domain randomization | Default state |
 | --- | --- | --- | --- |
-| `Go1JoystickFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling (`UniformVelocityCommandCfg`); base mass via `randomize_rigid_body_mass`; base COM via `randomize_rigid_body_com`; kp/kd via `pd_gains` | `push_by_setting_velocity` interval event | all listed event terms are declared and enabled by default in `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` |
 | `Go2JoystickFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling; kp/kd via `pd_gains` | none | event terms declared and enabled by default in `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | base xy/yaw and base qvel via `reset_root_state_uniform`; command sampling with a planar dead zone; `gait_phase` sampling; kp/kd randomization via `pd_gains` | none | kp/kd enabled on mujoco owners by default; disabled on motrix/mjwarp owners |
 | `G1WalkRough` | Same as `G1WalkFlat` (shared owner bases, rough scene) | none | Same defaults as `G1WalkFlat` |
@@ -78,11 +76,11 @@ early task unlearnable.
 ## Interval push Usage
 
 Manager-Based tasks configure interval push through the `env.events.push_robot`
-term. For example, `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` uses
-`push_by_setting_velocity` with a 15-second interval and per-axis velocity ranges.
+term. For example, the retained `g1_wbt_obs` owner uses
+`push_by_setting_velocity` with interval and per-axis velocity ranges.
 
 ```bash
-uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
+uv run train --algo sac --task g1_wbt_obs --sim mujoco \
   'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
 

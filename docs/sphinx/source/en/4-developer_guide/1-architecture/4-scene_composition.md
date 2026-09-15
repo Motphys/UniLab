@@ -105,11 +105,10 @@ Disallowed on hot paths:
 
 The current procedural terrain user-facing path is Go2 rough terrain:
 
-- Task owner: `src/unilab/tasks/locomotion/go2/rough.py`
+- Task owner: `src/unilab/tasks/locomotion/g1/manager_terms.py`
 - Terrain generator: `unisim.terrain.generator`
 - MuJoCo materializer: `unisim.backend.mujoco.xml`
 - Motrix materializer: `unisim.backend.motrix.scene`
-- Owner YAMLs: `src/unilab/conf/ppo/task/go2_joystick_rough/mujoco.yaml`,
-  `src/unilab/conf/ppo/task/go2_joystick_rough/motrix.yaml`
+- Owner YAMLs: `src/unilab/conf/sac/task/g1_walk_rough/{mujoco,motrix}.yaml`
 
 User instructions are in {doc}`../../2-user_guide/6-terrain/1-procedural`.

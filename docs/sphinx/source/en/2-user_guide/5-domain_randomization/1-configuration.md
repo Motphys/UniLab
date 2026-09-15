@@ -24,19 +24,18 @@ term that calls `randomize_physics_scene_gravity`.
 ## Interval Push
 
 Manager-Based tasks configure interval push through the `env.events.push_robot`
-term. For example, `src/unilab/conf/ppo/task/go1_joystick_flat/base.yaml` uses
-`push_by_setting_velocity` with a 15-second interval and per-axis velocity ranges.
+term. For example, the retained `g1_wbt_obs` owner uses
+`push_by_setting_velocity` with an interval and per-axis velocity ranges.
 
 ```bash
-uv run train --algo ppo --task go1_joystick_flat --sim mujoco \
+uv run train --algo sac --task g1_wbt_obs --sim mujoco \
   'env.events.push_robot.interval_range_s=[10.0,10.0]'
 ```
 
 ## Owner-Local Defaults
 
 Keep ranges in the task owner YAML when they are part of the task contract. For
-example, the rough quadruped family's base mass, center-of-mass, kp/kd, and push
-randomization are declared as event terms in the shared base
-`src/unilab/conf/ppo/task/quadruped_joystick_rough/base.yaml`.
+example, a rough-task family can declare base mass, center-of-mass, kp/kd, and
+push randomization as event terms in its shared owner base.
 
 For the full current inventory, see {doc}`0-index`.

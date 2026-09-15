@@ -45,7 +45,7 @@ def test_visualize_task_env_parses_explicit_args():
     args = mod._parse_args(
         [
             "--task",
-            "Go2JoystickRough",
+            "G1WalkFlat",
             "--backend",
             "motrix",
             "--num_envs",
@@ -53,7 +53,7 @@ def test_visualize_task_env_parses_explicit_args():
         ]
     )
 
-    assert args.task == "Go2JoystickRough"
+    assert args.task == "G1WalkFlat"
     assert args.backend == "motrix"
     assert args.num_envs == 8
 

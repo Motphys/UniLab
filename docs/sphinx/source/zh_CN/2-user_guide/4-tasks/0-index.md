@@ -9,13 +9,13 @@
 :::{grid-item-card} 运动控制
 :link: 1-locomotion
 :link-type: doc
-Go1、Go2、Go2W 和 G1 行走 owner。
+Go2 与 G1 核心参考 owner；Unitree production 变体在下游。
 :::
 
 :::{grid-item-card} 动作追踪
 :link: 2-motion_tracking
 :link-type: doc
-G1 动作追踪、翻转、攀爬、墙面翻转和箱体追踪。
+G1/X2 motion-tracking 参考配置。
 :::
 
 :::{grid-item-card} 操作

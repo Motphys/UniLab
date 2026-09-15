@@ -51,7 +51,7 @@ G1 路线的运动跟踪部署说明。
 :::{grid-item-card} Go2 运动
 :link: 3-go2_locomotion
 :link-type: doc
-摇杆、崎岖地形与 Go2W 的部署说明。
+Go2 joystick-flat 部署说明。
 :::
 
 :::{grid-item-card} Allegro 手内操作
