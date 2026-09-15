@@ -13,6 +13,28 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased / 未发布
+
+### Added / 新增
+
+- Added IsaacGym fixed-variant protocol and real-runtime coverage. The
+  deterministic worker mock validates and echoes the construction-time variant
+  assignment, while the external Preview-4 slow lane realizes per-env actor
+  asset selection and per-variant keyframes; public layout drift fails closed.
+  IsaacGym fixed variants and the still-pending 600-variant support decision
+  are documented on the backend page.
+  新增 IsaacGym fixed-variant 协议层与真实 runtime 覆盖。确定性 worker mock
+  校验并回显 construction-time variant assignment；外部 Preview 4 slow lane
+  验证逐环境 actor 资产选择与逐变体 keyframe；公共布局漂移 fail closed。
+  IsaacGym fixed variants 及仍待决策的 600 变体支持边界已写入后端文档。
+- Added the IsaacGym fixed-variant scale benchmark. Each variant count runs in
+  a fresh child process and records source generation, construction time,
+  live worker RSS, and control/physics/env-step rates; results are written as
+  a versioned JSON artifact for the #1579 support decision.
+  新增 IsaacGym fixed-variant 规模 benchmark。每个 variant 数在独立子进程中
+  运行，记录源生成、构造时间、worker 实时 RSS 与 control/physics/env-step
+  速率，并输出版本化 JSON artifact 供 #1579 support 决策使用。
+
 ## 1.3.0 (2026-09-14)
 
 ### Breaking changes / 破坏性变更
