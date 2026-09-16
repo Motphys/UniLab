@@ -133,13 +133,7 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
                 "in a source checkout (or `pip install unilab[newton]`)."
             )
     if sim == "superdex":
-        try:
-            from unisim.backend.superdex.dependencies import superdex_dependencies_available
-        except ImportError as exc:
-            raise SystemExit(
-                "sim=superdex requires unisim-core>=1.1.5 with the SuperDex adapter; "
-                "the installed unisim-core does not provide that adapter."
-            ) from exc
+        from unisim.backend.superdex.dependencies import superdex_dependencies_available
 
         if not superdex_dependencies_available():
             raise SystemExit(

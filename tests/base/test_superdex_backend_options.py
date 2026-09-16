@@ -93,7 +93,7 @@ def test_large_superdex_batch_delegates_worker_selection_to_unisim(
     assert captured["superdex_num_workers"] == workers
 
 
-def test_superdex_execution_mode_is_forwarded_only_when_serial(
+def test_superdex_execution_mode_is_always_forwarded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
@@ -111,13 +111,11 @@ def test_superdex_execution_mode_is_forwarded_only_when_serial(
     backend_factory.create_backend(
         "superdex", scene, 1, 0.002, **backend_factory.env_backend_kwargs(serial)
     )
-    # Legacy unisim-core releases predate the option; the default stays absent
-    # so they still accept the SuperDex kwargs.
     assert captured["superdex_execution_mode"] == "serial"
     backend_factory.create_backend(
         "superdex", scene, 1, 0.002, **backend_factory.env_backend_kwargs(EnvCfg())
     )
-    assert "superdex_execution_mode" not in captured
+    assert captured["superdex_execution_mode"] == "batch"
 
 
 def test_superdex_execution_mode_validates_and_does_not_leak(

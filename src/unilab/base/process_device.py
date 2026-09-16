@@ -26,9 +26,12 @@ BACKEND_ENV_DEVICE_FIELDS: dict[str, str] = {
 
 
 # Newton consumes an explicit ``cuda:N`` device string (``newton_device``)
-# instead of an integer id.  uni_rl's collector-side binder gate only knows
-# mjwarp, so the rank-local device must reach spawn collectors through the
-# env override rather than through process binding.
+# instead of an integer id.  uni_rl's collector-side process binding is
+# injection-based: it binds through the caller-supplied ``bind_device``
+# callable and fails closed when none is injected.  UniLab injects
+# ``bind_backend_process_device_for_backend`` (which covers mjwarp and
+# newton); the env override additionally forwards the rank-local device
+# string so spawn collectors can pass it to the Newton adapter.
 BACKEND_ENV_DEVICE_STR_FIELDS: dict[str, str] = {
     "newton": "newton_device",
 }

@@ -133,7 +133,7 @@ def test_replay_transfer_manifest_records_backend_fields() -> None:
     assert manifest["backend"] == "TorchCopyReplayTransferBackend"
     assert manifest["device_family"] == "cpu"
     assert manifest["host_memory_kind"] == "pageable_shared"
-    assert manifest["supports_async_submit"] is False
+    assert "supports_async_submit" not in manifest
     assert manifest["ring_depth"] == 2
 
 

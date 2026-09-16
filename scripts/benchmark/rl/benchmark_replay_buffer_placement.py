@@ -191,6 +191,12 @@ def _xpu_available() -> bool:
 
 
 def _replay_transfer_manifest(device: torch.device, *, ring_depth: int = 2) -> dict[str, Any]:
+    """Describe the uni_rl 1.2.1 replay-transfer backend for ``device``.
+
+    uni_rl 1.2.1 builds ``CudaLikeReplayTransferBackend`` for CUDA (ROCm
+    included) and ``TorchCopyReplayTransferBackend`` otherwise; the async
+    ``submit_h2d`` path and the dedicated XPU backend no longer exist.
+    """
     if device.type == "cuda":
         torch_version = getattr(torch, "version", None)
         is_rocm = bool(getattr(torch_version, "hip", None))
@@ -198,26 +204,14 @@ def _replay_transfer_manifest(device: torch.device, *, ring_depth: int = 2) -> d
             "backend": "CudaLikeReplayTransferBackend",
             "device_family": "rocm" if is_rocm else "cuda",
             "host_memory_kind": "registered_pinned_shared",
-            "supports_async_submit": True,
             "supports_timing_events": True,
             "h2d_submitter": "torch_copy_stream" if is_rocm else "pybind11",
-            "ring_depth": ring_depth,
-        }
-    if device.type == "xpu":
-        return {
-            "backend": "XpuReplayTransferBackend",
-            "device_family": "xpu",
-            "host_memory_kind": "pageable_shared",
-            "supports_async_submit": True,
-            "supports_timing_events": False,
-            "h2d_submitter": "torch_xpu_copy_stream",
             "ring_depth": ring_depth,
         }
     return {
         "backend": "TorchCopyReplayTransferBackend",
         "device_family": device.type,
         "host_memory_kind": "pageable_shared",
-        "supports_async_submit": False,
         "supports_timing_events": False,
         "h2d_submitter": "torch_copy",
         "ring_depth": ring_depth,

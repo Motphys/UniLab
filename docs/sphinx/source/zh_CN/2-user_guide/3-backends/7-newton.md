@@ -31,9 +31,10 @@ DpRankSupervisor DP=2（`training.devices=[0,1]`）训练冒烟均正常完成�
 在各自 GPU、无对端泄漏；单卡 PPO/SAC 回归同步通过。Newton/Warp 遵循标准
 CUDA 设备语义，无需 Genesis 那样的 `CUDA_VISIBLE_DEVICES` 钉卡；rank
 本地设备通过 env override 以 `newton_device="cuda:N"` 传入 spawn
-collector（uni_rl 1.0.0 的 collector 进程绑定门只覆盖 mjwarp），SAC
-owner 将 collector tick-0 超时提升到 180 s 以覆盖 Warp 内核编译的冷
-路径。
+collector，且 uni_rl 的 collector 进程绑定为注入式——UniLab 注入的
+`bind_backend_process_device_for_backend` 同时覆盖 mjwarp 与
+newton；SAC owner 将 collector tick-0 超时提升到 180 s 以覆盖 Warp
+内核编译的冷路径。
 
 ## 安装
 
