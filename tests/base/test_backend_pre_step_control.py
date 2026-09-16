@@ -136,6 +136,10 @@ def _fake_mujoco_backend(pre_step_control_fn=None):
 
     pool = _FakeMjBatch()
     backend = object.__new__(MuJoCoBackend)
+    backend._entity_layout = None
+    backend._tracked_body_state_dirty = np.zeros(1, dtype=np.bool_)
+    backend._tracked_sensor_slices = {}
+    backend._refresh_pre_step_body_state = True
     backend._pre_step_control_fn = pre_step_control_fn
     backend._tracked_sensor_copyout_range = None
     backend._num_envs = 1

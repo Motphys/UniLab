@@ -218,6 +218,11 @@ def _prepare_dataclass(
     hints = _hints(target)
     prepared: dict[str, Any] = {HYDRA_TARGET_KEY: reference}
     for name, raw_value in values.items():
+        from unilab.base.scene import SceneCfg
+
+        if issubclass(target, SceneCfg) and name in ("entity_assets", "entity_variant"):
+            prepared[name] = _plain(raw_value)
+            continue
         field = fields[name]
         field_path = f"{path}.{name}"
         annotation = hints.get(name, field.type)
@@ -365,6 +370,11 @@ def apply_cfg_overrides(
         if not isinstance(key, str) or not hasattr(target_obj, key):
             raise ValueError(f"Config class '{type(target_obj).__name__}' has no attribute '{key}'")
         value = _plain(raw_value)
+        from unilab.base.scene import SceneCfg
+
+        if isinstance(target_obj, SceneCfg) and key in ("entity_assets", "entity_variant"):
+            setattr(target_obj, key, value)
+            continue
         existing = getattr(target_obj, key)
         annotation = hints.get(key, fields[key].type if key in fields else Any)
         policy = _policy(target_obj, key)
@@ -407,6 +417,11 @@ def apply_cfg_overrides(
                     ) from exc
                 continue
         setattr(target_obj, key, _prepare_value(value, annotation=Any, path=path))
+
+    from unilab.base.scene import SceneCfg
+
+    if isinstance(target_obj, SceneCfg):
+        target_obj.__post_init__()
 
 
 __all__ = ["HYDRA_TARGET_KEY", "apply_cfg_overrides"]

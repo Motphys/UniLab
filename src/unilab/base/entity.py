@@ -48,6 +48,7 @@ class EntityCfg:
     geom_names: NamesCfg = None
     site_names: NamesCfg = None
     actuator_names: NamesCfg = None
+    physical_entity: str | None = None
 
 
 def _normalize_names(entity_name: str, kind: str, names: NamesCfg) -> tuple[str, ...] | None:
@@ -587,12 +588,38 @@ class Entity:
         self._joint_model_dof_ids: np.ndarray | None = None
         self._motion_body_ids: np.ndarray | None = None
         self._mocap_body_name: str | None = None
+        self._physical_entity: str | None = None
+        self._entity_defaults: dict[str, np.ndarray] | None = None
+        if reset_state is not None and reset_state.scene_layout is not None:
+            layout = reset_state.scene_layout
+            physical = cfg.physical_entity
+            if physical is None and cfg.root_body_name is not None and "/" in cfg.root_body_name:
+                physical = cfg.root_body_name.split("/", 1)[0]
+            if physical is None:
+                raise ValueError(f"Entity '{name}' requires physical_entity in a composed scene")
+            owner = layout.get_entity(physical)
+            if any(j.kind not in ("hinge", "slide") for j in owner.joints):
+                raise NotImplementedError("UniLab entity consumer currently supports scalar joints")
+            self._physical_entity = physical
+            self._entity_defaults = dict(backend.get_entity_default_state(physical))
 
         self._joint_names = _normalize_names(name, "joint", cfg.joint_names)
         self._body_names = _normalize_names(name, "body", cfg.body_names)
         self._geom_names = _normalize_names(name, "geom", cfg.geom_names)
         self._site_names = _normalize_names(name, "site", cfg.site_names)
         self._actuator_names = _normalize_names(name, "actuator", cfg.actuator_names)
+        if self._physical_entity is not None:
+            prefix = self._physical_entity + "/"
+            selected = [
+                value
+                for values in (self._joint_names, self._body_names, self._actuator_names)
+                if values
+                for value in values
+            ]
+            if cfg.root_body_name:
+                selected.append(cfg.root_body_name)
+            if any(not value.startswith(prefix) for value in selected):
+                raise ValueError("mapped logical selectors must belong to their physical entity")
 
         root_body_ids = None
         if cfg.root_body_name is not None:
@@ -760,7 +787,7 @@ class Entity:
                 f"backend '{self._backend_type}'; available={list(all_names)}"
             )
         return _readonly_ids(
-            [ids_by_name[value] for value in names],
+            np.asarray([ids_by_name[value] for value in names], dtype=np.int32),
             expected=len(names),
             label=f"Entity '{self.name}' {capability}",
         )
@@ -868,6 +895,8 @@ class Entity:
     ) -> np.ndarray | None:
         if joint_pos_ids is None:
             return None
+        if self._entity_defaults is not None:
+            return self._selected_entity_default_joints("joint_positions")
         current = self._read_state("joint position state", backend.get_dof_pos)
         if default_qpos is None:
             defaults = self._read_state("default joint position", backend.get_default_dof_pos)
@@ -911,6 +940,10 @@ class Entity:
     ) -> np.ndarray | None:
         if joint_pos_ids is None:
             return None
+        if self._physical_entity is not None:
+            result = np.asarray(backend.get_joint_range(names=self._joint_names)).copy()
+            result.setflags(write=False)
+            return result
         try:
             raw_ranges = backend.get_joint_range()
         except (AttributeError, NotImplementedError) as exc:
@@ -941,6 +974,11 @@ class Entity:
     ) -> tuple[BackendRootStateLayout | None, np.ndarray | None, str | None]:
         if root_body_name is None:
             return None, None, "root_body_name was not declared in EntityCfg"
+        if self._entity_defaults is not None:
+            defaults = self._entity_defaults
+            value = np.concatenate((defaults["root_pose"], defaults["root_velocity"]), axis=1)
+            value.setflags(write=False)
+            return None, value, None
         try:
             layout = backend.get_root_state_layout(root_body_name)
         except (AttributeError, NotImplementedError) as exc:
@@ -1011,6 +1049,8 @@ class Entity:
     ) -> np.ndarray | None:
         if joint_vel_ids is None:
             return None
+        if self._entity_defaults is not None:
+            return self._selected_entity_default_joints("joint_velocities")
         current = self._read_state("joint velocity state", backend.get_dof_vel)
         materialized = np.zeros(
             (backend.num_envs, len(joint_vel_ids)),
@@ -1018,6 +1058,16 @@ class Entity:
         )
         materialized.setflags(write=False)
         return materialized
+
+    def _selected_entity_default_joints(self, field: str) -> np.ndarray:
+        assert self._reset_state is not None and self._reset_state.scene_layout is not None
+        assert self._physical_entity is not None and self._entity_defaults is not None
+        owner = self._reset_state.scene_layout.get_entity(self._physical_entity)
+        names = [joint.name for joint in owner.joints]
+        selected = [names.index(name.split("/", 1)[1]) for name in self._joint_names or ()]
+        result = self._entity_defaults[field][:, selected].copy()
+        result.setflags(write=False)
+        return result
 
     def _materialize_gravity_vector(
         self, backend: SimBackend, root_body_ids: np.ndarray | None
@@ -1309,6 +1359,13 @@ class Entity:
         env_ids: np.ndarray | slice | None = None,
     ) -> None:
         """Stage a 13-D world-frame root state in the active reset transaction."""
+        if self._physical_entity is not None:
+            if root_state.ndim != 2 or root_state.shape[1] != 13:
+                raise ValueError("root_state must have 13 columns")
+            self._stage_entity_write(
+                env_ids, root_pose=root_state[:, :7], root_velocity=root_state[:, 7:]
+            )
+            return
         reset_state, layout = self._require_root_state_write()
         resolved_env_ids = self._normalize_reset_env_ids(env_ids)
         reset_state.write_root_state(
@@ -2084,6 +2141,9 @@ class Entity:
         env_ids: np.ndarray | slice | None = None,
     ) -> None:
         """Stage world position and wxyz root orientation during reset."""
+        if self._physical_entity is not None:
+            self._stage_entity_write(env_ids, root_pose=root_pose)
+            return
         reset_state, layout = self._require_root_state_write()
         resolved_env_ids = self._normalize_reset_env_ids(env_ids)
         reset_state.write_root_pose(
@@ -2099,6 +2159,9 @@ class Entity:
         env_ids: np.ndarray | slice | None = None,
     ) -> None:
         """Stage world linear/angular root velocity during reset."""
+        if self._physical_entity is not None:
+            self._stage_entity_write(env_ids, root_velocity=root_velocity)
+            return
         reset_state, layout = self._require_root_state_write()
         resolved_env_ids = self._normalize_reset_env_ids(env_ids)
         reset_state.write_root_velocity(
@@ -2119,6 +2182,11 @@ class Entity:
         term has written yet), so a later reset term can build on an earlier
         term's root placement.
         """
+        if self._physical_entity is not None:
+            assert self._reset_state is not None
+            return self._reset_state.read_entity_root_pose(
+                self._physical_entity, self._normalize_reset_env_ids(env_ids)
+            )
         reset_state, layout = self._require_root_state_write()
         resolved_env_ids = self._normalize_reset_env_ids(env_ids)
         return reset_state.read_root_pose(
@@ -2163,6 +2231,15 @@ class Entity:
             capability="reset joint-state write",
         )
         resolved_env_ids = self._normalize_reset_env_ids(env_ids)
+        if self._physical_entity is not None:
+            names = tuple(self._joint_names[int(i)].split("/", 1)[1] for i in local_joint_ids)
+            self._stage_entity_write(
+                resolved_env_ids,
+                joint_positions=position,
+                joint_velocities=velocity,
+                joint_names=names,
+            )
+            return
         self._materialize_reset_joint_indices()
         assert self._reset_joint_qpos_ids is not None
         assert self._reset_joint_qvel_ids is not None
@@ -2173,6 +2250,15 @@ class Entity:
             position,
             velocity,
             term_name=f"{self.name}.write_joint_state_to_sim",
+        )
+
+    def _stage_entity_write(self, env_ids, **fields) -> None:
+        assert self._reset_state is not None and self._physical_entity is not None
+        self._reset_state.write_entity_state(
+            self._physical_entity,
+            self._normalize_reset_env_ids(env_ids),
+            term_name=f"{self.name}.entity_state",
+            **fields,
         )
 
     def _materialize_reset_joint_indices(self) -> None:

@@ -17,6 +17,9 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Added / 新增
 
+- Added the development M2 entity consumer: typed physical sources/variants, explicit logical-to-physical binding, selected entity reset transactions and per-variant state/control defaults. A registered primitive task validates the same pickleable EnvFactory with MuJoCo and IsaacSim. The consumer requires the UniSim M2 integration APIs; released dependency validation remains a separate gate.
+  新增开发中的 M2 实体消费层：物理源/variant 类型化、显式逻辑到物理绑定、局部实体 reset 事务和逐 variant 状态/控制默认值。注册 primitive task 验证同一可 pickle EnvFactory 在 MuJoCo/IsaacSim 的行为。消费层需要 UniSim M2 集成 API，已发布依赖验证仍为独立门禁。
+
 - Added IsaacGym fixed-variant protocol and real-runtime coverage. The
   deterministic worker mock validates and echoes the construction-time variant
   assignment, while the external Preview-4 slow lane realizes per-env actor

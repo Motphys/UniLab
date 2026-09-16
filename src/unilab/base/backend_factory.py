@@ -85,9 +85,13 @@ def create_backend(
         kwargs.pop("superdex_execution_mode", None)
         kwargs.pop("superdex_effort_limits", None)
         kwargs.pop("superdex_allow_contact_approximation", None)
-    ensure_robot_assets_for_paths(
-        [scene.model_file, scene.visual_model_file, *scene.fragment_files]
+    paths = [scene.model_file, scene.visual_model_file, *scene.fragment_files]
+    paths.extend(
+        entity.source.model_file for entity in scene.entity_assets if entity.source is not None
     )
+    if scene.entity_variant is not None:
+        paths.extend(source.model_file for source in scene.entity_variant.plan.variants)
+    ensure_robot_assets_for_paths(list(dict.fromkeys(paths)))
     if backend_type == "drake":
         # unisim-core 1.4.2 dropped the Drake-branch filtering of MuJoCo
         # root-body options; Drake derives root state from its own plant and

@@ -151,11 +151,40 @@ class ManagerBasedRlEnvCfg(EnvCfg):
                 "ManagerBasedRlEnvCfg scene must be a SceneCfg instance, "
                 f"got {type(self.scene).__name__}"
             )
+        self.scene.__post_init__()
 
 
 def _resolve_backend_entity_contract(cfg: ManagerBasedRlEnvCfg) -> tuple[str, bool]:
     """Resolve task-independent backend inputs from declared scene entities."""
     assert cfg.scene is not None
+    if cfg.scene.entity_assets:
+        names = {entity.name: entity for entity in cfg.scene.entity_assets}
+        primary = cfg.scene.primary_entity
+        if primary is None:
+            controlled = [
+                name
+                for name, selector in cfg.scene.entities.items()
+                if isinstance(selector, EntityCfg) and selector.actuator_names
+            ]
+            if len(controlled) != 1:
+                raise ValueError("composed manager scene requires explicit primary_entity")
+            selector = cfg.scene.entities[controlled[0]]
+            assert isinstance(selector, EntityCfg)
+            primary = selector.physical_entity
+            if primary is None and selector.root_body_name:
+                primary = selector.root_body_name.split("/", 1)[0]
+        if primary is None or primary not in names:
+            raise ValueError("primary entity must name a physical scene entity")
+        root_names = [
+            selector.root_body_name
+            for selector in cfg.scene.entities.values()
+            if isinstance(selector, EntityCfg)
+            and selector.root_body_name
+            and selector.root_body_name.startswith(primary + "/")
+        ]
+        if not root_names:
+            raise ValueError("primary_entity needs an entity-qualified logical root selector")
+        return root_names[0], True
     root_entities: list[tuple[str, str]] = []
     body_state_requested = False
     for entity_name, entity_cfg in cfg.scene.entities.items():
@@ -186,14 +215,14 @@ def _resolve_backend_entity_contract(cfg: ManagerBasedRlEnvCfg) -> tuple[str, bo
             "ManagerBasedRlEnv factory requires at least one scene entity with an explicit "
             "root_body_name"
         )
-    primary = next((item for item in root_entities if item[0] == "robot"), None)
-    if primary is None and len(root_entities) != 1:
+    primary_root = next((item for item in root_entities if item[0] == "robot"), None)
+    if primary_root is None and len(root_entities) != 1:
         declared = [name for name, _ in root_entities]
         raise ValueError(
             "ManagerBasedRlEnv factory requires a conventional 'robot' root entity when "
             f"multiple floating entities are declared; found {declared}"
         )
-    return (primary or root_entities[0])[1], body_state_requested
+    return (primary_root or root_entities[0])[1], body_state_requested
 
 
 class ManagerBasedRlEnv(NpEnv):
@@ -235,7 +264,13 @@ class ManagerBasedRlEnv(NpEnv):
         assert cfg.scene is not None
         default_qpos = resolve_scene_default_qpos(cfg.scene, backend)
         self._control = np.zeros((num_envs, backend.num_actuators), dtype=get_global_dtype())
-        self._reset_state = ResetStateTransaction(backend, default_qpos=default_qpos)
+        if cfg.scene.entity_assets:
+            self._control[:] = backend.get_state("ctrl")["ctrl"]
+        self._reset_state = ResetStateTransaction(
+            backend,
+            default_qpos=default_qpos,
+            scene_layout=backend.get_scene_layout() if cfg.scene.entity_assets else None,
+        )
         self.scene = EntityScene.from_scene_cfg(
             cfg.scene,
             backend,
@@ -606,7 +641,10 @@ class ManagerBasedRlEnv(NpEnv):
             log.update(manager.reset(ids))
 
         self.episode_length_buf[ids] = 0
-        self._control[ids] = 0.0
+        if self._reset_state.scene_layout is not None:
+            self._control[ids] = self._backend.get_state("ctrl")["ctrl"][ids]
+        else:
+            self._control[ids] = 0.0
         self._manual_reset_pending[ids] = False
         if self._state is not None:
             self._state.info["steps"][ids] = 0

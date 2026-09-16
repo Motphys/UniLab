@@ -29,7 +29,19 @@ Backend 差异是契约边界，而不是脚本层面的特殊处理。play/rend
 - 资源/XML/模型元数据的访问属于冷路径，例如场景 materialization、backend init
   或 cache 创建。
 
+## 物理实体与局部 reset
+
+Issue #1599 的 M2 消费层将 UniSim 物理实体声明与 UniLab 逻辑 selector 分开。`SceneCfg` 物化实体/variant 类型并调用父契约校验，asset factory 收集物理源和 catalog 源路径。`EntityCfg.physical_entity` 显式绑定逻辑 facade；`primary_entity` 选择场景主根，不把任务名称写进 backend。
+
+既有 `ResetStateTransaction` 为 mapped scene 暂存一次公共 `SceneResetRequest`。缺失字段、未选实体和环境保持不变。逐环境默认值来自 `get_entity_default_state`，`restore_default_controls` 在同次提交中恢复 keyframe control，控制值不必等于关节位置。Manager term 不接触引擎私有 tensor 或资产解析。当前消费边界为标量 hinge/slide 和一次事务共用选中环境集合；不支持的 DR/mocap 混写或行模式明确拒绝。
+
+`tests/envs/test_multi_entity_consumer.py` 为 MuJoCo 和 IsaacSim 注册同一个 primitive task，并使用同一个可 pickle 的 EnvFactory。测试检查观测/动作维度、被动关节、局部 reset、variants 和 kinematic mirror。原生 IsaacSim case 通过 `UNILAB_TEST_M2_ISAACSIM=1` 启用。开发验证通过 `UNILAB_LOCAL_UNISIM` 显式使用本地 UniSim M2 checkout；当前已发布依赖锁还不含这些 API，因此依赖发布门禁完成前仍是开发集成。实现和验证边界见 [UniSim roadmap #108](https://github.com/unilabsim/unisim/issues/108)。
+
 ## 仓库中的证据
+
+- 配置与资产准备：`src/unilab/base/scene.py`、`src/unilab/base/backend_factory.py`。
+- 公共状态/reset 绑定：`src/unilab/base/entity.py`、`src/unilab/base/reset_state.py`。
+- 注册 runtime 测试：`tests/base/test_entity_scene_consumer.py`、`tests/envs/test_multi_entity_consumer.py`。
 
 - Backend 接口与 play 能力：`unisim.backend.base`
 - Backend 工厂：`src/unilab/base/backend_factory.py`

@@ -34,7 +34,19 @@ Optional capabilities are explicit:
 - Asset/XML/model metadata access belongs to cold paths such as scene
   materialization, backend init, or cache creation.
 
+## Physical entities and selected reset
+
+The M2 consumer in issue #1599 uses UniSim physical entity declarations separately from UniLab logical selectors. `SceneCfg` materializes typed entity/variant values, calls the parent contract validation, and the asset factory collects physical and catalog source paths. `EntityCfg.physical_entity` binds a logical facade explicitly; `primary_entity` selects the scene's primary root without encoding a task name in the backend.
+
+The existing `ResetStateTransaction` stages one public `SceneResetRequest` for mapped scenes. Missing fields and unselected entities/environments remain unchanged. Per-environment defaults come from `get_entity_default_state`, and `restore_default_controls` restores keyframe controls in the same commit; controls need not equal joint positions. No engine-private tensors or asset parsing enter manager terms. Scalar hinge/slide joints and a common selected environment set per transaction are the current consumer boundary; unsupported mixed DR/mocap or row patterns fail explicitly.
+
+`tests/envs/test_multi_entity_consumer.py` registers one primitive task with the same pickleable EnvFactory for MuJoCo and IsaacSim. It checks observation/action dimensions, passive joints, selected resets, variants and a kinematic mirror. The native IsaacSim cases require `UNILAB_TEST_M2_ISAACSIM=1`. Development validation uses an explicit local UniSim M2 checkout via `UNILAB_LOCAL_UNISIM`; the current released dependency lock does not yet contain these APIs, so this remains a development integration until the dependency release gate is met. See [UniSim roadmap #108](https://github.com/unilabsim/unisim/issues/108) for implementation and verification scope.
+
 ## Evidence In Repo
+
+- Configuration and asset preparation: `src/unilab/base/scene.py`, `src/unilab/base/backend_factory.py`.
+- Public state/reset bindings: `src/unilab/base/entity.py`, `src/unilab/base/reset_state.py`.
+- Registered runtime tests: `tests/base/test_entity_scene_consumer.py`, `tests/envs/test_multi_entity_consumer.py`.
 
 - Backend interface and play capabilities: `unisim.backend.base`
 - Backend factory: `src/unilab/base/backend_factory.py`

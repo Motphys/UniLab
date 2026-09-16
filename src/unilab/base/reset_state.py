@@ -30,6 +30,8 @@ from unisim.dr.types import (
     RESET_TERM_KP,
     ResetRandomizationPayload,
 )
+from unisim.entities import EntityStatePatch, SceneResetRequest
+from unisim.scene_layout import CompiledSceneLayout
 
 from unilab.utils.rotation import np_quat_apply_inverse
 
@@ -73,10 +75,23 @@ class ResetStateTransaction:
         backend: SimBackend,
         *,
         default_qpos: np.ndarray | None = None,
+        scene_layout: CompiledSceneLayout | None = None,
     ) -> None:
         self._backend = backend
         self._num_envs = backend.num_envs
         self._selected_default_qpos = default_qpos
+        self.scene_layout = scene_layout
+        if scene_layout is not None and any(
+            joint.kind not in ("hinge", "slide")
+            for entity in scene_layout.entities
+            for joint in entity.joints
+        ):
+            raise NotImplementedError("mapped manager reset currently supports scalar joints")
+        self._entity_values: dict[str, dict[str, np.ndarray]] = {}
+        self._entity_fields: dict[str, set[str]] = {}
+        self._entity_joints: dict[str, set[str]] = {}
+        self._entity_rows: tuple[int, ...] | None = None
+        self._restore_entity_controls = False
         self._active = False
         self._active_mask = np.zeros(self._num_envs, dtype=np.bool_)
         self._dirty_mask = np.zeros(self._num_envs, dtype=np.bool_)
@@ -151,7 +166,113 @@ class ResetStateTransaction:
         self._requesting_terms.clear()
         self._last_commit_had_writes = False
         self._last_set_state_timing_ms = {}
+        self._entity_values.clear()
+        self._entity_fields.clear()
+        self._entity_joints.clear()
+        self._entity_rows = None
+        self._restore_entity_controls = False
         self._active = True
+
+    def write_entity_state(
+        self,
+        entity: str,
+        env_ids: np.ndarray,
+        *,
+        term_name: str,
+        root_pose: np.ndarray | None = None,
+        root_velocity: np.ndarray | None = None,
+        joint_positions: np.ndarray | None = None,
+        joint_velocities: np.ndarray | None = None,
+        joint_names: tuple[str, ...] = (),
+    ) -> None:
+        """Stage one public physical-entity patch in the current manager transaction."""
+        self._require_active()
+        if self.scene_layout is None:
+            raise NotImplementedError("physical entity patches require a compiled scene layout")
+        ids = self._validate_ids(env_ids, capability=term_name)
+        if np.any(~self._active_mask[ids]):
+            raise ValueError("entity write is outside the active reset")
+        if not len(ids):
+            return
+        patch = EntityStatePatch(
+            entity, root_pose, root_velocity, joint_positions, joint_velocities, joint_names
+        )
+        request = SceneResetRequest(tuple(int(i) for i in ids), (patch,))
+        self.scene_layout.validate_reset(request, num_envs=self._num_envs)
+        rows = tuple(sorted(request.env_ids))
+        if self._entity_rows is not None and self._entity_rows != rows:
+            raise NotImplementedError(
+                "one entity transaction requires the same selected env rows for every patch"
+            )
+        self._entity_rows = rows
+        order = [request.env_ids.index(i) for i in rows]
+        owner = self.scene_layout.get_entity(entity)
+        if entity not in self._entity_values:
+            self._entity_values[entity] = {
+                name: values[list(rows)].copy()
+                for name, values in self._backend.get_entity_state(entity).items()
+            }
+            self._entity_fields[entity] = set()
+            self._entity_joints[entity] = set()
+        values = self._entity_values[entity]
+        selected_joints = joint_names or tuple(joint.name for joint in owner.joints)
+        for field in ("root_pose", "root_velocity", "joint_positions", "joint_velocities"):
+            incoming = getattr(patch, field)
+            if incoming is None:
+                continue
+            if field.startswith("joint"):
+                columns = [
+                    tuple(j.name for j in owner.joints).index(name) for name in selected_joints
+                ]
+                values[field][:, columns] = incoming[order]
+                self._entity_joints[entity].update(selected_joints)
+            else:
+                values[field][:] = incoming[order]
+            self._entity_fields[entity].add(field)
+        self._requesting_terms.add(term_name)
+
+    def read_entity_root_pose(self, entity: str, env_ids: np.ndarray) -> np.ndarray:
+        """Read staged root pose or a detached current public snapshot."""
+        self._require_active()
+        env_ids = self._validate_ids(env_ids, capability="read_entity_root_pose")
+        if np.any(~self._active_mask[env_ids]):
+            raise ValueError("entity state read is outside the active reset")
+        if entity in self._entity_values:
+            assert self._entity_rows is not None
+            rows = [self._entity_rows.index(int(i)) for i in env_ids]
+            return self._entity_values[entity]["root_pose"][rows].copy()
+        return self._backend.get_entity_state(entity)["root_pose"][env_ids].copy()
+
+    def _commit_entities(self) -> None:
+        assert self.scene_layout is not None
+        if self._entity_rows is None:
+            return
+        if np.any(self._dirty_mask) or any(np.any(mask) for mask in self._mocap_masks.values()):
+            raise NotImplementedError("cannot mix entity patches with legacy state/DR writes")
+        patches = []
+        for name, values in self._entity_values.items():
+            entity = self.scene_layout.get_entity(name)
+            joint_names = tuple(
+                j.name for j in entity.joints if j.name in self._entity_joints[name]
+            )
+            columns = [tuple(j.name for j in entity.joints).index(n) for n in joint_names]
+            fields = {
+                field: values[field][:, columns] if field.startswith("joint") else values[field]
+                for field in self._entity_fields[name]
+            }
+            patches.append(EntityStatePatch(name, joint_names=joint_names, **fields))
+        request = SceneResetRequest(
+            self._entity_rows,
+            tuple(patches),
+            restore_default_controls=self._restore_entity_controls,
+        )
+        self.scene_layout.validate_reset(request, num_envs=self._num_envs)
+        started = time.perf_counter()
+        self._backend.reset_entities(request)
+        self._last_commit_had_writes = True
+        self._last_set_state_timing_ms = {
+            "dr_reset_set_state_ms": (time.perf_counter() - started) * 1000
+        }
 
     def bind_geom_size_write(
         self,
@@ -728,6 +849,21 @@ class ResetStateTransaction:
     def reset_to_default(self, env_ids: np.ndarray, *, term_name: str) -> None:
         """Stage backend default qpos/qvel for a subset of the active reset."""
         self._require_active()
+        if self.scene_layout is not None:
+            self._restore_entity_controls = True
+            for entity in self.scene_layout.entities:
+                defaults = self._backend.get_entity_default_state(entity.name, env_ids)
+                fields = {}
+                if entity.root_mode != "fixed":
+                    fields["root_pose"] = defaults["root_pose"]
+                if entity.root_mode == "floating":
+                    fields["root_velocity"] = defaults["root_velocity"]
+                if entity.joints:
+                    fields["joint_positions"] = defaults["joint_positions"]
+                    fields["joint_velocities"] = defaults["joint_velocities"]
+                if fields:
+                    self.write_entity_state(entity.name, env_ids, term_name=term_name, **fields)
+            return
         ids = self._validate_ids(env_ids, capability="reset_to_default")
         outside = ids[~self._active_mask[ids]]
         if outside.size:
@@ -954,6 +1090,16 @@ class ResetStateTransaction:
     def commit(self) -> dict | None:
         """Commit all staged rows through one public backend call."""
         self._require_active()
+        if self.scene_layout is not None:
+            try:
+                self._commit_entities()
+                if np.any(self._dirty_mask):
+                    raise NotImplementedError(
+                        "mapped scene DR writes need a public entity transaction"
+                    )
+                return None
+            finally:
+                self._finish()
         dirty_ids = np.flatnonzero(self._dirty_mask).astype(np.int32, copy=False)
         mocap_dirty = any(np.any(mask) for mask in self._mocap_masks.values())
         self._last_commit_had_writes = bool(dirty_ids.size) or mocap_dirty
