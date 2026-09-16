@@ -670,7 +670,7 @@ def _plot_summary_plots(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Benchmark MuJoCo rollout on go1/go2/g1: shared single model vs "
+            "Benchmark MuJoCo rollout on go2/g1: shared single model vs "
             "per-env distinct models, optionally before/after discardvisual"
         )
     )
@@ -683,7 +683,7 @@ def main() -> None:
     parser.add_argument(
         "--robots",
         type=str,
-        default="go1,go2,g1",
+        default="go2,g1",
         help="Comma separated robot names to benchmark from src/unilab/assets/robots.",
     )
     parser.add_argument(

@@ -250,7 +250,6 @@ venv = ".venv"
 include = ["src/unilab"]
 exclude = [
     "src/unilab/envs/",                     # lazy optional `mujoco` import; not installed in the pyright env
-    "src/unilab/utils/monitoring.py",       # optional pynvml/psutil deps
     "src/unilab/visualization/",            # direct mujoco C bindings + optional viser deps
 ]
 reportMissingImports = "warning"

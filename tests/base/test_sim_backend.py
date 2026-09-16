@@ -24,7 +24,6 @@ def _xml(robot: str, scene: str = "scene_flat.xml") -> str:
 
 BASIC_ROBOTS = [
     pytest.param(dict(model_file=_xml("g1"), base_name="pelvis"), id="g1"),
-    pytest.param(dict(model_file=_xml("go1"), base_name="trunk"), id="go1"),
     pytest.param(dict(model_file=_xml("go2"), base_name="base"), id="go2"),
 ]
 

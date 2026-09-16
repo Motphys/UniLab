@@ -20,16 +20,6 @@ from unilab.utils.rotation import (
 )
 
 
-def np_sample_uniform(
-    lower: float | np.ndarray,
-    upper: float | np.ndarray,
-    size: tuple[int, ...],
-    dtype=np.float32,
-) -> np.ndarray:
-    """Sample uniformly from ``[lower, upper]`` and cast to ``dtype``."""
-    return np.random.uniform(lower, upper, size).astype(dtype)
-
-
 def np_normalize_axis(axis: np.ndarray | tuple[float, ...] | list[float]) -> np.ndarray:
     """Return a unit-length copy of a rotation axis vector. Raises on zero norm."""
     axis = np.asarray(axis)
@@ -57,38 +47,9 @@ def np_roll_pitch_from_quat(quat: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return roll, pitch
 
 
-def np_gravity_z_in_body_from_quat(quat_w: np.ndarray) -> np.ndarray:
-    """Z component of world gravity ``[0, 0, -1]`` expressed in body frame.
-
-    Equivalent to ``np_quat_apply_inverse(quat_w, [0, 0, -1])[..., 2]`` but
-    computed directly from quaternion components to skip the intermediate.
-    """
-    return 2.0 * (quat_w[..., 1] * quat_w[..., 1] + quat_w[..., 2] * quat_w[..., 2]) - 1.0
-
-
 def np_quat_angular_velocity_from_pair(
     quat: np.ndarray, prev_quat: np.ndarray, dt: float
 ) -> np.ndarray:
     """Angular velocity from two consecutive quaternions via axis-angle diff / dt."""
     rel = np_quat_mul(quat, np_quat_conjugate(prev_quat))
     return np_quat_to_axis_angle(rel) / dt
-
-
-def np_sample_uniform_quaternion(num_samples: int) -> np.ndarray:
-    """Sample uniformly random unit quaternions (w-first) via Shoemake (1992).
-
-    Returns an ``(num_samples, 4)`` array in float64 (leaves any downstream
-    dtype conversion to the caller).
-    """
-    u1 = np.random.rand(num_samples)
-    u2 = np.random.rand(num_samples) * 2.0 * np.pi
-    u3 = np.random.rand(num_samples) * 2.0 * np.pi
-
-    r1 = np.sqrt(1.0 - u1)
-    r2 = np.sqrt(u1)
-    q1 = r1 * np.sin(u2)
-    q2 = r1 * np.cos(u2)
-    q3 = r2 * np.sin(u3)
-    q4 = r2 * np.cos(u3)
-
-    return np.stack([q4, q1, q2, q3], axis=1)

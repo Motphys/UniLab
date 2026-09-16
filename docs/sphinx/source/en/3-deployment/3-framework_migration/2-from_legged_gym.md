@@ -36,7 +36,7 @@ mostly mechanical.
 3. Mirror your reward terms; keep the same names so reward parity is
    diff-able.
 4. Translate command sampling — configure `UniformVelocityCommandCfg` under
-   the owner YAML's `env.commands` (see the Go1 flat owner).
+   the owner YAML's `env.commands` (see the `go2_joystick_flat` owner).
 5. Translate terrain — Legged Gym's heightfield generator has a UniLab
    counterpart at `unilab.terrains.heightfield_terrains`.
 

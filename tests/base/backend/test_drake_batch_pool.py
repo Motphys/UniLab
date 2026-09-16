@@ -39,7 +39,7 @@ def _run_clean_python(code: str) -> str:
     return result.stdout
 
 
-_GO1_POOL_HELPER = """
+_GO2_POOL_HELPER = """
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -53,8 +53,8 @@ from drake_uni.runtime.mjcf_model_parser import (
 )
 
 
-def make_go1_pool(nbatch, nthread):
-    source_model = ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml"
+def make_go2_pool(nbatch, nthread):
+    source_model = ASSETS_ROOT_PATH / "robots/go2/scene_flat.xml"
     drake_model = materialize_drake_compatible_mjcf(source_model)
     contract = parse_mjcf_model_contract(drake_model.model_file)
     (
@@ -123,7 +123,7 @@ def test_batch_backend_mode_rejects_existing_pydrake_module() -> None:
         try:
             create_backend(
                 "drake",
-                SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
+                SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go2/scene_flat.xml")),
                 1,
                 0.01,
                 drake_backend_mode="batch",
@@ -148,7 +148,7 @@ def test_create_backend_rejects_pydrake_mode() -> None:
     with pytest.raises(ValueError, match="drake_backend_mode='batch'"):
         create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go2/scene_flat.xml")),
             1,
             0.01,
             drake_backend_mode="pydrake",
@@ -166,7 +166,7 @@ def test_drake_backend_constructs_without_task_base_name() -> None:
 
     backend = create_backend(
         "drake",
-        SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
+        SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go2/scene_flat.xml")),
         1,
         0.01,
         drake_backend_mode="batch",
@@ -251,14 +251,14 @@ def test_drake_uni_runtime_import_is_lazy_and_pydrake_free() -> None:
     not _batch_extension_built(),
     reason="optional Drake batch extension has not been built",
 )
-def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
+def test_drake_batch_pool_go2_smoke_shapes_and_time() -> None:
     output = _run_clean_python(
-        _GO1_POOL_HELPER
+        _GO2_POOL_HELPER
         + textwrap.dedent(
             """
         import json
 
-        pool, qpos, _, state = make_go1_pool(2, 1)
+        pool, qpos, _, state = make_go2_pool(2, 1)
         control = np.tile(qpos[7:], (2, 1))
         state_only = pool.step(state, 2, control, None, False)
         output = pool.step(state, 2, control, None, True)
@@ -285,7 +285,7 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
         "has_sensor_data": True,
         "nthread": 1,
         "sensor_finite": True,
-        "sensor_shape": [2, 42],
+        "sensor_shape": [2, 68],
         "state_finite": True,
         "state_only_has_sensor_data": False,
         "state_shape": [2, 38],
@@ -300,12 +300,12 @@ def test_drake_batch_pool_go1_smoke_shapes_and_time() -> None:
 )
 def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
     output = _run_clean_python(
-        _GO1_POOL_HELPER
+        _GO2_POOL_HELPER
         + textwrap.dedent(
             """
         import json
 
-        _, qpos, qvel, state = make_go1_pool(4, 1)
+        _, qpos, qvel, state = make_go2_pool(4, 1)
         for env_index in range(4):
             row_qpos = qpos.copy()
             row_qpos[0] += 0.05 * env_index
@@ -313,7 +313,7 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
             state[env_index, 1 + qpos.size :] = qvel
 
         def make_pool(nthread):
-            return make_go1_pool(4, nthread)[0]
+            return make_go2_pool(4, nthread)[0]
 
         control = np.tile(qpos[7:], (4, 1))
         serial_pool = make_pool(1)
@@ -349,7 +349,7 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
         "parity_sensor": True,
         "parity_state": True,
         "reset_sensor_finite": True,
-        "reset_sensor_shape": [1, 42],
+        "reset_sensor_shape": [1, 68],
         "reset_times": [0.0],
         "reset_x": [1.23],
         "serial_workspace_count": 1,
@@ -365,12 +365,12 @@ def test_drake_batch_pool_uses_thread_workspaces_not_env_workspaces() -> None:
 )
 def test_drake_batch_pool_worker_exception_reaches_python() -> None:
     output = _run_clean_python(
-        _GO1_POOL_HELPER
+        _GO2_POOL_HELPER
         + textwrap.dedent(
             """
         import json
 
-        pool, qpos, _, state = make_go1_pool(4, 2)
+        pool, qpos, _, state = make_go2_pool(4, 2)
         state[2, 0] = np.nan
         control = np.tile(qpos[7:], (4, 1))
         try:
@@ -491,7 +491,7 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
         assert "pydrake" not in sys.modules
         backend = create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go2/scene_flat.xml")),
             2,
             0.01,
             drake_backend_mode="batch",
@@ -506,7 +506,7 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
             backend.step(backend.get_dof_pos(), nsteps=1)
         diagnostics = backend.diagnostics()
         foot_contact = backend.get_sensor_data("FL_foot_contact")
-        body_ids = backend.get_body_ids(["trunk", "FR_calf"])
+        body_ids = backend.get_body_ids(["base", "FR_calf"])
         body_pos = backend.get_body_pos_w(body_ids)
         summary = {
             "cls": type(backend).__name__,
@@ -532,7 +532,7 @@ def test_create_backend_batch_mode_avoids_pydrake_and_steps() -> None:
         "body_finite": True,
         "body_shape": [2, 2, 3],
         "cls": "DrakeBackend",
-        "contact_shape": [2, 3],
+        "contact_shape": [2, 1],
         "contact_nonzero": True,
         "diagnostic_mode": "batch",
         "foot_shape": [2, 3],
@@ -561,7 +561,7 @@ def test_drake_backend_pre_step_hook_refreshes_between_substeps() -> None:
 
         backend = create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go2/scene_flat.xml")),
             1,
             0.01,
             drake_backend_mode="batch",
@@ -608,13 +608,13 @@ def test_drake_backend_body_frame_getters_use_compact_root_frame() -> None:
 
         backend = create_backend(
             "drake",
-            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go1/scene_flat.xml")),
+            SceneCfg(model_file=str(ASSETS_ROOT_PATH / "robots/go2/scene_flat.xml")),
             1,
             0.01,
             drake_backend_mode="batch",
             drake_nthread=1,
         )
-        base_id = backend.get_body_ids(["trunk"])
+        base_id = backend.get_body_ids(["base"])
         other_id = backend.get_body_ids(["FR_calf"])
         base_pos = backend.get_body_pos_b(base_id)
         base_quat = backend.get_body_quat_b(base_id)

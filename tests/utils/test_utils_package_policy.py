@@ -8,7 +8,6 @@ ALLOWED_UTILS_MODULES = {
     "checkpoint",
     "device",
     "geometry",
-    "monitoring",
     "nan_guard",
     "nan_viz",
     "reward",

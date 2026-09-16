@@ -25,8 +25,6 @@
 - 地形生成器形状与数值行为：
   `tests/terrains/test_terrain_generator.py`
 - Rough locomotion 高度扫描与 spawn 行为：
-  `tests/envs/locomotion/test_go2_rough_height_scan.py`、
-  `tests/envs/locomotion/test_go2_terrain_spawn.py`、
   `tests/envs/locomotion/test_terrain_spawn.py`
 - 后端 materialization 边界：`tests/utils/test_xml_utils.py`
 

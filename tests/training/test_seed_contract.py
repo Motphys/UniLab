@@ -12,7 +12,6 @@ from omegaconf import OmegaConf
 
 from unilab.utils.seed import (
     apply_training_seed,
-    derive_worker_seed,
     resolve_training_seed,
 )
 
@@ -51,12 +50,6 @@ def test_apply_training_seed_controls_python_numpy_and_torch_rng():
 def test_apply_training_seed_rejects_negative_seed():
     with pytest.raises(ValueError, match="non-negative"):
         apply_training_seed(-1)
-
-
-def test_derive_worker_seed_is_deterministic_and_distinct_from_base_seed():
-    assert derive_worker_seed(10, worker_index=0) == 11
-    assert derive_worker_seed(10, worker_index=3) == 14
-    assert derive_worker_seed(None, worker_index=3) is None
 
 
 @pytest.mark.parametrize(

@@ -32,7 +32,7 @@ Legged Gym 曾是那套 GPU 常驻的 PPO 模板，教会了整个领域如何�
 2. 在 `src/unilab/tasks/locomotion/<robot>/` 下创建一个任务模块。
 3. 镜像你的 reward 项；保持名称相同，以便 reward 一致性可被 diff。
 4. 翻译命令采样 —— 在 owner YAML 的 `env.commands` 下配置
-   `UniformVelocityCommandCfg`，参考 Go1 flat owner。
+   `UniformVelocityCommandCfg`，参考 `go2_joystick_flat` owner。
 5. 翻译地形 —— Legged Gym 的高度场生成器在 UniLab 中有一个对应物，位于
    `unilab.terrains.heightfield_terrains`。
 

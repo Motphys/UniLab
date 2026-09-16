@@ -56,7 +56,7 @@ PPO / APPO / SAC / TD3 variants moved to the uni_rl package (issue #1480).
 :::{grid-item-card} 🏋 `unilab.training`
 :link: training/index
 :link-type: doc
-Runtime helpers, monitoring, reward bookkeeping, runner orchestration.
+Runtime helpers, reward bookkeeping, runner orchestration.
 :::
 
 :::{grid-item-card} 🔗 Shared-memory runtime → `uni_rl.ipc`

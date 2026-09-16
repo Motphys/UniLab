@@ -255,7 +255,6 @@ def test_robot_asset_specs_cover_hf_hosted_robots():
     for robot, specs in ROBOT_ASSET_SPECS.items():
         assert specs, robot
         for directory, marker, pattern, label in specs:
-            # go2w additionally reference the shared go2 mesh dir.
             assert directory.startswith("robots/")
             assert marker and pattern and label
 

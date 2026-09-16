@@ -61,15 +61,6 @@ def resolve_training_seed(cfg: Any) -> TrainingSeedInfo:
     return TrainingSeedInfo(configured_seed=None, configured_seed_source=None, effective_seed=None)
 
 
-def derive_worker_seed(base_seed: int | None, worker_index: int = 0) -> int | None:
-    """Derive deterministic subprocess seeds from the effective run seed."""
-    if base_seed is None:
-        return None
-    if worker_index < 0:
-        raise ValueError(f"worker_index must be non-negative, got {worker_index}")
-    return int(base_seed) + int(worker_index) + 1
-
-
 def apply_training_seed(
     seed: int | None,
     *,
