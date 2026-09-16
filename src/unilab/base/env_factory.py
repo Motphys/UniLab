@@ -42,9 +42,11 @@ def make_registry_env(
     # carry the explicit cold-path id in the opaque override and bind
     # immediately before registry construction.  Binding a non-zero id pins
     # CUDA_VISIBLE_DEVICES for this process, so forward the post-pin
-    # in-process index downstream.  Newer unisim-core versions repeat this
-    # check in GenesisBackend itself, making this compatibility guard
-    # idempotent.
+    # in-process index downstream.  This binding is required, not a
+    # compatibility shim: spawn collectors are fresh interpreters that cannot
+    # inherit the parent process's binding, and only UniLab's
+    # ``bind_genesis_process_device`` sets the pinned-namespace flag its
+    # resolution helpers consult.
     if sim_backend == "genesis" and env_cfg_override is not None:
         genesis_device_id = env_cfg_override.get("genesis_device_id")
         if genesis_device_id is not None:

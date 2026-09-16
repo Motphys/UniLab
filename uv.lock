@@ -5241,7 +5241,7 @@ requires-dist = [
     { name = "typing-extensions" },
     { name = "unilab-rl", specifier = "==1.2.1" },
     { name = "unisim-core", specifier = ">=1.4.2" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = ">=1.4.0" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = ">=1.4.2" },
     { name = "viser", marker = "extra == 'viser'", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },

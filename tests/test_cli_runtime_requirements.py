@@ -62,13 +62,3 @@ def test_superdex_missing_runtime_reports_python_and_sdk(monkeypatch: pytest.Mon
         SystemExit, match=r"Python 3\.12.*Physics/Robotics.*uv sync --extra superdex"
     ):
         cli._check_runtime_requirements("ppo", "superdex")
-
-
-def test_superdex_old_unisim_reports_adapter_requirement(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import sys
-
-    monkeypatch.setitem(sys.modules, "unisim.backend.superdex.dependencies", None)
-    with pytest.raises(SystemExit, match="unisim-core>=1.1.5 with the SuperDex adapter"):
-        cli._check_runtime_requirements("ppo", "superdex")

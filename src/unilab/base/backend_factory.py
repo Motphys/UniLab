@@ -22,25 +22,6 @@ if TYPE_CHECKING:
     from unilab.base.scene import SceneCfg
 
 
-def _legacy_genesis_device_option_error(exc: TypeError) -> bool:
-    """Identify an old UniSim adapter rejecting the optional device keyword.
-
-    UniSim 1.1 reports unknown backend options from ``GenesisBackend`` while
-    other compatible releases may expose Python's usual ``unexpected keyword``
-    wording.  Keep the compatibility retry narrowly scoped to those messages;
-    constructor errors from the actual Genesis runtime must still propagate.
-    """
-
-    message = str(exc).lower()
-    mentions_device = "genesis_device_id" in message or "device_id" in message
-    rejects_keyword = (
-        "does not accept backend options" in message
-        or "unexpected keyword argument" in message
-        or "unexpected keyword" in message
-    )
-    return mentions_device and rejects_keyword
-
-
 def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     """Translate ``EnvCfg`` backend knobs into UniSim adapter options."""
     result: dict[str, Any] = {
@@ -69,18 +50,13 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
         "isaacsim_render_mode": cfg.isaacsim_render_mode,
         "isaacsim_render_width": cfg.isaacsim_render_width,
         "isaacsim_render_height": cfg.isaacsim_render_height,
+        "superdex_execution_mode": cfg.superdex_execution_mode,
     }
-    # Keep the optional key absent for legacy unisim-core releases that do not
-    # know about Genesis' explicit device argument.  Once a rank selects a
-    # device the key is added below and ``create_backend`` supplies a narrow
-    # compatibility fallback for those releases.
+    # Forward the explicit Genesis device id only when a rank selected one;
+    # when absent, unisim-core's factory default applies and Genesis picks
+    # its own device.
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
-    # Keep the default absent so unisim-core releases that predate the
-    # execution-mode option still accept the SuperDex kwargs; "serial" requires
-    # the updated adapter.
-    if cfg.superdex_execution_mode != "batch":
-        result["superdex_execution_mode"] = cfg.superdex_execution_mode
     return result
 
 
@@ -112,17 +88,6 @@ def create_backend(
     ensure_robot_assets_for_paths(
         [scene.model_file, scene.visual_model_file, *scene.fragment_files]
     )
-    if backend_type != "newton":
-        # Keep the owner translation forward-compatible with unisim-core
-        # releases that predate the Newton adapter and therefore do not pop
-        # these optional kwargs in their shared factory.
-        for key in (
-            "newton_device",
-            "newton_nconmax",
-            "newton_njmax",
-            "newton_capacity_check_steps",
-        ):
-            kwargs.pop(key, None)
     if backend_type == "drake":
         # unisim-core 1.4.2 dropped the Drake-branch filtering of MuJoCo
         # root-body options; Drake derives root state from its own plant and
@@ -139,11 +104,9 @@ def create_backend(
     }
     if backend_type == "genesis" and kwargs.get("genesis_device_id") is not None:
         # Bind before any unisim-core Genesis constructor can call gs.init.
-        # New unisim-core releases repeat this idempotently; old releases do
-        # not accept the keyword, so the retry below still gets the correct
-        # process-wide device.  Binding a non-zero id pins
-        # CUDA_VISIBLE_DEVICES (Quadrants only honors the first visible
-        # device), so forward the *post-pin* in-process index.
+        # Binding a non-zero id pins CUDA_VISIBLE_DEVICES (Quadrants only
+        # honors the first visible device), so forward the *post-pin*
+        # in-process index.
         genesis_device_id = kwargs["genesis_device_id"]
         if (
             isinstance(genesis_device_id, bool)
@@ -156,19 +119,7 @@ def create_backend(
             )
         bound = bind_genesis_process_device(f"cuda:{genesis_device_id}")
         kwargs["genesis_device_id"] = int(bound.rsplit(":", 1)[1])
-    try:
-        return unisim.create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
-    except TypeError as exc:
-        if backend_type != "genesis" or "genesis_device_id" not in kwargs:
-            raise
-        # unisim-core < 1.2 has no Genesis device field and reports the
-        # unknown option from GenesisBackend.  Retry only for that precise
-        # capability error; unrelated constructor TypeErrors must propagate.
-        if not _legacy_genesis_device_option_error(exc):
-            raise
-        legacy_kwargs = dict(kwargs)
-        legacy_kwargs.pop("genesis_device_id", None)
-        return unisim.create_backend(backend_type, scene, num_envs, sim_dt, **legacy_kwargs)
+    return unisim.create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
 
 
 __all__ = ["SimBackend", "create_backend", "env_backend_kwargs"]
