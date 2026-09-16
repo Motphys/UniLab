@@ -24,8 +24,8 @@ sideways, start here.
 Almost always one of:
 
 1. **Joint order swapped.** Inspect `policy.onnx` input width and the joint
-   order in your motor driver. Use `unilab-export-scene` to dump the
-   training joint order.
+   order in your motor driver against the training scene XML
+   (`src/unilab/assets/robots/<robot>/scene_flat.xml`).
 2. **Action scale unit mismatch.** Policy outputs unscaled values; the
    driver expects rad, but you fed it normalized [-1, 1]. Apply the
    `env.actions.joint_pos.scale` / default-angle convention from the training

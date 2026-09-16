@@ -23,12 +23,6 @@
 检查 PPO 运行中的 NaN guard dump。
 :::
 
-:::{grid-item-card} 场景导出
-:link: 4-scene_export
-:link-type: doc
-导出 MuJoCo 场景及复制的 asset 以供检查。
-:::
-
 :::{grid-item-card} 机器人导入
 :link: 5-robot_import
 :link-type: doc
@@ -43,6 +37,5 @@
 1-onnx_export
 2-wandb
 3-nan_visualizer
-4-scene_export
 5-robot_import
 ```

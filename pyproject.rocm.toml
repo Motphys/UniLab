@@ -24,13 +24,13 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
-    # unisim-core package. The 1.4.1 release carries the fixed model variant,
+    # unisim-core package. The 1.4.2 release carries the fixed model variant,
     # per-world reset-default, per-env gravity, substep body-wrench, and
     # IsaacGym fixed-variant contracts.
-    "unisim-core>=1.4.1",
+    "unisim-core>=1.4.2",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
-    "unilab-rl==1.2.0",
+    "unilab-rl==1.2.1",
     "torch==2.11.0",
     "triton-rocm==3.6.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "gymnasium",
@@ -61,7 +61,6 @@ eval = "unilab.cli:eval_main"
 demo = "unilab.cli:demo_main"
 unilab-complete = "unilab.cli_completion:main"
 unilab-viz-nan = "unilab.utils.nan_viz:main"
-unilab-export-scene = "unisim.backend.mujoco.export_scene:main"
 unilab-render-teaser = "unilab.visualization.teaser:main"
 unilab-pull-assets = "unilab.assets.pull:main"
 

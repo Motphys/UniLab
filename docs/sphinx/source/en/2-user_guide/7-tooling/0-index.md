@@ -24,12 +24,6 @@ Configure run logging and experiment metadata.
 Inspect NaN guard dumps from PPO runs.
 :::
 
-:::{grid-item-card} Scene export
-:link: 4-scene_export
-:link-type: doc
-Export MuJoCo scenes and copied assets for inspection.
-:::
-
 :::{grid-item-card} Robot import
 :link: 5-robot_import
 :link-type: doc
@@ -44,6 +38,5 @@ Connect robot assets, model descriptions, control interfaces, and keyframes.
 1-onnx_export
 2-wandb
 3-nan_visualizer
-4-scene_export
 5-robot_import
 ```

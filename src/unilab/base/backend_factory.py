@@ -123,6 +123,12 @@ def create_backend(
             "newton_capacity_check_steps",
         ):
             kwargs.pop(key, None)
+    if backend_type == "drake":
+        # unisim-core 1.4.2 dropped the Drake-branch filtering of MuJoCo
+        # root-body options; Drake derives root state from its own plant and
+        # DrakeBackend rejects the keywords.  Pop them at the owner boundary.
+        kwargs.pop("base_name", None)
+        kwargs.pop("push_body_name", None)
     # Newton reconstructs body state from its compiled articulation and does
     # not accept MuJoCo's synthetic body-sensor injection.  Keep this
     # capability translation at the owner/backend boundary so env code remains

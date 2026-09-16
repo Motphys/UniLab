@@ -22,8 +22,8 @@
 
 几乎总是以下之一：
 
-1. **关节顺序被调换。** 检查 `policy.onnx` 的输入宽度与你电机驱动器中的关节顺序。
-   用 `unilab-export-scene` 导出训练时的关节顺序。
+1. **关节顺序被调换。** 检查 `policy.onnx` 的输入宽度，并将你电机驱动器中的关节顺序
+   与训练场景 XML（`src/unilab/assets/robots/<robot>/scene_flat.xml`）对照。
 2. **动作缩放单位不匹配。** 策略输出未缩放的值；驱动器期望的是弧度，而你喂给它的
    是归一化的 [-1, 1]。在把目标发送给驱动器之前，应用训练 owner YAML 中的
    `env.actions.joint_pos.scale` / 默认角度约定，并原样复现该 owner 解析后的

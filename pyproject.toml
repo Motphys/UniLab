@@ -39,15 +39,15 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
-    # unisim-core package. The 1.4.1 release carries the fixed model variant,
+    # unisim-core package. The 1.4.2 release carries the fixed model variant,
     # per-world reset-default, per-env gravity, substep body-wrench, and
     # IsaacGym fixed-variant contracts.
-    "unisim-core>=1.4.1",
+    "unisim-core>=1.4.2",
     # RL algorithms and async runtimes (PPO/APPO/SAC/TD3 runners,
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
     # env contract (uni_rl.env_contract.EnvFactory). Published on PyPI.
-    "unilab-rl==1.2.0",
+    "unilab-rl==1.2.1",
     "numba>=0.67",
     "prettytable>=3.10",
     # torch is a range (not an exact pin) so that published PyPI metadata lets
@@ -89,7 +89,6 @@ eval = "unilab.cli:eval_main"
 demo = "unilab.cli:demo_main"
 unilab-complete = "unilab.cli_completion:main"
 unilab-viz-nan = "unilab.utils.nan_viz:main"
-unilab-export-scene = "unisim.backend.mujoco.export_scene:main"
 unilab-render-teaser = "unilab.visualization.teaser:main"
 unilab-pull-assets = "unilab.assets.pull:main"
 
