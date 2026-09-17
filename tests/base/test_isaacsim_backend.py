@@ -377,7 +377,7 @@ def test_interactive_renderer_roundtrip(scene_file: str, monkeypatch: pytest.Mon
         backend.close()
 
 
-def test_interactive_playback_routes_startup_dimensions_and_camera(
+def test_interactive_playback_routes_dimensions_and_rejects_ignored_camera_options(
     scene_file: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DISPLAY", ":0")
@@ -404,11 +404,7 @@ def test_interactive_playback_routes_startup_dimensions_and_camera(
             num_steps=1,
             headless=False,
             record_video=False,
-            camera_kwargs={
-                "cam_distance": 3.0,
-                "cam_elevation": -15.0,
-                "cam_azimuth": 45.0,
-            },
+            camera_kwargs=CameraCfg(),
         )
         assert result is None
         assert init_calls == [
@@ -416,13 +412,19 @@ def test_interactive_playback_routes_startup_dimensions_and_camera(
                 "headless": False,
                 "width": 64,
                 "height": 48,
-                "camera_kwargs": CameraCfg(
-                    cam_distance=3.0,
-                    cam_elevation=-15.0,
-                    cam_azimuth=45.0,
-                ),
+                "camera_kwargs": CameraCfg(),
             }
         ]
+        with pytest.raises(NotImplementedError, match="interactive viewers"):
+            backend.run_playback(
+                env=SimpleNamespace(cfg=None),
+                initialize=lambda: 0,
+                step=lambda obs: obs + 1,
+                num_steps=1,
+                headless=False,
+                record_video=False,
+                camera_kwargs={"cam_distance": 3.0},
+            )
     finally:
         backend.close()
 
