@@ -72,7 +72,7 @@ class EnvCfg:
     newton_nconmax: Optional[int] = None
     newton_njmax: Optional[int] = None
     newton_capacity_check_steps: int = 1
-    newton_use_cuda_graph: bool = False
+    newton_use_cuda_graph: bool = True
     # ``isaacgym`` runs physics in a Python 3.8 worker subprocess (Preview 4 is
     # EOL and incompatible with the main environment). ``None`` keeps the
     # backend defaults (device 0, generous handshake/step timeout).

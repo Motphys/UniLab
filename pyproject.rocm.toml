@@ -25,8 +25,9 @@ dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
     # unisim-core package. Version 1.5.0 provides the M2 physical entity,
-    # immutable variant, layout and selected-reset contracts.
-    "unisim-core>=1.5.0",
+    # immutable variant, layout and selected-reset contracts; 1.6.0 adds
+    # Newton CUDA graph execution.
+    "unisim-core>=1.6.0",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
     "unilab-rl==1.2.1",

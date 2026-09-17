@@ -96,9 +96,9 @@ Newton/MuJoCo-Warp 3.11 要求显式的设备与存储容量，对应 owner YAML
   320 / 512）。适配器在冷路径标定 solver 计数，容量不足时抛出明确的
   capacity 错误，绝不静默截断约束。
 - `newton_capacity_check_steps`：容量检查步数（默认 1）。
-- `newton_use_cuda_graph`：显式开启 CUDA graph replay（默认 `false`）。
-  支持 graph 的 UniSim runtime 会在冷路径容量校准后捕获两个 Newton state
-  奇偶；CUDA 驱动不满足条件或捕获失败时发出警告并回退 eager 执行。
+- `newton_use_cuda_graph`：CUDA graph replay（默认 `true`）。支持 graph 的
+  UniSim runtime 会在冷路径容量校准后捕获两个 Newton state 奇偶；CUDA
+  驱动不满足条件或捕获失败时发出警告并回退 eager 执行。
 
 ## Playback 与渲染
 

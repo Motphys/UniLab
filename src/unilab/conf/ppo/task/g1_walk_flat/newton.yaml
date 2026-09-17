@@ -36,7 +36,7 @@ env:
   newton_nconmax: 320
   newton_njmax: 512
   newton_capacity_check_steps: 1
-  newton_use_cuda_graph: false
+  newton_use_cuda_graph: true
   events:
     # Newton currently rejects runtime PD gain randomization; keep the owner
     # fail-closed until that adapter capability is added.
@@ -44,4 +44,3 @@ env:
 
 play_profile:
   enabled: false
-

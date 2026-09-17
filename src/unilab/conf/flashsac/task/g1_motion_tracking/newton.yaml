@@ -2,8 +2,8 @@
 # FlashSAC Newton owner for G1 WBT. Newton's runtime is optional and shares
 # the MuJoCo 3.11 / MuJoCo-Warp 3.11 / Warp 1.16 line with the mujoco/mjwarp
 # extras; process device binding supplies the rank-local CUDA device when
-# ``newton_device`` is left unset. Requires unisim-core>=1.5.1 for the motion
-# body id capability (unilabsim/unisim#137). Native ViewerGL rendering
+# ``newton_device`` is left unset. Requires unisim-core>=1.6.0 for the motion
+# body id capability and CUDA graph execution. Native ViewerGL rendering
 # (offline record + interactive) is provided by the backend; playback inherits
 # auto mode.
 defaults:
@@ -24,4 +24,4 @@ env:
   newton_nconmax: 320
   newton_njmax: 512
   newton_capacity_check_steps: 1
-  newton_use_cuda_graph: false
+  newton_use_cuda_graph: true

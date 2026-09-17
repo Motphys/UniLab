@@ -158,7 +158,10 @@ def test_public_layout_drift_fails_closed(
         ).replace(
             '<joint name="j2" type="hinge" range="-1.5 1.5"/>',
             '<joint name="j2" type="hinge" range="-1.5 1.5"/>'
-            '<joint name="extra" type="hinge" range="-1 1"/>',
+            '<body name="extra_link">'
+            '<joint name="extra" type="hinge" range="-1 1"/>'
+            '<geom name="extra_geom" type="box" size="0.1 0.1 0.1"/>'
+            "</body>",
         ),
         encoding="utf-8",
     )

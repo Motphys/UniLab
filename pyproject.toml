@@ -41,9 +41,9 @@ dependencies = [
     # Physics implementations are provided by the independently released
     # unisim-core package. Version 1.5.0 provides the M2 physical entity,
     # immutable variant, layout and selected-reset contracts; 1.5.1 adds
-    # get_motion_body_ids on the newton/genesis adapters and fixes the
-    # subprocess motion-id offset (unilabsim/unisim#137).
-    "unisim-core>=1.5.1",
+    # get_motion_body_ids on the newton/genesis adapters; 1.6.0 adds Newton
+    # CUDA graph execution.
+    "unisim-core>=1.6.0",
     # RL algorithms and async runtimes (PPO/APPO/SAC/TD3 runners,
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
@@ -171,7 +171,7 @@ viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 # required-environments; elsewhere the extra is empty and the CLI reports a
 # targeted runtime diagnostic.
 superdex = [
-    "unisim-core[superdex]>=1.5.1 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "unisim-core[superdex]>=1.6.0 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [dependency-groups]
