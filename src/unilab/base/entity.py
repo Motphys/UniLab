@@ -598,6 +598,12 @@ class Entity:
             if physical is None:
                 raise ValueError(f"Entity '{name}' requires physical_entity in a composed scene")
             owner = layout.get_entity(physical)
+            expected_root = physical + "/" + owner.root_body
+            if cfg.root_body_name is not None and cfg.root_body_name != expected_root:
+                raise ValueError(
+                    f"Entity '{name}' root_body_name must name physical root {expected_root!r}; "
+                    f"got {cfg.root_body_name!r}"
+                )
             if any(j.kind not in ("hinge", "slide") for j in owner.joints):
                 raise NotImplementedError("UniLab entity consumer currently supports scalar joints")
             self._physical_entity = physical

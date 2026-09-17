@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -69,6 +70,17 @@ def test_asset_owner_sees_each_physical_and_variant_source_once(monkeypatch):
     expected.update(source.model_file for source in cfg.scene.entity_variant.plan.variants)
     assert expected.issubset(calls[0])
     assert len(calls[0]) == len(set(calls[0]))
+
+
+@pytest.mark.parametrize("logical", ["robot", "object"])
+def test_logical_root_cannot_point_to_a_physical_entity_descendant(logical):
+    cfg = build_fixture_cfg(passive=True)
+    child = "finger" if logical == "robot" else "lid"
+    cfg.scene.entities[logical] = replace(
+        cfg.scene.entities[logical], root_body_name=f"{logical}/{child}"
+    )
+    with pytest.raises(ValueError, match=f"physical root '{logical}/base'"):
+        make_manager_based_rl_env(cfg, 2, "mujoco")
 
 
 def test_hydra_constructs_new_scene_without_early_unisim_tuple_validation():

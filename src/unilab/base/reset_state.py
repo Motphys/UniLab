@@ -90,7 +90,18 @@ class ResetStateTransaction:
         self._entity_values: dict[str, dict[str, np.ndarray]] = {}
         self._entity_fields: dict[str, set[str]] = {}
         self._entity_joints: dict[str, set[str]] = {}
+        self._entity_joint_fields: dict[str, dict[str, set[str]]] = {}
+        self._entity_layouts = (
+            {}
+            if scene_layout is None
+            else {entity.name: entity for entity in scene_layout.entities}
+        )
+        self._entity_joint_columns = {
+            name: {joint.name: index for index, joint in enumerate(entity.joints)}
+            for name, entity in self._entity_layouts.items()
+        }
         self._entity_rows: tuple[int, ...] | None = None
+        self._entity_row_index: dict[int, int] = {}
         self._restore_entity_controls = False
         self._active = False
         self._active_mask = np.zeros(self._num_envs, dtype=np.bool_)
@@ -169,7 +180,9 @@ class ResetStateTransaction:
         self._entity_values.clear()
         self._entity_fields.clear()
         self._entity_joints.clear()
+        self._entity_joint_fields.clear()
         self._entity_rows = None
+        self._entity_row_index.clear()
         self._restore_entity_controls = False
         self._active = True
 
@@ -205,15 +218,15 @@ class ResetStateTransaction:
                 "one entity transaction requires the same selected env rows for every patch"
             )
         self._entity_rows = rows
-        order = [request.env_ids.index(i) for i in rows]
-        owner = self.scene_layout.get_entity(entity)
+        self._entity_row_index = {value: index for index, value in enumerate(rows)}
+        incoming_rows = {value: index for index, value in enumerate(request.env_ids)}
+        order = [incoming_rows[i] for i in rows]
+        owner = self._entity_layouts[entity]
         if entity not in self._entity_values:
-            self._entity_values[entity] = {
-                name: values[list(rows)].copy()
-                for name, values in self._backend.get_entity_state(entity).items()
-            }
+            self._entity_values[entity] = {}
             self._entity_fields[entity] = set()
             self._entity_joints[entity] = set()
+            self._entity_joint_fields[entity] = {}
         values = self._entity_values[entity]
         selected_joints = joint_names or tuple(joint.name for joint in owner.joints)
         for field in ("root_pose", "root_velocity", "joint_positions", "joint_velocities"):
@@ -221,13 +234,14 @@ class ResetStateTransaction:
             if incoming is None:
                 continue
             if field.startswith("joint"):
-                columns = [
-                    tuple(j.name for j in owner.joints).index(name) for name in selected_joints
-                ]
+                columns = [self._entity_joint_columns[entity][name] for name in selected_joints]
+                if field not in values:
+                    values[field] = np.empty((len(rows), len(owner.joints)), dtype=np.float64)
                 values[field][:, columns] = incoming[order]
                 self._entity_joints[entity].update(selected_joints)
+                self._entity_joint_fields[entity].setdefault(field, set()).update(selected_joints)
             else:
-                values[field][:] = incoming[order]
+                values[field] = incoming[order]
             self._entity_fields[entity].add(field)
         self._requesting_terms.add(term_name)
 
@@ -237,9 +251,8 @@ class ResetStateTransaction:
         env_ids = self._validate_ids(env_ids, capability="read_entity_root_pose")
         if np.any(~self._active_mask[env_ids]):
             raise ValueError("entity state read is outside the active reset")
-        if entity in self._entity_values:
-            assert self._entity_rows is not None
-            rows = [self._entity_rows.index(int(i)) for i in env_ids]
+        if "root_pose" in self._entity_values.get(entity, {}):
+            rows = [self._entity_row_index[int(i)] for i in env_ids]
             return self._entity_values[entity]["root_pose"][rows].copy()
         return self._backend.get_entity_state(entity)["root_pose"][env_ids].copy()
 
@@ -251,11 +264,19 @@ class ResetStateTransaction:
             raise NotImplementedError("cannot mix entity patches with legacy state/DR writes")
         patches = []
         for name, values in self._entity_values.items():
-            entity = self.scene_layout.get_entity(name)
+            entity = self._entity_layouts[name]
             joint_names = tuple(
                 j.name for j in entity.joints if j.name in self._entity_joints[name]
             )
-            columns = [tuple(j.name for j in entity.joints).index(n) for n in joint_names]
+            columns = [self._entity_joint_columns[name][n] for n in joint_names]
+            current = None
+            for field, written in self._entity_joint_fields[name].items():
+                missing = self._entity_joints[name] - written
+                if missing:
+                    if current is None:
+                        current = self._backend.get_entity_state(name)
+                    absent = [self._entity_joint_columns[name][joint] for joint in missing]
+                    values[field][:, absent] = current[field][np.ix_(self._entity_rows, absent)]
             fields = {
                 field: values[field][:, columns] if field.startswith("joint") else values[field]
                 for field in self._entity_fields[name]
