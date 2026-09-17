@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import types
 from pathlib import Path
@@ -1367,6 +1368,42 @@ def test_offpolicy_default_device_xpu_before_mps():
     mock_torch.xpu.is_available.return_value = True
     mock_torch.backends.mps.is_available.return_value = True
     assert _offpolicy().default_device(mock_torch) == "xpu"
+
+
+def test_offpolicy_genesis_probe_para_level_restores_previous_value(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _offpolicy()
+    monkeypatch.setenv("GS_PARA_LEVEL", "0")
+
+    with mod._genesis_probe_para_level("genesis"):
+        assert os.environ["GS_PARA_LEVEL"] == "2"
+
+    assert os.environ["GS_PARA_LEVEL"] == "0"
+
+
+def test_offpolicy_genesis_probe_para_level_restores_unset_variable(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _offpolicy()
+    monkeypatch.delenv("GS_PARA_LEVEL", raising=False)
+
+    with mod._genesis_probe_para_level("genesis"):
+        assert os.environ["GS_PARA_LEVEL"] == "2"
+
+    assert "GS_PARA_LEVEL" not in os.environ
+
+
+def test_offpolicy_genesis_probe_para_level_ignores_other_backends(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _offpolicy()
+    monkeypatch.setenv("GS_PARA_LEVEL", "0")
+
+    with mod._genesis_probe_para_level("mujoco"):
+        assert os.environ["GS_PARA_LEVEL"] == "0"
+
+    assert os.environ["GS_PARA_LEVEL"] == "0"
 
 
 def test_offpolicy_default_device_cpu_fallback():

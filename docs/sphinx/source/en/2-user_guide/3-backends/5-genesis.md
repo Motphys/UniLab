@@ -87,6 +87,12 @@ uv run train --algo ppo --task g1_walk_flat --sim genesis \
     algo.num_envs=64 algo.max_iterations=3
 ```
 
+During off-policy runner construction, UniLab temporarily sets
+`GS_PARA_LEVEL=2` only for the one-environment dimension probe. This makes the
+probe warm the same Genesis disk-cache lane as the scaled collector, after
+which the previous environment value (or unset state) is restored before
+training starts.
+
 ## Playback and Rendering
 
 Genesis native rendering is a declared capability and attaches lazily after

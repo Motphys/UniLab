@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime
 import os
 import sys
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from functools import partial
 from pathlib import Path
 from typing import Any, cast
@@ -90,6 +90,24 @@ def build_failure_summary(exc: BaseException, run_summary: Any | None = None) ->
     summary["error_type"] = type(exc).__name__
     summary["error"] = str(exc)
     return summary
+
+
+@contextmanager
+def _genesis_probe_para_level(sim_backend: str):
+    """Keep the one-env Genesis probe on the collector's kernel cache lane."""
+    if sim_backend != "genesis":
+        yield
+        return
+
+    previous_value = os.environ.get("GS_PARA_LEVEL")
+    os.environ["GS_PARA_LEVEL"] = "2"
+    try:
+        yield
+    finally:
+        if previous_value is None:
+            os.environ.pop("GS_PARA_LEVEL", None)
+        else:
+            os.environ["GS_PARA_LEVEL"] = previous_value
 
 
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
@@ -248,26 +266,27 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             str(cfg.training.sim_backend),
         ),
     }
-    if algo_name == "sac":
-        from uni_rl.algos.fast_sac.double_buffer import (
-            build_sac_double_buffer_runner,
-        )
+    with _genesis_probe_para_level(str(cfg.training.sim_backend)):
+        if algo_name == "sac":
+            from uni_rl.algos.fast_sac.double_buffer import (
+                build_sac_double_buffer_runner,
+            )
 
-        runner = build_sac_double_buffer_runner(cfg, **builder_kwargs)
-    elif algo_name == "td3":
-        from uni_rl.algos.fast_td3.double_buffer import (
-            build_td3_double_buffer_runner,
-        )
+            runner = build_sac_double_buffer_runner(cfg, **builder_kwargs)
+        elif algo_name == "td3":
+            from uni_rl.algos.fast_td3.double_buffer import (
+                build_td3_double_buffer_runner,
+            )
 
-        runner = build_td3_double_buffer_runner(cfg, **builder_kwargs)
-    elif algo_name == "flashsac":
-        from uni_rl.algos.flash_sac.double_buffer import (
-            build_flashsac_double_buffer_runner,
-        )
+            runner = build_td3_double_buffer_runner(cfg, **builder_kwargs)
+        elif algo_name == "flashsac":
+            from uni_rl.algos.flash_sac.double_buffer import (
+                build_flashsac_double_buffer_runner,
+            )
 
-        runner = build_flashsac_double_buffer_runner(cfg, **builder_kwargs)
-    else:
-        raise ValueError(f"Unsupported algo: {algo_name}")
+            runner = build_flashsac_double_buffer_runner(cfg, **builder_kwargs)
+        else:
+            raise ValueError(f"Unsupported algo: {algo_name}")
 
     return runner
 

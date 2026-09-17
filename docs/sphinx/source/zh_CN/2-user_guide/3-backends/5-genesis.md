@@ -81,6 +81,10 @@ uv run train --algo ppo --task g1_walk_flat --sim genesis \
     algo.num_envs=64 algo.max_iterations=3
 ```
 
+构建 off-policy runner 时，UniLab 只在单环境维度探测期间临时设置
+`GS_PARA_LEVEL=2`，让探测预热与规模化 collector 相同的 Genesis 磁盘缓存
+lane；训练开始前会恢复原有环境变量值或未设置状态。
+
 ## Playback 与渲染
 
 Genesis 原生渲染是已声明能力，且在 `scene.build` 之后惰性挂载（训练热
