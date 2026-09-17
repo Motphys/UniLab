@@ -24,3 +24,4 @@ env:
   newton_nconmax: 320
   newton_njmax: 512
   newton_capacity_check_steps: 1
+  newton_use_cuda_graph: false

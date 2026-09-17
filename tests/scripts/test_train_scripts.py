@@ -2224,6 +2224,8 @@ def test_offpolicy_flashsac_g1_motion_tracking_task_composes(backend: str) -> No
     assert cfg.training.sim_backend == backend
     assert cfg.algo.num_envs == 2048
     assert cfg.algo.max_iterations == 25000
+    if backend == "newton":
+        assert cfg.env.newton_use_cuda_graph is False
 
 
 def test_offpolicy_rejects_algo_argument_mismatch():

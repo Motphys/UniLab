@@ -57,6 +57,10 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     # its own device.
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
+    # Omit the eager default so owners remain compatible with unisim-core
+    # releases that predate Newton CUDA graph support.
+    if cfg.newton_use_cuda_graph:
+        result["newton_use_cuda_graph"] = True
     return result
 
 

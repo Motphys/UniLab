@@ -103,6 +103,10 @@ as `env.*` fields in the owner YAML:
   raises an explicit capacity error when a bound is too small; it never
   silently truncates constraints.
 - `newton_capacity_check_steps`: how often capacity is checked (default 1).
+- `newton_use_cuda_graph`: opt-in CUDA graph replay (default `false`). A
+  graph-capable UniSim runtime captures both Newton state parities after cold
+  capacity calibration; ineligible CUDA drivers or capture failures warn and
+  fall back to eager execution.
 
 ## Playback and Rendering
 
