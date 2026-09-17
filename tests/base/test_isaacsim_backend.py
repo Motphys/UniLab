@@ -31,10 +31,8 @@ from unisim.backend.isaacsim.dependencies import (
     build_worker_env,
     resolve_isaacsim_runtime,
 )
-from unisim.backend.isaacsim.worker import (
-    _quat_rotate_wxyz,
-    _resolve_articulation_root_prim_path,
-)
+from unisim.backend.isaacsim.scene_worker import _rotate
+from unisim.backend.isaacsim.worker import _resolve_articulation_root_prim_path
 
 from unilab.base.backend_factory import create_backend
 from unilab.base.base import EnvCfg
@@ -536,7 +534,7 @@ def test_root_angular_velocity_helper_converts_body_to_world() -> None:
     half = np.sqrt(0.5)
     quat = np.array([[half, half, 0.0, 0.0]], dtype=np.float32)
     body_angvel = np.array([[0.0, -1.0, 0.0]], dtype=np.float32)
-    np.testing.assert_allclose(_quat_rotate_wxyz(quat, body_angvel), [[0.0, 0.0, -1.0]], atol=1e-6)
+    np.testing.assert_allclose(_rotate(quat, body_angvel), [[0.0, 0.0, -1.0]], atol=1e-6)
 
 
 class _FakePrim:
