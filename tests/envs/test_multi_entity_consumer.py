@@ -230,6 +230,9 @@ finally:
 print("FACTORY_OK")
 """
     process_env = dict(os.environ)
+    # This validates physics/registry reconstruction, without a renderer. An
+    # inherited OSMesa choice otherwise makes SDK import require libOSMesa.
+    process_env["MUJOCO_GL"] = "disable"
     process_env["UNILAB_EXTRA_REGISTRY_PACKAGES"] = __name__
     result = subprocess.run(
         [sys.executable, "-c", script, encoded],
