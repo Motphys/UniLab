@@ -399,16 +399,13 @@ def test_root_qvel_body_angular_contract_reads_back_world_velocity(backend_type:
     )
 
 
-def test_mujoco_root_layout_resolves_a_nonfirst_free_joint() -> None:
-    import mujoco
-
+def test_mujoco_root_layout_resolves_a_nonfirst_free_joint(tmp_path: Path) -> None:
     pytest.importorskip(
         "unisim.backend.mujoco.backend",
         reason="unisim-core MuJoCo adapter (mjbatch build) not available",
     )
-    from unisim.backend.mujoco.backend import MuJoCoBackend
-
-    model = mujoco.MjModel.from_xml_string(
+    source = tmp_path / "nonfirst-root.xml"
+    source.write_text(
         """
         <mujoco>
           <worldbody>
@@ -424,14 +421,17 @@ def test_mujoco_root_layout_resolves_a_nonfirst_free_joint() -> None:
         </mujoco>
         """
     )
-    backend = object.__new__(MuJoCoBackend)
-    backend._model = model
-
-    layout = backend.get_root_state_layout("floating")
-    assert layout.qpos_indices == tuple(range(1, 8))
-    assert layout.qvel_indices == tuple(range(1, 7))
-    with pytest.raises(NotImplementedError, match="hinged.*exactly one free joint"):
-        backend.get_root_state_layout("hinged")
+    backend = create_backend(
+        "mujoco", SceneCfg(model_file=str(source)), 1, SIM_DT, base_name="floating"
+    )
+    try:
+        layout = backend.get_root_state_layout("floating")
+        assert layout.qpos_indices == tuple(range(1, 8))
+        assert layout.qvel_indices == tuple(range(1, 7))
+        with pytest.raises(NotImplementedError, match="hinged.*exactly one free joint"):
+            backend.get_root_state_layout("hinged")
+    finally:
+        backend.close()
 
 
 def test_drake_root_layout_is_explicitly_unsupported_without_runtime_metadata() -> None:

@@ -31,10 +31,8 @@ from unisim.backend.isaacsim.dependencies import (
     build_worker_env,
     resolve_isaacsim_runtime,
 )
-from unisim.backend.isaacsim.worker import (
-    _quat_rotate_wxyz,
-    _resolve_articulation_root_prim_path,
-)
+from unisim.backend.isaacsim.scene_worker import _rotate
+from unisim.backend.isaacsim.worker import _resolve_articulation_root_prim_path
 
 from unilab.base.backend_factory import create_backend
 from unilab.base.base import EnvCfg
@@ -379,7 +377,7 @@ def test_interactive_renderer_roundtrip(scene_file: str, monkeypatch: pytest.Mon
         backend.close()
 
 
-def test_interactive_playback_routes_startup_dimensions_and_camera(
+def test_interactive_playback_routes_dimensions_and_rejects_ignored_camera_options(
     scene_file: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DISPLAY", ":0")
@@ -406,11 +404,7 @@ def test_interactive_playback_routes_startup_dimensions_and_camera(
             num_steps=1,
             headless=False,
             record_video=False,
-            camera_kwargs={
-                "cam_distance": 3.0,
-                "cam_elevation": -15.0,
-                "cam_azimuth": 45.0,
-            },
+            camera_kwargs=CameraCfg(),
         )
         assert result is None
         assert init_calls == [
@@ -418,13 +412,19 @@ def test_interactive_playback_routes_startup_dimensions_and_camera(
                 "headless": False,
                 "width": 64,
                 "height": 48,
-                "camera_kwargs": CameraCfg(
-                    cam_distance=3.0,
-                    cam_elevation=-15.0,
-                    cam_azimuth=45.0,
-                ),
+                "camera_kwargs": CameraCfg(),
             }
         ]
+        with pytest.raises(NotImplementedError, match="interactive viewers"):
+            backend.run_playback(
+                env=SimpleNamespace(cfg=None),
+                initialize=lambda: 0,
+                step=lambda obs: obs + 1,
+                num_steps=1,
+                headless=False,
+                record_video=False,
+                camera_kwargs={"cam_distance": 3.0},
+            )
     finally:
         backend.close()
 
@@ -536,7 +536,7 @@ def test_root_angular_velocity_helper_converts_body_to_world() -> None:
     half = np.sqrt(0.5)
     quat = np.array([[half, half, 0.0, 0.0]], dtype=np.float32)
     body_angvel = np.array([[0.0, -1.0, 0.0]], dtype=np.float32)
-    np.testing.assert_allclose(_quat_rotate_wxyz(quat, body_angvel), [[0.0, 0.0, -1.0]], atol=1e-6)
+    np.testing.assert_allclose(_rotate(quat, body_angvel), [[0.0, 0.0, -1.0]], atol=1e-6)
 
 
 class _FakePrim:

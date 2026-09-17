@@ -26,7 +26,7 @@ class SceneCfg(_UniSimSceneCfg):
     manager facade's :class:`EntityCfg` records on the cold configuration path.
     """
 
-    model_file: str
+    model_file: str = ""
     fragment_files: list[str] = field(default_factory=list)
     terrain: TerrainSceneCfg | None = None
     entities: dict[str, object] = field(default_factory=dict)

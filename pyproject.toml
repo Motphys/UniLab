@@ -39,10 +39,9 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
-    # unisim-core package. The 1.4.2 release carries the fixed model variant,
-    # per-world reset-default, per-env gravity, substep body-wrench, and
-    # IsaacGym fixed-variant contracts.
-    "unisim-core>=1.4.2",
+    # unisim-core package. Pin the released adapter semantics validated by the
+    # MuJoCo collector comparison in scripts/benchmark/reports/.
+    "unisim-core==1.5.1",
     # RL algorithms and async runtimes (PPO/APPO/SAC/TD3 runners,
     # collectors, IPC, logging) live in the independently released uni-rl
     # package (distribution name ``unilab-rl``), consumed via the injected
@@ -170,7 +169,7 @@ viser = ["viser>=1.0.26", "trimesh>=3.21.7"]
 # required-environments; elsewhere the extra is empty and the CLI reports a
 # targeted runtime diagnostic.
 superdex = [
-    "unisim-core[superdex]>=1.4.2 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "unisim-core[superdex]==1.5.1 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [dependency-groups]
