@@ -24,9 +24,9 @@ requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
     # Physics implementations are provided by the independently released
-    # unisim-core package. M2 development uses the exact official Git source
-    # below; a released M2 minimum is still required before publishing UniLab.
-    "unisim-core>=1.4.3",
+    # unisim-core package. Version 1.5.0 provides the M2 physical entity,
+    # immutable variant, layout and selected-reset contracts.
+    "unisim-core>=1.5.0",
     # RL algorithms and async runtimes live in the independently released
     # uni-rl package (distribution name ``unilab-rl``); see pyproject.toml.
     "unilab-rl==1.2.1",
@@ -94,7 +94,6 @@ url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
 [tool.uv.sources]
-unisim-core = { git = "https://github.com/unilabsim/unisim.git", rev = "e952419326d96d2e89faa087c030469c0ebd0adc" }
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]

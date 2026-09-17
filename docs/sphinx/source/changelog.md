@@ -17,10 +17,8 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Added / 新增
 
-- Added the development M2 entity consumer: typed physical sources/variants, explicit logical-to-physical binding, selected entity reset transactions and per-variant state/control defaults. A registered primitive task validates the same pickleable EnvFactory with MuJoCo and IsaacSim. The consumer requires the UniSim M2 integration APIs; released dependency validation remains a separate gate.
-  新增开发中的 M2 实体消费层：物理源/variant 类型化、显式逻辑到物理绑定、局部实体 reset 事务和逐 variant 状态/控制默认值。注册 primitive task 验证同一可 pickle EnvFactory 在 MuJoCo/IsaacSim 的行为。消费层需要 UniSim M2 集成 API，已发布依赖验证仍为独立门禁。
-- Pin the M2 development dependency to official UniSim Git commit `e952419326d96d2e89faa087c030469c0ebd0adc` so locked installs contain the required APIs. Update downstream regression tests for the unified worker and construct the nonfirst-root fixture through the public factory. A released M2 minimum remains required before publication.
-  将 M2 开发依赖固定到官方 UniSim Git 提交 `e952419326d96d2e89faa087c030469c0ebd0adc`，使锁定安装包含所需 API。更新统一 worker 的下游回归测试，并通过公共 factory 构造非首 free root 场景。发布前仍需指定已发布的 M2 最低版本。
+- Add the M2 entity consumer: typed physical sources/variants, explicit logical-to-physical binding, selected entity reset transactions and per-variant state/control defaults. A registered primitive task validates the same pickleable EnvFactory with MuJoCo and IsaacSim. Standard and ROCm dependency profiles require the released `unisim-core>=1.5.0` package, without a Git source override. Regression tests use the unified worker and construct the nonfirst-root fixture through the public factory.
+  新增 M2 实体消费层：物理源/variant 类型化、显式逻辑到物理绑定、局部实体 reset 事务和逐 variant 状态/控制默认值。注册 primitive task 验证同一可 pickle EnvFactory 在 MuJoCo/IsaacSim 的行为。标准与 ROCm 依赖配置要求已发布的 `unisim-core>=1.5.0` 包，不使用 Git source 覆盖。回归测试使用统一 worker，并通过公共 factory 构造非首 free root 场景。
 - Remove quadratic selected-row lookup and unused full-batch snapshots from entity reset staging. Reject mapped logical roots that point at descendant bodies, keeping reads, defaults and writes aligned. A bounded A/B script records separate row-index and sparse-field effects without claiming simulation throughput.
   删除实体 reset 暂存中的平方级行查找和无用全批状态快照。拒绝指向后代 body 的逻辑 root 绑定，使读取、默认值和写入保持一致。限定规模的 A/B 脚本分别记录行索引与稀疏字段的影响，不宣称仿真吞吐提升。
 
