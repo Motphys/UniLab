@@ -1,0 +1,26 @@
+# @package _global_
+# FlashSAC Newton owner for G1 WBT. Newton's runtime is optional and shares
+# the MuJoCo 3.11 / MuJoCo-Warp 3.11 / Warp 1.16 line with the mujoco/mjwarp
+# extras; process device binding supplies the rank-local CUDA device when
+# ``newton_device`` is left unset. Requires unisim-core>=1.5.1 for the motion
+# body id capability (unilabsim/unisim#137). Native ViewerGL rendering
+# (offline record + interactive) is provided by the backend; playback inherits
+# auto mode.
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1MotionTrackingSAC
+  sim_backend: newton
+  # First tick includes collector env construction; newton startup exceeds the
+  # 30s default (same override as sac g1_walk_flat/newton).
+  inference_request_timeout_sec: 180.0
+env:
+  # A null device is intentional: the off-policy collector binder injects the
+  # rank-local CUDA device before materialization. 320/512 leaves headroom
+  # over the observed fall-contact demand measured on g1_walk_flat.
+  newton_device: null
+  newton_nconmax: 320
+  newton_njmax: 512
+  newton_capacity_check_steps: 1

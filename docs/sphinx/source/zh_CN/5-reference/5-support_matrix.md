@@ -77,13 +77,14 @@ uv run scripts/generate_support_matrix.py --write
 | APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested | - | - | - | - | - |
 | APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - | - | - | - |
 | SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Tested | Tested | Configured | Tested | - |
-| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | - | - | - | - | - |
+| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | - | Registered | - | Registered | - |
 | SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Registered | - | - | - | - | - |
 | SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered | - | - | - | - | - |
 | TD3 (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | - | Tested | - | - | - | - | Registered |
 | TD3 (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Registered | Registered | Registered | Registered | - |
 | FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Registered | - | - | - | - | Registered |
 | FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Configured | Tested | Registered | Registered | Registered | Registered | - |
+| FlashSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | - | Configured | - | Configured | - |
 
 ### Source Index
 

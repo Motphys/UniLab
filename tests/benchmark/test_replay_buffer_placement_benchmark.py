@@ -53,7 +53,8 @@ def test_replay_shape_packed_width_includes_critic_fields() -> None:
 
 def test_wbt_owner_config_is_only_included_when_present() -> None:
     assert bench._owner_config_exists("sac", "g1_motion_tracking", "mujoco")
-    assert not bench._owner_config_exists("flashsac", "g1_motion_tracking", "mujoco")
+    assert bench._owner_config_exists("flashsac", "g1_motion_tracking", "mujoco")
+    assert not bench._owner_config_exists("td3", "g1_motion_tracking", "mujoco")
 
 
 def test_default_discovery_includes_existing_offpolicy_mujoco_tasks() -> None:
@@ -69,7 +70,8 @@ def test_default_discovery_includes_existing_offpolicy_mujoco_tasks() -> None:
     assert ("flashsac", "g1_walk_flat") in targets
     assert ("flashsac", "go2_joystick_flat") in targets
     assert ("td3", "g1_walk_flat") in targets
-    assert ("flashsac", "g1_motion_tracking") not in targets
+    assert ("flashsac", "g1_motion_tracking") in targets
+    assert ("td3", "g1_motion_tracking") not in targets
 
 
 def test_td3_is_an_allowed_benchmark_algo() -> None:

@@ -142,6 +142,11 @@ def _fake_mujoco_backend(pre_step_control_fn=None):
     backend._refresh_pre_step_body_state = True
     backend._pre_step_control_fn = pre_step_control_fn
     backend._tracked_sensor_copyout_range = None
+    backend._tracked_sensor_slices = ()
+    backend._tracked_body_state_dirty = np.zeros(1, dtype=bool)
+    # Matches the 1.4.3 constructor default; the pre-step-control tests pin the
+    # refreshing behavior the flag gates.
+    backend._refresh_pre_step_body_state = True
     backend._num_envs = 1
     backend._np_dtype = np.float32
     backend.nq = pool._nq

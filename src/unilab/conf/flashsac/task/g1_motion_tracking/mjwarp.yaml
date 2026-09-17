@@ -1,0 +1,15 @@
+# @package _global_
+# FlashSAC mjwarp (GPU) owner for G1 WBT. Inherits the MuJoCo owner verbatim
+# so sim2sim DENYLIST fields keep parity and run metrics stay directly
+# comparable with logs/fast_sac/G1MotionTrackingSAC; offline record reuses
+# MuJoCo rendering.
+# NOTE: mjwarp rejects reset/interval domain randomization and push terms;
+# this owner inherits the DR-free base, so no extra disables are needed.
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1MotionTrackingSAC
+  sim_backend: mjwarp
+  play_render_mode: record

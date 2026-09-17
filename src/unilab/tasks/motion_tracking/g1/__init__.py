@@ -24,5 +24,11 @@ for _task_name in G1_MOTION_TASKS:
 # mujoco/motrix until their mjwarp paths are validated.
 registry.register_env("G1MotionTrackingSAC", make_manager_based_rl_env, sim_backend="mjwarp")
 
+# genesis/newton implement the motion-body-id capability since unisim-core 1.5.1
+# (unilabsim/unisim#137); isaacgym/isaacsim stay unregistered until their
+# body-state publish/reset paths are fixed (unilabsim/unisim#141).
+for _backend in ("genesis", "newton"):
+    registry.register_env("G1MotionTrackingSAC", make_manager_based_rl_env, sim_backend=_backend)
+
 
 __all__ = ["BoxMotionData", "BoxMotionLoader", "G1_MOTION_TASKS"]

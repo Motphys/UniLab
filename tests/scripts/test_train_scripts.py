@@ -2210,6 +2210,22 @@ def test_offpolicy_flashsac_g1_walk_flat_task_composes() -> None:
     assert cfg.training.sim_backend == "mujoco"
 
 
+def test_offpolicy_flashsac_g1_motion_tracking_mjwarp_task_composes() -> None:
+    cfg = _offpolicy_cfg(["task=g1_motion_tracking/mjwarp"], algo="flashsac")
+    assert cfg.training.task_name == "G1MotionTrackingSAC"
+    assert cfg.training.sim_backend == "mjwarp"
+    assert cfg.training.play_render_mode == "record"
+
+
+@pytest.mark.parametrize("backend", ["mujoco", "motrix", "newton", "genesis"])
+def test_offpolicy_flashsac_g1_motion_tracking_task_composes(backend: str) -> None:
+    cfg = _offpolicy_cfg([f"task=g1_motion_tracking/{backend}"], algo="flashsac")
+    assert cfg.training.task_name == "G1MotionTrackingSAC"
+    assert cfg.training.sim_backend == backend
+    assert cfg.algo.num_envs == 2048
+    assert cfg.algo.max_iterations == 25000
+
+
 def test_offpolicy_rejects_algo_argument_mismatch():
     """build_runner must reject an algo argument inconsistent with cfg.algo.algo."""
     cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"])

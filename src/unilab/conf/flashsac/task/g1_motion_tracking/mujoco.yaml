@@ -1,0 +1,21 @@
+# @package _global_
+# FlashSAC MuJoCo owner for G1 WBT. Carries the FlashSAC training budget
+# aligned with the FastSAC owner (2048 envs x 25000 iterations, gamma 0.99)
+# so run metrics are directly comparable across algos; FlashSAC algo-specific
+# knobs (batch_size, num_atoms, temp/n_step params) stay at the
+# conf/flashsac/config.yaml defaults.
+defaults:
+  - /task/g1_motion_tracking/base
+  - _self_
+
+training:
+  task_name: G1MotionTrackingSAC
+  sim_backend: mujoco
+algo:
+  num_envs: 2048
+  max_iterations: 25000
+  save_interval: 1000
+  gamma: 0.99
+  tau: 0.05
+  updates_per_step: 4
+  policy_frequency: 2
