@@ -38,6 +38,26 @@ def current_torch_distributed_world_size() -> int:
     return int(os.environ.get("WORLD_SIZE", "1"))
 
 
+def torchrun_ranks_are_colocated(world_size: int | None = None) -> bool:
+    """Whether the torchrun ranks of this run share one host.
+
+    The integrated data-parallel launcher puts every rank on one host, where
+    partitioning the CPU affinity per rank avoids cross-rank contention. An
+    external multi-node torchrun instead reports ``LOCAL_WORLD_SIZE <
+    WORLD_SIZE``; each node then owns a full machine, so every rank must keep
+    the host's complete CPU budget rather than a world-size slice of it.
+    """
+    resolved_world_size = int(
+        world_size if world_size is not None else os.environ.get("WORLD_SIZE", "1")
+    )
+    if resolved_world_size < 1:
+        raise ValueError(f"world_size must be positive, got {resolved_world_size}")
+    local_world_size = int(os.environ.get("LOCAL_WORLD_SIZE", str(resolved_world_size)))
+    if local_world_size < 1:
+        raise ValueError(f"LOCAL_WORLD_SIZE must be positive, got {local_world_size}")
+    return local_world_size == resolved_world_size
+
+
 def resolve_dp_topology(devices_cfg: Any) -> tuple[int, ...] | None:
     """Normalize ``training.devices`` into an ordered CUDA-index tuple.
 

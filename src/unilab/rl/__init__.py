@@ -13,6 +13,7 @@ from unilab.rl.distributed import (
     resolve_dp_topology,
     resolve_rsl_rl_device,
     rsl_rl_single_process_topology,
+    torchrun_ranks_are_colocated,
     validate_dp_launchable,
 )
 from unilab.rl.vec_env import RslRlVecEnvAdapter, get_policy_obs_dims
@@ -32,5 +33,6 @@ __all__ = [
     "resolve_dp_topology",
     "resolve_rsl_rl_device",
     "rsl_rl_single_process_topology",
+    "torchrun_ranks_are_colocated",
     "validate_dp_launchable",
 ]

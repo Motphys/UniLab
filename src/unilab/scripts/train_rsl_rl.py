@@ -36,6 +36,7 @@ from unilab.rl import (
     resolve_dp_topology,
     resolve_rsl_rl_device,
     rsl_rl_single_process_topology,
+    torchrun_ranks_are_colocated,
     validate_dp_launchable,
 )
 from unilab.training import (
@@ -106,7 +107,10 @@ def build_ppo_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
         world_size=world_size,
         learner_device=learner_device,
     )
-    if world_size > 1:
+    # CPU partitioning is only correct when the ranks share one host: an
+    # external multi-node torchrun runs one rank per Spark, and each rank must
+    # keep that node's full CPU budget for its MuJoCo batch pool / Numba pool.
+    if world_size > 1 and torchrun_ranks_are_colocated(world_size):
         explicit = OmegaConf.select(cfg, "training.dp_collector_cpu_ids", default=None)
         explicit = OmegaConf.to_container(explicit, resolve=True) if explicit is not None else None
         result["cpu_ids"] = resolve_collector_cpu_ids(

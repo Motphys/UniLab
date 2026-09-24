@@ -387,6 +387,28 @@ def test_ppo_multi_rank_routes_one_cpu_partition_to_the_env(
     assert override["cpu_ids"] == [8, 24]
 
 
+def test_ppo_multi_node_rank_keeps_full_host_cpu_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One rank per host must not slice that host's CPU affinity."""
+
+    mod = _train_rsl_rl(monkeypatch)
+    cfg = _ppo_cfg(["task=go2_joystick_flat/superdex", "training.devices=[0,1]"])
+    monkeypatch.setenv("RANK", "1")
+    monkeypatch.setenv("LOCAL_RANK", "0")
+    monkeypatch.setenv("LOCAL_WORLD_SIZE", "1")
+    monkeypatch.setenv("WORLD_SIZE", "2")
+    monkeypatch.setattr(
+        mod,
+        "resolve_collector_cpu_ids",
+        lambda *_args, **_kwargs: pytest.fail("multi-node ranks must not partition host CPUs"),
+    )
+
+    override = mod.build_ppo_env_cfg_override(cfg)
+
+    assert "cpu_ids" not in override
+
+
 def test_offpolicy_isaacsim_training_and_eval_use_separate_render_overrides():
     cfg = _offpolicy_cfg(
         [
