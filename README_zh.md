@@ -94,6 +94,36 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 [后端指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/3-backends/0-index.html)和
 [支持矩阵](https://unilabsim.github.io/UniLab-doc/zh_CN/5-reference/5-support_matrix.html)。
 
+## 多节点训练
+
+两台单 GPU 主机可以同步训练：PPO 走标准 `torchrun`，off-policy 算法走
+uni_rl 的外部数据并行拓扑（TCP rendezvous）。已在两台经 200 Gb/s QSFP
+直连的 NVIDIA Spark（GB10）上验证——PPO 1.34–1.98×，FlashSAC 大 batch 下
+最高 ~1.8×。见
+[双机连接指南](docs/sphinx/source/zh_CN/2-user_guide/2-algorithms/5-multi-node-training.md)
+与[双 Spark 验证报告](docs/reports/dual_spark_2026-09.md)。
+
+```bash
+# PPO：两台执行相同命令，仅 --node_rank 不同。
+# algo.num_envs 为每 rank 数量，每台传“全局/2”。
+NCCL_IB_DISABLE=1 NCCL_SOCKET_IFNAME=enp1s0f1np1 \
+python -m torch.distributed.run --nnodes=2 --nproc_per_node=1 \
+  --master_addr=192.168.100.1 --master_port=29500 --node_rank=0 \
+  src/unilab/scripts/train_rsl_rl.py task=g1_flip_tracking/mujoco \
+  algo.num_envs=512 algo.max_iterations=1000 \
+  training.no_play=true training.log_dir=logs/dual
+
+# SAC / FlashSAC：两台执行相同命令，仅 UNILAB_DP_RANK 不同。
+# algo.num_envs / algo.batch_size 为每 rank 数量，每台传“全局/2”。
+UNILAB_DP_EXTERNAL=1 UNILAB_DP_WORLD_SIZE=2 UNILAB_DP_RANK=0 \
+UNILAB_DP_RENDEZVOUS_URL=tcp://192.168.100.1:29501 \
+UNILAB_DP_LOG_DIR=logs/dual \
+NCCL_IB_DISABLE=1 NCCL_SOCKET_IFNAME=enp1s0f1np1 \
+python src/unilab/scripts/train_sac.py task=g1_walk_flat/mujoco \
+  algo.num_envs=1024 algo.batch_size=4096 \
+  training.no_play=true training.log_dir=logs/dual
+```
+
 ## 生态
 
 UniLab 被设计为机器人专属仓库共享的任务与训练界面。下游仓库可以独立发布机器人

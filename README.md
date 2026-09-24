@@ -101,6 +101,36 @@ the [training guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-tr
 [backend guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/3-backends/0-index.html),
 and [support matrix](https://unilabsim.github.io/UniLab-doc/en/5-reference/5-support_matrix.html).
 
+## Multi-node training
+
+Two single-GPU hosts can train synchronously: PPO through standard `torchrun`,
+off-policy algorithms through uni_rl's external data-parallel topology with a
+TCP rendezvous. Validated on two NVIDIA Spark (GB10) hosts over a 200 Gb/s
+QSFP link — PPO 1.34–1.98× and FlashSAC up to ~1.8× at large batch. See the
+[two-node setup guide](docs/sphinx/source/en/2-user_guide/2-algorithms/5-multi-node-training.md)
+and the [dual-Spark validation report](docs/reports/dual_spark_2026-09.md).
+
+```bash
+# PPO: identical command on both nodes, only --node_rank differs.
+# algo.num_envs is per-rank; pass global/2 on each node.
+NCCL_IB_DISABLE=1 NCCL_SOCKET_IFNAME=enp1s0f1np1 \
+python -m torch.distributed.run --nnodes=2 --nproc_per_node=1 \
+  --master_addr=192.168.100.1 --master_port=29500 --node_rank=0 \
+  src/unilab/scripts/train_rsl_rl.py task=g1_flip_tracking/mujoco \
+  algo.num_envs=512 algo.max_iterations=1000 \
+  training.no_play=true training.log_dir=logs/dual
+
+# SAC / FlashSAC: identical command on both nodes, only UNILAB_DP_RANK differs.
+# algo.num_envs / algo.batch_size are per-rank; pass global/2 on each node.
+UNILAB_DP_EXTERNAL=1 UNILAB_DP_WORLD_SIZE=2 UNILAB_DP_RANK=0 \
+UNILAB_DP_RENDEZVOUS_URL=tcp://192.168.100.1:29501 \
+UNILAB_DP_LOG_DIR=logs/dual \
+NCCL_IB_DISABLE=1 NCCL_SOCKET_IFNAME=enp1s0f1np1 \
+python src/unilab/scripts/train_sac.py task=g1_walk_flat/mujoco \
+  algo.num_envs=1024 algo.batch_size=4096 \
+  training.no_play=true training.log_dir=logs/dual
+```
+
 ## Ecosystem
 
 UniLab is designed to be a shared task and training surface for robot-specific

@@ -17,4 +17,5 @@
 2-appo
 3-sac
 4-flash_sac
+5-multi-node-training
 ```
