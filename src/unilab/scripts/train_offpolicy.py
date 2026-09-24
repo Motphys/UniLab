@@ -21,6 +21,7 @@ from uni_rl.ipc.dp_launcher import (
     DpRankSupervisor,
     apply_dp_rank_config,
     current_dp_rank,
+    current_external_dp_topology,
     resolve_collector_cpu_ids,
     resolve_dp_rank_device,
     resolve_dp_rendezvous_path,
@@ -114,9 +115,11 @@ def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[st
     base = _build_offpolicy_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
     devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
     rank = current_dp_rank()
+    external = current_external_dp_topology()
+    device_rank = 0 if external is not None else rank
     from unilab.utils.device import get_default_device
 
-    rank_device = resolve_dp_rank_device(devices, rank) or get_default_device()
+    rank_device = resolve_dp_rank_device(devices, device_rank) or get_default_device()
     return apply_backend_env_device_override(
         base,
         str(cfg.training.sim_backend),
@@ -131,9 +134,11 @@ def build_offpolicy_play_env_cfg_override(algo_name: str, cfg: DictConfig) -> di
     base = _build_offpolicy_play_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
     devices = resolve_dp_topology(OmegaConf.select(cfg, "training.devices", default=None))
     rank = current_dp_rank()
+    external = current_external_dp_topology()
+    device_rank = 0 if external is not None else rank
     from unilab.utils.device import get_default_device
 
-    rank_device = resolve_dp_rank_device(devices, rank) or get_default_device()
+    rank_device = resolve_dp_rank_device(devices, device_rank) or get_default_device()
     return apply_backend_env_device_override(
         base,
         str(cfg.training.sim_backend),
@@ -152,29 +157,39 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         resolve_torch_thread_runtime,
     )
 
-    # Cold-path DP CPU partition: each rank's collector owns one contiguous
-    # CPU block (single rank keeps the legacy unset behavior). The ids only
-    # reach the collector env override — never the num_envs=1 probe envs,
-    # whose MuJoCo pool would size itself from len(cpu_ids).
-    # world_size comes from training.devices (rank 0 has no UNILAB_DP_* env;
-    # only spawned ranks carry it), rank from the env (0 for rank 0).
+    # Cold-path DP topology. Local multi-GPU: world_size comes from
+    # training.devices and each rank's collector owns one contiguous CPU block
+    # (single rank keeps the legacy unset behavior; ids never reach the
+    # num_envs=1 probe envs). External multi-node: UNILAB_DP_EXTERNAL injects
+    # rank/world_size and every rank owns a full host, so CPU partitioning is
+    # skipped and the device index is host-local.
     dp_devices = resolve_dp_topology(cfg.training.devices)
-    dp_world_size = len(dp_devices) if dp_devices is not None else 1
-    dp_rank = current_dp_rank()
+    external = current_external_dp_topology()
+    dp_world_size = (
+        external.world_size
+        if external is not None
+        else (len(dp_devices) if dp_devices is not None else 1)
+    )
+    dp_rank = external.rank if external is not None else current_dp_rank()
+    dp_device_rank = 0 if external is not None else dp_rank
     from unilab.utils.device import get_default_device
 
-    rank_device = resolve_dp_rank_device(dp_devices, dp_rank) or get_default_device()
+    rank_device = resolve_dp_rank_device(dp_devices, dp_device_rank) or get_default_device()
+    if external is not None and str(rank_device) == "cuda":
+        # External multi-node ranks own one host-local GPU; dp_sync requires an
+        # indexed CUDA device for its NCCL communicator binding.
+        rank_device = "cuda:0"
     routed_device_id = resolve_backend_env_device_id(
         str(cfg.training.sim_backend),
         devices=dp_devices,
-        rank=dp_rank,
+        rank=dp_device_rank,
         world_size=1,
         learner_device=rank_device,
     )
     warn_if_backend_device_collision(
         str(cfg.training.sim_backend),
         devices=dp_devices,
-        rank=dp_rank,
+        rank=dp_device_rank,
         device_id=routed_device_id,
         source="collector",
     )
@@ -197,7 +212,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         build_offpolicy_env_cfg_override(algo_name, cfg),
         str(cfg.training.sim_backend),
         devices=dp_devices,
-        rank=dp_rank,
+        rank=dp_device_rank,
         world_size=1,
         learner_device=rank_device,
     )
@@ -205,35 +220,51 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
     if explicit_cpu_ids is not None:
         explicit_cpu_ids = cast(list, OmegaConf.to_container(explicit_cpu_ids, resolve=True))
-    collector_cpu_ids = resolve_collector_cpu_ids(
-        dp_world_size,
-        dp_rank,
-        None,
-        explicit=explicit_cpu_ids,
-    )
+    if external is not None:
+        collector_cpu_ids = None
+    else:
+        collector_cpu_ids = resolve_collector_cpu_ids(
+            dp_world_size,
+            dp_rank,
+            None,
+            explicit=explicit_cpu_ids,
+        )
 
     # Cold-path DP process-group assembly. world_size == 1 keeps dp_sync=None
     # (bit-identical single-rank path); multi-rank learners attach the group's
     # flat-gradient collective at their optimizer boundaries.
     dp_sync = None
     if dp_world_size > 1:
-        if dp_rank == 0 and log_dir is None:
+        if external is None and dp_rank == 0 and log_dir is None:
             raise ValueError(
                 "build_runner requires log_dir for multi-GPU data-parallel rank 0 "
                 "(it anchors the DP rendezvous FileStore)"
             )
         from uni_rl.ipc.dp_sync import DpParameterSync
 
-        dp_sync = DpParameterSync(
-            world_size=dp_world_size,
-            rank=dp_rank,
-            rendezvous_path=resolve_dp_rendezvous_path(cast(str, log_dir), rank=dp_rank),
-            device=rank_device,
-        )
+        if external is not None:
+            # UNILAB_DP_BACKEND lets a single-host smoke test use gloo while
+            # real multi-node runs keep the NCCL default.
+            dp_sync = DpParameterSync(
+                world_size=dp_world_size,
+                rank=dp_rank,
+                rendezvous_url=external.rendezvous_url,
+                backend=os.environ.get("UNILAB_DP_BACKEND", "nccl"),
+                device=rank_device,
+            )
+        else:
+            dp_sync = DpParameterSync(
+                world_size=dp_world_size,
+                rank=dp_rank,
+                rendezvous_path=resolve_dp_rendezvous_path(cast(str, log_dir), rank=dp_rank),
+                device=rank_device,
+            )
 
     torch_thread_runtime = resolve_torch_thread_runtime(
         getattr(cfg.training, "torch_threads", None),
-        cpu_count=host_cpu_count // dp_world_size if dp_world_size > 1 else None,
+        cpu_count=(
+            host_cpu_count // dp_world_size if dp_world_size > 1 and external is None else None
+        ),
     )
     apply_torch_thread_runtime(torch_thread_runtime, role="learner")
 
@@ -404,7 +435,8 @@ def main(cfg: DictConfig) -> None:
     enable_faulthandler()
 
     devices = resolve_dp_topology(cfg.training.devices)
-    rank = current_dp_rank()
+    external = current_external_dp_topology()
+    rank = external.rank if external is not None else current_dp_rank()
     # Genesis/Quadrants binds the first CUDA_VISIBLE_DEVICES entry, and even
     # torch.cuda.is_available() latches the variable in the CUDA runtime, so
     # the pin must precede registry bootstrap and device auto-detection
@@ -419,7 +451,12 @@ def main(cfg: DictConfig) -> None:
 
     ensure_registries()
 
-    rank_device = apply_dp_rank_config(cfg, devices, rank)
+    rank_device = apply_dp_rank_config(
+        cfg,
+        devices,
+        rank,
+        device_rank=0 if external is not None else rank,
+    )
     if pinned_device is not None:
         # The process was pinned to its rank GPU; use the in-process index.
         rank_device = pinned_device
@@ -449,13 +486,16 @@ def main(cfg: DictConfig) -> None:
         log_dir = str(get_log_root(Path.cwd(), cfg) / task_name / run_dir_name)
     else:
         log_dir = cfg.training.log_dir
-    if rank > 0:
-        # Spawned ranks reuse the canonical run directory but never create
-        # logging backends, checkpoints, summaries, or traces there.
-        log_dir = os.environ[UNILAB_DP_LOG_DIR]
+    if rank > 0 or external is not None:
+        # Spawned/external ranks reuse the canonical run directory, but only
+        # rank 0 ever creates logging backends, checkpoints, or traces there.
+        external_log_dir = os.environ.get(UNILAB_DP_LOG_DIR)
+        if external_log_dir is None:
+            raise ValueError(f"external data-parallel rank {rank} requires {UNILAB_DP_LOG_DIR}")
+        log_dir = external_log_dir
 
     supervisor: DpRankSupervisor | None = None
-    if devices is not None and rank == 0 and len(devices) > 1:
+    if external is None and devices is not None and rank == 0 and len(devices) > 1:
         validate_dp_launchable(devices)
         supervisor = DpRankSupervisor(devices, log_dir)
 
