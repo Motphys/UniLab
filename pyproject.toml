@@ -109,7 +109,7 @@ newton = [
 ]
 motrix = ["unisim-core[motrix]>=1.7.8"]
 genesis = ["genesis-world==1.3.3"]
-uni_rl = ["unilab-rl==1.4.1"]
+uni_rl = ["unilab-rl==1.4.2"]
 # Wheels are CPython 3.12/3.13 Linux x86_64 only; the marker keeps uv lock
 # resolvable for the other required-environments.
 superdex = [
@@ -119,7 +119,7 @@ superdex = [
 [dependency-groups]
 # Dev/CI exercises the APPO/off-policy/multi-GPU paths, so the optional
 # unilab-rl runtime stays installed in the dev environment.
-dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408", "unilab-rl==1.4.1"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408", "unilab-rl==1.4.2"]
 
 [[tool.uv.index]]
 name = "r2-cu130"
