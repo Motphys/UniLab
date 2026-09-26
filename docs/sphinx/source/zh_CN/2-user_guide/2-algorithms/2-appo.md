@@ -58,10 +58,10 @@ gantt
     Weight Publish 写回 collector     :crit,   l4, 28000, 30000
 
     section Iter Wall
-    perf/iter_ms（仅 learner 这圈）   :        l5, 12000, 30000
+    Perf/iteration_time（仅 learner 这圈）  :        l5, 12000, 30000
 ```
 
-> 横轴为示意相对时长（非真实 ms 比例）。collector 子进程经 4 槽 ring buffer 与 learner 并行产出 rollout，稳态下 **Collector Wait ≈ 0**。`perf/iter_ms` 仅计 learner 这一圈（含 Collector Wait，但不含 collector 的并行采集计算）；红色 Weight Publish 标志该轮迭代结束、向 collector 发布新权重。各字段含义见[日志页](../1-training/3-logging.md)。
+> 横轴为示意相对时长（非真实 ms 比例）。collector 子进程经 4 槽 ring buffer 与 learner 并行产出 rollout，稳态下 **Collector Wait ≈ 0**。`Perf/iteration_time` 仅计 learner 这一圈（含 Collector Wait，但不含 collector 的并行采集计算）；红色 Weight Publish 标志该轮迭代结束、向 collector 发布新权重。各字段含义见[日志页](../1-training/3-logging.md)。
 
 ## 关键字段
 

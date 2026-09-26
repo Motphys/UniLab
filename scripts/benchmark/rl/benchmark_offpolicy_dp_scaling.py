@@ -12,17 +12,22 @@ to avoid resource contention.
 Measurement conventions:
 
 - Collector throughput (Steps/s): mean of the last 50% of canonical rank-0
-  ``perf/steps_per_sec`` samples. In DP runs the runner already sums the
-  per-rank collector rates before logging.
-- Learner throughput (Samples/s): the same tail mean over
-  ``perf/effective_samples_per_sec``. This counts effective learner samples
-  (including configured sample multipliers), summed across ranks.
+  ``Perf/total_fps`` samples (legacy ``perf/steps_per_sec`` for pre-1.4.1
+  event files). In DP runs the runner already sums the per-rank collector
+  rates before logging.
+- Learner throughput (Samples/s): the same tail mean over the legacy
+  ``perf/effective_samples_per_sec`` tag. unilab-rl 1.4.1 no longer persists
+  learner replay throughput, so runs without that tag derive it per iteration
+  as ``world_size * algo.batch_size * algo.updates_per_step /
+  Perf/iteration_time`` (run configuration from ``run_config.json``). This
+  counts effective learner replay rows (including configured sample
+  multipliers), summed across ranks.
 - Both fields report their own N-way / N=1 scaling ratio. The roadmap verdict
   remains attached to collector Steps/s: ``pass`` at >= 1.7
   (``SCALING_PASS_THRESHOLD``), otherwise ``below threshold``. The verdict is
   data only and does not affect the exit code.
 - The tail uses ceil(n/2) points (with n samples, ``n - n//2``), skipping
-  collector warm-up and replay prefill. Missing either throughput tag is a
+  collector warm-up and replay prefill. Missing either throughput series is a
   hard error, never silently skipped.
 - Exit code is non-zero only when a run itself failed (subprocess error,
   non-completed summary, or missing artifacts).
@@ -65,10 +70,23 @@ TRAIN_SCRIPT = ROOT_DIR / "src" / "unilab" / "scripts" / "train_sac.py"
 # --sim mujoco` (see src/unilab/cli.py build_route for off-policy algos).
 ROUTE_OVERRIDES = ("task=g1_walk_flat/mujoco",)
 
-STEPS_PER_SEC_TAG = "perf/steps_per_sec"
-SAMPLES_PER_SEC_TAG = "perf/effective_samples_per_sec"
-REWARD_TAG = "reward/mean"
-DP_SYNC_TIME_TAG = "train/dp_sync_time"
+# Scalar tag candidates are ``(tag, scale)`` pairs ordered newest schema
+# first. unilab-rl 1.4.1 introduced the canonical metric schema
+# (``uni_rl.logging.metric_schema``; migration table in unilab_rl
+# ``docs/metrics.md``) without rewriting historical event files, so the first
+# tag present in a run wins and its values are scaled into the units the
+# report columns already use (per-second rates, seconds for durations).
+STEPS_PER_SEC_TAGS = (("Perf/total_fps", 1.0), ("perf/steps_per_sec", 1.0))
+REWARD_TAGS = (("Train/mean_reward", 1.0), ("reward/mean", 1.0))
+DP_SYNC_TIME_TAGS = (("Perf/dp_gradient_sync_ms_per_rank", 0.001), ("train/dp_sync_time", 1.0))
+ITERATION_TIME_TAGS = (("Perf/iteration_time", 1.0), ("perf/iter_ms", 0.001))
+# unilab-rl 1.4.1 removed the persisted learner replay throughput chart with
+# no replacement tag; post-1.4.1 runs derive it from the run configuration
+# and ``Perf/iteration_time`` (see derive_learner_samples_per_sec).
+SAMPLES_PER_SEC_TAGS = (
+    ("perf/effective_samples_per_sec", 1.0),
+    ("perf/learner_samples_per_sec", 1.0),
+)
 
 DEFAULT_ITERATIONS = 300
 DEFAULT_DEVICES = "0,1"
@@ -117,8 +135,8 @@ def find_event_files(rank_dir: Path) -> list[Path]:
     return sorted(rank_dir.glob("events.out.tfevents.*"))
 
 
-def read_scalar_series(rank_dir: Path, tag: str) -> list[float]:
-    """Scalar values of ``tag`` from a rank's tfevents (in event order).
+def read_scalar_series(rank_dir: Path, candidates: Sequence[tuple[str, float]]) -> list[float]:
+    """Scaled values of the first present tag among ``candidates``.
 
     An absent tag yields ``[]``; a rank directory without any tfevents file
     raises ``RunParseError`` so missing rank data is never silent.
@@ -134,9 +152,37 @@ def read_scalar_series(rank_dir: Path, tag: str) -> list[float]:
 
     accumulator = event_accumulator.EventAccumulator(str(event_files[0]))
     accumulator.Reload()
-    if tag not in accumulator.Tags()["scalars"]:
+    tags = accumulator.Tags()["scalars"]
+    for tag, scale in candidates:
+        if tag in tags:
+            return [float(event.value) * scale for event in accumulator.Scalars(tag)]
+    return []
+
+
+def derive_learner_samples_per_sec(run_dir: Path, world_size: int) -> list[float]:
+    """Reconstruct aggregate learner replay rows/s for post-1.4.1 runs.
+
+    unilab-rl 1.4.1 no longer persists learner replay throughput; per
+    unilab_rl ``docs/metrics.md`` it derives from the run configuration —
+    ``algo.batch_size * algo.updates_per_step`` replay rows per rank per
+    iteration, summed across ranks — divided by the measured
+    ``Perf/iteration_time``.
+    """
+    iteration_times = read_scalar_series(run_dir, ITERATION_TIME_TAGS)
+    config_path = Path(run_dir) / "run_config.json"
+    if not iteration_times or not config_path.is_file():
         return []
-    return [float(event.value) for event in accumulator.Scalars(tag)]
+    config = json.loads(config_path.read_text(encoding="utf-8")).get("config") or {}
+    algo = config.get("algo") or {}
+    try:
+        rows_per_rank_per_iter = int(algo["batch_size"]) * int(algo["updates_per_step"])
+    except (KeyError, TypeError, ValueError):
+        return []
+    return [
+        world_size * rows_per_rank_per_iter / iteration_time
+        for iteration_time in iteration_times
+        if iteration_time > 0
+    ]
 
 
 def parse_run(run_dir: Path, world_size: int) -> dict[str, Any]:
@@ -160,14 +206,24 @@ def parse_run(run_dir: Path, world_size: int) -> dict[str, Any]:
             f"run {run_dir} did not complete: status={status!r} error={summary.get('error')!r}"
         )
 
-    collector_series = read_scalar_series(run_dir, STEPS_PER_SEC_TAG)
+    collector_series = read_scalar_series(run_dir, STEPS_PER_SEC_TAGS)
     if not collector_series:
-        raise RunParseError(f"run has no {STEPS_PER_SEC_TAG!r} samples under {run_dir}")
-    learner_series = read_scalar_series(run_dir, SAMPLES_PER_SEC_TAG)
+        raise RunParseError(
+            f"run has no collector throughput samples "
+            f"({' or '.join(tag for tag, _ in STEPS_PER_SEC_TAGS)}) under {run_dir}"
+        )
+    learner_series = read_scalar_series(run_dir, SAMPLES_PER_SEC_TAGS)
+    learner_throughput_source = "tfevents"
     if not learner_series:
-        raise RunParseError(f"run has no {SAMPLES_PER_SEC_TAG!r} samples under {run_dir}")
-    dp_sync_samples = read_scalar_series(run_dir, DP_SYNC_TIME_TAG)
-    reward_series = read_scalar_series(run_dir, REWARD_TAG)
+        learner_series = derive_learner_samples_per_sec(run_dir, world_size)
+        learner_throughput_source = "derived"
+    if not learner_series:
+        raise RunParseError(
+            f"run has no 'perf/effective_samples_per_sec' samples and learner "
+            f"throughput cannot be derived under {run_dir}"
+        )
+    dp_sync_samples = read_scalar_series(run_dir, DP_SYNC_TIME_TAGS)
+    reward_series = read_scalar_series(run_dir, REWARD_TAGS)
     return {
         "run_dir": str(run_dir),
         "world_size": world_size,
@@ -176,6 +232,7 @@ def parse_run(run_dir: Path, world_size: int) -> dict[str, Any]:
         "training_wall_time_sec": summary.get("training_wall_time_sec"),
         "num_collector_throughput_samples": len(collector_series),
         "num_learner_throughput_samples": len(learner_series),
+        "learner_throughput_source": learner_throughput_source,
         "steady_state_collector_steps_per_s": steady_state_mean(collector_series),
         "steady_state_learner_samples_per_s": steady_state_mean(learner_series),
         "final_mean_reward": reward_series[-1] if reward_series else None,
@@ -468,8 +525,11 @@ def main(argv: list[str] | None = None) -> int:
                 "scaling_pass_threshold": SCALING_PASS_THRESHOLD,
                 "steady_state_tail_fraction": STEADY_STATE_TAIL_FRACTION,
                 "throughput_tags": {
-                    "collector_steps_per_sec": STEPS_PER_SEC_TAG,
-                    "learner_samples_per_sec": SAMPLES_PER_SEC_TAG,
+                    "collector_steps_per_sec": [tag for tag, _ in STEPS_PER_SEC_TAGS],
+                    "learner_samples_per_sec": [tag for tag, _ in SAMPLES_PER_SEC_TAGS],
+                    "learner_samples_per_sec_derived": (
+                        "world_size * algo.batch_size * algo.updates_per_step / Perf/iteration_time"
+                    ),
                 },
             },
         },
