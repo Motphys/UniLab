@@ -5268,7 +5268,7 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "unilab-rl", marker = "extra == 'uni-rl'", specifier = "==1.4.1" },
+    { name = "unilab-rl", marker = "extra == 'uni-rl'", specifier = "==1.4.2" },
     { name = "unisim-core", specifier = ">=1.7.8" },
     { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = ">=1.7.8" },
     { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = ">=1.7.8" },
@@ -5286,12 +5286,12 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "unilab-rl", specifier = "==1.4.1" },
+    { name = "unilab-rl", specifier = "==1.4.2" },
 ]
 
 [[package]]
 name = "unilab-rl"
-version = "1.4.1"
+version = "1.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hydra-core" },
@@ -5307,9 +5307,9 @@ dependencies = [
     { name = "torch", version = "2.14.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "wandb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/90/2b8905acce6a5fdca7bab1ac5bcfccf7017fa3b286dadc307f110f8249e1/unilab_rl-1.4.1.tar.gz", hash = "sha256:440566af3422e1915587b62f7a47cc1c0e40615dff7fd94b1ff040f9725d5d3a", size = 142073, upload-time = "2026-09-26T18:24:13.396Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/75/ce8493878846670dac78409a043b5b967e6aeea5b18f54b0e9e4ef3ed7f0/unilab_rl-1.4.2.tar.gz", hash = "sha256:6cde93e7ac1434d407634f7b83f7599b1c5e5df120d2997e6753efaddcceb898", size = 148088, upload-time = "2026-09-26T19:52:58.228Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/77/29/b33c7e3ec8b9f0e1efeda53c755f8ffe973d8a0b8c8c13beb8d122e5a89f/unilab_rl-1.4.1-py3-none-any.whl", hash = "sha256:5efa10f5b6a2705509ef51f3c44e4705d97c835144779d9851b93999575a15ac", size = 174061, upload-time = "2026-09-26T18:24:12.088Z" },
+    { url = "https://files.pythonhosted.org/packages/86/32/7c037962463f7513b3d2def12165a27cdcb5fba0befca8b9aeae1e3eddcd/unilab_rl-1.4.2-py3-none-any.whl", hash = "sha256:544f11b30e2f34c4bee5bb6b724939486050a83388b9271553455525b7e69e37", size = 181053, upload-time = "2026-09-26T19:52:56.838Z" },
 ]
 
 [[package]]
