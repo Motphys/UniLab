@@ -13,6 +13,172 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.3.3 (2026-09-27)
+
+### Added / 新增
+
+- Added the WarpSAC off-policy algorithm shipped by unilab-rl 1.4.0: the
+  `conf/warpsac` owner config tree with G1 owners for `g1_walk_flat` and
+  `g1_motion_tracking` on the MuJoCo and mjwarp backends, the
+  `train_warpsac.py` entrypoint, CLI and documentation wiring, and a
+  stabilized G1 walk replay profile; explicit WarpSAC playback run selection
+  is now honored
+  ([#1645](https://github.com/Motphys/UniLab/pull/1645)).
+  新增 unilab-rl 1.4.0 提供的 WarpSAC off-policy 算法：`conf/warpsac` owner
+  配置树，覆盖 MuJoCo 与 mjwarp 后端的 `g1_walk_flat` 与
+  `g1_motion_tracking` G1 owner、`train_warpsac.py` 入口、CLI 与文档接线，
+  以及稳定化的 G1 walk 回放 profile；显式指定的 WarpSAC 回放 run 现在会被
+  正确遵循（#1645）。
+
+- The viser browser-based viewer is now a required dependency and works on
+  every playback-capable backend: `eval --render-mode viser` and
+  `training.play_render_mode=viser` route through the shared playback loop
+  for mujoco/mjwarp/newton/drake/superdex
+  ([#1631](https://github.com/Motphys/UniLab/issues/1631),
+  [#1632](https://github.com/Motphys/UniLab/pull/1632),
+  [#1638](https://github.com/Motphys/UniLab/pull/1638)), and the Motrix
+  backend gained viser rendering through the unisim-core 1.7.6 physics-state
+  playback contract (portable entity scenes and audited whole-MJCF scenes)
+  plus the 1.7.8 `<worldbody>` merge fix
+  ([#1639](https://github.com/Motphys/UniLab/pull/1639)). The `viser.*`
+  config group (port, max_envs, display_mode, env_idx) is now available on
+  the appo/sac/flashsac configs to match ppo.
+  viser 浏览器查看器成为必需依赖，并支持所有具备回放能力的后端：
+  `eval --render-mode viser` 与 `training.play_render_mode=viser` 通过共享
+  回放循环支持 mujoco/mjwarp/newton/drake/superdex（#1631、#1632、#1638）；
+  Motrix 后端借助 unisim-core 1.7.6 的 physics-state 回放契约（portable
+  实体场景与经审计的 whole-MJCF 场景）及 1.7.8 的 `<worldbody>` 合并修复
+  获得 viser 渲染能力（#1639）。`viser.*` 配置组（port、max_envs、
+  display_mode、env_idx）在 appo/sac/flashsac 配置上对齐 ppo 提供。
+
+- Added the IsaacSim PhysX GPU contact buffer knobs
+  `isaacsim_gpu_max_rigid_contact_count` and
+  `isaacsim_gpu_max_rigid_patch_count` to `EnvCfg`, forwarded with fail-fast
+  validation to the UniSim factory and omitted when unset so older
+  unisim-core releases fail closed instead of seeing unknown kwargs
+  ([#1636](https://github.com/Motphys/UniLab/pull/1636)).
+  `EnvCfg` 新增 IsaacSim PhysX GPU 接触缓冲旋钮
+  `isaacsim_gpu_max_rigid_contact_count` 与
+  `isaacsim_gpu_max_rigid_patch_count`，以 fail-fast 校验转发给 UniSim
+  factory；未设置时省略该键，旧版 unisim-core 不会收到未知 kwargs，而是
+  fail closed（#1636）。
+
+- Added the `training.log_interval` key (default 1, no behavior change) and
+  batched TensorBoard scalar logging for rsl_rl PPO: each iteration's
+  `add_scalar` calls become a single event record gated by the interval,
+  removing the writer-queue stall on network filesystems
+  ([#1646](https://github.com/Motphys/UniLab/issues/1646),
+  [#1648](https://github.com/Motphys/UniLab/pull/1648)).
+  新增 `training.log_interval` 配置键（默认 1，不改变行为）与 rsl_rl PPO 的
+  TensorBoard 标量批量写入：每次迭代的 `add_scalar` 调用合并为单条 event
+  record 并按间隔落盘，消除网络文件系统上的写入队列阻塞（#1646、#1648）。
+
+- Documented and tested the Motrix `cpu_ids` worker-affinity wiring, and
+  added a durable A/B microbenchmark for the fused body-state read (fused
+  packed read 5.7x, caller-owned-out copy 11.7x over the legacy cache-based
+  copy at 8192 envs x 14 tracked bodies; end-to-end Motrix runs show no
+  regression, so the single fused path is kept)
+  ([#962](https://github.com/Motphys/UniLab/issues/962),
+  [#1308](https://github.com/Motphys/UniLab/issues/1308),
+  [#1634](https://github.com/Motphys/UniLab/pull/1634),
+  [#1635](https://github.com/Motphys/UniLab/pull/1635)).
+  记录并测试 Motrix `cpu_ids` worker 亲和性接线，并为 fused body-state
+  读取新增持久化 A/B 微基准（8192 envs x 14 tracked bodies 下 fused
+  packed read 快 5.7 倍、caller-owned-out copy 快 11.7 倍；端到端 Motrix
+  运行无回归，保留单一 fused 路径）（#962、#1308、#1634、#1635）。
+
+### Changed / 变更
+
+- Raised the base UniSim requirement to `unisim-core>=1.7.8` and mjbatch-uni
+  to `~=0.2.4`. Interactive rendering now consumes the unisim 1.7.5
+  physics-state playback contract through
+  `unilab.visualization.playback_state`: snapshots split through the
+  physics-state layout contract instead of hardcoded
+  `mjSTATE_FULLPHYSICS` sizes, mocap geometry replays through
+  `get_playback_mocap_state`, and playback entrypoints precheck
+  `supports_physics_state_playback` and fail closed with a targeted message
+  ([#1637](https://github.com/Motphys/UniLab/pull/1637),
+  [#1639](https://github.com/Motphys/UniLab/pull/1639)).
+  基础 UniSim 依赖提升到 `unisim-core>=1.7.8`，mjbatch-uni 提升到
+  `~=0.2.4`。交互式渲染通过 `unilab.visualization.playback_state` 消费
+  unisim 1.7.5 的 physics-state 回放契约：快照按 physics-state 布局契约
+  拆分，不再硬编码 `mjSTATE_FULLPHYSICS` 尺寸；mocap 几何通过
+  `get_playback_mocap_state` 回放；回放入口预检
+  `supports_physics_state_playback` 并以明确信息 fail closed
+  （#1637、#1639）。
+
+- Bumped the optional `uni_rl` extra and dev environment from unilab-rl
+  1.3.2 to 1.4.2: 1.4.0 delivers WarpSAC, off-policy metric consumers
+  migrated to the 1.4.1 canonical metric schema, and the off-policy
+  inference request timeout config was removed
+  ([#1640](https://github.com/Motphys/UniLab/pull/1640),
+  [#1643](https://github.com/Motphys/UniLab/pull/1643),
+  [#1645](https://github.com/Motphys/UniLab/pull/1645),
+  [#1655](https://github.com/Motphys/UniLab/pull/1655),
+  [#1658](https://github.com/Motphys/UniLab/pull/1658),
+  [#1659](https://github.com/Motphys/UniLab/pull/1659)).
+  可选 `uni_rl` extra 与 dev 环境的 unilab-rl 从 1.3.2 升级到 1.4.2：1.4.0
+  提供 WarpSAC；off-policy 指标消费方迁移到 1.4.1 的规范指标 schema；移除
+  off-policy 推理请求超时配置（#1640、#1643、#1645、#1655、#1658、#1659）。
+
+- Bumped torch to 2.14 and unified the CUDA wheels on cu130 on Linux and
+  Windows; measured on Apple Silicon, FlashSAC end-to-end throughput
+  improves by 35%
+  ([#1647](https://github.com/Motphys/UniLab/pull/1647)). ONNX policy
+  export now defaults to opset 18, matching the onnxscript function
+  library torch 2.14's dynamo exporter emits
+  ([#1654](https://github.com/Motphys/UniLab/issues/1654),
+  [#1656](https://github.com/Motphys/UniLab/pull/1656)).
+  torch 升级到 2.14，Linux 与 Windows 的 CUDA wheel 统一到 cu130；Apple
+  Silicon 上实测 FlashSAC 端到端吞吐提升 35%（#1647）。ONNX 策略导出默认
+  opset 调整为 18，与 torch 2.14 dynamo 导出器生成的 onnxscript 函数库
+  匹配（#1654、#1656）。
+
+- Enabled full-objective compile for FlashSAC
+  ([#1641](https://github.com/Motphys/UniLab/pull/1641)), and pinned uv to
+  0.12.5 across the project, CI, and Docker
+  ([#1657](https://github.com/Motphys/UniLab/pull/1657)).
+  FlashSAC 启用 full-objective compile（#1641）；uv 在工程、CI 与 Docker
+  中统一固定到 0.12.5（#1657）。
+
+### Fixed / 修复
+
+- The motion CSV loader preserves headerless frames
+  ([#1653](https://github.com/Motphys/UniLab/pull/1653)).
+  动作 CSV 加载器保留无表头的帧（#1653）。
+
+- macOS MuJoCo interactive eval now runs through mjpython (Cocoa main
+  thread), and playback exits directly afterward to avoid the
+  free-threaded CPython 3.13 interpreter-finalization deadlock
+  ([#1629](https://github.com/Motphys/UniLab/issues/1629),
+  [#1630](https://github.com/Motphys/UniLab/pull/1630)).
+  macOS 上 MuJoCo 交互式 eval 改经 mjpython 运行（Cocoa 主线程），回放
+  结束后直接退出，避免 free-threaded CPython 3.13 解释器收尾死锁
+  （#1629、#1630）。
+
+- The viser viewer batches scene updates and shuts down cleanly on Ctrl-C
+  ([#1633](https://github.com/Motphys/UniLab/pull/1633)).
+  viser 查看器批量提交场景更新，并在 Ctrl-C 时干净退出（#1633）。
+
+- Play artifact failures are decoupled: ONNX export and video rendering run
+  under a shared nonfatal guard across the off-policy, APPO, and rsl-rl
+  play paths, so one artifact failure no longer blocks the other
+  ([#1654](https://github.com/Motphys/UniLab/issues/1654),
+  [#1656](https://github.com/Motphys/UniLab/pull/1656)).
+  回放产物失败解耦：ONNX 导出与视频渲染在 off-policy、APPO 与 rsl-rl
+  回放路径上统一走非致命保护，单个产物失败不再阻塞另一个
+  （#1654、#1656）。
+
+- Restored the ROCm runtime dependencies and covered SAC cold-start
+  inference compilation
+  ([#1650](https://github.com/Motphys/UniLab/pull/1650)); the CI test job
+  no longer rolls git-tracked robot scene XMLs back to the cached snapshot
+  revision after restoring the asset cache
+  ([#1639](https://github.com/Motphys/UniLab/pull/1639)).
+  恢复 ROCm 运行时依赖，并覆盖 SAC 冷启动推理编译（#1650）；CI 测试任务
+  恢复资产缓存后不再将 git 跟踪的机器人场景 XML 回滚到缓存快照版本
+  （#1639）。
+
 ## 1.3.2 (2026-09-22)
 
 ### Breaking changes / 破坏性变更
