@@ -6,8 +6,11 @@ training logger 提交一次指标。终端面板按固定 2 Hz 时钟刷新，�
 backend 保留每个 iteration 未经时间平滑的值。
 
 本文先说明所有算法共用的日志目录和 Manager-Based reward 指标契约，再详细说明
-SAC / FlashSAC / WarpSAC 与 APPO 共用的 off-policy 终端视图。表中的“终端字段”与
-backend key 一一对应；后缀 `_ms` 均为毫秒。
+SAC / FlashSAC / WarpSAC 与 APPO 共用的 off-policy 终端视图。持久化 backend tag
+遵循 `uni_rl.logging.metric_schema` 持有的 canonical schema：毫秒计时字段以
+`_ms` 结尾，而 `Perf/learning_time`、`Perf/collection_time` 与
+`Perf/iteration_time` 单位为秒。少数终端字段（`Other`、各阶段百分比、collector
+cycle 合计、`Rows/s`）是在内存中为显示推导的值，有意不持久化。
 
 ## 日志目录与 backend
 
@@ -72,9 +75,10 @@ key 的契约如下：
 - `System`：buffer 大小、timeout rate、env 数和每 rank batch 大小。
 
 面板边框标题显示 `GPUs N`。多卡训练中只有 rank 0 持有终端与持久化 logger；learner
-指标和计时先在 rank 间取平均，再进入终端的两秒时间窗口。`Steps/s` 与 `Samples/s`
-不取 rank 平均：前者把各 rank collector step rate 求和，后者把各 rank learner sample
-rate 求和，因此两者都是整个训练任务的总吞吐。标题中的 `Avg 2s (n=...)` 表示当前窗口
+指标和计时先在 rank 间取平均，再进入终端的两秒时间窗口。`Steps/s` 与 `Rows/s`
+不取 rank 平均：前者把各 rank collector step rate 求和，后者把各 rank learner
+replay 行速率求和，因此两者都是整个训练任务的总吞吐。其中只有 `Steps/s` 会持久化
+（即 `Perf/total_fps`），`Rows/s` 仅终端显示。标题中的 `Avg 2s (n=...)` 表示当前窗口
 包含多少个已经完成 rank 聚合的 learner 样本。
 
 两列时间不能横向相加。只有 learner 列从 `Collector Wait` 到 `Other` 的行是互斥主线程
@@ -88,21 +92,21 @@ APPO 出现。
 
 | 终端字段 | TensorBoard / W&B key | 适用路径 | 含义 |
 | --- | --- | --- | --- |
-| Collector Wait | `timing/learner_collector_wait_ms` | 全部 | learner 主线程等待达到本轮 update 边界；SAC 类路径会服务 inference request，并继续等 replay ready 与 `env_steps_per_sync` tick 数满足，APPO 等 ring 中 rollout |
-| Inference | `timing/learner_inference_ms` | learner-owned inference | observation H2D、actor forward、action D2H 的总墙钟；三项嵌套明细见下表 |
-| Collector Release | `timing/learner_collector_release_ms` | learner-owned inference | 将 action response token 发给 collector；正常应很短，阻塞表示 response queue 尚未腾空 |
-| Replay Batch Wait | `timing/learner_replay_batch_wait_ms` | device replay | 等已预取的 device batch 完成 ingress commit 与 gather；预取命中时接近 0 |
-| Replay Stage | `timing/learner_replay_stage_ms` | APPO | 将 ring buffer 中本轮新到的 NumPy rollout 顺序 materialize 到 learner staging pool；这是 learner 主线程的独占阶段 |
-| Replay Sample | `timing/learner_replay_sample_ms` | 全部 | 取得 ready batch；CUDA device replay 通常只是 hot/cold swap 与 view，MPS 还可能等待 slot event |
-| Train | `timing/learner_train_ms` | 全部 | learner update 阶段的墙钟 |
-| Weight Publish | `timing/learner_weight_publish_ms` | APPO | 将新 actor / critic 权重写入共享内存 |
-| Other | `timing/learner_other_ms` | 全部 | `Iter Wall` 减去上述互斥阶段的 residual，例如 metrics drain、reward stats 与 loop bookkeeping |
-| Iter Wall | `perf/iter_ms` | 全部 | 从本轮 learner loop 开始到 update 完成的墙钟，固定显示 100% |
+| Collector Wait | `Perf/learner_collector_wait_ms` | 全部 | learner 主线程等待达到本轮 update 边界；SAC 类路径会服务 inference request，并继续等 replay ready 与 `env_steps_per_sync` tick 数满足，APPO 等 ring 中 rollout |
+| Inference | `Perf/learner_inference_ms` | learner-owned inference | observation H2D、actor forward、action D2H 的总墙钟；三项嵌套明细见下表 |
+| Collector Release | `Perf/learner_collector_release_ms` | learner-owned inference | 将 action response token 发给 collector；正常应很短，阻塞表示 response queue 尚未腾空 |
+| Replay Batch Wait | `Perf/learner_replay_batch_wait_ms` | device replay | 等已预取的 device batch 完成 ingress commit 与 gather；预取命中时接近 0 |
+| Replay Stage | `Perf/learner_replay_stage_ms` | APPO | 将 ring buffer 中本轮新到的 NumPy rollout 顺序 materialize 到 learner staging pool；这是 learner 主线程的独占阶段 |
+| Replay Sample | `Perf/learner_replay_sample_ms` | 全部 | 取得 ready batch；CUDA device replay 通常只是 hot/cold swap 与 view，MPS 还可能等待 slot event |
+| Learning | `Perf/learning_time`（秒） | 全部 | learner update 阶段的墙钟 |
+| Weight Publish | `Perf/learner_weight_publish_ms` | APPO | 将新 actor / critic 权重写入共享内存 |
+| Other | 仅终端 | 全部 | `Iter Wall` 减去上述互斥阶段的 residual，例如 metrics drain、reward stats 与 loop bookkeeping |
+| Iter Wall | `Perf/iteration_time`（秒） | 全部 | 从本轮 learner loop 开始到 update 完成的墙钟，固定显示 100%；仅在 runner 测得完整迭代墙钟时写出 |
 
-backend 还记录 `perf/learner_train_pct`、`perf/learner_accounted_pct` 与
-`perf/learner_other_pct`。`accounted` 只包含上表的互斥主线程阶段，不包含任何嵌套或后台
+`Other` 与各行百分比是在内存中为终端推导的值，不作为 backend chart 持久化。
+`accounted` 只包含上表的互斥主线程阶段，不包含任何嵌套或后台
 诊断。正常采样下 `accounted + other = 100%`；如果系统时钟异常或未来埋点意外重叠使
-`accounted > Iter Wall`，`Other` 会钳制为 0，而 `accounted_pct > 100%` 是应修复的 contract
+`accounted > Iter Wall`，`Other` 会钳制为 0，而 accounted 超过 100% 是应修复的 contract
 告警，不是可解释的并行占比。
 
 ### Learner 嵌套与后台诊断
@@ -111,10 +115,10 @@ backend 还记录 `perf/learner_train_pct`、`perf/learner_accounted_pct` 与
 
 | TensorBoard / W&B key | 父级或执行线程 | 含义 |
 | --- | --- | --- |
-| `timing/learner_inference_h2d_ms` | `Inference` 子项 | observation 从共享 CPU slot 拷到 learner device |
-| `timing/learner_inference_forward_ms` | `Inference` 子项 | `learner.actor` 推理；包含当前实现中的 device synchronize |
-| `timing/learner_inference_d2h_ms` | `Inference` 子项 | action 写回共享 CPU slot |
-| `timing/replay_ingress_h2d_submit_ms` | replay ingress；CUDA daemon 或 MPS learner 线程 | 最近一次 transition span 提交到 authoritative device ring 的 CPU 侧耗时；它可能落在任意主阶段内，因此绝不能再加到 learner 百分比中 |
+| `Perf/learner_inference_h2d_ms` | `Inference` 子项 | observation 从共享 CPU slot 拷到 learner device |
+| `Perf/learner_inference_forward_ms` | `Inference` 子项 | `learner.actor` 推理；包含当前实现中的 device synchronize |
+| `Perf/learner_inference_d2h_ms` | `Inference` 子项 | action 写回共享 CPU slot |
+| `Perf/replay_ingress_h2d_submit_ms` | replay ingress；CUDA daemon 或 MPS learner 线程 | 最近一次 transition span 提交到 authoritative device ring 的 CPU 侧耗时；它可能落在任意主阶段内，因此绝不能再加到 learner 百分比中 |
 
 三项 inference 明细应近似组成 `Inference`；计时调用之间的 Python 开销可能造成小差值。
 `Replay H2D Submit` 则与 learner 主时间线重叠：CUDA 由
@@ -124,32 +128,46 @@ backend 还记录 `perf/learner_train_pct`、`perf/learner_accounted_pct` 与
 
 ### 旧 run 的 tag 对照
 
-历史 TensorBoard event 不会被重写。新 run 使用下列 canonical tag；打开旧 run 时仍会看到
-旧名：
+历史 TensorBoard event 不会被重写。unilab-rl 1.4.1 及以后的 run 使用下列
+canonical tag（权威定义：`uni_rl.logging.metric_schema`，完整迁移表见 unilab_rl
+仓库的 `docs/metrics.md`）；打开旧 run 时仍会看到已退役的旧名：
 
-| 旧 tag | 新 tag | 变化原因 |
+| 旧 tag | 新 tag | 说明 |
 | --- | --- | --- |
-| `timing/inference_total_ms` | `timing/learner_inference_ms` | 与终端 `Inference` 统一，并明确 owner |
-| `timing/inference_{h2d,forward,d2h}_ms` | `timing/learner_inference_{h2d,forward,d2h}_ms` | 三个嵌套项统一放入 learner namespace |
-| `timing/learner_incremental_h2d_ms`（SAC 类） | `timing/replay_ingress_h2d_submit_ms` | 明确它是可能并行的 submit 诊断，不是 learner 主阶段 |
-| `timing/learner_incremental_h2d_ms`（APPO） | `timing/learner_replay_stage_ms` | 明确它是可计入 `Iter Wall` 的同步 staging 阶段 |
-| `timing/collector_inference_wait_ms` | `timing/collector_learner_action_wait_ms` | 等待范围还包含剩余 learner update，不等于 inference latency |
+| `perf/steps_per_sec` | `Perf/total_fps` | 聚合 collector env-step 吞吐（DP 下跨 rank 求和） |
+| `reward/mean`、`reward/mean_ep100` | `Train/mean_reward` | collector 最近 100 个 episode 的 return 均值；runner 的 10-report 平滑仅是 checkpoint 状态 |
+| `episode/timeout_rate` | `Episode/timeout_rate` | 首个完成 episode 之前不写出 |
+| `perf/iter_ms` | `Perf/iteration_time` | 毫秒 → 秒；仅在测得完整迭代墙钟时写出 |
+| `timing/learner_train_ms` | `Perf/learning_time` | 毫秒 → 秒 |
+| `timing/learner_<phase>_ms` | `Perf/learner_<phase>_ms` | 同样的毫秒阶段计时，canonical 命名空间 |
+| `timing/inference_total_ms`、`timing/inference_{h2d,forward,d2h}_ms` | `Perf/learner_inference_ms`、`Perf/learner_inference_{h2d,forward,d2h}_ms` | 同一批字段的更早期名称 |
+| `timing/learner_incremental_h2d_ms`（SAC 类）、`timing/replay_ingress_h2d_submit_ms` | `Perf/replay_ingress_h2d_submit_ms` | 可能并行的 submit 诊断，不是 learner 主阶段 |
+| `timing/learner_incremental_h2d_ms`（APPO） | `Perf/learner_replay_stage_ms` | 可计入 `Iter Wall` 的同步 staging 阶段 |
+| `timing/collector_<phase>_ms` | `Perf/collector_<phase>_ms` | 同样的毫秒 collector 阶段，canonical 命名空间 |
+| `timing/collector_inference_wait_ms` | `Perf/collector_learner_action_wait_ms` | 等待范围还包含剩余 learner update，不等于 inference latency |
+| `timing/collector_rollout_ms` | `Perf/collection_time` | 毫秒 → 秒；APPO 的整条 rollout 墙钟 |
+| `train/dp_sync_time` | `Perf/dp_gradient_sync_ms_per_rank` | 秒 → 毫秒；明确为每 rank 值 |
+| `train/dp_gradient_sync_calls` | `Perf/dp_gradient_sync_calls_per_rank` | 明确为每 rank 值 |
 
-`perf/learner_pipeline_ms` 已移除：它曾把互斥主阶段与后台 H2D submit 混加。主时间线请使用
-`perf/iter_ms`，完整性请对照 `perf/learner_accounted_pct` 与
-`perf/learner_other_pct`。
+已退役且无替代 tag：`perf/effective_samples_per_sec` /
+`perf/learner_samples_per_sec`（可由 run 配置与 `Perf/iteration_time` 推导 replay
+行数）、`perf/collector_active_steps_per_sec`（可由 collector 计时与 run 配置推导）、
+`perf/collector_cycle_ms`、`perf/learner_*_pct`、`timing/learner_other_ms` 与
+`perf/learner_pipeline_ms`——它们都可以从上面的 canonical 字段推导，或本来就是仅终端
+显示的推导值。提取工具 `scripts/benchmark/rl/extract_offpolicy_metrics.py` 两种 schema
+都认，优先使用 canonical tag 并换算单位。
 
 ### Collector 自有时间线
 
 SAC / FlashSAC 每个 vectorized env tick 记录四个热路径互斥阶段，终端百分比使用
-`perf/collector_cycle_ms`（这四项之和）作分母：
+这四项之和（collector cycle）作分母；该合计在内存中推导，不作为 backend chart 持久化：
 
 | 终端字段 | TensorBoard / W&B key | 含义 |
 | --- | --- | --- |
-| Inference Request | `timing/collector_inference_request_ms` | 发布 observation / dones 到共享 slot，并通知 learner |
-| Learner Action Wait | `timing/collector_learner_action_wait_ms` | request 发出后，等 learner 发布当前 tick action 的屏障墙钟 |
-| Env Step | `timing/collector_env_step_ms` | `env.step()` 墙钟 |
-| Replay Write | `timing/collector_replay_write_ms` | transition 后处理、打包并写入 bounded ingress |
+| Inference Request | `Perf/collector_inference_request_ms` | 发布 observation / dones 到共享 slot，并通知 learner |
+| Learner Action Wait | `Perf/collector_learner_action_wait_ms` | request 发出后，等 learner 发布当前 tick action 的屏障墙钟 |
+| Env Step | `Perf/collector_env_step_ms` | `env.step()` 墙钟 |
+| Replay Write | `Perf/collector_replay_write_ms` | transition 后处理、打包并写入 bounded ingress |
 
 `Learner Action Wait` 特意不叫 “Inference Wait”：它不是纯 inference latency。如果 collector
 在 learner update 期间先完成 `Env Step + Replay Write` 并提交下一 request，这一项会包含
@@ -157,10 +175,10 @@ SAC / FlashSAC 每个 vectorized env tick 记录四个热路径互斥阶段，�
 Collector Release`。所以它很长并不与“两侧并行”矛盾，反而说明 collector 比 learner
 update 更早到达下一屏障。
 
-持久化指标 `perf/collector_active_steps_per_sec` 按 collector 活跃路径计算：
-`num_envs / (Inference Request + Env Step + Replay Write)` 计算；它有意排除
-`Learner Action Wait`；诊断价值较低的亚毫秒 episode / metrics bookkeeping 不再单独计时。
-终端 `Steps/s` 则报告同步 collector 的总吞吐。`Env Step` 下缩进的 Backend Step /
+collector 活跃吞吐诊断（`num_envs / (Inference Request + Env Step + Replay Write)`，
+有意排除 `Learner Action Wait`）不再作为 backend chart 持久化；需要时可由 canonical
+collector 计时字段与 run 配置推导。终端 `Steps/s` 则报告同步 collector 的总吞吐，
+并持久化为 `Perf/total_fps`。`Env Step` 下缩进的 Backend Step /
 Update State / Reset Done 是父项的嵌套明细，不参与 cycle 求和，但百分比仍使用同一
 collector cycle 分母。
 
@@ -168,13 +186,13 @@ APPO 使用不同的采集 contract，因此 collector 只上报：
 
 | 终端字段 | TensorBoard / W&B key | 口径 |
 | --- | --- | --- |
-| MLP Infer | `timing/collector_mlp_infer_ms` | 单步策略推理 EMA |
-| Env Step | `timing/collector_env_step_ms` | 单次 `env.step()` EMA |
-| Rollout Wall | `timing/collector_rollout_ms` | 完整 `steps_per_env` 步 rollout 的墙钟 EMA |
+| MLP Infer | `Perf/collector_mlp_infer_ms` | 单步策略推理 EMA |
+| Env Step | `Perf/collector_env_step_ms` | 单次 `env.step()` EMA |
+| Rollout Wall | `Perf/collection_time`（秒） | 完整 `steps_per_env` 步 rollout 的墙钟 |
 
 APPO 的三个值不是一组百分比分解：前两个是单步 EMA，`Rollout Wall` 是整条 rollout 总量，
-所以终端只显示 ms。backend 的活跃吞吐诊断按
-`(num_envs * steps_per_env) / Rollout Wall` 计算。
+所以终端只显示 ms。backend 的活跃吞吐诊断 `(num_envs * steps_per_env) / Rollout Wall`
+同样不再持久化，可由上述字段推导。
 
 ## FastSAC 双时间线
 
@@ -264,7 +282,7 @@ learner `Iter Wall`，取决于 ring backlog 和两侧吞吐。
 | 现象 | 直接含义 | 优先检查 |
 | --- | --- | --- |
 | learner `Collector Wait` 高 | learner 到达迭代开头后，collector 数据/request 尚未就绪 | env step、transition 后处理、collector 存活与 IPC |
-| collector `Learner Action Wait` 高，同时 learner `Collector Wait` 低 | collector 先到下一屏障，在等 learner 完成 update 并服务 inference | `Train`、`updates_per_step`、batch size；再看 inference 三项明细 |
+| collector `Learner Action Wait` 高，同时 learner `Collector Wait` 低 | collector 先到下一屏障，在等 learner 完成 update 并服务 inference | `Learning`、`updates_per_step`、batch size；再看 inference 三项明细 |
 | learner `Inference` 高 | learner-owned action 路径本身慢 | H2D / forward / D2H 三项子指标 |
 | learner `Replay Batch Wait` 高 | device replay 预取未赶上消费 | ingress commit、side-stream gather 与 GPU 竞争 |
 | collector `Replay Write` 高 | bounded ingress 写入或 transition 后处理变慢 | ingress 槽是否耗尽、device commit 是否落后 |

@@ -102,7 +102,10 @@ def test_runner_collects_per_iteration_gradient_sync_metrics():
     runner = _runner_with(_SyncLearner(), _FakeDpSync())
     metrics = defaultdict(list)
     runner._collect_dp_sync_metrics(metrics)
-    assert metrics == {"dp_sync_time": [0.25], "dp_gradient_sync_calls": [3.0]}
+    assert metrics == {
+        "Perf/dp_gradient_sync_ms_per_rank": [250.0],
+        "Perf/dp_gradient_sync_calls_per_rank": [3.0],
+    }
 
 
 def test_runner_requires_gradient_sync_contract():
@@ -175,16 +178,15 @@ def test_log_statistics_mean_scalars_and_sum_concurrent_throughput():
     logger._total_steps = 100
     logger._buffer_size = 50
     logger._buffer_target = 200
-    logger._collector_active_steps_per_sec = 1_000.0
     logger._mean_ep_length = 25.0
     logger._collector_timing = {"env_step_ms": 2.0}
 
     payload = runner._aggregate_log_statistics(
         logger,
-        metrics={"critic_loss": 2.0},
-        reward=3.0,
-        reward_metrics={"mean_ep100": 4.0},
-        reward_components={"reward/tracking": 5.0},
+        metrics={"Loss/critic": 2.0},
+        checkpoint_return_mean_reports10=None,
+        return_mean_ep100=3.0,
+        reward_components={"tracking": 5.0},
         train_time=0.4,
         collector_wait_time=0.1,
         replay_batch_wait_time=0.01,
@@ -198,39 +200,37 @@ def test_log_statistics_mean_scalars_and_sum_concurrent_throughput():
         iteration_time=0.5,
         extra_info={
             "throughput_steps": 100,
-            "collector_active_steps_per_sec": 1_000.0,
             "batch_size_per_rank": 64,
             "effective_batch_size": 64,
-            "replay_samples_per_iter": 128,
-            "learner_samples_per_iter": 256,
+            "learner_replay_rows_per_iter": 256,
         },
     )
 
-    assert payload["metrics"] == {"critic_loss": pytest.approx(2.0)}
-    assert payload["reward"] == pytest.approx(3.0)
+    assert payload["metrics"] == {"Loss/critic": pytest.approx(2.0)}
+    assert payload["return_mean_ep100"] == pytest.approx(3.0)
     extra_info = payload["extra_info"]
     assert isinstance(extra_info, dict)
-    assert extra_info["steps_per_sec"] == pytest.approx(400.0)
-    assert extra_info["learner_samples_per_sec"] == pytest.approx(1_024.0)
-    assert extra_info["collector_active_steps_per_sec"] == pytest.approx(2_000.0)
+    assert extra_info["env_steps_per_sec"] == pytest.approx(400.0)
+    assert extra_info["learner_replay_rows_per_sec"] == pytest.approx(1_024.0)
     assert extra_info["effective_batch_size"] == 128
-    assert extra_info["learner_samples_per_iter"] == 512
+    assert extra_info["learner_replay_rows_per_iter"] == 512
     assert logger._total_steps == 200
     assert logger._buffer_size == 100
     assert logger._collector_timing == {"env_step_ms": pytest.approx(2.0)}
 
-    logger.log_step(iteration=1, **payload)
-    assert logger._get_iter_steps_per_sec() == pytest.approx(400.0)
-    assert logger._get_effective_samples_per_sec() == pytest.approx(1_024.0)
+    log_step_payload = dict(payload)
+    del log_step_payload["checkpoint_return_mean_reports10"]
+    logger.log_step(iteration=1, **log_step_payload)
+    assert logger._get_iter_env_steps_per_sec() == pytest.approx(400.0)
+    assert logger._get_learner_replay_rows_per_sec() == pytest.approx(1_024.0)
     header = logger._build_compact_header(include_status=False).plain
     assert "Steps/s 400" in header
-    assert "Samples/s 1,024" in header
+    assert "Rows/s 1,024" in header
     assert "Collector/s" not in header
     assert "GPUs 2" in logger._build_display().title.plain
     runner._restore_local_logger_statistics(logger)
     assert logger._total_steps == 100
     assert logger._buffer_size == 50
-    assert logger._collector_active_steps_per_sec == pytest.approx(1_000.0)
 
 
 def test_only_rank_zero_owns_terminal_and_tensorboard_backend():

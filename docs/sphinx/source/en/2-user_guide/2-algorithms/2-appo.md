@@ -60,10 +60,10 @@ gantt
     Weight Publish → collector            :crit,   l4, 28000, 30000
 
     section Iter Wall
-    perf/iter_ms (learner loop only)      :        l5, 12000, 30000
+    Perf/iteration_time (learner loop only)  :        l5, 12000, 30000
 ```
 
-> The axis is schematic (relative, not real-ms). The collector subprocess produces rollouts through the 4-slot ring buffer in parallel with the learner, so **Collector Wait ≈ 0** in steady state. `perf/iter_ms` counts only this learner loop (it includes Collector Wait but not the collector's parallel rollout compute); the red Weight Publish marks the end of the iteration when fresh weights are published to the collector. Field meanings are on the [logging page](../1-training/3-logging.md).
+> The axis is schematic (relative, not real-ms). The collector subprocess produces rollouts through the 4-slot ring buffer in parallel with the learner, so **Collector Wait ≈ 0** in steady state. `Perf/iteration_time` counts only this learner loop (it includes Collector Wait but not the collector's parallel rollout compute); the red Weight Publish marks the end of the iteration when fresh weights are published to the collector. Field meanings are on the [logging page](../1-training/3-logging.md).
 
 ## Key Fields
 
