@@ -25,6 +25,7 @@ from unilab.base.config_adapter import BackendAdapter
 from unilab.base.scene import SceneCfg
 from unilab.training import (
     get_log_root,
+    nonfatal_play_step,
     parse_checkpoint_path,
 )
 from unilab.utils.checkpoint import (
@@ -82,6 +83,21 @@ def _offpolicy_cfg(overrides: list[str] | None = None, *, algo: str = "sac"):
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(_CONF_DIR / algo), version_base="1.3"):
         return compose("config", overrides=_normalize_overrides(overrides, offpolicy=True))
+
+
+def test_nonfatal_play_step_logs_failure_and_continues(capsys: pytest.CaptureFixture[str]):
+    with nonfatal_play_step("ONNX export"):
+        raise RuntimeError("boom")
+
+    captured = capsys.readouterr()
+    assert "WARNING: ONNX export failed; continuing with the remaining play steps." in captured.out
+    assert "RuntimeError: boom" in captured.err
+
+
+def test_nonfatal_play_step_does_not_swallow_keyboard_interrupt():
+    with pytest.raises(KeyboardInterrupt):
+        with nonfatal_play_step("video rendering"):
+            raise KeyboardInterrupt
 
 
 def test_get_latest_run_and_checkpoint_support_shared_checkpoint_resolution(tmp_path: Path):

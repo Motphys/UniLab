@@ -13,7 +13,7 @@ def export_policy_onnx(
     *,
     input_names: list[str],
     output_names: list[str] | None = None,
-    opset_version: int = 17,
+    opset_version: int = 18,
 ) -> None:
     """Export ``export_module`` to ``onnx_path`` and print the artifact path.
 
@@ -23,7 +23,11 @@ def export_policy_onnx(
         export_inputs: Positional example inputs matching ``input_names``.
         input_names: ONNX input names, aligned positionally with ``export_inputs``.
         output_names: ONNX output names; defaults to ``["action"]``.
-        opset_version: ONNX opset version; defaults to 17.
+        opset_version: ONNX opset version; defaults to 18. Lower versions fail
+            in the dynamo exporter's InlinePass: torch's ONNX function library
+            (e.g. ``aten_isnan`` from ``torch.nan_to_num``) is emitted at opset
+            18, and version-converting the model below that leaves a function
+            the inliner rejects as an opset mismatch.
     """
     if output_names is None:
         output_names = ["action"]

@@ -46,6 +46,7 @@ from unilab.training import (
     format_play_checkpoint_error,
     get_log_root,
     is_viser_play_render_mode,
+    nonfatal_play_step,
     parse_checkpoint_path,
     should_run_playback,
 )
@@ -375,8 +376,9 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
     if EXPORT_POLICY:
         # The checkpoint early-returns above guarantee a loaded runner here.
         assert runner is not None
-        runner.export_policy_to_onnx(path=str(load_path_dir))
-        runner.export_policy_to_jit(path=str(load_path_dir))
+        with nonfatal_play_step("policy export"):
+            runner.export_policy_to_onnx(path=str(load_path_dir))
+            runner.export_policy_to_jit(path=str(load_path_dir))
     if is_viser_play_render_mode(getattr(cfg.training, "play_render_mode", "auto")):
         # Browser-based viser playback renders through the shared MuJoCo
         # playback shell; it replaces backend-native playback and records no
@@ -397,25 +399,28 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         playback_mode = plan.mode
         log_playback_plan(plan)
 
-    try:
-        with torch.inference_mode():
-            play_video_path = env.run_playback_mode(
-                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
-                play_steps=num_steps,
-                output_video=output_video,
-                render_spacing=float(
-                    getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
-                ),
-                render_offset_mode=str(getattr(env.cfg, "render_offset_mode", "grid")),
-                initialize=session.reset,
-                step=lambda _obs: session.step_once(),
-                camera_kwargs=camera_cfg_from_training(cfg.training),
-                on_plan=_log_plan,
-                debug_overlay_getter=_playback_debug_overlay_getter(env),
-            )
-    except RenderClosedError:
-        # Interface-level signal: the user closed the backend render window.
-        print("Render window closed.")
+    with nonfatal_play_step("video rendering"):
+        try:
+            with torch.inference_mode():
+                play_video_path = env.run_playback_mode(
+                    play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+                    play_steps=num_steps,
+                    output_video=output_video,
+                    render_spacing=float(
+                        getattr(
+                            cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0)
+                        )
+                    ),
+                    render_offset_mode=str(getattr(env.cfg, "render_offset_mode", "grid")),
+                    initialize=session.reset,
+                    step=lambda _obs: session.step_once(),
+                    camera_kwargs=camera_cfg_from_training(cfg.training),
+                    on_plan=_log_plan,
+                    debug_overlay_getter=_playback_debug_overlay_getter(env),
+                )
+        except RenderClosedError:
+            # Interface-level signal: the user closed the backend render window.
+            print("Render window closed.")
     if playback_mode != "none" and num_steps is not None:
         print("Done.")
     return play_video_path

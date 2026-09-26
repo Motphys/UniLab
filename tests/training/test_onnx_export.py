@@ -41,6 +41,29 @@ class _TupleOutputActor(torch.nn.Module):
         return action, action
 
 
+class _NanGuardedActor(torch.nn.Module):
+    """Mimics the uni_rl SAC actor export path (``torch.nan_to_num`` → ``aten_isnan``)."""
+
+    def __init__(self, obs_dim: int = 4, action_dim: int = 2) -> None:
+        super().__init__()
+        self.mlp = torch.nn.Linear(obs_dim, action_dim)
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        return torch.nan_to_num(torch.tanh(self.mlp(obs)), nan=0.0)
+
+
+def test_export_policy_onnx_supports_nan_guarded_actor(tmp_path):
+    """Regression: opset-18 function-library nodes must survive the dynamo exporter."""
+    torch.manual_seed(0)
+    module = _NanGuardedActor().eval()
+    onnx_path = str(tmp_path / "policy.onnx")
+
+    export_policy_onnx(module, onnx_path, (torch.randn(1, 4),), input_names=["obs"])
+
+    max_diff, _ = verify_policy_onnx(module, onnx_path, (torch.randn(1, 4),), input_names=["obs"])
+    assert max_diff <= 1e-4
+
+
 def test_export_policy_onnx_writes_expected_graph(tmp_path, capsys):
     torch.manual_seed(0)
     module = _TinyActor()
@@ -53,7 +76,7 @@ def test_export_policy_onnx_writes_expected_graph(tmp_path, capsys):
     assert [graph_input.name for graph_input in model.graph.input] == ["obs"]
     assert [graph_output.name for graph_output in model.graph.output] == ["action"]
     opsets = {opset.version for opset in model.opset_import if opset.domain in ("", "ai.onnx")}
-    assert opsets == {17}
+    assert opsets == {18}
 
 
 def test_verify_policy_onnx_matches_pytorch(tmp_path, capsys):

@@ -31,6 +31,7 @@ from unilab.training import (
     ensure_registries,
     get_log_root,
     is_viser_play_render_mode,
+    nonfatal_play_step,
     resolve_nan_guard_cfg,
     should_run_playback,
 )
@@ -250,25 +251,26 @@ def play_appo(
 
     # Export actor to ONNX
     if load_path_dir is not None:
-        import torch.nn as nn
+        with nonfatal_play_step("ONNX export"):
+            import torch.nn as nn
 
-        class _DeterministicAPPOActor(nn.Module):
-            def __init__(self, mlp: nn.Module):
-                super().__init__()
-                self.mlp = mlp
+            class _DeterministicAPPOActor(nn.Module):
+                def __init__(self, mlp: nn.Module):
+                    super().__init__()
+                    self.mlp = mlp
 
-            def forward(self, obs: torch.Tensor) -> torch.Tensor:
-                return self.mlp(obs)
+                def forward(self, obs: torch.Tensor) -> torch.Tensor:
+                    return self.mlp(obs)
 
-        export_module = _DeterministicAPPOActor(actor.mlp)
-        onnx_path = os.path.join(load_path_dir, "policy.onnx")
-        obs_dim = int(session.wrapped_env.num_obs)
-        dummy_input = torch.randn(1, obs_dim, device=device)
-        export_policy_onnx(export_module, onnx_path, (dummy_input,), input_names=["obs"])
+            export_module = _DeterministicAPPOActor(actor.mlp)
+            onnx_path = os.path.join(load_path_dir, "policy.onnx")
+            obs_dim = int(session.wrapped_env.num_obs)
+            dummy_input = torch.randn(1, obs_dim, device=device)
+            export_policy_onnx(export_module, onnx_path, (dummy_input,), input_names=["obs"])
 
-        # Verify ONNX output matches PyTorch
-        verify_input = torch.randn(1, obs_dim, device=device)
-        verify_policy_onnx(export_module, onnx_path, (verify_input,), input_names=["obs"])
+            # Verify ONNX output matches PyTorch
+            verify_input = torch.randn(1, obs_dim, device=device)
+            verify_policy_onnx(export_module, onnx_path, (verify_input,), input_names=["obs"])
 
     if is_viser_play_render_mode(getattr(cfg.training, "play_render_mode", "auto")):
         # Browser-based viser playback renders through the shared MuJoCo
@@ -281,19 +283,23 @@ def play_appo(
         run_viser_playback_from_cfg(session, cfg, entrypoint="train_appo play")
         return None
 
-    with torch.inference_mode():
-        play_video_path = env.run_playback_mode(
-            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
-            play_steps=getattr(cfg.training, "play_steps", None),
-            output_video=os.path.join(load_path_dir, "play_video.mp4") if load_path_dir else None,
-            render_spacing=float(
-                getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
-            ),
-            initialize=session.reset,
-            step=lambda _obs: session.step_once(),
-            camera_kwargs=camera_cfg_from_training(cfg.training),
-            on_plan=log_playback_plan,
-        )
+    play_video_path: str | None = None
+    with nonfatal_play_step("video rendering"):
+        with torch.inference_mode():
+            play_video_path = env.run_playback_mode(
+                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+                play_steps=getattr(cfg.training, "play_steps", None),
+                output_video=os.path.join(load_path_dir, "play_video.mp4")
+                if load_path_dir
+                else None,
+                render_spacing=float(
+                    getattr(cfg.training, "render_spacing", getattr(env.cfg, "render_spacing", 1.0))
+                ),
+                initialize=session.reset,
+                step=lambda _obs: session.step_once(),
+                camera_kwargs=camera_cfg_from_training(cfg.training),
+                on_plan=log_playback_plan,
+            )
     if play_video_path is not None:
         print(f"Saving video to {play_video_path} ...")
     print("Done.")
