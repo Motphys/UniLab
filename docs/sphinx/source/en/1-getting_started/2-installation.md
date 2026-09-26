@@ -245,7 +245,7 @@ Reverse-lookup from error text to cause and fix.
 ## Platform Profiles
 
 Linux CUDA and macOS use the default `pyproject.toml`. The default Linux torch
-wheel source is the PyTorch `cu128` index configured in `pyproject.toml`.
+wheel source is the PyTorch `cu130` index configured in `pyproject.toml`.
 
 On Apple Silicon macOS, `make setup-motrix` is the shortest interactive path.
 The CLI routes Motrix playback through `mxpython` when needed; MuJoCo playback

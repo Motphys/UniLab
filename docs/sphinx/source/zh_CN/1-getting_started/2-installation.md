@@ -220,7 +220,7 @@ fork 的构建在编译期钉住 `mujoco==3.11.0`，因此隔离构建总是针�
 ## 平台配置档
 
 Linux CUDA 和 macOS 使用默认的 `pyproject.toml`。默认的 Linux torch
-wheel 来源是在 `pyproject.toml` 中配置的 PyTorch `cu128` 索引。
+wheel 来源是在 `pyproject.toml` 中配置的 PyTorch `cu130` 索引。
 
 在 Apple Silicon macOS 上，`make setup-motrix` 是最短的交互式路径。CLI 会在需要时
 通过 `mxpython` 路由 Motrix 回放；MuJoCo 回放使用官方 MuJoCo wheel 自带的

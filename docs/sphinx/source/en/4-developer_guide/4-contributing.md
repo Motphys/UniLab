@@ -9,7 +9,7 @@ Install dependencies for your platform. The setup targets also install the
 optional simulator extras used by the repository's checks:
 
 - macOS (MPS, PyPI torch wheel): `make setup-motrix` (or `uv sync --extra mujoco`)
-- Linux with NVIDIA (PyTorch cu128 wheel): `make setup`
+- Linux with NVIDIA (PyTorch cu130 wheel): `make setup`
 - Linux AMD / ROCm: `make sync-rocm`, then run commands with `uv run ...`. To
   return to the default CUDA / macOS profile, `git restore -- pyproject.toml
   uv.lock` and re-run `make setup`.

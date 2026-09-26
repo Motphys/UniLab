@@ -7,7 +7,7 @@ Languages: English | [简体中文](docs/sphinx/source/zh_CN/4-developer_guide/4
 1. Fork and clone the repository.
 2. Install dependencies for your platform:
    - macOS (MPS, installs PyPI torch wheels): `make setup-motrix` (or `make setup-mujoco`)
-   - Linux default (installs PyTorch cu128 wheels; requires an NVIDIA GPU/driver supported by current PyTorch cu128 wheels): `make setup`
+   - Linux default (installs PyTorch cu130 wheels; requires an NVIDIA GPU/driver supported by current PyTorch cu130 wheels): `make setup`
    - Linux AMD / ROCm workstation: `make sync-rocm`, then run commands with `uv run --no-sync ...`
    - For direct uv setup, use `uv sync --extra mujoco --extra motrix`; replace it
      with `--extra mujoco` or `--extra motrix` for a single backend
