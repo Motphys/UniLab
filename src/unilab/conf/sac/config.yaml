@@ -77,9 +77,6 @@ training:
   log_root: null
   log_dir: null
   env_steps_per_sync: 1
-  # Coordination window for collector inference ticks. The first learner update
-  # can include ROCm/CUDA compilation, so keep this above measured cold-start times.
-  inference_request_timeout_sec: 90.0
   trace_enabled: false
   trace_output_dir: null
   trace_thread_time: false

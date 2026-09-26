@@ -33,8 +33,8 @@ CUDA 设备语义，无需 Genesis 那样的 `CUDA_VISIBLE_DEVICES` 钉卡；ran
 本地设备通过 env override 以 `newton_device="cuda:N"` 传入 spawn
 collector，且 uni_rl 的 collector 进程绑定为注入式——UniLab 注入的
 `bind_backend_process_device_for_backend` 同时覆盖 mjwarp 与
-newton；SAC owner 将 collector tick-0 超时提升到 180 s 以覆盖 Warp
-内核编译的冷路径。
+newton；SAC 会在 collector 启动前执行 learner 侧预热，并通过
+collector-ready 握手覆盖冷物化，不再使用 collector tick 超时。
 
 ## 安装
 

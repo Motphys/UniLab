@@ -15,7 +15,6 @@ training:
   sim_backend: newton
   # First tick includes collector env construction; newton startup exceeds the
   # 30s default (same override as sac g1_walk_flat/newton).
-  inference_request_timeout_sec: 180.0
 env:
   # A null device is intentional: the off-policy collector binder injects the
   # rank-local CUDA device before materialization. 320/512 leaves headroom

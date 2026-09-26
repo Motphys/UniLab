@@ -36,9 +36,9 @@ Genesis quirk) is needed; the rank-local device reaches spawn collectors as
 a `newton_device="cuda:N"` env override, and uni_rl's collector-side
 process binding is injection-based — UniLab injects
 `bind_backend_process_device_for_backend`, which covers both mjwarp and
-newton — while the SAC owner raises the
-collector tick-0 timeout to 180 s to cover Warp kernel compilation on the
-cold path.
+newton — while SAC handles learner-owned warmup before collector startup and
+cold materialization through the collector-ready handshake instead of using a
+collector tick timeout.
 
 ## Installation
 

@@ -79,7 +79,6 @@ def test_sac_g1_motion_tracking_genesis_inherits_mujoco_parity() -> None:
     assert cfg.training.task_name == "G1MotionTrackingSAC"
     assert cfg.training.sim_backend == "genesis"
     assert cfg.training.play_render_mode == "auto"
-    assert cfg.training.inference_request_timeout_sec == 180.0
     assert cfg.env.genesis_device_id == 0
     assert cfg.env.genesis_integrator == "implicitfast"
     # Genesis legacy scenes declare no model-field reset terms and no interval
@@ -112,7 +111,6 @@ def test_sac_g1_motion_tracking_newton_keeps_full_dr() -> None:
     cfg = _compose_sac("g1_motion_tracking/newton")
     assert cfg.training.task_name == "G1MotionTrackingSAC"
     assert cfg.training.sim_backend == "newton"
-    assert cfg.training.inference_request_timeout_sec == 180.0
     assert cfg.env.newton_device is None
     assert cfg.env.newton_nconmax == 320
     assert cfg.env.newton_njmax == 512

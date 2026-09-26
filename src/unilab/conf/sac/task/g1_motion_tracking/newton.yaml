@@ -17,10 +17,6 @@ defaults:
 training:
   task_name: G1MotionTrackingSAC
   sim_backend: newton
-  # Newton compiles its Warp kernels on the materialize cold path, which
-  # exceeds the runner's default 30 s collector tick-0 budget; raise it for
-  # this backend (same precedent as the Genesis owner).
-  inference_request_timeout_sec: 180.0
 env:
   # A null device is intentional: the off-policy collector binder injects the
   # rank-local CUDA device before materialization. 320/512 leaves headroom
