@@ -153,7 +153,7 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
         "nvtx_profile_ranges": cfg.training.nvtx_profile_ranges,
         "critic_obs_dim": 6,
     }
-    assert runner.kwargs["inference_request_timeout_sec"] == 30.0
+    assert runner.kwargs["inference_request_timeout_sec"] == 90.0
 
 
 def test_sac_genesis_owner_raises_inference_request_timeout():
