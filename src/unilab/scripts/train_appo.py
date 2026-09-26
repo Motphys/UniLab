@@ -90,6 +90,7 @@ def build_appo_runner_kwargs(
         "steps_per_env": cfg.algo.steps_per_env,
         "sim_backend": cfg.training.sim_backend,
         "seed": rl_cfg.get("seed"),
+        "log_interval": int(cfg.training.log_interval),
     }
     if cfg.training.replay_queue_size is not None:
         runner_kwargs["replay_queue_size"] = cfg.training.replay_queue_size

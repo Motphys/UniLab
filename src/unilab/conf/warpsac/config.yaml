@@ -58,6 +58,9 @@ training:
   devices: null
   dp_collector_cpu_ids: null
   logger: tensorboard
+  # Backend (TensorBoard/wandb) scalar reporting interval in iterations; the
+  # terminal display is unaffected. Each report is one batched event record.
+  log_interval: 1
   wandb_project: unilab
   wandb_entity: null
   wandb_group: null

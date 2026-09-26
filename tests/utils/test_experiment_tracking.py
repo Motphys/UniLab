@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import types
 from typing import Any
 
 import pytest
@@ -809,3 +810,122 @@ def test_offpolicy_logger_omits_iteration_extra_fields_when_not_supplied(monkeyp
     assert payload["perf/iter_ms"] == pytest.approx(1_750.0)
 
     logger.finish()
+
+
+class _RecordingEventSink:
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    def add_event(self, event: Any) -> None:
+        self.events.append(event)
+
+
+class _FakeTbWriter:
+    def __init__(self) -> None:
+        self.file_writer = _RecordingEventSink()
+        self.scalars: list[tuple[str, float, int]] = []
+        self.closed = False
+
+    def add_scalar(self, tag: str, value: float, step: int) -> None:
+        self.scalars.append((tag, float(value), step))
+
+    def flush(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _collect_event_scalars(writer: _FakeTbWriter) -> list[tuple[int, dict[str, float]]]:
+    out = []
+    for event in writer.file_writer.events:
+        out.append((event.step, {value.tag: value.simple_value for value in event.summary.value}))
+    return out
+
+
+def test_patch_rsl_rl_tensorboard_logging_batches_scalars_per_step() -> None:
+    from unilab.training.experiment import patch_rsl_rl_tensorboard_logging
+
+    writer = _FakeTbWriter()
+
+    class Logger:
+        logger_type = "tensorboard"
+
+        def __init__(self) -> None:
+            self.writer: Any = writer
+
+        def log(self, it: int, start_it: int, total_it: int) -> None:
+            self.writer.add_scalar("Loss/value", float(it), it)
+            self.writer.add_scalar("Loss/policy", float(it) * 2, it)
+            self.writer.add_scalar("Train/mean_reward/time", float(it), it + 1000)
+
+    logger = Logger()
+    runner = types.SimpleNamespace(logger=logger)
+    patch_rsl_rl_tensorboard_logging(runner, log_interval=1)
+
+    assert logger.writer is not writer
+    for it in (1, 2):
+        logger.log(it, 1, 2)
+    logger.writer.close()
+
+    assert writer.scalars == []
+    steps = _collect_event_scalars(writer)
+    assert [step for step, _ in steps] == [1, 1001, 2, 1002]
+    assert steps[0][1] == {"Loss/value": 1.0, "Loss/policy": 2.0}
+    assert steps[2][1] == {"Loss/value": 2.0, "Loss/policy": 4.0}
+    assert writer.closed
+
+
+def test_patch_rsl_rl_tensorboard_logging_interval_gates_writes_not_console() -> None:
+    from unilab.training.experiment import patch_rsl_rl_tensorboard_logging
+
+    writer = _FakeTbWriter()
+    console_calls: list[int] = []
+
+    class Logger:
+        logger_type = "tensorboard"
+
+        def __init__(self) -> None:
+            self.writer: Any = writer
+
+        def log(self, it: int, start_it: int, total_it: int) -> None:
+            console_calls.append(it)
+            self.writer.add_scalar("Loss/value", float(it), it)
+
+    logger = Logger()
+    runner = types.SimpleNamespace(logger=logger)
+    patch_rsl_rl_tensorboard_logging(runner, log_interval=2)
+
+    for it in range(1, 6):
+        logger.log(it, 1, 5)
+    logger.writer.close()
+
+    assert console_calls == [1, 2, 3, 4, 5]
+    steps = _collect_event_scalars(writer)
+    assert [step for step, _ in steps] == [2, 4, 5]
+
+
+def test_patch_rsl_rl_tensorboard_logging_skips_non_tensorboard_and_missing_writer() -> None:
+    from unilab.training.experiment import patch_rsl_rl_tensorboard_logging
+
+    writer = _FakeTbWriter()
+
+    class WandbLogger:
+        logger_type = "wandb"
+
+        def __init__(self) -> None:
+            self.writer: Any = writer
+
+    wandb_logger = WandbLogger()
+    patch_rsl_rl_tensorboard_logging(types.SimpleNamespace(logger=wandb_logger))
+    assert wandb_logger.writer is writer
+
+    class EmptyLogger:
+        logger_type = "tensorboard"
+        writer = None
+
+    empty_logger = EmptyLogger()
+    patch_rsl_rl_tensorboard_logging(types.SimpleNamespace(logger=empty_logger))
+    assert empty_logger.writer is None
+
+    patch_rsl_rl_tensorboard_logging(types.SimpleNamespace(logger=None))
