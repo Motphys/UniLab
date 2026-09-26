@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN curl -LsSf https://astral.sh/uv/0.12.5/install.sh | sh
 
 WORKDIR /workspace/UniLab
 

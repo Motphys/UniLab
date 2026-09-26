@@ -29,8 +29,8 @@ live in the getting-started and algorithm pages.
 ## Clone And Sync
 
 ```bash
-# Linux / macOS:
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Linux / macOS (the repository pins uv via [tool.uv] required-version):
+curl -LsSf https://astral.sh/uv/0.12.5/install.sh | sh
 
 # Windows PowerShell:
 # powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"

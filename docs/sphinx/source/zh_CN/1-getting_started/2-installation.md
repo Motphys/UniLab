@@ -26,8 +26,8 @@
 ## 克隆与同步
 
 ```bash
-# Linux / macOS：
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# Linux / macOS（仓库通过 [tool.uv] required-version 固定 uv 版本）：
+curl -LsSf https://astral.sh/uv/0.12.5/install.sh | sh
 
 # Windows PowerShell：
 # powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
