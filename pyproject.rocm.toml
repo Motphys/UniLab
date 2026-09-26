@@ -93,6 +93,7 @@ triton-rocm = [
 ]
 
 [tool.uv]
+required-version = "==0.12.5"
 exclude-dependencies = [
     "torchvision",
     "nvidia-cublas-cu12",

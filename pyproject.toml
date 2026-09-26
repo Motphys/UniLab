@@ -133,6 +133,7 @@ torch = [
 ]
 
 [tool.uv]
+required-version = "==0.12.5"
 exclude-dependencies = ["torchvision"]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
