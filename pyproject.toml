@@ -40,8 +40,7 @@ dependencies = [
     "prettytable>=3.10",
     # A range (not an exact pin) lets ROCm users substitute a ROCm torch
     # build; uv.lock pins the tested CUDA builds via tool.uv.sources.
-    "torch>=2.9,<2.12 ; sys_platform == 'linux' and platform_machine == 'aarch64'",
-    "torch>=2.8,<2.12 ; sys_platform != 'linux' or platform_machine != 'aarch64'",
+    "torch>=2.9,<2.15",
     "gymnasium",
     "imageio",
     "etils",
@@ -123,20 +122,14 @@ superdex = [
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408", "unilab-rl==1.4.0"]
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[[tool.uv.index]]
 name = "r2-cu130"
 url = "https://download-r2.pytorch.org/whl/cu130"
 explicit = true
 
 [tool.uv.sources]
+# cu130 carries torch>=2.12 CUDA wheels for linux/win; macOS resolves from PyPI.
 torch = [
-    { index = "r2-cu130", marker = "sys_platform=='linux' and platform_machine=='aarch64'" },
-    { index = "pytorch-cu128", marker = "sys_platform=='linux' and platform_machine=='x86_64'" },
-    { index = "pytorch-cu128", marker = "sys_platform=='win32'" },
+    { index = "r2-cu130", marker = "sys_platform=='linux' or sys_platform=='win32'" },
 ]
 
 [tool.uv]
