@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import traceback
+from collections.abc import Iterator
+from contextlib import contextmanager
 from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -122,6 +125,17 @@ def should_run_playback(*, play_only: bool, no_play: bool, play_render_mode: str
     if normalize_play_render_mode(play_render_mode) == "none":
         return False
     return bool(play_only) or not bool(no_play)
+
+
+@contextmanager
+def nonfatal_play_step(step: str) -> Iterator[None]:
+    """Keep independent post-training play artifacts (ONNX export, video render)
+    from blocking each other: log the failure and continue with the rest."""
+    try:
+        yield
+    except Exception:
+        print(f"WARNING: {step} failed; continuing with the remaining play steps.")
+        traceback.print_exc()
 
 
 def get_log_root(root_dir: str | Path, cfg: DictConfig) -> Path:

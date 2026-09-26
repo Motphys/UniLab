@@ -45,6 +45,7 @@ from unilab.training import (
     ensure_registries,
     get_log_root,
     is_viser_play_render_mode,
+    nonfatal_play_step,
     resolve_nan_guard_cfg,
     should_run_playback,
 )
@@ -373,27 +374,28 @@ def play_offpolicy(
 
     # Export actor to ONNX
     if load_path_dir is not None and bool(getattr(cfg.training, "export_onnx", True)):
-        obs_dim, _ = resolve_play_obs_dims(env.obs_groups_spec)
-        onnx_path = os.path.join(load_path_dir, "policy.onnx")
-        dummy_input = torch.randn(1, obs_dim, device=device)
-        with torch.inference_mode():
-            if normalizer:
-                dummy_input = normalizer(dummy_input, update=False)
-            assert actor is not None
-            if algo_name in ("sac", "flashsac", "warpsac"):
-                export_module = actor.as_export_module()
-            else:
-                export_module = actor
-            export_inputs = (dummy_input,)
-        input_names = ["obs"]
-        export_policy_onnx(export_module, onnx_path, export_inputs, input_names=input_names)
+        with nonfatal_play_step("ONNX export"):
+            obs_dim, _ = resolve_play_obs_dims(env.obs_groups_spec)
+            onnx_path = os.path.join(load_path_dir, "policy.onnx")
+            dummy_input = torch.randn(1, obs_dim, device=device)
+            with torch.inference_mode():
+                if normalizer:
+                    dummy_input = normalizer(dummy_input, update=False)
+                assert actor is not None
+                if algo_name in ("sac", "flashsac", "warpsac"):
+                    export_module = actor.as_export_module()
+                else:
+                    export_module = actor
+                export_inputs = (dummy_input,)
+            input_names = ["obs"]
+            export_policy_onnx(export_module, onnx_path, export_inputs, input_names=input_names)
 
-        # Verify ONNX output matches PyTorch
-        verify_input = torch.randn(1, obs_dim, device=device)
-        with torch.inference_mode():
-            onnx_feed = normalizer(verify_input, update=False) if normalizer else verify_input
-        verify_inputs = (onnx_feed,)
-        verify_policy_onnx(export_module, onnx_path, verify_inputs, input_names=input_names)
+            # Verify ONNX output matches PyTorch
+            verify_input = torch.randn(1, obs_dim, device=device)
+            with torch.inference_mode():
+                onnx_feed = normalizer(verify_input, update=False) if normalizer else verify_input
+            verify_inputs = (onnx_feed,)
+            verify_policy_onnx(export_module, onnx_path, verify_inputs, input_names=input_names)
     elif load_path_dir is not None:
         print("Skipping ONNX export because training.export_onnx=false.")
 
@@ -408,16 +410,20 @@ def play_offpolicy(
         run_viser_playback_from_cfg(session, cfg, entrypoint=f"train_{algo_name} play")
         return None
 
-    with torch.inference_mode():
-        play_video_path = env.run_playback_mode(
-            play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
-            play_steps=getattr(cfg.training, "play_steps", None),
-            output_video=os.path.join(load_path_dir, "play_video.mp4") if load_path_dir else None,
-            initialize=session.reset,
-            step=lambda _obs: session.step_once(),
-            camera_kwargs=camera_cfg_from_training(cfg.training),
-            on_plan=log_playback_plan,
-        )
+    play_video_path: str | None = None
+    with nonfatal_play_step("video rendering"):
+        with torch.inference_mode():
+            play_video_path = env.run_playback_mode(
+                play_render_mode=getattr(cfg.training, "play_render_mode", "auto"),
+                play_steps=getattr(cfg.training, "play_steps", None),
+                output_video=os.path.join(load_path_dir, "play_video.mp4")
+                if load_path_dir
+                else None,
+                initialize=session.reset,
+                step=lambda _obs: session.step_once(),
+                camera_kwargs=camera_cfg_from_training(cfg.training),
+                on_plan=log_playback_plan,
+            )
     if play_video_path is not None:
         print(f"Saving video to {play_video_path} ...")
     print("Done.")

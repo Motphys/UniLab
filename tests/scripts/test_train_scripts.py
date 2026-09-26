@@ -1866,6 +1866,178 @@ def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
     assert not (run_dir / "policy.onnx").exists()
 
 
+def _patch_offpolicy_play_session(
+    monkeypatch: pytest.MonkeyPatch,
+    mod,
+    cfg,
+    run_dir: Path,
+    checkpoint: Path,
+    captured: dict[str, Any],
+    fake_actor,
+    fake_env_cls,
+) -> None:
+    import uni_rl.algos.common.actor_factory as actor_factory
+
+    import unilab.utils.checkpoint as checkpoint_utils
+
+    monkeypatch.setattr(mod, "build_offpolicy_env_cfg_override", lambda algo_name, cfg: {})
+    monkeypatch.setattr(mod, "default_device", lambda torch_module, preferred=None: "cpu")
+    monkeypatch.setattr(mod, "create_env", lambda *args, **kwargs: fake_env_cls())
+    monkeypatch.setattr(
+        mod,
+        "resolve_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
+    )
+    monkeypatch.setattr(
+        checkpoint_utils,
+        "resolve_offpolicy_checkpoint_path",
+        lambda *args, **kwargs: (str(checkpoint), str(run_dir)),
+    )
+    monkeypatch.setattr(actor_factory, "build_actor", lambda *args, **kwargs: fake_actor)
+
+
+class _PlayFakeActor:
+    def eval(self):
+        return self
+
+    def load_state_dict(self, state_dict):
+        pass
+
+    def as_export_module(self):
+        return self
+
+    def explore(self, obs, deterministic=True):
+        import torch
+
+        return torch.zeros((obs.shape[0], 2), dtype=obs.dtype, device=obs.device)
+
+
+def _make_play_fake_env(captured: dict[str, Any], play_env_num: int):
+    import numpy as np
+
+    class FakeEnv:
+        def __init__(self):
+            self.obs_groups_spec = {"obs": 4}
+            self.action_space = type("ActionSpace", (), {"shape": (2,)})()
+            self.state = None
+
+        def init_state(self):
+            self.state = type(
+                "State",
+                (),
+                {"obs": {"obs": np.zeros((play_env_num, 4), dtype=np.float32)}},
+            )()
+
+        def reset(self, env_ids):
+            batch = len(env_ids)
+            return ({"obs": np.zeros((batch, 4), dtype=np.float32)}, {})
+
+        def step(self, actions):
+            batch = actions.shape[0]
+            self.state = type(
+                "State",
+                (),
+                {
+                    "obs": {"obs": np.ones((batch, 4), dtype=np.float32)},
+                    "info": {},
+                },
+            )()
+            return self.state
+
+        def run_playback_mode(self, **kwargs):
+            init_obs = kwargs["initialize"]()
+            kwargs["step"](init_obs)
+            return str(kwargs["output_video"])
+
+    return FakeEnv
+
+
+def test_play_offpolicy_onnx_export_failure_still_records_video(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    import torch
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "task=g1_walk_flat/mujoco",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_5000.pt"
+    torch.save({"actor": {}}, checkpoint)
+
+    captured: dict[str, Any] = {}
+    _patch_offpolicy_play_session(
+        monkeypatch,
+        mod,
+        cfg,
+        run_dir,
+        checkpoint,
+        captured,
+        _PlayFakeActor(),
+        _make_play_fake_env(captured, cfg.training.play_env_num),
+    )
+    monkeypatch.setattr(
+        mod,
+        "export_policy_onnx",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("onnx boom")),
+    )
+
+    result = mod.play_offpolicy("sac", cfg)
+    out = capsys.readouterr().out
+
+    assert result == str(run_dir / "play_video.mp4")
+    assert "WARNING: ONNX export failed; continuing with the remaining play steps." in out
+
+
+def test_play_offpolicy_video_render_failure_returns_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    import torch
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg(
+        [
+            "task=g1_walk_flat/mujoco",
+            "training.play_only=true",
+            "training.play_render_mode=record",
+            "training.export_onnx=false",
+        ]
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    checkpoint = run_dir / "model_5000.pt"
+    torch.save({"actor": {}}, checkpoint)
+
+    captured: dict[str, Any] = {}
+    fake_env_cls = _make_play_fake_env(captured, cfg.training.play_env_num)
+
+    class FailingRenderEnv(fake_env_cls):
+        def run_playback_mode(self, **kwargs):
+            raise RuntimeError("render boom")
+
+    _patch_offpolicy_play_session(
+        monkeypatch,
+        mod,
+        cfg,
+        run_dir,
+        checkpoint,
+        captured,
+        _PlayFakeActor(),
+        FailingRenderEnv,
+    )
+
+    result = mod.play_offpolicy("sac", cfg)
+    out = capsys.readouterr().out
+
+    assert result is None
+    assert "WARNING: video rendering failed; continuing with the remaining play steps." in out
+
+
 # ---------------------------------------------------------------------------
 # play_interactive.py — resolve_checkpoint()
 # ---------------------------------------------------------------------------
