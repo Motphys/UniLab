@@ -72,12 +72,12 @@ mujoco = [
     "mjbatch-uni~=0.2.1",
 ]
 motrix = ["unisim-core[motrix]>=1.7.8"]
-uni_rl = ["unilab-rl==1.4.0"]
+uni_rl = ["unilab-rl==1.4.1"]
 
 [dependency-groups]
 # Dev/CI exercises the APPO/off-policy/multi-GPU paths, so the optional
 # unilab-rl runtime stays installed in the dev environment.
-dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408", "unilab-rl==1.4.0"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408", "unilab-rl==1.4.1"]
 
 [[tool.uv.index]]
 name = "pytorch-rocm72"
