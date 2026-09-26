@@ -18,7 +18,6 @@ training:
   play_render_mode: auto
   # First tick includes collector env construction; genesis JIT startup exceeds
   # the 30s default (same override as sac g1_walk_flat/genesis).
-  inference_request_timeout_sec: 180.0
 env:
   # GPU device id for the process-wide Genesis session. Multi-GPU training
   # overrides this cold-path field from the rank topology; zero preserves the
