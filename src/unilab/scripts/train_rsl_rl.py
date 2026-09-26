@@ -53,6 +53,7 @@ from unilab.training.experiment import (
     ExperimentTracker,
     patch_rsl_rl_action_std_logging,
     patch_rsl_rl_resume_state,
+    patch_rsl_rl_tensorboard_logging,
     patch_rsl_rl_wandb_writer,
 )
 from unilab.utils.checkpoint import get_entrypoint_log_root
@@ -615,6 +616,9 @@ def main(cfg: DictConfig) -> None:
                         ),
                     )
                     patch_rsl_rl_action_std_logging(runner)
+                    patch_rsl_rl_tensorboard_logging(
+                        runner, log_interval=int(cfg.training.log_interval)
+                    )
 
                     if cfg.algo.load_run != "-1":
                         resume_path, _ = parse_checkpoint_path(cfg, root_dir=Path.cwd())

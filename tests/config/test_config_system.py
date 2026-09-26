@@ -130,6 +130,7 @@ def test_algo_config_composes(algo_dir: str, config_name: str):
     cfg = _compose(algo_dir, config_name)
     assert cfg.training.task_name
     assert cfg.training.sim_backend == "mujoco"
+    assert int(cfg.training.log_interval) >= 1
 
 
 def test_backend_task_files_keep_full_identity():

@@ -43,6 +43,18 @@ def _load_wandb() -> Any | None:
         return None
 
 
+def _tb_proto_modules() -> tuple[Any, Any]:
+    """Import tensorboard's protobuf modules as ``Any``.
+
+    The generated modules define their messages through reflection, which
+    static checkers cannot see; returning them as ``Any`` keeps attribute
+    access clean without per-line suppressions.
+    """
+    from tensorboard.compat.proto import event_pb2, summary_pb2
+
+    return event_pb2, summary_pb2
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): _json_safe(v) for k, v in value.items()}
@@ -374,6 +386,116 @@ def patch_rsl_rl_action_std_logging(runner: Any) -> None:
         return original_log(*args, **kwargs)
 
     runner.logger.log = _safe_log.__get__(runner.logger, type(runner.logger))
+
+
+class _BatchedScalarWriter:
+    """Buffer rsl-rl's per-tag ``add_scalar`` calls and emit one event per step.
+
+    TensorBoard's writer thread performs one open/write/close per record, which
+    saturates its async queue (depth 10) and blocks the training loop when the
+    log directory lives on a network filesystem. Batching one iteration's
+    scalars into a single ``Event`` keeps it to one record per step group.
+    """
+
+    def __init__(self, writer: Any) -> None:
+        self._writer = writer
+        self._pending: list[tuple[str, float]] = []
+        self._pending_step: int | None = None
+
+    def add_scalar(self, tag: str, value: Any, step: Any = None, *args: Any, **kwargs: Any) -> None:
+        try:
+            scalar = float(value)
+        except (TypeError, ValueError):
+            self._flush()
+            self._writer.add_scalar(tag, value, step, *args, **kwargs)
+            return
+        step_key = int(step) if step is not None else 0
+        if self._pending and step_key != self._pending_step:
+            self._flush()
+        self._pending_step = step_key
+        self._pending.append((tag, scalar))
+
+    def _flush(self) -> None:
+        if not self._pending:
+            return
+        event_pb2, summary_pb2 = _tb_proto_modules()
+        event = event_pb2.Event(
+            wall_time=time.time(),
+            step=self._pending_step or 0,
+            summary=summary_pb2.Summary(
+                value=[
+                    summary_pb2.Summary.Value(tag=tag, simple_value=value)
+                    for tag, value in self._pending
+                ]
+            ),
+        )
+        self._writer.file_writer.add_event(event)
+        self._pending = []
+        self._pending_step = None
+
+    def flush(self) -> None:
+        self._flush()
+        self._writer.flush()
+
+    def close(self) -> None:
+        self._flush()
+        self._writer.close()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._writer, name)
+
+
+class _SwallowScalarWriter:
+    """Drop ``add_scalar`` writes while staying truthy for rsl-rl's console log."""
+
+    def __init__(self, writer: Any) -> None:
+        self._writer = writer
+
+    def add_scalar(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._writer, name)
+
+
+def patch_rsl_rl_tensorboard_logging(runner: Any, log_interval: int = 1) -> None:
+    """Batch and optionally throttle rsl-rl's TensorBoard scalar writes.
+
+    Wraps ``runner.logger.writer`` so each step's ~15-30 ``add_scalar`` calls
+    become a single event record, and gates backend writes to every
+    ``log_interval`` iterations (console output and episode bookkeeping are
+    unaffected; the final iteration is always logged). No-op for non-TB
+    backends and when no writer exists.
+    """
+    logger = getattr(runner, "logger", None)
+    writer = getattr(logger, "writer", None)
+    if logger is None or writer is None:
+        return
+    if getattr(logger, "logger_type", "tensorboard") != "tensorboard":
+        return
+    if isinstance(writer, _BatchedScalarWriter):
+        return
+
+    batched = _BatchedScalarWriter(writer)
+    logger.writer = batched
+
+    interval = max(1, int(log_interval))
+    if interval <= 1:
+        return
+
+    swallow = _SwallowScalarWriter(batched)
+    original_log = logger.log
+
+    def _gated_log(self: Any, it: int, *args: Any, **kwargs: Any) -> Any:
+        total_it = args[1] if len(args) > 1 else int(kwargs.get("total_it", 0))
+        due = it % interval == 0 or it >= total_it
+        logger.writer = batched if due else swallow
+        try:
+            return original_log(it, *args, **kwargs)
+        finally:
+            logger.writer = batched
+
+    logger.log = _gated_log.__get__(logger, type(logger))
 
 
 def patch_rsl_rl_wandb_writer() -> None:
