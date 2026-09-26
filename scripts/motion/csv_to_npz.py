@@ -24,6 +24,7 @@ Interpolation and velocity estimation reuse the library implementation in
 """
 
 import argparse
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -34,19 +35,64 @@ from unilab.tasks.motion_tracking.common.motion_loader import interpolate_motion
 from unilab.utils.rotation import np_quat_ensure_continuity
 
 
+def _count_csv_header_rows(motion_file: str) -> int:
+    """Return 1 for a textual CSV header and 0 for headerless numeric CSV."""
+    with Path(motion_file).open("r", encoding="utf-8", newline="") as file:
+        first_line = next((line for line in file if line.strip()), "")
+    if not first_line:
+        return 0
+
+    fields = first_line.split(",")
+    try:
+        [float(field.strip()) for field in fields]
+    except ValueError:
+        return 1
+    return 0
+
+
 def load_csv_motion(
     motion_file: str, line_range: tuple[int, int] | None = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Load a Unitree-convention CSV into base/dof trajectory arrays."""
-    if line_range is None:
-        motion = np.loadtxt(motion_file, delimiter=",", dtype=np.float32, skiprows=1)
-    else:
-        motion = np.loadtxt(
-            motion_file,
-            delimiter=",",
-            skiprows=max(1, line_range[0] - 1),
-            max_rows=line_range[1] - line_range[0] + 1,
-            dtype=np.float32,
+    """Load a Unitree-convention CSV into base/dof trajectory arrays.
+
+    ``line_range`` is a closed, 1-based range over motion frames, independent of
+    whether the file has a textual header. Both BONES-style files with a header
+    and Unitree LAFAN exports without one are accepted.
+    """
+    if line_range is not None and (line_range[0] < 1 or line_range[1] < line_range[0]):
+        raise ValueError(
+            f"line_range must be a closed range with 1 <= start <= end, got {line_range}"
+        )
+    header_rows = _count_csv_header_rows(motion_file)
+    with warnings.catch_warnings():
+        # NumPy emits a UserWarning before returning an empty array for an
+        # out-of-range selection; replace it with the explicit ValueError below.
+        warnings.simplefilter("ignore", UserWarning)
+        if line_range is None:
+            motion = np.loadtxt(motion_file, delimiter=",", dtype=np.float32, skiprows=header_rows)
+        else:
+            motion = np.loadtxt(
+                motion_file,
+                delimiter=",",
+                skiprows=header_rows + line_range[0] - 1,
+                max_rows=line_range[1] - line_range[0] + 1,
+                dtype=np.float32,
+            )
+
+    motion = np.atleast_2d(motion)
+    if motion.size == 0:
+        motion = motion.reshape(0, 0)
+    expected_frames = None if line_range is None else line_range[1] - line_range[0] + 1
+    if expected_frames is not None and motion.shape[0] != expected_frames:
+        raise ValueError(
+            f"line_range {line_range} requests {expected_frames} motion frame(s), "
+            "but the CSV contains fewer available motion frames"
+        )
+    if motion.ndim != 2 or motion.shape[1] < 7 or motion.shape[0] == 0:
+        raise ValueError(
+            "CSV motion must contain at least seven columns and one data row; "
+            f"found {motion.shape[0]} rows and "
+            f"{motion.shape[1] if motion.ndim == 2 else 0} columns"
         )
 
     motion_base_poss_input = motion[:, :3]
@@ -88,7 +134,7 @@ def main():
         type=int,
         nargs=2,
         default=None,
-        help="Line range to process (start, end)",
+        help="Closed, 1-based motion-frame range to process (start, end)",
     )
 
     args = parser.parse_args()

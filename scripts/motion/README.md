@@ -82,6 +82,9 @@ CSV files should contain motion data in Unitree's generalized coordinate convent
 - Columns 3-6: Base quaternion (x, y, z, w) - will be converted to wxyz internally
 - Columns 7+: Joint angles (29 joints for G1)
 
+A textual header is optional: the converter detects whether the first row is
+numeric and preserves the first frame of headerless LAFAN CSV exports.
+
 ### Output Format
 
 NPZ files contain:
@@ -127,7 +130,8 @@ uv run scripts/motion/csv_to_npz.py \
 - `--input_fps`: Frame rate of input CSV (default: 30)
 - `--output_fps`: Desired output frame rate (default: 50)
 - `--model_file`: MuJoCo model file (default: G1 flat scene)
-- `--line_range`: Line range to process [start, end] (optional)
+- `--line_range`: 1-based motion-frame range to process [start, end] (optional);
+  the range is independent of an optional CSV header
 
 ### Notes
 
