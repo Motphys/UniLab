@@ -46,6 +46,13 @@ algo:
     amp_dtype: auto
     use_compile: true
     compile_full_objectives: true
+    # Optional manual graph paths retained for compatibility with the
+    # optimized unilab-rl FlashSAC builder.  Full-objective compile is the
+    # default; these are disabled unless explicitly benchmarked.
+    use_cuda_graph_critic: false
+    use_cuda_graph_actor: false
+    use_cuda_graph_critic_packed_staging: false
+    use_cuda_graph_actor_packed_staging: false
 
 training:
   task_name: G1WalkFlat

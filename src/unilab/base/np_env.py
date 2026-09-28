@@ -614,7 +614,12 @@ class NpEnv(ABEnv):
             supports_native_video_capture=capabilities.supports_native_video_capture,
             supports_debug_overlay=capabilities.supports_debug_overlay,
             supports_interactive_debug_overlay=capabilities.supports_interactive_debug_overlay,
-            supports_mocap_playback=capabilities.supports_mocap_playback,
+            # Older unisim-core releases do not expose mocap playback on the
+            # backend capability record.  Keep the env contract fail-closed so
+            # collectors can still run against those physics adapters.
+            supports_mocap_playback=bool(
+                getattr(capabilities, "supports_mocap_playback", False)
+            ),
         )
 
     def get_playback_model(self, env_index: int | None = None) -> Any:
