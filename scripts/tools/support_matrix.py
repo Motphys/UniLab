@@ -8,22 +8,15 @@ from enum import IntEnum
 from pathlib import Path
 
 from omegaconf import OmegaConf
+from unisim.support import TensorPlatformProfile, get_tensor_platform_profiles
 
 from unilab.base import registry
 from unilab.base.registry import ensure_registries
 
 BEGIN_MARKER = "<!-- BEGIN GENERATED SUPPORT MATRIX -->"
 END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
-BACKENDS: tuple[str, ...] = (
-    "mujoco",
-    "mjwarp",
-    "motrix",
-    "isaacgym",
-    "genesis",
-    "isaacsim",
-    "newton",
-    "superdex",
-)
+# UniSim owns the reviewed tensor adapter inventory and its deterministic order.
+BACKENDS: tuple[str, ...] = tuple(get_tensor_platform_profiles())
 
 # Issue-gated M9 candidate owners (#1674) are benchmark/test fixtures,
 # not support claims.  Exclude them from the generated matrix until those
@@ -205,17 +198,24 @@ def _task_label(task_slug: str) -> str:
     return _TASK_LABELS.get(task_slug, task_slug.replace("_", " "))
 
 
-def _load_task_name(task_path: Path) -> str:
+def _load_task_owner(task_path: Path) -> tuple[str, str, bool]:
     raw = OmegaConf.to_container(OmegaConf.load(task_path), resolve=True) or {}
     if not isinstance(raw, dict):
         raise ValueError(f"Expected mapping config in {task_path}")
+    if task_path.name == "base.yaml":
+        return "", "", False
     training = raw.get("training")
     if not isinstance(training, dict) or "task_name" not in training:
         raise ValueError(f"Missing training.task_name in {task_path}")
     task_name = training["task_name"]
     if not isinstance(task_name, str):
         raise ValueError(f"training.task_name must be a string in {task_path}")
-    return task_name
+    backend = training.get("sim_backend")
+    if not isinstance(backend, str) or not backend.strip():
+        raise ValueError(f"training.sim_backend must be a non-empty string in {task_path}")
+    env = raw.get("env")
+    tensor_runtime = isinstance(env, dict) and bool(env.get("tensor_runtime", False))
+    return task_name, backend.strip(), tensor_runtime
 
 
 def _load_registry_backends() -> dict[str, set[str]]:
@@ -246,10 +246,10 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
         if relative_path in _ISSUE_GATED_CANDIDATE_CONFIGS:
             continue
         task_slug = task_path.parent.name
-        backend = task_path.stem
+        task_name, backend, _tensor_runtime = _load_task_owner(task_path)
         if backend not in BACKENDS:
             continue
-        entries.setdefault(task_slug, {})[backend] = _load_task_name(task_path)
+        entries.setdefault(task_slug, {})[backend] = task_name
     return entries
 
 
@@ -351,86 +351,120 @@ def build_support_rows(root: Path | None = None) -> list[SupportRow]:
     return rows
 
 
-def render_support_matrix(root: Path | None = None) -> str:
-    resolved_root = repo_root(root)
-    benchmark_note = (
-        "未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。"
-    )
-    recommendation_note = (
-        "仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。"
-    )
+def platform_display(profile: TensorPlatformProfile, language: str) -> str:
+    execution = {
+        "host_bridge": "Host bridge" if language == "en" else "Host bridge",
+        "device_resident": "Device-resident" if language == "en" else "Device-resident",
+    }[profile.execution.value]
+    topology = "in-process" if profile.process_topology.value == "in_process" else "external worker"
+    data_plane = profile.data_plane.value.replace("_", " ")
+    return f"{execution} / {topology} / {data_plane}"
 
-    lines = [
-        "### Evidence Grades",
-        "",
-        "| 等级 | 仓库事实来源 |",
-        "|------|--------------|",
-        "| `Registered` | `ensure_registries()` 导入后的 `registry.list_registered_envs()` 中存在该 env/backend。 |",
-        "| `Configured` | 存在对应的 owner YAML：`src/unilab/conf/{ppo,appo,sac,flashsac,warpsac}/task/...`。 |",
-        "| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合，或存在显式 maintainer 完整训练验证并具备近风险自动化测试。这里的 `Tested` 不等同于默认推荐路径。 |",
-        "| `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |",
-        "| `Recommended` | 仓库中存在显式 recommendation 元数据。 |",
-        "",
-        "`Tested` 只描述仓库中已有自动化覆盖或显式 maintainer 训练验证，不代表该组合具备同名 MuJoCo "
-        "owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。",
-        "",
-        "`mjwarp` 完成训练验证的是 `g1_walk_flat` host adapter 的 PPO (torch)、SAC (torch) 与 "
-        "WarpSAC (torch)，以及 `g1_motion_tracking` 的 WarpSAC (torch)；这些 owner 有 backend、"
-        "contract 与 playback 自动化覆盖，因此标记为 `Tested`。"
-        "mjwarp playback 默认仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer；"
-        "`uv run eval --sim mjwarp --render-mode interactive` 路由到 MuJoCo 交互 viewer"
-        "（mjwarp 跑物理、MuJoCo 渲染 env[0]，强制单 env）；不支持 `auto` 或 native playback。"
-        "其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry "
-        "identity，不代表对应算法、terrain、完整 DR 或 production training 支持。",
-        "",
-        "`isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`。SAC (torch) owner 已在真机"
-        "（external Python 3.8 worker runtime，不在仓库 CI 覆盖）完成训练与 record playback 验证，"
-        "标记为 `Tested`；其余 isaacgym cell 最高只到 `Configured`（registry + owner YAML + "
-        "compose/contract 覆盖），不代表任何训练或 play 验证。playback 走 IsaacGym 原生渲染"
-        "（viewer + camera sensor 离屏录制），有显示器时 `play_render_mode=auto` 打开交互 viewer，"
-        "无显示器时自动降级为离屏录制。",
-        "",
-        "`genesis` 是进程内后端（genesis-world==1.3.3，要求 torch>=2.8 与 CUDA；一进程只允许一次 "
-        "`gs.init`），当前只接入 `g1_walk_flat` 的 PPO (torch) 与 SAC (torch) owner。SAC cell 标记 "
-        "`Tested`：真机完整训练验证（5000/5000 iterations，reward/mean 6.5 → 244.8，episode length "
-        "→ 987/1000，10.26M env steps / 224s wall time；run 2026-08-31_23-04-01_genesis）加 "
-        "model_5000.pt 的 record playback 验证；PPO cell 最高只到 `Configured`（registry + owner "
-        "YAML + compose/contract 覆盖），不代表训练验证。真机证据另有："
-        "env smoke 慢车道测试（`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose → env 构造 "
-        "→ keyframe reset → 12 步有限稳定 → cleanup，覆盖 ppo 与 sac 两棵树）在装有 CUDA 与 genesis "
-        "extra 的机器上通过。adapter 的 "
-        "`materialize()` 幂等且惰性触发（entity 校验在 env 的 materialize 钩子前读取状态 getter；"
-        "isaacgym 后端同模式）。Genesis 在 import 时丢弃 MJCF 全局 "
-        "`<option>`，owner YAML 显式重声明 `genesis_integrator=implicitfast`。原生 playback/渲染已接入："
-        "`play_render_mode=auto` 在有显示时打开 post-build 挂载的交互 viewer、无显示时降级离屏录制"
-        "（`record` 写 `play_video.mp4`；`get_physics_state` 快照不声明）。未支持边界：geom 名称"
-        "契约、terrain spawn 与 height scanner、contact "
-        'sensor 为 per-link net-force 阈值近似（非 geom 对 `data="found"`）、`get_geom_friction` 类'
-        "绝对摩擦 DR fail-closed（geom 摩擦只有 per-env ratio API）。",
-        "",
-        "`isaacsim` 是 IsaacSim 5.1 / IsaacLab v2.3.0 的独立 Python 3.11 子进程后端，当前只接入"
-        " `g1_walk_flat` 的 PPO/SAC owner，矩阵标记为 `Configured`。仓库没有把 bounded headless"
-        " physics smoke 和 mock rendering protocol 覆盖提升为训练或 playback 的 `Tested` 证据。"
-        "eval 已接入 Kit viewer 与 IsaacLab RGB camera；当前真实主机在 RTX renderer 初始化阶段"
-        "崩溃，因此没有成功 playback 证据，也不会生成占位视频。contact-force sensor 和 domain "
-        "randomization 仍保持 fail-closed。",
-        "",
-        benchmark_note,
-        recommendation_note,
-        "",
-        "### Entrypoint x Task Owner",
-        "",
-        "| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix | IsaacGym | Genesis | IsaacSim | Newton | SuperDex |",
-        "|------------|------------|--------|--------|--------|----------|---------|----------|--------|----------|",
-    ]
+
+def _capability_label(value: str, language: str) -> str:
+    if value == "exact":
+        return "Exact" if language == "en" else "支持"
+    if value == "unsupported":
+        return "Unsupported" if language == "en" else "不支持"
+    return value
+
+
+def _backend_label(backend: str) -> str:
+    return {
+        "mujoco": "MuJoCo",
+        "mjwarp": "mjwarp",
+        "motrix": "Motrix",
+        "isaacgym": "IsaacGym",
+        "genesis": "Genesis",
+        "isaacsim": "IsaacSim",
+        "newton": "Newton",
+        "superdex": "SuperDex",
+        "drake": "Drake",
+    }[backend]
+
+
+def render_support_matrix(root: Path | None = None, language: str = "zh") -> str:
+    resolved_root = repo_root(root)
+    if language not in {"zh", "en"}:
+        raise ValueError(f"Unsupported support-matrix language: {language!r}")
+    profiles = get_tensor_platform_profiles()
+    if tuple(profiles) != BACKENDS:
+        raise ValueError(
+            "UniSim tensor platform inventory does not match the UniLab backend order: "
+            f"{tuple(profiles)} != {BACKENDS}"
+        )
+
+    if language == "zh":
+        lines = [
+            "### Evidence Grades",
+            "",
+            "| 等级 | 仓库事实来源 |",
+            "|------|--------------|",
+            "| `Registered` | `ensure_registries()` 导入后的 `registry.list_registered_envs()` 中存在该 env/backend。 |",
+            "| `Configured` | owner YAML 的 `training.sim_backend` 指向该 backend。 |",
+            "| `Tested` | 自动化覆盖或显式 maintainer 完整训练验证；不等同于默认推荐路径。 |",
+            "| `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |",
+            "| `Recommended` | 仓库中存在显式 recommendation 元数据。 |",
+            "",
+            "`Tested` 只描述仓库证据，不表示同名 MuJoCo owner 的全部 DR、渲染或 production 能力。当前没有已提交 benchmark/recommendation 元数据，因此不会自动提升到 `Benchmarked` 或 `Recommended`。",
+            "",
+            "### Tensor Backend Platform Matrix",
+            "",
+            "该表来自 UniSim SDK-free 公开静态能力清单；它表示 reviewed tensor lifecycle 边界，不表示可选 SDK 已安装，也不把所有 task owner 自动提升为可用组合。",
+            "",
+            "| Backend | Execution / process / data plane | Torch devices | CUDA runtime | Linux+CUDA | macOS | ROCm | Worker | Reset randomization | Fixed variants | Host callbacks | Packed bridge |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
+    else:
+        lines = [
+            "### Evidence Grades",
+            "",
+            "| Grade | Repository evidence |",
+            "|---|---|",
+            "| `Registered` | The env/backend exists in `registry.list_registered_envs()` after `ensure_registries()`. |",
+            "| `Configured` | The owner YAML sets `training.sim_backend` to the backend. |",
+            "| `Tested` | Automated coverage or explicit maintainer validation; it is not a default recommendation. |",
+            "| `Benchmarked` | A checked-in benchmark manifest is bound to the combination. |",
+            "| `Recommended` | Explicit recommendation metadata exists in the repository. |",
+            "",
+            "`Tested` describes repository evidence only; it does not imply every DR, rendering, or production capability of the MuJoCo owner. No benchmark or recommendation metadata is currently checked in, so rows do not auto-promote to `Benchmarked` or `Recommended`.",
+            "",
+            "### Tensor Backend Platform Matrix",
+            "",
+            "This table is derived from UniSim's SDK-free public static inventory. It describes reviewed tensor-lifecycle boundaries, not optional-SDK installation and not automatic task-owner support.",
+            "",
+            "| Backend | Execution / process / data plane | Torch devices | CUDA runtime | Linux+CUDA | macOS | ROCm | Worker | Reset randomization | Fixed variants | Host callbacks | Packed bridge |",
+            "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        ]
+
+    for backend in BACKENDS:
+        profile = profiles[backend]
+        lines.append(
+            f"| `{backend}` | {platform_display(profile, language)} | "
+            f"{' / '.join(label.upper() for label in profile.torch_devices)} | "
+            f"{profile.cuda_runtime} | {profile.linux_cuda} | {profile.macos_tensor_profile} | "
+            f"{profile.rocm_tensor_profile} | {profile.worker_requirement} | "
+            f"{_capability_label(profile.reset_randomization, language)} | "
+            f"{_capability_label(profile.fixed_variants, language)} | "
+            f"{_capability_label(profile.host_pre_step_control, language)} | "
+            f"{_capability_label(profile.packed_host_bridge, language)} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "### Entrypoint x Task Owner",
+            "",
+            f"| Entrypoint | Task owner | {' | '.join(_backend_label(b) for b in BACKENDS)} |",
+            f"|------------|------------|{'---|' * len(BACKENDS)}",
+        ]
+    )
 
     for row in build_support_rows(resolved_root):
         lines.append(
             f"| {row.entrypoint_label} | `{row.task_slug}` ({row.task_label}) | "
-            f"{row.cells['mujoco'].level.label} | {row.cells['mjwarp'].level.label} | "
-            f"{row.cells['motrix'].level.label} | {row.cells['isaacgym'].level.label} | "
-            f"{row.cells['genesis'].level.label} | {row.cells['isaacsim'].level.label} |"
-            f" {row.cells['newton'].level.label} | {row.cells['superdex'].level.label} |"
+            + " | ".join(row.cells[backend].level.label for backend in BACKENDS)
+            + " |"
         )
 
     lines.extend(
@@ -439,21 +473,17 @@ def render_support_matrix(root: Path | None = None) -> str:
             "### Source Index",
             "",
             "- Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.",
-            "- Owner YAML scan: `src/unilab/conf/ppo/task/**`, `src/unilab/conf/appo/task/**`, `src/unilab/conf/sac/task/**`, `src/unilab/conf/flashsac/task/**`, `src/unilab/conf/warpsac/task/**`.",
+            "- Owner backend identity: `training.sim_backend` in `src/unilab/conf/{ppo,appo,sac,flashsac,warpsac}/task/**`.",
+            "- Platform/capability source: `unisim.support.get_tensor_platform_profiles()`.",
+            "- Unsupported platform/device requests are guarded before backend construction in `src/unilab/base/backend_factory.py`.",
             "- Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.",
-            "- SuperDex remains `Configured`: FR3 has optional CPU rollout/spawn coverage in `tests/envs/test_fr3_superdex.py`; the Go2 research profile has policy-contract/rollout/checkpoint coverage in `tests/envs/test_go2_superdex.py`. Neither profile claims full-training performance or cross-platform support.",
-            "- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.",
-            "- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).",
-            "- Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (real hardware, genesis-world extra + CUDA; not covered by repo CI); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.",
-            "- IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence. Rendering protocol coverage lives in `tests/base/test_isaacsim_backend.py`; it is not a substitute for successful real playback.",
-            "- `newton` is an optional owner backed by Newton 1.5.1 and the MuJoCo-Warp 3.11 / Warp 1.16 line, which it shares with the `mujoco` / `mjwarp` extras (jointly installable in one environment). Validated newton entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS` (real hardware, newton extra + CUDA; not covered by repo CI); remaining cells rely on the G1 PPO/SAC owner configs, compose/contract checks, and fail-closed runtime/import boundaries. Native ViewerGL playback (offscreen record + interactive) is included in the `newton` extra and is the default renderer; an incomplete installation falls back to the MuJoCo snapshot renderer for record and stays fail-closed for interactive playback.",
         ]
     )
     return "\n".join(lines)
 
 
-def render_generated_block(root: Path | None = None) -> str:
-    return "\n".join([BEGIN_MARKER, render_support_matrix(root), END_MARKER])
+def render_generated_block(root: Path | None = None, language: str = "zh") -> str:
+    return "\n".join([BEGIN_MARKER, render_support_matrix(root, language), END_MARKER])
 
 
 def replace_generated_block(content: str, rendered_block: str) -> str:

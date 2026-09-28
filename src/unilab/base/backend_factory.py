@@ -9,11 +9,13 @@ factory. Physics implementations and their public contract live in the
 from __future__ import annotations
 
 import inspect
+import sys
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import unisim
-from unisim.backend.base import SimBackend
+from unisim.backend.base import SimBackend, TensorExecution, validate_tensor_device
+from unisim.support import get_tensor_platform_profiles
 
 from unilab.assets.hub import ensure_robot_assets_for_paths, resolve_superdex_robot_asset
 from unilab.base.process_device import bind_genesis_process_device
@@ -21,6 +23,180 @@ from unilab.base.process_device import bind_genesis_process_device
 if TYPE_CHECKING:
     from unilab.base.base import EnvCfg
     from unilab.base.scene import SceneCfg
+
+
+_CUDA_BACKEND_INT_DEVICE_FIELDS = {
+    "genesis": "genesis_device_id",
+    "isaacgym": "isaacgym_device_id",
+    "isaacsim": "isaacsim_device_id",
+}
+_EXTERNAL_WORKER_DEVICE_FIELDS = {
+    "isaacgym": "isaacgym_device_id",
+    "isaacsim": "isaacsim_device_id",
+}
+
+
+def _requested_cuda_only_device(backend_type: str, kwargs: dict[str, Any]) -> str:
+    if backend_type == "mjwarp":
+        return "cuda"
+    if backend_type == "newton":
+        device = kwargs.get("newton_device")
+        return "cuda" if device is None else str(device)
+
+    field = _CUDA_BACKEND_INT_DEVICE_FIELDS[backend_type]
+    device_id = kwargs.get(field)
+    if device_id is None:
+        # Genesis follows its current/default process device when unset.  The
+        # Isaac workers instead default their payload to ordinal zero, so an
+        # omitted owner field remains an explicit zero request.
+        return "cuda:0" if backend_type in _EXTERNAL_WORKER_DEVICE_FIELDS else "cuda"
+    if isinstance(device_id, bool) or not isinstance(device_id, int) or device_id < 0:
+        raise ValueError(f"{field} must be a non-negative integer or None, got {device_id!r}")
+    return f"cuda:{device_id}"
+
+
+def _torch_cuda_runtime_state() -> tuple[dict[str, Any], int | None]:
+    try:
+        import torch
+
+        available = bool(torch.cuda.is_available())
+        count = int(torch.cuda.device_count()) if available else 0
+        current = int(torch.cuda.current_device()) if available else None
+        state = {
+            "available": available,
+            "visible_count": count,
+            "current": current,
+            "torch": torch.__version__,
+            "torch_hip": torch.version.hip,
+            "platform": sys.platform,
+        }
+        return state, current
+    except Exception as exc:
+        return {
+            "available": False,
+            "visible_count": 0,
+            "current": None,
+            "torch": f"import failed: {exc}",
+            "torch_hip": "unknown",
+            "platform": sys.platform,
+        }, None
+
+
+def _fail_closed_cuda_only(
+    backend_type: str,
+    requested_device: str,
+    runtime_state: dict[str, Any],
+    reason: str,
+    next_step: str,
+) -> RuntimeError:
+    return RuntimeError(
+        f"{backend_type} is a CUDA-only tensor backend and this request is unsupported: "
+        f"{reason}. requested_device={requested_device!r}, "
+        f"cuda_available={runtime_state['available']}, "
+        f"visible_cuda_devices={runtime_state['visible_count']}, "
+        f"current_cuda_device={runtime_state['current']}, "
+        f"torch={runtime_state['torch']}, torch_hip={runtime_state['torch_hip']}, "
+        f"platform={runtime_state['platform']}. {next_step}"
+    )
+
+
+def _validate_cuda_only_backend_platform(backend_type: str, kwargs: dict[str, Any]) -> None:
+    """Fail closed before cold-path work on a non-CUDA platform or device.
+
+    UniSim's SDK-free public inventory owns the long-term platform matrix.  This
+    final owner-layer choke point checks only the static boundary, so optional
+    SDK discovery and task capability negotiation remain in UniSim.
+    """
+
+    profile = get_tensor_platform_profiles().get(backend_type)
+    if profile is None or profile.execution is not TensorExecution.DEVICE_RESIDENT:
+        return
+
+    try:
+        requested_device = _requested_cuda_only_device(backend_type, kwargs)
+    except ValueError as exc:
+        runtime_state, _ = _torch_cuda_runtime_state()
+        raise _fail_closed_cuda_only(
+            backend_type,
+            "<invalid>",
+            runtime_state,
+            str(exc),
+            "Use a non-negative integer backend device id.",
+        ) from exc
+
+    runtime_state, current_device = _torch_cuda_runtime_state()
+    try:
+        validate_tensor_device(
+            profile.torch_devices,
+            requested_device,
+            current_device=current_device,
+            label=f"{backend_type} tensor runtime",
+        )
+    except ValueError as exc:
+        raise _fail_closed_cuda_only(
+            backend_type,
+            requested_device,
+            runtime_state,
+            str(exc),
+            "Use a Linux CUDA process; CPU, MPS, ROCm, and hidden fallbacks are unsupported.",
+        ) from exc
+
+    if sys.platform == "darwin":
+        raise _fail_closed_cuda_only(
+            backend_type,
+            requested_device,
+            runtime_state,
+            "macOS has no supported CUDA runtime",
+            "Use a CPU-authoritative host-bridge backend or a Linux CUDA runtime.",
+        )
+    if runtime_state["torch_hip"] not in (None, "None", ""):
+        raise _fail_closed_cuda_only(
+            backend_type,
+            requested_device,
+            runtime_state,
+            "this Torch build reports ROCm/HIP rather than CUDA",
+            "Install a Linux CUDA Torch build or use a CPU-authoritative host-bridge backend.",
+        )
+    if not runtime_state["available"]:
+        raise _fail_closed_cuda_only(
+            backend_type,
+            requested_device,
+            runtime_state,
+            "Torch CUDA is unavailable",
+            "Check driver/runtime installation and CUDA_VISIBLE_DEVICES before construction.",
+        )
+
+    requested_parts = requested_device.lower().split(":", 1)
+    explicit_index = int(requested_parts[1]) if len(requested_parts) == 2 else None
+    requested_index = current_device if explicit_index is None else explicit_index
+    if requested_index is None or requested_index >= int(runtime_state["visible_count"]):
+        raise _fail_closed_cuda_only(
+            backend_type,
+            requested_device,
+            runtime_state,
+            "the requested CUDA ordinal is out of range",
+            "Use an index below torch.cuda.device_count() after CUDA_VISIBLE_DEVICES remapping.",
+        )
+
+    field = _EXTERNAL_WORKER_DEVICE_FIELDS.get(backend_type)
+    if field is not None:
+        payload_id = kwargs.get(field)
+        payload_index = 0 if payload_id is None else int(payload_id)
+        if payload_index != current_device:
+            raise _fail_closed_cuda_only(
+                backend_type,
+                requested_device,
+                runtime_state,
+                (
+                    "the external worker payload device does not match the learner's "
+                    f"current Torch CUDA device ({payload_index} != {current_device})"
+                ),
+                "Bind the rank learner and its Isaac worker to the same CUDA ordinal "
+                "before construction.",
+            )
+        import torch
+
+        torch.cuda.set_device(payload_index)
 
 
 def _validate_isaacsim_tensor_cuda_ipc_runtime() -> None:
@@ -114,6 +290,7 @@ def create_backend(
     """Prepare UniLab-owned assets and construct a UniSim backend."""
     if scene is None:
         raise ValueError("SceneCfg must be provided")
+    _validate_cuda_only_backend_platform(backend_type, kwargs)
     if backend_type == "isaacsim" and kwargs.get("isaacsim_tensor_cuda_ipc", False):
         _validate_isaacsim_tensor_cuda_ipc_runtime()
     superdex_assets_root = kwargs.pop("superdex_assets_root", None)

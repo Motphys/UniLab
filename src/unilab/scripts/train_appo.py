@@ -220,12 +220,12 @@ def play_appo(
         log_root=None,
         num_envs=cfg.training.play_env_num,
     )
-    if _is_cuda_device(device):
-        # Genesis pins CUDA_VISIBLE_DEVICES for a non-zero request; adopt the
-        # bound in-process device for the policy and the env override.
-        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
-        if bound_device is not None:
-            device = bound_device
+    # Genesis pins CUDA_VISIBLE_DEVICES for a non-zero request; adopt the bound
+    # in-process device for the policy and the env override.  CUDA-only backends
+    # reject a CPU/MPS learner before playback constructs.
+    bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
+    if bound_device is not None:
+        device = bound_device
     play_env_cfg_override = apply_backend_env_device_override(
         BackendAdapter(cfg, root_dir=Path.cwd(), algo_name="appo").build_play_env_cfg_override(),
         str(cfg.training.sim_backend),
@@ -354,17 +354,15 @@ def main(cfg: DictConfig) -> None:
         if collector_device is not None and _is_cuda_device(collector_device):
             collector_device = pinned_device
 
-    if _is_cuda_device(learner_device):
-        # A non-zero Genesis request pins CUDA_VISIBLE_DEVICES process-wide
-        # (Quadrants only honors the first visible device); the bound
-        # in-process device replaces both the learner and collector device.
-        bound_device = configure_backend_process_device(
-            str(cfg.training.sim_backend), learner_device
-        )
-        if bound_device is not None:
-            learner_device = bound_device
-            if collector_device is not None and _is_cuda_device(collector_device):
-                collector_device = bound_device
+    # A non-zero Genesis request pins CUDA_VISIBLE_DEVICES process-wide
+    # (Quadrants only honors the first visible device); the bound in-process
+    # device replaces both the learner and collector device.  CUDA-only backends
+    # reject a CPU/MPS learner before training constructs.
+    bound_device = configure_backend_process_device(str(cfg.training.sim_backend), learner_device)
+    if bound_device is not None:
+        learner_device = bound_device
+        if collector_device is not None and _is_cuda_device(collector_device):
+            collector_device = bound_device
 
     env_cfg_override = apply_backend_env_device_override(
         BackendAdapter(cfg, root_dir=Path.cwd(), algo_name="appo").build_task_env_cfg_override(),

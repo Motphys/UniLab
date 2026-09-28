@@ -340,12 +340,12 @@ def play_rsl_rl(cfg: DictConfig, device: str) -> str | None:
         device_id=play_device_id,
         source="playback",
     )
-    if str(device).strip().lower().startswith("cuda"):
-        # A non-zero Genesis request pins CUDA_VISIBLE_DEVICES here; adopt the
-        # bound in-process device for both the policy and the env override.
-        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
-        if bound_device is not None:
-            device = bound_device
+    # A non-zero Genesis request pins CUDA_VISIBLE_DEVICES here; adopt the bound
+    # in-process device for both the policy and the env override.  CUDA-only
+    # backends reject CPU/MPS learners before playback construction.
+    bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
+    if bound_device is not None:
+        device = bound_device
     play_env_cfg_override = apply_backend_env_device_override(
         build_ppo_play_env_cfg_override(cfg),
         str(cfg.training.sim_backend),
@@ -523,13 +523,16 @@ def main(cfg: DictConfig) -> None:
         device_id=env_device_id,
         source="training",
     )
-    if str(device).strip().lower().startswith("cuda"):
-        # Genesis pins CUDA_VISIBLE_DEVICES for a non-zero request (Quadrants
-        # only honors the first visible device); the bound value is the device
-        # this process must actually use afterwards.
-        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
-        if bound_device is not None:
-            device = bound_device
+    # Genesis pins CUDA_VISIBLE_DEVICES for a non-zero request (Quadrants only
+    # honors the first visible device); the bound value is the device this
+    # process must actually use afterwards.  CUDA-only backends reject CPU/MPS
+    # learners before training construction.
+    bound_device = configure_backend_process_device(
+        str(cfg.training.sim_backend),
+        device,
+    )
+    if bound_device is not None:
+        device = bound_device
     print(f"[rank {rank}/{world_size}] Using device: {device}")
     env_cfg_override = apply_backend_env_device_override(
         build_ppo_env_cfg_override(cfg),

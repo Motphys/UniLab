@@ -12,7 +12,7 @@
 
 - 默认后端是 `mujoco`
 - 切到 Motrix 用统一 CLI 的 `--sim motrix`
-- `--sim mjwarp` 当前只对应 `g1_walk_flat` host adapter；PPO (torch) 与 SAC (torch) 为 Tested，其他入口按下方矩阵查证，使用前需安装 `mjwarp` extra
+- `--sim mjwarp` 使用前需安装 `mjwarp` extra；已完成验证的组合以下方生成矩阵为准，其他入口也按矩阵查证
 - `--algo`、`--task`、`--sim` 共同选择 owner YAML
 - 不要把 `training.sim_backend` 当独立 backend switch
 
@@ -23,12 +23,13 @@
 - `motrix`: `--render-mode auto` 会打开交互式 renderer 窗口，不录制视频，不受 `play_steps` 限制；`--render-mode viser` 路由到浏览器 viser viewer（物理快照驱动按 env 的 MuJoCo playback model）
 - `mjwarp`: 默认仅支持显式、有限步数的 `record`，通过 task owner 的 MuJoCo visual model 离线录制；`--render-mode interactive` 路由到 MuJoCo 交互 viewer（mjwarp 跑物理、MuJoCo 渲染 env[0]，强制单 env）；`--render-mode viser` 路由到浏览器 viser viewer（按 env 使用 MuJoCo playback model）；不支持 `auto` 或 native renderer
 - `isaacsim`: `auto` 在有 display 时选择 Kit viewer，否则选择 headless RGB camera；当前真实主机仍有 RTX renderer 初始化 blocker，支持等级保持 `Configured`
-- `--render-mode record`: MuJoCo、mjwarp、Motrix 和 IsaacSim 都只录制视频
+- `--render-mode record`: MuJoCo、mjwarp、Motrix 都只录制视频；IsaacSim 路由到离屏 RGB 协议，真实主机 playback 支持仍保持 `Configured`
 - `--render-mode none`: 不回放
 
 ## Support Matrix
 
-下面的矩阵由 registry、owner YAML 和测试/验证清单自动汇总；不要手工编辑表格内容。需要刷新时运行：
+下面的矩阵由 registry、owner YAML backend identity、测试/验证清单和 UniSim 平台
+profile 自动汇总；不要手工编辑表格内容。需要刷新时运行：
 
 ```bash
 uv run scripts/generate_support_matrix.py --write
@@ -40,62 +41,90 @@ uv run scripts/generate_support_matrix.py --write
 | 等级 | 仓库事实来源 |
 |------|--------------|
 | `Registered` | `ensure_registries()` 导入后的 `registry.list_registered_envs()` 中存在该 env/backend。 |
-| `Configured` | 存在对应的 owner YAML：`src/unilab/conf/{ppo,appo,sac,flashsac,warpsac}/task/...`。 |
-| `Tested` | `tests/` 中有自动化覆盖该 entrypoint/task owner/backend 组合，或存在显式 maintainer 完整训练验证并具备近风险自动化测试。这里的 `Tested` 不等同于默认推荐路径。 |
+| `Configured` | owner YAML 的 `training.sim_backend` 指向该 backend。 |
+| `Tested` | 自动化覆盖或显式 maintainer 完整训练验证；不等同于默认推荐路径。 |
 | `Benchmarked` | 存在与该组合绑定的已提交 benchmark manifest。 |
 | `Recommended` | 仓库中存在显式 recommendation 元数据。 |
 
-`Tested` 只描述仓库中已有自动化覆盖或显式 maintainer 训练验证，不代表该组合具备同名 MuJoCo owner 的全部 backend capability；例如 phase-1 Motrix owner 可能只覆盖训练 smoke 和明确启用的 DR 子集。
+`Tested` 只描述仓库证据，不表示同名 MuJoCo owner 的全部 DR、渲染或 production 能力。当前没有已提交 benchmark/recommendation 元数据，因此不会自动提升到 `Benchmarked` 或 `Recommended`。
 
-`mjwarp` 完成训练验证的是 `g1_walk_flat` host adapter 的 PPO (torch)、SAC (torch) 与 WarpSAC (torch)，以及 `g1_motion_tracking` 的 WarpSAC (torch)；这些 owner 有 backend、contract 与 playback 自动化覆盖，因此标记为 `Tested`。mjwarp playback 默认仅支持显式、有限步数的 `record` 并复用 MuJoCo 离线 renderer；`uv run eval --sim mjwarp --render-mode interactive` 路由到 MuJoCo 交互 viewer（mjwarp 跑物理、MuJoCo 渲染 env[0]，强制单 env）；不支持 `auto` 或 native playback。其他 entrypoint 中出现的 `Registered` 只表示 env/backend registry identity，不代表对应算法、terrain、完整 DR 或 production training 支持。
+### Tensor Backend Platform Matrix
 
-`isaacgym` 是 Python 3.8 子进程后端，当前只接入 `g1_walk_flat`。SAC (torch) owner 已在真机（external Python 3.8 worker runtime，不在仓库 CI 覆盖）完成训练与 record playback 验证，标记为 `Tested`；其余 isaacgym cell 最高只到 `Configured`（registry + owner YAML + compose/contract 覆盖），不代表任何训练或 play 验证。playback 走 IsaacGym 原生渲染（viewer + camera sensor 离屏录制），有显示器时 `play_render_mode=auto` 打开交互 viewer，无显示器时自动降级为离屏录制。
+该表来自 UniSim SDK-free 公开静态能力清单；它表示 reviewed tensor lifecycle 边界，不表示可选 SDK 已安装，也不把所有 task owner 自动提升为可用组合。
 
-`genesis` 是进程内后端（genesis-world==1.3.3，要求 torch>=2.8 与 CUDA；一进程只允许一次 `gs.init`），当前只接入 `g1_walk_flat` 的 PPO (torch) 与 SAC (torch) owner。SAC cell 标记 `Tested`：真机完整训练验证（5000/5000 iterations，reward/mean 6.5 → 244.8，episode length → 987/1000，10.26M env steps / 224s wall time；run 2026-08-31_23-04-01_genesis）加 model_5000.pt 的 record playback 验证；PPO cell 最高只到 `Configured`（registry + owner YAML + compose/contract 覆盖），不代表训练验证。真机证据另有：env smoke 慢车道测试（`tests/envs/locomotion/g1/test_g1_owner_contract.py`：compose → env 构造 → keyframe reset → 12 步有限稳定 → cleanup，覆盖 ppo 与 sac 两棵树）在装有 CUDA 与 genesis extra 的机器上通过。adapter 的 `materialize()` 幂等且惰性触发（entity 校验在 env 的 materialize 钩子前读取状态 getter；isaacgym 后端同模式）。Genesis 在 import 时丢弃 MJCF 全局 `<option>`，owner YAML 显式重声明 `genesis_integrator=implicitfast`。原生 playback/渲染已接入：`play_render_mode=auto` 在有显示时打开 post-build 挂载的交互 viewer、无显示时降级离屏录制（`record` 写 `play_video.mp4`；`get_physics_state` 快照不声明）。未支持边界：geom 名称契约、terrain spawn 与 height scanner、contact sensor 为 per-link net-force 阈值近似（非 geom 对 `data="found"`）、`get_geom_friction` 类绝对摩擦 DR fail-closed（geom 摩擦只有 per-env ratio API）。
-
-`isaacsim` 是 IsaacSim 5.1 / IsaacLab v2.3.0 的独立 Python 3.11 子进程后端，当前只接入 `g1_walk_flat` 的 PPO/SAC owner，矩阵标记为 `Configured`。仓库没有把 bounded headless physics smoke 和 mock rendering protocol 覆盖提升为训练或 playback 的 `Tested` 证据。eval 已接入 Kit viewer 与 IsaacLab RGB camera；当前真实主机在 RTX renderer 初始化阶段崩溃，因此没有成功 playback 证据，也不会生成占位视频。contact-force sensor 和 domain randomization 仍保持 fail-closed。
-
-未检测到与这些组合绑定的已提交 benchmark manifest，因此当前不会自动提升到 `Benchmarked`。
-仓库中目前也没有单独的 recommendation 元数据，因此当前不会自动提升到 `Recommended`。
+| Backend | Execution / process / data plane | Torch devices | CUDA runtime | Linux+CUDA | macOS | ROCm | Worker | Reset randomization | Fixed variants | Host callbacks | Packed bridge |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `mujoco` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge only; no ROCm CUDA-only fallback | In-process; no external Python worker | unknown | unknown | 不支持 | 支持 |
+| `motrix` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge only; no ROCm CUDA-only fallback | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 支持 |
+| `drake` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge only; no ROCm CUDA-only fallback | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 支持 |
+| `mjwarp` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 不支持 |
+| `newton` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 不支持 |
+| `superdex` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge only; no ROCm CUDA-only fallback | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 支持 |
+| `genesis` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 不支持 |
+| `isaacgym` | Device-resident / external worker / cuda ipc | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | Dedicated external Python 3.8 worker; host Python paths are not inherited | 不支持 | 不支持 | 不支持 | 不支持 |
+| `isaacsim` | Device-resident / external worker / cuda ipc | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | Dedicated external Python 3.11 worker; host Python paths are not inherited | 不支持 | 不支持 | 不支持 | 不支持 |
 
 ### Entrypoint x Task Owner
 
-| Entrypoint | Task owner | MuJoCo | mjwarp | Motrix | IsaacGym | Genesis | IsaacSim | Newton | SuperDex |
-|------------|------------|--------|--------|--------|----------|---------|----------|--------|----------|
-| PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested | - | - | - | - | Configured |
-| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Configured | Configured | Configured | Configured | - |
-| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested | - | - | - | - | - |
-| PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested | - | - | - | - | - |
-| PPO (torch) | `x2_wall_flip_tracking` (X2 wall flip tracking) | Tested | - | Tested | - | - | - | - | - |
-| PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - | - | - | - |
-| PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | - | Tested | - | - | - | - | - |
-| PPO (torch) | `fr3_joint_target` (fr3 joint target) | - | - | - | - | - | - | - | Configured |
-| PPO (torch) | `g1_box_tracking` (g1 box tracking) | Tested | - | Tested | - | - | - | - | - |
-| PPO (torch) | `stewart_balance` (stewart balance) | Tested | - | Tested | - | - | - | - | - |
-| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Tested | - | - | - | - | Registered |
-| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | Registered | Registered | Registered | Registered | - |
-| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | - | Tested | - | - | - | - | - |
-| APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | - | Tested | - | - | - | - | - |
-| APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | - | Tested | - | - | - | - | - |
-| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | Tested | Tested | Configured | Tested | - |
-| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | Configured | Configured | Configured | Configured | - |
-| SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Registered | Registered | - | - | - | - | - |
-| SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | - | Registered | - | - | - | - | - |
-| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | - | Registered | - | - | - | - | Registered |
-| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Configured | Tested | Registered | Registered | Registered | Registered | - |
-| FlashSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Configured | Tested | Registered | Configured | Registered | Configured | - |
-| WarpSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Registered | Registered | Registered | Registered | Registered | - |
-| WarpSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | Registered | Registered | Registered | Registered | Registered | - |
+| Entrypoint | Task owner | MuJoCo | Motrix | Drake | mjwarp | Newton | SuperDex | Genesis | IsaacGym | IsaacSim |
+|------------|------------|---|---|---|---|---|---|---|---|---|
+| PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested | Tested | - | - | Configured | - | - | - |
+| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | Tested | Configured | - | Configured | Configured | Configured |
+| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | - | - | - | - | - |
+| PPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested | - | - | - | - | - | - | - |
+| PPO (torch) | `x2_wall_flip_tracking` (X2 wall flip tracking) | Tested | Tested | - | - | - | - | - | - | - |
+| PPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested | Tested | - | - | - | - | - | - |
+| PPO (torch) | `allegro_inhand_grasp` (allegro inhand grasp) | Tested | Tested | - | - | - | - | - | - | - |
+| PPO (torch) | `fr3_joint_target` (fr3 joint target) | - | - | - | - | - | Configured | - | - | - |
+| PPO (torch) | `g1_box_tracking` (g1 box tracking) | Tested | Tested | - | - | - | - | - | - | - |
+| PPO (torch) | `stewart_balance` (stewart balance) | Tested | Tested | Tested | - | - | - | - | - | - |
+| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested | Registered | - | - | Registered | - | - | - |
+| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | - | Registered | Registered | - | Registered | Registered | Registered |
+| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | - | - | - | - | - |
+| APPO (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Tested | - | - | - | - | - | - | - |
+| APPO (torch) | `allegro_inhand` (Allegro in-hand) | Tested | Tested | Tested | - | - | - | - | - | - |
+| SAC (torch) | `go2_joystick_flat` (Go2 joystick) | Registered | Registered | Tested | - | - | Registered | - | - | - |
+| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | Tested | Tested | - | Tested | Tested | Configured |
+| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | Configured | Configured | - | Configured | Configured | Configured |
+| SAC (torch) | `g1_flip_tracking` (G1 flip tracking) | Tested | Registered | - | Configured | - | - | - | - | - |
+| SAC (torch) | `g1_wbt_obs` (g1 wbt obs) | Tested | Registered | - | - | - | - | - | - | - |
+| SAC (torch) | `stewart_balance` (stewart balance) | Registered | Registered | Tested | - | - | - | - | - | - |
+| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered | Registered | - | - | Registered | - | - | - |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | Configured | Registered | - | Registered | Registered | Registered |
+| FlashSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | Configured | Configured | - | Configured | Registered | Registered |
+| WarpSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | - | Tested | Registered | - | Registered | Registered | Registered |
+| WarpSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Registered | - | Tested | Registered | - | Registered | Registered | Registered |
 
 ### Source Index
 
 - Registry bootstrap: `src/unilab/envs/**` decorators via `unilab.base.registry.ensure_registries()`.
-- Owner YAML scan: `src/unilab/conf/ppo/task/**`, `src/unilab/conf/appo/task/**`, `src/unilab/conf/sac/task/**`, `src/unilab/conf/flashsac/task/**`, `src/unilab/conf/warpsac/task/**`.
+- Owner backend identity: `training.sim_backend` in `src/unilab/conf/{ppo,appo,sac,flashsac,warpsac}/task/**`.
+- Platform/capability source: `unisim.support.get_tensor_platform_profiles()`.
+- Unsupported platform/device requests are guarded before backend construction in `src/unilab/base/backend_factory.py`.
 - Generic compose coverage: `tests/config/test_config_system.py::test_supported_task_composes`.
-- SuperDex remains `Configured`: FR3 has optional CPU rollout/spawn coverage in `tests/envs/test_fr3_superdex.py`; the Go2 research profile has policy-contract/rollout/checkpoint coverage in `tests/envs/test_go2_superdex.py`. Neither profile claims full-training performance or cross-platform support.
-- Validated mjwarp entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_MJWARP_ENTRYPOINT_TASKS`; near-risk coverage lives in `tests/base/test_mjwarp_backend.py`, `tests/base/test_backend_conformance.py`, `tests/base/test_mjwarp_differential.py`, and `tests/base/test_mjwarp_playback.py`.
-- Validated isaacgym entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_ISAACGYM_ENTRYPOINT_TASKS` (real hardware via the external Python 3.8 worker runtime; not covered by repo CI).
-- Validated genesis entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_GENESIS_ENTRYPOINT_TASKS` (real hardware, genesis-world extra + CUDA; not covered by repo CI); near-risk coverage lives in `tests/base/test_genesis_backend.py` (fake runtime), `tests/base/test_genesis_runtime.py` (real-runtime slow lane), and the genesis env smoke in `tests/envs/locomotion/g1/test_g1_owner_contract.py`.
-- IsaacSim owner scope is intentionally not promoted to `Tested`; `_MAINTAINER_VALIDATED_ISAACSIM_ENTRYPOINT_TASKS` is empty until a maintainer records full training evidence. Rendering protocol coverage lives in `tests/base/test_isaacsim_backend.py`; it is not a substitute for successful real playback.
-- `newton` is an optional owner backed by Newton 1.5.1 and the MuJoCo-Warp 3.11 / Warp 1.16 line, which it shares with the `mujoco` / `mjwarp` extras (jointly installable in one environment). Validated newton entrypoints are explicitly recorded in `_MAINTAINER_VALIDATED_NEWTON_ENTRYPOINT_TASKS` (real hardware, newton extra + CUDA; not covered by repo CI); remaining cells rely on the G1 PPO/SAC owner configs, compose/contract checks, and fail-closed runtime/import boundaries. Native ViewerGL playback (offscreen record + interactive) is included in the `newton` extra and is the default renderer; an incomplete installation falls back to the MuJoCo snapshot renderer for record and stays fail-closed for interactive playback.
 <!-- END GENERATED SUPPORT MATRIX -->
+
+## 平台故障排查
+
+CUDA-only tensor 后端在 CPU、MPS、macOS、ROCm/HIP、CUDA 不可用、CUDA 序号
+非法以及设备越界时，都会在后端构造前失败；不会回退到 NumPy 或 host bridge。
+
+请在同一个进程环境中检查 Torch runtime 与可见序号：
+
+```bash
+uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.version.hip, torch.cuda.is_available(), torch.cuda.device_count(), torch.cuda.current_device())"
+```
+
+CUDA-only 矩阵要求 `torch.version.hip` 为 `None`。若 CUDA 不可用，先检查
+NVIDIA 驱动与容器运行时不匹配，再调整任务配置。设置了
+`CUDA_VISIBLE_DEVICES` 时，后端序号指向重映射后的命名空间，而不是宿主机
+全局物理索引。
+
+IsaacGym 与 IsaacSim 分别使用专用 Python 3.8 和 Python 3.11 worker。worker
+继承 CUDA 可见性命名空间，但不继承宿主 `PYTHONPATH` 或 `PYTHONHOME`。若
+learner 当前 Torch CUDA 序号与 Isaac payload 整数序号不一致，构造前会失败；
+同物理 GPU 的 CUDA IPC 还会在 worker 握手阶段再次校验。
+
+在 macOS 与 ROCm 上请使用 CPU-authoritative host-bridge 后端。host-bridge
+后端使用 CUDA Torch buffer 不代表 CUDA physics，也不代表 device-resident
+lifecycle。

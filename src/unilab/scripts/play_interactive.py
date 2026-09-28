@@ -48,6 +48,7 @@ _PACKAGE_CONF_ROOT = Path(__file__).resolve().parents[1] / "conf"
 from unilab.base.process_device import (
     apply_backend_env_device_override,
     configure_backend_process_device,
+    resolve_backend_env_device_id,
 )
 from unilab.training import (
     algo_config_dict,
@@ -814,10 +815,14 @@ def create_playback_session(
     # No-op for backends without a device binding requirement.  A non-zero
     # Genesis request pins CUDA_VISIBLE_DEVICES; the bound in-process device
     # replaces the requested one for the policy and the env overrides below.
-    if str(device).strip().lower().startswith("cuda"):
-        bound_device = configure_backend_process_device(sim_backend, device)
-        if bound_device is not None:
-            device = bound_device
+    backend_device_id = resolve_backend_env_device_id(sim_backend, learner_device=device)
+    bound_device = configure_backend_process_device(
+        sim_backend,
+        device,
+        backend_device_id=backend_device_id,
+    )
+    if bound_device is not None:
+        device = bound_device
 
     def _create_env(num_envs: int):
         if cfg is None:

@@ -186,10 +186,12 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     # pins CUDA_VISIBLE_DEVICES for the whole rank process (Quadrants only
     # honors the first visible device), so the bound in-process device
     # replaces rank_device for the learner, the probe, and the override below.
-    if str(rank_device).strip().lower().startswith("cuda"):
-        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), rank_device)
-        if bound_device is not None:
-            rank_device = bound_device
+    bound_device = configure_backend_process_device(
+        str(cfg.training.sim_backend),
+        rank_device,
+    )
+    if bound_device is not None:
+        rank_device = bound_device
     # ``training.devices`` is host-visible for the off-policy supervisor.  The
     # collector subprocess inherits that namespace, so pass the physical index
     # through the owner EnvCfg rather than leaving Isaac/Genesis at YAML's
@@ -330,12 +332,12 @@ def play_offpolicy(
         device_id=play_device_id,
         source="playback",
     )
-    if str(device).strip().lower().startswith("cuda"):
-        # Genesis pins CUDA_VISIBLE_DEVICES for a non-zero request; adopt the
-        # bound in-process device for the policy and the env override.
-        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
-        if bound_device is not None:
-            device = bound_device
+    # Genesis pins CUDA_VISIBLE_DEVICES for a non-zero request; adopt the bound
+    # in-process device for the policy and the env override.  CUDA-only
+    # backends also reject a CPU/MPS learner here, before playback constructs.
+    bound_device = configure_backend_process_device(str(cfg.training.sim_backend), device)
+    if bound_device is not None:
+        device = bound_device
     play_env_cfg_override = apply_backend_env_device_override(
         build_offpolicy_play_env_cfg_override(algo_name, cfg),
         str(cfg.training.sim_backend),
@@ -459,10 +461,9 @@ def main(cfg: DictConfig) -> None:
     # it is also a public assembly seam used by tests and custom callers.  A
     # non-zero Genesis request pins CUDA_VISIBLE_DEVICES here; the bound
     # in-process device replaces rank_device for the tracker and runner.
-    if rank_device is not None and str(rank_device).strip().lower().startswith("cuda"):
-        bound_device = configure_backend_process_device(str(cfg.training.sim_backend), rank_device)
-        if bound_device is not None:
-            rank_device = bound_device
+    bound_device = configure_backend_process_device(str(cfg.training.sim_backend), rank_device)
+    if bound_device is not None:
+        rank_device = bound_device
 
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     algo_name = cfg.algo.algo

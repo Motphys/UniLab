@@ -3,7 +3,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from scripts.tools.support_matrix import render_generated_block, replace_generated_block
+from scripts.generate_support_matrix import render_generated_block
+from scripts.tools.support_matrix import (
+    BEGIN_MARKER,
+    END_MARKER,
+    replace_generated_block,
+)
 
 VALID_HYDRA_KEYS = {
     "task",
@@ -328,15 +333,37 @@ def check_training_entrypoint_semantics(content: str, doc_path: Path, root: Path
     return errors
 
 
+SUPPORT_MATRIX_DOC_PATHS = {
+    "en": Path("docs/sphinx/source/en/5-reference/5-support_matrix.md"),
+    "zh": Path("docs/sphinx/source/zh_CN/5-reference/5-support_matrix.md"),
+}
+
+
 def check_generated_support_matrix(content: str, doc_path: Path, root: Path) -> list[str]:
     errors: list[str] = []
-    if (
-        doc_path
-        != root / "docs" / "sphinx" / "source" / "zh_CN" / "5-reference" / "5-support_matrix.md"
-    ):
+    try:
+        relative_doc_path = doc_path.relative_to(root)
+    except ValueError:
+        relative_doc_path = None
+    if relative_doc_path not in SUPPORT_MATRIX_DOC_PATHS.values():
+        return errors
+    language = next(
+        language for language, path in SUPPORT_MATRIX_DOC_PATHS.items() if path == relative_doc_path
+    )
+
+    begin_count = content.count(BEGIN_MARKER)
+    end_count = content.count(END_MARKER)
+    if begin_count != 1:
+        errors.append(f"{doc_path}: Expected exactly one {BEGIN_MARKER}; found {begin_count}")
+    if end_count != 1:
+        errors.append(f"{doc_path}: Expected exactly one {END_MARKER}; found {end_count}")
+    if begin_count != 1 or end_count != 1:
+        return errors
+    if content.index(BEGIN_MARKER) > content.index(END_MARKER):
+        errors.append(f"{doc_path}: Generated support matrix markers are out of order")
         return errors
 
-    expected = replace_generated_block(content, render_generated_block(root))
+    expected = replace_generated_block(content, render_generated_block(root, language))
     if expected != content:
         errors.append(
             f"{doc_path}: Generated support matrix is stale; run "

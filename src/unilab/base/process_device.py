@@ -36,6 +36,11 @@ BACKEND_ENV_DEVICE_STR_FIELDS: dict[str, str] = {
     "newton": "newton_device",
 }
 
+# Isaac's simulator runs in a dedicated worker, but the host learner owns the
+# CUDA IPC arena.  Its Torch current device must therefore agree with the
+# integer payload sent to that worker before construction.
+_EXTERNAL_CUDA_IPC_BACKENDS = {"isaacgym", "isaacsim"}
+
 
 # Set once ``bind_genesis_process_device`` has pinned CUDA_VISIBLE_DEVICES for
 # this process.  Genesis/Quadrants binds its CUDA runtime to the first visible
@@ -262,7 +267,10 @@ def warn_if_backend_device_collision(
 
 def resolve_backend_process_device(backend_type: str, learner_device: str | None) -> str | None:
     backend = _normalize_backend(backend_type)
-    if backend not in {"mjwarp", "newton", "genesis"}:
+    if (
+        backend not in {"mjwarp", "newton", "genesis"}
+        and backend not in _EXTERNAL_CUDA_IPC_BACKENDS
+    ):
         return None
     if learner_device is None:
         raise ValueError(f"{backend} requires an explicit CUDA process device")
@@ -274,12 +282,69 @@ def resolve_backend_process_device(backend_type: str, learner_device: str | None
     return resolved
 
 
-def configure_backend_process_device(backend_type: str, learner_device: str | None) -> str | None:
+def _bind_external_cuda_ipc_process_device(
+    backend_type: str,
+    resolved: str,
+    *,
+    backend_device_id: int | None = None,
+) -> str:
+    import torch
+
+    learner_index = _cuda_device_index(resolved)
+    if learner_index is None:
+        raise ValueError(
+            f"{backend_type} requires a CUDA process device shared with its learner; "
+            f"got {resolved!r}"
+        )
+    if backend_device_id is not None:
+        if (
+            isinstance(backend_device_id, bool)
+            or not isinstance(backend_device_id, int)
+            or backend_device_id < 0
+        ):
+            raise ValueError(
+                f"{backend_type} backend device id must be a non-negative integer or None, "
+                f"got {backend_device_id!r}"
+            )
+        if backend_device_id != learner_index:
+            raise ValueError(
+                f"{backend_type} learner device {resolved!r} does not match its backend "
+                f"payload device id {backend_device_id}; refusing to construct cross-device "
+                "CUDA IPC"
+            )
+    if not torch.cuda.is_available():
+        raise ValueError(
+            f"{backend_type} requires CUDA device {resolved!r}, but CUDA is unavailable "
+            "in this process"
+        )
+    visible_count = int(torch.cuda.device_count())
+    if learner_index >= visible_count:
+        raise ValueError(
+            f"{backend_type} device index {learner_index} is out of range; "
+            f"torch.cuda.device_count()={visible_count}"
+        )
+    torch.cuda.set_device(learner_index)
+    return f"cuda:{learner_index}"
+
+
+def configure_backend_process_device(
+    backend_type: str,
+    learner_device: str | None,
+    *,
+    backend_device_id: int | None = None,
+) -> str | None:
     resolved = resolve_backend_process_device(backend_type, learner_device)
     if resolved is None:
         return None
-    if _normalize_backend(backend_type) == "genesis":
+    backend = _normalize_backend(backend_type)
+    if backend == "genesis":
         return bind_genesis_process_device(resolved)
+    if backend in _EXTERNAL_CUDA_IPC_BACKENDS:
+        return _bind_external_cuda_ipc_process_device(
+            backend,
+            resolved,
+            backend_device_id=backend_device_id,
+        )
     return bind_backend_process_device_for_backend(backend_type, resolved)
 
 
