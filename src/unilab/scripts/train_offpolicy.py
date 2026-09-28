@@ -287,6 +287,15 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             )
 
             runner = build_warpsac_double_buffer_runner(cfg, **builder_kwargs)
+            # uni-rl 1.4.3 hard-codes WarpSAC to actor-before-critic updates.
+            # Keep that upstream default here, but expose an owner-level A/B
+            # switch until the algorithm contract adds a first-class parameter.
+            policy_before_critic = OmegaConf.select(
+                cfg,
+                "algo.algo_params.policy_before_critic",
+                default=True,
+            )
+            runner.policy_before_critic = bool(policy_before_critic)
         else:
             raise ValueError(f"Unsupported algo: {algo_name}")
 

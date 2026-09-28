@@ -12,9 +12,9 @@ training:
   play_render_mode: record
 
 algo:
-  num_envs: 4096
-  batch_size: 8192
-  learning_starts: 1
+  num_envs: 2048
+  batch_size: 2048
+  learning_starts: 98
   max_iterations: 140000
   save_interval: 1000
 

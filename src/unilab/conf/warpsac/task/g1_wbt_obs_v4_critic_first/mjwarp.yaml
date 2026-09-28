@@ -1,0 +1,53 @@
+# @package _global_
+# Deployment-aligned WarpSAC owner with critic-first updates.
+#
+# This owner keeps the 514-d actor contract and the v2 staged-DR design, but:
+#   * lets the critic consume each batch before that batch's actor update;
+#   * omits simulated action latency, matching the current deploy chain;
+#   * uses a warmer early temperature to delay survival-policy collapse;
+#   * eases motion penalties for the first 20k no-DR iterations.
+defaults:
+  - /task/g1_wbt_obs_v2/mjwarp
+  - _self_
+
+env:
+  actions:
+    joint_pos:
+      simulate_action_latency: false
+  curriculum:
+    # Motion penalties ramp back to the v2 targets as staged DR begins.  The
+    # lighter early values avoid rewarding a near-motionless survival policy
+    # more strongly than the nascent tracking behavior.
+    action_rate_ease:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: action_rate_l2
+        stages:
+          - {step: 0, weight: -0.02}
+          - {step: 10000, weight: -0.05}
+          - {step: 20000, weight: -0.1}
+    joint_acc_ease:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: joint_acc_l2
+        stages:
+          - {step: 0, weight: -5.0e-8}
+          - {step: 10000, weight: -1.0e-7}
+          - {step: 20000, weight: -2.5e-7}
+    joint_torque_ease:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: joint_torque_l2
+        stages:
+          - {step: 0, weight: -2.0e-6}
+          - {step: 10000, weight: -5.0e-6}
+          - {step: 20000, weight: -1.0e-5}
+
+algo:
+  algo_params:
+    temp_initial_value: 0.1
+    temp_target_sigma: 0.4
+    # uni-rl's WarpSAC builder defaults to actor-before-critic.  The training
+    # adapter reads this owner switch and updates the runner before learning;
+    # false means each actor update uses the critic refreshed on the same batch.
+    policy_before_critic: false
