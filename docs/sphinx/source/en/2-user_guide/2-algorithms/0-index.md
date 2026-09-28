@@ -18,4 +18,5 @@ lives, and which command shape selects it. For general flags, see
 2-appo
 3-sac
 4-flash_sac
+5-multi-node-training
 ```
