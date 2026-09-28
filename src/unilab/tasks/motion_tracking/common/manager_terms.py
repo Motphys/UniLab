@@ -1088,6 +1088,60 @@ def motion_clip_end(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray:
     return command.time_steps >= command.sampler.current_clip_end_frames
 
 
+def deployment_dr_stage(
+    env: ManagerBasedRlEnv,
+    env_ids: np.ndarray | slice,
+    stages: list[dict[str, Any]],
+) -> dict[str, float]:
+    """Log the active deployment-DR curriculum stage and effective bounds.
+
+    ``event_curriculum`` owns event-parameter mutation. This term only exposes
+    scalar TensorBoard fields so a run can be audited without decoding the
+    current non-scalar event ranges.
+    """
+
+    del env_ids
+    if not stages:
+        raise ValueError("deployment_dr_stage requires at least one stage")
+
+    selected = stages[0]
+    previous_step: int | None = None
+    for stage in stages:
+        if "step" not in stage or "stage" not in stage:
+            raise ValueError("each deployment_dr_stage entry needs 'step' and 'stage'")
+        step = int(stage["step"])
+        if previous_step is not None and step < previous_step:
+            raise ValueError("deployment_dr_stage entries must be in nondecreasing step order")
+        previous_step = step
+        if env.common_step_counter >= step:
+            selected = stage
+
+    stage_id = int(selected["stage"])
+    events = env.event_manager
+    mass_range = events.get_term_cfg("base_mass").params["mass_distribution_params"]
+    com_range = events.get_term_cfg("base_com").params["com_range"]["x"]
+    pd_params = events.get_term_cfg("pd_gains").params
+    friction_range = events.get_term_cfg("foot_friction").params["ranges"]
+    encoder_range = events.get_term_cfg("encoder_bias").params["bias_range"]
+    push_range = events.get_term_cfg("push_robot").params["velocity_range"]
+    return {
+        "stage": float(stage_id),
+        "is_no_dr": stage_id == 0,
+        "is_light_dr": stage_id == 1,
+        "is_half_dr": stage_id == 2,
+        "is_final_dr": stage_id == 3,
+        "mass_abs": abs(float(mass_range[1])),
+        "com_abs": abs(float(com_range[1])),
+        "kp_delta": (float(pd_params["kp_range"][1]) - float(pd_params["kp_range"][0])) / 2.0,
+        "kd_delta": (float(pd_params["kd_range"][1]) - float(pd_params["kd_range"][0])) / 2.0,
+        "friction_lower": float(friction_range[0]),
+        "friction_upper": float(friction_range[1]),
+        "encoder_bias_abs": abs(float(encoder_range[1])),
+        "push_xy_abs": abs(float(push_range["x"][1])),
+        "push_z_abs": abs(float(push_range["z"][1])),
+    }
+
+
 __all__ = [
     "MotionCommand",
     "MotionCommandCfg",
@@ -1098,6 +1152,7 @@ __all__ = [
     "bad_anchor_pos_z_only",
     "bad_motion_body_pos_z_only",
     "bad_undesired_body_contacts",
+    "deployment_dr_stage",
     "joint_pos_limits",
     "motion_anchor_ori_b",
     "motion_anchor_pos_b",
