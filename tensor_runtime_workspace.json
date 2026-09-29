@@ -7,7 +7,7 @@
       "name": "unisim-core",
       "repository": "https://github.com/unilabsim/unisim.git",
       "ref": "develop/tensor-runtime",
-      "commit": "c63f556246ddab8255b2c76de3d6e1389f7947d1",
+      "commit": "fbdc61c7463ec5647885a82e677b8010aaca4f99",
       "path": "../unisim",
       "sentinel_env": "UNILAB_LOCAL_UNISIM"
     },
@@ -15,7 +15,7 @@
       "name": "unilab-rl",
       "repository": "https://github.com/unilabsim/unilab_rl.git",
       "ref": "develop/tensor-runtime",
-      "commit": "cb0316d01d8d0192c87b39067f794f0958f66456",
+      "commit": "74f64030a131a77a07b864e0020cbb0812965949",
       "path": "../unilab_rl"
     },
     {
