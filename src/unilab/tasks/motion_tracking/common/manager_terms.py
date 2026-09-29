@@ -13,10 +13,13 @@ from unilab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg
 from unilab.managers import CommandTerm, CommandTermCfg, ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
 from unilab.utils.rotation import (
+    np_matrix_first_two_cols_from_quat,
     np_quat_apply_inverse,
+    np_quat_conjugate_batched,
     np_quat_error_magnitude_squared_batched,
     np_quat_from_euler_xyz,
     np_quat_mul,
+    np_quat_mul_batched,
 )
 
 from .kernels import (
@@ -661,6 +664,37 @@ def motion_anchor_ori_b(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray
     return _command(env, command_name).motion_anchor_ori_b
 
 
+def motion_command_multi_future(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    future_steps: list[int] | tuple[int, ...],
+) -> np.ndarray:
+    """Future motion-reference frames, flattened as (num_envs, F * (2J + 6)).
+
+    Each frame contributes the raw reference joint positions, joint velocities,
+    and the anchor orientation relative to the robot's *current* anchor
+    orientation (first two rotation-matrix columns, matching
+    ``motion_anchor_ori_b``). Future frames are clamped at each env's current
+    clip end so the observation never crosses into another clip.
+    """
+    command = _command(env, command_name)
+    steps = np.asarray(list(future_steps), dtype=np.int32)
+    if steps.ndim != 1 or steps.size == 0 or np.any(steps < 0):
+        raise ValueError("motion_command_multi_future future_steps must be non-negative ints")
+    frames = command.time_steps[:, None] + steps[None, :]
+    np.minimum(frames, command.sampler.current_clip_end_frames[:, None], out=frames)
+    joint_pos = command.motion.joint_pos[frames]
+    joint_vel = command.motion.joint_vel[frames]
+    anchor_quat = command.motion.body_quat_w[frames][:, :, command.anchor_body_idx]
+    rel_quat = np_quat_mul_batched(
+        np_quat_conjugate_batched(command.robot_anchor_quat_w)[:, None, :],
+        anchor_quat,
+    )
+    anchor_ori_6d = np_matrix_first_two_cols_from_quat(rel_quat)
+    obs = np.concatenate((joint_pos, joint_vel, anchor_ori_6d), axis=-1)
+    return obs.reshape(env.num_envs, -1)
+
+
 def robot_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray:
     command = _command(env, command_name)
     return command.robot_body_pos_b.reshape(env.num_envs, -1)
@@ -963,106 +997,6 @@ def motion_joint_velocity_error_exp(
     return np.exp(error, out=error)
 
 
-def _normalized_squared_error(
-    reference: np.ndarray,
-    actual: np.ndarray,
-    scale: float,
-    *,
-    term_name: str,
-) -> np.ndarray:
-    """Return a dense negative mean-squared tracking error.
-
-    The exponential tracking terms are useful near the target but their
-    gradient vanishes when the initial motion error is large.  These terms
-    deliberately keep a non-zero, linear-in-error gradient for the warm-up
-    stage.  ``reference`` and ``actual`` are never modified in place.
-    """
-    error = np.subtract(reference, actual)
-    np.square(error, out=error)
-    if error.ndim > 1:
-        error = error.mean(axis=tuple(range(1, error.ndim)))
-    scale_value = _positive_std(scale, term_name=term_name)
-    return -error / (scale_value**2)
-
-
-def motion_global_body_linear_velocity_error_l2(
-    env: ManagerBasedRlEnv, command_name: str, scale: float
-) -> np.ndarray:
-    """Dense normalized body linear-velocity tracking penalty."""
-    command = _command(env, command_name)
-    return _normalized_squared_error(
-        command.body_lin_vel_w,
-        command.robot_body_lin_vel_w,
-        scale,
-        term_name="motion body linear velocity",
-    )
-
-
-def motion_global_body_angular_velocity_error_l2(
-    env: ManagerBasedRlEnv, command_name: str, scale: float
-) -> np.ndarray:
-    """Dense normalized body angular-velocity tracking penalty."""
-    command = _command(env, command_name)
-    return _normalized_squared_error(
-        command.body_ang_vel_w,
-        command.robot_body_ang_vel_w,
-        scale,
-        term_name="motion body angular velocity",
-    )
-
-
-def motion_joint_velocity_error_l2(
-    env: ManagerBasedRlEnv, command_name: str, scale: float
-) -> np.ndarray:
-    """Dense normalized joint-velocity tracking penalty."""
-    command = _command(env, command_name)
-    return _normalized_squared_error(
-        command.joint_vel,
-        command.robot_joint_vel,
-        scale,
-        term_name="motion joint velocity",
-    )
-
-
-def motion_joint_action_prior_l2(
-    env: ManagerBasedRlEnv,
-    command_name: str,
-    action_name: str,
-    scale: float,
-) -> np.ndarray:
-    """Dense prior matching raw actions to the reference joint target.
-
-    ``MotionJointPositionAction`` applies ``raw * scale + default + bias``.
-    Matching the reference target gives the actor a non-vanishing action signal
-    while keeping the actor observation unchanged: the reference joint target
-    is already present in the 58-D motion command.  Encoder bias is deliberately
-    omitted from the prior so the actor is not trained on a deployment-hidden
-    reset randomization.
-    """
-    command = _command(env, command_name)
-    action_term = env.action_manager.get_term(action_name)
-    if not isinstance(action_term, JointPositionAction):
-        raise TypeError(
-            f"motion_joint_action_prior_l2 requires JointPositionAction, "
-            f"got {type(action_term).__name__}"
-        )
-    raw_action = action_term.raw_action
-    action_scale = np.asarray(action_term.scale)
-    action_offset = np.asarray(action_term.offset)
-    if action_scale.ndim == 0:
-        action_scale = np.full_like(raw_action, action_scale)
-    if action_offset.ndim == 0:
-        action_offset = np.full_like(raw_action, action_offset)
-    target_raw = command.joint_pos - action_offset - command.joint_default_bias
-    np.divide(target_raw, action_scale, out=target_raw)
-    return _normalized_squared_error(
-        target_raw,
-        raw_action,
-        scale,
-        term_name="motion joint action prior",
-    )
-
-
 def joint_pos_limits(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -1260,15 +1194,11 @@ __all__ = [
     "motion_global_anchor_orientation_error_exp",
     "motion_global_anchor_position_error_exp",
     "motion_global_body_angular_velocity_error_exp",
-    "motion_global_body_angular_velocity_error_l2",
     "motion_global_body_linear_velocity_error_exp",
-    "motion_global_body_linear_velocity_error_l2",
     "motion_joint_pos_rel",
     "motion_joint_pos_rel_biased",
     "motion_joint_position_error_exp",
-    "motion_joint_action_prior_l2",
     "motion_joint_velocity_error_exp",
-    "motion_joint_velocity_error_l2",
     "motion_relative_body_orientation_error_exp",
     "motion_relative_body_position_error_exp",
     "motion_relative_body_position_z_error_exp",

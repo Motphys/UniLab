@@ -404,6 +404,7 @@ def test_joint_acc_reset_updates_selected_rows_without_pairwise_indexing() -> No
         ("ppo", "x2_wall_flip_tracking", "X2WallFlipTracking", "mujoco", 154, 430, 29),
         ("ppo", "x2_wall_flip_tracking", "X2WallFlipTracking", "motrix", 154, 430, 29),
         ("sac", "g1_wbt_obs", "G1WBTObs", "mujoco", 514, 289, 29),
+        ("warpsac", "sonicmimic", "G1SonicMimic", "mujoco", 1570, 871, 29),
     ),
 )
 def test_representative_motion_profiles_reset_and_step(

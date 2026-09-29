@@ -521,6 +521,20 @@ def main(cfg: DictConfig) -> None:
                 runner = None
                 try:
                     runner = build_runner(algo_name, cfg, log_dir=log_dir)
+                    resume_checkpoint = OmegaConf.select(
+                        cfg, "algo.resume_checkpoint", default=None
+                    )
+                    if resume_checkpoint:
+                        state = torch.load(
+                            str(resume_checkpoint),
+                            map_location=default_device(torch, rank_device),
+                            weights_only=False,
+                        )
+                        runner.learner.load_state_dict(state)
+                        print(
+                            f"Resumed learner state from {resume_checkpoint} "
+                            f"(update_count={state.get('update_count', 0)})"
+                        )
                     runner.learn(
                         max_iterations=cfg.algo.max_iterations,
                         save_interval=cfg.algo.save_interval,

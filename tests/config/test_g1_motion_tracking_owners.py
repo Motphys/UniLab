@@ -143,6 +143,39 @@ def test_sac_g1_flip_tracking_stays_dr_free() -> None:
     assert all(term is None for term in cfg.env.events.values())
 
 
+def test_warpsac_sonicmimic_owner_aligns_deployable_actor() -> None:
+    cfg = _compose_warpsac("sonicmimic/mjwarp")
+
+    assert cfg.training.task_name == "G1SonicMimic"
+    assert cfg.training.sim_backend == "mjwarp"
+    assert not hasattr(cfg.env, "events")
+    assert cfg.env.commands.motion.params.sampling_mode == "uniform"
+
+    actor = cfg.env.observations.actor
+    assert actor.enable_corruption is False
+    for dropped in ("command", "motion_anchor_pos_b", "motion_anchor_ori_b", "base_lin_vel"):
+        assert actor.terms[dropped] is None
+    multi_future = actor.terms.command_multi_future
+    assert (
+        multi_future.func
+        == "unilab.tasks.motion_tracking.common.manager_terms.motion_command_multi_future"
+    )
+    assert list(multi_future.params.future_steps) == [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+    assert actor.terms.projected_gravity.func == "unilab.envs.mdp.projected_gravity"
+    assert actor.terms.base_ang_vel.params.sensor_name == "pelvis_gyro"
+    for name in ("projected_gravity", "base_ang_vel", "joint_pos", "joint_vel", "actions"):
+        assert actor.terms[name].history_length == 10
+
+    critic_terms = cfg.env.observations.critic.terms
+    assert critic_terms.command is None
+    assert critic_terms.command_multi_future is not None
+    for privileged in ("motion_anchor_pos_b", "base_lin_vel", "body_pos", "body_ori"):
+        assert critic_terms[privileged] is not None
+
+    assert cfg.algo.actor_hidden_dim == 512
+    assert cfg.algo.critic_hidden_dim == 1024
+
+
 def test_warpsac_g1_motion_tracking_owners_share_policy_contract() -> None:
     mujoco_cfg = _compose_warpsac("g1_motion_tracking/mujoco")
     mjwarp_cfg = _compose_warpsac("g1_motion_tracking/mjwarp")

@@ -1,0 +1,87 @@
+# @package _global_
+# SONIC-aligned observation-contract owner for G1 whole-body tracking.
+# The actor only consumes quantities directly measurable on the real robot
+# (IMU gyro/gravity, encoder joint state, last action) plus a replayable
+# multi-frame future motion reference; every privileged quantity (base linear
+# velocity, world-frame anchor position, body poses) stays critic-only.
+# No DR and no observation noise. Defaults are the validated main_s015
+# recipe (6-run sweep: sigma=0.3 collapses on this observation contract;
+# 25000 iterations from scratch, or resume via algo.resume_checkpoint).
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  # First-class task identity, parallel to G1MotionTrackingSAC.
+  task_name: G1SonicMimic
+  sim_backend: mjwarp
+  play_render_mode: record
+
+algo:
+  # Wider networks for the ~1570-dim actor / ~872-dim critic inputs.
+  actor_hidden_dim: 512
+  critic_hidden_dim: 1024
+  # Halve the replay rows so the ~19.7 KB/row buffer (~10.3 GB) fits a 32 GB
+  # learner GPU alongside the mjwarp backend.
+  replay_buffer_n: 256
+  max_iterations: 25000
+  save_interval: 2500
+  algo_params:
+    # sigma=0.3 collapses on this observation contract (seed2_s03 control);
+    # 0.15 is the validated value across 4 seeds and 2 backends.
+    temp_target_sigma: 0.15
+
+env:
+  commands:
+    motion:
+      # This is the successful retraining recipe; adaptive remains available
+      # as an explicit CLI comparison override.
+      params:
+        sampling_mode: uniform
+  observations:
+    actor:
+      # v1: observation noise disabled; noise cfgs return with the DR version.
+      enable_corruption: false
+      terms:
+        # Replaced by the multi-frame future reference below.
+        command: null
+        # Privileged in SONIC: critic-only from here on.
+        motion_anchor_pos_b: null
+        # Covered by frame 0 of command_multi_future.
+        motion_anchor_ori_b: null
+        # Not measurable on the real robot without a state estimator.
+        base_lin_vel: null
+        command_multi_future:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_command_multi_future
+          params:
+            command_name: motion
+            # 10 frames at 0.1 s spacing (motion is 50 fps), ~0.9 s lookahead.
+            future_steps: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity
+          history_length: 10
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: pelvis_gyro}
+          history_length: 10
+        joint_pos:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel
+          params: {command_name: motion}
+          history_length: 10
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+          history_length: 10
+        actions:
+          func: unilab.envs.mdp.last_action
+          history_length: 10
+    critic:
+      terms:
+        # Single-frame reference is superseded by the multi-frame term.
+        command: null
+        command_multi_future:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_command_multi_future
+          params:
+            command_name: motion
+            future_steps: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+        # The critic keeps the clean privileged actor-group quantities and the
+        # world-frame body pose terms inherited from the canonical base owner.

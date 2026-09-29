@@ -1,0 +1,11 @@
+# @package _global_
+# MuJoCo variant of the SONIC-aligned observation owner, kept for backend
+# parity checks and CPU-side validation. The observation/algo contract is
+# identical to the mjwarp owner; only the backend switches.
+defaults:
+  - /task/sonicmimic/mjwarp
+  - _self_
+
+training:
+  sim_backend: mujoco
+  play_render_mode: auto

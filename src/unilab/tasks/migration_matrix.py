@@ -53,6 +53,7 @@ _MOTION_TASKS = frozenset(
         "G1BoxTracking",
         "G1FlipTracking",
         "G1FlipTrackingSAC",
+        "G1SonicMimic",
         "G1WBTObs",
         "X2WallFlipTracking",
     }

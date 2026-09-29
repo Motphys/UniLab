@@ -1,11 +1,14 @@
 defaults:
   - _self_
-  - task: g1_walk_flat/mujoco
+  - task: sonicmimic/mjwarp
 
 algo:
   algo: warpsac
   algo_log_name: warp_sac
   load_run: "-1"
+  # Optional learner warm-start: path to a model_*.pt whose full learner state
+  # (weights, optimizers, schedulers, update_count) is restored before learn().
+  resume_checkpoint: null
   seed: 1
   num_envs: 1024
   batch_size: 2048
