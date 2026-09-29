@@ -604,13 +604,14 @@ class ObservationManager(ManagerBase):
             result = group_obs
 
         if fused_noise_spec is not None:
-            mean_vec, std_vec, clamp_vec = fused_noise_spec
-            if mean_vec.any() or std_vec.any():
-                draw = self._env.rng.standard_normal(result.shape, dtype=np.float32)
-                np.clip(draw, -clamp_vec, clamp_vec, out=draw)
-                np.multiply(std_vec, draw, out=draw)
-                np.add(result, draw, out=result)
-                np.add(result, mean_vec, out=result)
+            for span, mean_vec, std_vec, clamp_value in fused_noise_spec:
+                target = result[..., span]
+                draw = self._env.rng.standard_normal(target.shape, dtype=np.float32)
+                if np.isfinite(clamp_value):
+                    np.clip(draw, -clamp_value, clamp_value, out=draw)
+                draw *= std_vec
+                target += draw
+                target += mean_vec
 
         if env_ids is not None and not row_scoped:
             # Groups with delay/history terms ran the full-batch pipeline above
@@ -636,9 +637,12 @@ class ObservationManager(ManagerBase):
         # Whether any term in the group uses delay/history buffers. Groups
         # without temporal terms can be row-scoped on the reset path.
         self._group_obs_temporal: dict[str, bool] = dict()
-        # Fused post-concat noise spec per group: (mean, std, clamp) vectors in
-        # output units, or None when the group uses the per-term noise path.
-        self._group_fused_noise: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray] | None] = {}
+        # Fused post-concat noise spans per group: (slice, mean, std, clamp)
+        # entries over the concatenated output, or None when the group uses
+        # the per-term noise path.
+        self._group_fused_noise: dict[
+            str, list[tuple[slice, np.ndarray, np.ndarray, np.ndarray]] | None
+        ] = {}
 
         for group_name, group_cfg in self.cfg.items():
             if group_cfg is None:
@@ -798,13 +802,16 @@ class ObservationManager(ManagerBase):
 
     def _build_fused_noise(
         self, group_name: str, group_cfg: ObservationGroupCfg
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-        """Precompute per-dimension (mean, std, clamp) vectors for fused noise.
+    ) -> list[tuple[slice, np.ndarray, np.ndarray, np.ndarray]] | None:
+        """Precompute contiguous noised spans for the fused post-concat draw.
 
         Returns None when the group keeps the per-term noise path. Per-term
         Gaussian ``add`` noise with parameters broadcast to the term dims is
-        remapped into output units via the term scale, then concatenated along
-        the group concatenate dim. Validity constraints are documented on
+        remapped into output units via the term scale; terms without noise
+        (std=0) contribute no span, so the per-step draw covers exactly the
+        noised columns — drawing the full concatenated vector would waste RNG
+        throughput on std=0 spans, which dominates the cost (standard_normal
+        is ~7 ns per value). Validity constraints are documented on
         ``ObservationGroupCfg.fused_noise``.
         """
         if not group_cfg.fused_noise:
@@ -820,45 +827,36 @@ class ObservationManager(ManagerBase):
                 "delay/history terms; buffered observations require per-term noise."
             )
         concat_dim = self._group_obs_concatenate_dim[group_name]
-        means: list[np.ndarray] = []
-        stds: list[np.ndarray] = []
-        clamps: list[np.ndarray] = []
+        segments: list[tuple[slice, np.ndarray, np.ndarray, np.ndarray]] = []
+        offset = 0
         for term_name, term_cfg, dims in zip(
             self._group_obs_term_names[group_name],
             self._group_obs_term_cfgs[group_name],
             self._group_obs_term_dim[group_name],
             strict=True,
         ):
+            width = dims[concat_dim - 1 if concat_dim > 0 else concat_dim]
+            span = slice(offset, offset + width)
+            offset += width
             noise = term_cfg.noise
             if noise is None:
-                mean = np.zeros(dims, dtype=np.float32)
-                std = np.zeros(dims, dtype=np.float32)
-                clamp = np.full(dims, np.inf, dtype=np.float32)
-            elif isinstance(noise, noise_cfg.GaussianNoiseCfg) and noise.operation == "add":
-                mean = np.broadcast_to(np.asarray(noise.mean, dtype=np.float32), dims).copy()
-                std = np.broadcast_to(np.asarray(noise.std, dtype=np.float32), dims).copy()
-                clamp_value = noise.clamp if noise.clamp is not None else np.inf
-                clamp = np.full(dims, clamp_value, dtype=np.float32)
-            else:
+                continue
+            if not (isinstance(noise, noise_cfg.GaussianNoiseCfg) and noise.operation == "add"):
                 raise ValueError(
                     f"ObservationManager term '{group_name}/{term_name}' has noise "
                     f"{type(noise).__name__}; fused_noise requires GaussianNoiseCfg "
                     "with operation='add' (or no noise) on every term."
                 )
+            mean = np.broadcast_to(np.asarray(noise.mean, dtype=np.float32), dims).copy()
+            std = np.broadcast_to(np.asarray(noise.std, dtype=np.float32), dims).copy()
             if term_cfg.scale is not None:
                 # Per-term pipeline is noise -> clip -> scale, so in output
                 # units both mean and std pick up the multiplicative scale.
                 scale = np.broadcast_to(term_cfg.scale, dims)
                 mean = mean * scale
                 std = std * np.abs(scale)
-            means.append(mean)
-            stds.append(std)
-            clamps.append(clamp)
-        # Term dims exclude the batch axis, so the group concatenate dim maps
-        # to dims axis (concat_dim - 1) for positive dims; -1 stays -1.
-        cat_axis = concat_dim - 1 if concat_dim > 0 else concat_dim
-        return (
-            np.concatenate(means, axis=cat_axis),
-            np.concatenate(stds, axis=cat_axis),
-            np.concatenate(clamps, axis=cat_axis),
-        )
+            if not (mean.any() or std.any()):
+                continue
+            clamp_value = np.float32(noise.clamp) if noise.clamp is not None else np.inf
+            segments.append((span, mean, std, clamp_value))
+        return segments
