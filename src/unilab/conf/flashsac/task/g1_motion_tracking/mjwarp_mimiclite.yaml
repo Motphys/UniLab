@@ -43,7 +43,11 @@ env:
           - right_shoulder_yaw_link
   observations:
     actor:
-      fused_noise: true
+      # Measured on pc823 (2048 envs): fused post-concat noise is RNG-bound
+      # (~7 ns/value either way) and slightly slower than the per-term path,
+      # so it stays off here; ObservationGroupCfg.fused_noise remains as an
+      # opt-in for groups where per-term call overhead dominates.
+      fused_noise: false
       terms:
         # Base observation set (disabled; null terms are skipped).
         command: null
@@ -112,7 +116,7 @@ env:
       # Corruption mirrors mimic-lite, where the critic consumes the same
       # noised policy observations; the privileged terms carry no noise.
       enable_corruption: true
-      fused_noise: true
+      fused_noise: false
       terms:
         # Base observation set (disabled; null terms are skipped).
         command: null
