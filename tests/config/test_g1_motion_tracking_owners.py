@@ -176,25 +176,29 @@ def test_warpsac_sonicmimic_owner_aligns_deployable_actor() -> None:
     assert cfg.algo.critic_hidden_dim == 1024
 
 
-def test_warpsac_sonicmimic_dr_is_isolated_and_thirty_percent() -> None:
+def test_warpsac_sonicmimic_dr_uses_full_ranges_without_curriculum() -> None:
     cfg = _compose_warpsac("sonicmimic/mjwarp_dr")
 
     assert cfg.training.task_name == "G1SonicMimicDR"
     assert cfg.training.sim_backend == "mjwarp"
     assert cfg.algo.max_iterations == 50000
     assert cfg.env.observations.actor.enable_corruption is True
-    assert cfg.env.events.base_mass.params.mass_distribution_params == [-0.3, 0.3]
-    assert cfg.env.events.base_com.params.com_range.x == [-0.015, 0.015]
-    assert cfg.env.events.pd_gains.params.kp_range == [0.97, 1.03]
-    assert cfg.env.events.pd_gains.params.kd_range == [0.955, 1.045]
-    assert cfg.env.events.foot_friction.params.ranges == [0.51, 0.78]
-    assert cfg.env.events.encoder_bias.params.bias_range == [-0.003, 0.003]
-    assert cfg.env.events.push_robot.params.velocity_range.x == [-0.054, 0.054]
-    assert cfg.env.curriculum.base_mass_dr.params.stages[-1].params.mass_distribution_params == [
-        -0.3,
-        0.3,
-    ]
-
+    # DR belongs on the transition/actor path; privileged critic inputs stay
+    # clean so its target does not mix observation-corruption variance.
+    for name in ("base_lin_vel", "base_ang_vel", "joint_pos", "joint_vel"):
+        assert cfg.env.observations.critic.terms[name].noise is None
+    assert cfg.env.observations.actor.terms.base_ang_vel.noise.n_max == 0.2
+    assert cfg.env.observations.actor.terms.joint_pos.noise.n_max == 0.01
+    assert cfg.env.observations.actor.terms.joint_vel.noise.n_max == 0.5
+    assert cfg.env.actions.joint_pos.simulate_action_latency is True
+    assert cfg.env.events.base_mass.params.mass_distribution_params == [-1.0, 1.0]
+    assert cfg.env.events.base_com.params.com_range.x == [-0.05, 0.05]
+    assert cfg.env.events.pd_gains.params.kp_range == [0.9, 1.1]
+    assert cfg.env.events.pd_gains.params.kd_range == [0.85, 1.15]
+    assert cfg.env.events.foot_friction.params.ranges == [0.3, 1.2]
+    assert cfg.env.events.encoder_bias.params.bias_range == [-0.01, 0.01]
+    assert cfg.env.events.push_robot.params.velocity_range.x == [-0.18, 0.18]
+    assert not hasattr(cfg.env, "curriculum")
 
 def test_warpsac_g1_motion_tracking_owners_share_policy_contract() -> None:
     mujoco_cfg = _compose_warpsac("g1_motion_tracking/mujoco")
