@@ -22,7 +22,7 @@ from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.base import ABEnv, EnvPlayCapabilities
 from unilab.base.cpu_runtime import apply_env_cpu_runtime
 from unilab.base.entity import EntityCfg
-from unilab.base.torch_env import TorchEnvState
+from unilab.base.torch_env import TorchEnv, TorchEnvState
 from unilab.envs.manager_based_rl_env import (
     ManagerBasedRlEnv,
     ManagerBasedRlEnvCfg,
@@ -91,9 +91,14 @@ def _torch_g1_flashsac_owner_identity(cfg: ManagerBasedRlEnvCfg) -> str:
 _TORCH_G1_FLASHSAC_OWNER_IDENTITY_V1 = (
     "21f829c6ccda078a15b306ac5afd294ede8b69ce22cd3eda2ea4c79c6e4fd681"
 )
-_TORCH_G1_SAC_OWNER_IDENTITY_V1 = "a4758cad941b5d85209e98520a08ea5ac2433fe0766c7a7b49b6451c33dd7f7f"
+# V2 only adds the explicit tensor-read entity binding required to compile
+# named sensors into one packed public read; no semantic term/equation changes.
+_TORCH_G1_FLASHSAC_OWNER_IDENTITY_V2 = (
+    "6838841dfebc4d64ddaec3a2fcf123b29f28f858b397495a5bf2680f00af1b60"
+)
+_TORCH_G1_SAC_OWNER_IDENTITY_V1 = "90236c9e02e460817208b6a8e14f614ae4d2a797f16d1a5bfd0d306f4059d385"
 _TORCH_G1_FLIP_SAC_OWNER_IDENTITY_V1 = (
-    "7e729441242f7675b93ab36c4ca0b41762a202ea6e188f04d5dc2d9a9384816c"
+    "764e0d5061654c52b3658bb8b074684773f531167a958c8c7c57f467c5b5e784"
 )
 
 
@@ -101,6 +106,7 @@ def _validate_torch_g1_flashsac_owner_contract(cfg: ManagerBasedRlEnvCfg) -> Non
     identity = _torch_g1_flashsac_owner_identity(cfg)
     if identity not in {
         _TORCH_G1_FLASHSAC_OWNER_IDENTITY_V1,
+        _TORCH_G1_FLASHSAC_OWNER_IDENTITY_V2,
         _TORCH_G1_SAC_OWNER_IDENTITY_V1,
         _TORCH_G1_FLIP_SAC_OWNER_IDENTITY_V1,
     }:
@@ -220,7 +226,7 @@ def _euler_xyz_quat(roll: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) 
     )
 
 
-class TorchG1MotionTrackingFlashSACEnv(ABEnv):
+class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
     """GPU runtime for the exact canonical G1 FlashSAC owner contract."""
 
     is_vector_env = True
@@ -236,6 +242,17 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
     _episode_metrics: TensorEpisodeMetrics
     _state_store: TensorDeviceStateStore
 
+    @property
+    def _manager_cfg(self) -> ManagerBasedRlEnvCfg:
+        if not isinstance(self._cfg, ManagerBasedRlEnvCfg):
+            raise TypeError(type(self._cfg).__name__)
+        return self._cfg
+
+    def _require_cpu_env(self) -> ManagerBasedRlEnv:
+        if self._cpu_env is None:
+            raise RuntimeError("cold Manager-Based proxy is not available")
+        return self._cpu_env
+
     def __init__(
         self,
         cfg: ManagerBasedRlEnvCfg,
@@ -246,19 +263,38 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
     ):
         import torch
 
-        self._torch = torch
-        self._cfg = cfg
         self._backend = backend
         self._num_envs = int(num_envs)
-        requested_device = torch.device(device)
-        if requested_device.type == "cuda" and requested_device.index is None:
-            requested_device = torch.device("cuda", index=torch.cuda.current_device())
-        self.device = requested_device
-        if self.device.type != "cuda" or not torch.cuda.is_available():
+        self._cfg = cfg
+        self._device = torch.device(device)
+        if self._device.type == "cuda" and self._device.index is None:
+            self._device = torch.device("cuda", index=torch.cuda.current_device())
+        self._dtype = torch.float32
+        self._truncated_scratch = torch.zeros(
+            (self._num_envs,), dtype=torch.bool, device=self._device
+        )
+        self._final_observation_scratch = None
+        self._tensor_runtime_bound = False
+        self.step_counter = 0
+        self._autoreset = True
+        self._autoreset_reset_active = False
+        self._rgb_array_renderer_ready = False
+        self._nan_guard = None
+
+        self._torch = torch
+        if self._device.type != "cuda" or not torch.cuda.is_available():
             raise RuntimeError("TorchG1MotionTrackingFlashSACEnv requires CUDA")
         if backend.num_envs != self._num_envs:
             raise ValueError("backend num_envs does not match the environment")
         self._validate_backend()
+        # Cold-path contract extraction only. Keep the Manager proxy on CPU so
+        # its temporary observation computation does not require every generic
+        # term to be CUDA-tensor-native; the direct runtime owns all hot tensors
+        # on ``self.device``.
+        saved_tensor_runtime = (cfg.tensor_runtime, cfg.tensor_runtime_device)
+        cfg.tensor_runtime = False
+        cfg.tensor_runtime_device = "cpu"
+        self._cpu_env: ManagerBasedRlEnv | None = None
         self._cpu_env = ManagerBasedRlEnv(cfg, backend, self._num_envs)
         try:
             self._extract_contract()
@@ -291,12 +327,19 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
             self._initial_seed = cfg.seed
             self._last_backend_reset_result: dict | None = None
         except BaseException:
-            self._cpu_env.close()
+            if self._cpu_env is not None:
+                self._cpu_env.close()
             raise
+        # The proxy compiled no packed reads, so this drop is enough to detach
+        # any generic tensor-read terms from the cold-path proxy.
+        self._cpu_env.scene._tensor_read_plan = None
         # The Manager instance is cold-path contract extraction only. Perform
         # its seeded default reset before dropping the proxy; the direct tensor
         # runtime then owns every hot-path state and reset lifecycle.
-        self._cpu_env.reset(seed=self._initial_seed)
+        try:
+            self._cpu_env.reset(seed=self._initial_seed)
+        finally:
+            cfg.tensor_runtime, cfg.tensor_runtime_device = saved_tensor_runtime
         del self._cpu_env
         self._episode_metrics = TensorEpisodeMetrics.create(self._num_envs, self.device)
 
@@ -335,7 +378,7 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
                 raise RuntimeError(
                     f"backend tensor state {name!r} lives on {value.device}, expected {self.device}"
                 )
-        command_cfg = self._cfg.commands.get("motion")
+        command_cfg = self._manager_cfg.commands.get("motion")
         if not isinstance(command_cfg, MotionCommandCfg):
             raise TypeError("Torch G1 FlashSAC requires MotionCommandCfg for sensor preflight")
         required_sensors = ["pelvis_local_linvel", "torso_gyro"]
@@ -360,7 +403,7 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
         self._backend.get_body_ids(command_cfg.body_names)
 
     def _extract_contract(self) -> None:
-        cfg = self._cfg
+        cfg = self._manager_cfg
         if set(cfg.actions) != {"joint_pos"}:
             raise ValueError(f"unsupported FlashSAC G1 actions: {sorted(cfg.actions)}")
         action_cfg = cfg.actions["joint_pos"]
@@ -383,9 +426,8 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
             raise ValueError("FlashSAC G1 Torch runtime does not support extra lifecycle managers")
         if not cfg.auto_reset or cfg.is_finite_horizon:
             raise ValueError("FlashSAC G1 Torch runtime requires auto-reset infinite horizon")
-        if not np.array_equal(
-            self._cpu_env.scene.env_origins, np.zeros_like(self._cpu_env.scene.env_origins)
-        ):
+        cpu_env = self._require_cpu_env()
+        if not np.array_equal(cpu_env.scene.env_origins, np.zeros_like(cpu_env.scene.env_origins)):
             raise ValueError("FlashSAC G1 Torch runtime requires zero scene env_origins")
 
         actor_group = cfg.observations.get("actor")
@@ -479,13 +521,14 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
         if any(term is None for term in cfg.terminations.values()):
             raise ValueError("FlashSAC G1 terminations must all be concrete termination terms")
 
-        cpu_command = self._cpu_env.command_manager.get_term("motion")
-        cpu_action = self._cpu_env.action_manager.get_term("joint_pos")
+        cpu_env = self._require_cpu_env()
+        cpu_command = cpu_env.command_manager.get_term("motion")
+        cpu_action = cpu_env.action_manager.get_term("joint_pos")
         if not isinstance(cpu_command, MotionCommand):
             raise TypeError("cold Manager-Based construction did not build MotionCommand")
         if not isinstance(cpu_action, MotionJointPositionAction):
             raise TypeError("cold Manager-Based construction did not build motion action")
-        robot = self._cpu_env.scene[command_cfg.entity_name]
+        robot = cpu_env.scene[command_cfg.entity_name]
         self._command = cpu_command
         self._action_cfg = action_cfg
         self._command_cfg = command_cfg
@@ -593,8 +636,12 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
         return self._num_envs
 
     @property
+    def device(self) -> torch.device:
+        return self._device
+
+    @property
     def cfg(self) -> ManagerBasedRlEnvCfg:
-        return self._cfg
+        return self._manager_cfg
 
     @property
     def state(self) -> TorchEnvState | None:
@@ -615,6 +662,14 @@ class TorchG1MotionTrackingFlashSACEnv(ABEnv):
     @property
     def play_capabilities(self) -> EnvPlayCapabilities:
         return EnvPlayCapabilities()
+
+    def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
+        """Direct runtime actions are fused into :meth:`step`; not reusable."""
+        raise NotImplementedError("TorchG1MotionTrackingFlashSACEnv fuses apply_action into step")
+
+    def update_state(self, state: TorchEnvState) -> TorchEnvState:
+        """Direct runtime state updates are fused into :meth:`step`; not reusable."""
+        raise NotImplementedError("TorchG1MotionTrackingFlashSACEnv fuses update_state into step")
 
     def init_state(self) -> TorchEnvState:
         if self._state is not None:

@@ -77,14 +77,14 @@ env:
           params: {command_name: motion}
         base_lin_vel: &base_lin_vel_obs
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: pelvis_local_linvel}
+          params: {sensor_name: pelvis_local_linvel, entity_name: robot}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.1
             n_max: 0.1
         base_ang_vel: &base_ang_vel_obs
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: torso_gyro}
+          params: {sensor_name: torso_gyro, entity_name: robot}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.2
@@ -122,7 +122,7 @@ env:
           params: {command_name: motion}
         sac_base_lin_vel:
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: pelvis_local_linvel}
+          params: {sensor_name: pelvis_local_linvel, entity_name: robot}
   actions:
     joint_pos:
       _target_: unilab.tasks.motion_tracking.common.manager_terms.MotionJointPositionActionCfg

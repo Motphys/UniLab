@@ -97,10 +97,10 @@ env:
           params: {command_name: motion}
         base_lin_vel: &base_lin_vel_obs
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: pelvis_local_linvel}
+          params: {sensor_name: pelvis_local_linvel, entity_name: robot}
         base_ang_vel: &base_ang_vel_obs
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: torso_gyro}
+          params: {sensor_name: torso_gyro, entity_name: robot}
         joint_pos: &joint_pos_obs
           func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel
           params: {command_name: motion}

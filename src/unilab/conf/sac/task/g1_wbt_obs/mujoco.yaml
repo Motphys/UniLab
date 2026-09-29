@@ -55,7 +55,7 @@ env:
         base_lin_vel: null
         base_ang_vel:
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: pelvis_gyro}
+          params: {sensor_name: pelvis_gyro, entity_name: robot}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.2
@@ -82,7 +82,7 @@ env:
     critic:
       terms:
         base_ang_vel:
-          params: {sensor_name: pelvis_gyro}
+          params: {sensor_name: pelvis_gyro, entity_name: robot}
   actions:
     joint_pos:
       simulate_action_latency: true

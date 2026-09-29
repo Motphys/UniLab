@@ -28,6 +28,7 @@ class _NamedSensorObservation(ManagerTermBase):
     """Cold-path binding shared by pinned named-sensor observation terms."""
 
     _term_name = "named_sensor"
+    _tensor_sensor_names: tuple[str, ...] = ()
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
@@ -38,6 +39,8 @@ class _NamedSensorObservation(ManagerTermBase):
                 "requires a non-empty sensor_name"
             )
         self._sensor_name = sensor_name
+        self._entity_name = self._resolve_entity_name(cfg)
+        self._tensor_sensor_names = (sensor_name,)
         try:
             self._view = env.scene.bind_sensor_data((sensor_name,))
         except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
@@ -45,6 +48,12 @@ class _NamedSensorObservation(ManagerTermBase):
                 f"Observation term '{self._term_name}' capability 'named sensor "
                 f"{sensor_name}' could not be materialized: {exc}"
             ) from exc
+
+    def _resolve_entity_name(self, cfg: ManagerTermBaseCfg) -> str:
+        entity_name = cfg.params.get("entity_name")
+        if not isinstance(entity_name, str) or not entity_name:
+            return "robot"
+        return entity_name
 
     def _validate_call_name(self, sensor_name: str) -> None:
         if sensor_name != self._sensor_name:
@@ -62,16 +71,42 @@ class _NamedSensorObservation(ManagerTermBase):
                 f"{self._sensor_name}' failed on backend '{self._view.backend_type}': {exc}"
             ) from exc
 
+    def _read_tensor(self, env: ManagerBasedRlEnv) -> torch.Tensor:
+        read_plan = getattr(env.scene, "_tensor_read_plan", None)
+        if read_plan is None:
+            device = getattr(env, "device", torch.device("cpu"))
+            return torch.as_tensor(self._read(), device=device)
+        entity = env.scene[self._entity_name]
+        sensor_names = self._tensor_sensor_names
+        compiled = set(read_plan.sensor_names.get(self._entity_name, ()))
+        if read_plan.device.type == "cuda" and not set(sensor_names).issubset(compiled):
+            # Narrow device-resident adapters still expose only their audited
+            # scalar sensor subset. Keep the validated backend host/cache view
+            # rather than fabricating a packed packet entry.
+            device = getattr(env, "device", torch.device("cpu"))
+            return torch.as_tensor(self._read(), device=device)
+        views = read_plan.sensor_tensor_views(entity, sensor_names)
+        return views.values[self._sensor_name]
+
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return self._tensor_sensor_names
+
 
 class builtin_sensor(_NamedSensorObservation):
     """Read one existing backend sensor through a cached NumPy view."""
 
     _term_name = "builtin_sensor"
 
-    def __call__(self, env: ManagerBasedRlEnv, sensor_name: str) -> np.ndarray:
-        del env
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        sensor_name: str,
+        entity_name: str | None = None,
+    ) -> np.ndarray:
+        del entity_name
         self._validate_call_name(sensor_name)
-        return self._read()
+        return self._read_tensor(env)
 
 
 class projected_gravity_from_sensor(_NamedSensorObservation):
@@ -88,10 +123,15 @@ class projected_gravity_from_sensor(_NamedSensorObservation):
                 f"{self._view.dimensions} on backend '{self._view.backend_type}'"
             )
 
-    def __call__(self, env: ManagerBasedRlEnv, sensor_name: str) -> np.ndarray:
-        del env
+    def __call__(
+        self,
+        env: ManagerBasedRlEnv,
+        sensor_name: str,
+        entity_name: str | None = None,
+    ) -> np.ndarray:
+        del entity_name
         self._validate_call_name(sensor_name)
-        return -self._read()
+        return -self._read_tensor(env)
 
 
 def base_lin_vel(
@@ -222,11 +262,18 @@ def joint_pos_rel(
     env: ManagerBasedRlEnv,
     biased: bool = False,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> np.ndarray | torch.Tensor:
     if not isinstance(biased, bool):
         raise TypeError(f"joint_pos_rel biased must be bool, got {type(biased).__name__}")
     asset = cast("Entity", env.scene[asset_cfg.name])
     joint_ids = asset_cfg.joint_ids
+    read_plan = getattr(env.scene, "_tensor_read_plan", None)
+    if read_plan is not None:
+        state = read_plan.joint_tensor_view(asset)
+        return (
+            state.joint_pos[:, joint_ids]
+            - asset.data.default_joint_pos_torch(env.device)[:, joint_ids]
+        )
     joint_pos = asset.data.joint_pos_biased if biased else asset.data.joint_pos
     return joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
 
@@ -234,25 +281,28 @@ def joint_pos_rel(
 def joint_vel_rel(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> np.ndarray | torch.Tensor:
     asset = cast("Entity", env.scene[asset_cfg.name])
     joint_ids = asset_cfg.joint_ids
+    read_plan = getattr(env.scene, "_tensor_read_plan", None)
+    if read_plan is not None:
+        state = read_plan.joint_tensor_view(asset)
+        return (
+            state.joint_vel[:, joint_ids]
+            - asset.data.default_joint_vel_torch(env.device)[:, joint_ids]
+        )
     return asset.data.joint_vel[:, joint_ids] - asset.data.default_joint_vel[:, joint_ids]
 
 
-def last_action(env: ManagerBasedRlEnv, action_name: str | None = None) -> np.ndarray:
+def last_action(
+    env: ManagerBasedRlEnv, action_name: str | None = None
+) -> np.ndarray | torch.Tensor:
     if action_name is None:
-        return _action_to_host_boundary(env.action_manager.action)
+        return env.action_manager.action
     try:
         action = env.action_manager.get_term(action_name).raw_action
     except KeyError as exc:
         raise KeyError(f"Action term '{action_name}' not found") from exc
-    return _action_to_host_boundary(action)
-
-
-def _action_to_host_boundary(action: np.ndarray | torch.Tensor) -> np.ndarray:
-    if isinstance(action, torch.Tensor):
-        return action.detach().cpu().numpy()
     return action
 
 

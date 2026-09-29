@@ -225,7 +225,10 @@ class SceneTensorReadSpec:
         sensors = tuple(self.sensor_names)
         bodies = tuple(self.body_names)
         if not sensors and not bodies:
-            raise ValueError("Scene tensor read request must contain sensors or bodies")
+            # Generic joint observations request the entity's packed qpos/qvel
+            # packet without named sensors or body-projected state. This is a
+            # state-only request and remains valid for a runtime read phase.
+            pass
         for label, names in (("sensor", sensors), ("body", bodies)):
             if any(not isinstance(name, str) or not name for name in names):
                 raise TypeError(f"Scene tensor read {label} names must be non-empty strings")
@@ -685,6 +688,8 @@ class EntityData:
         self._default_root_state_error = default_root_state_error
         self._default_joint_pos = default_joint_pos
         self._default_joint_vel = default_joint_vel
+        self._default_joint_pos_tensor: torch.Tensor | None = None
+        self._default_joint_vel_tensor: torch.Tensor | None = None
         self._soft_joint_pos_limits = soft_joint_pos_limits
         self._gravity_vec_w = gravity_vec_w
         self._encoder_bias = (
@@ -837,10 +842,32 @@ class EntityData:
         """Read-only per-environment default joint positions."""
         return self._require(self._default_joint_pos, "default joint position")
 
+    def default_joint_pos_torch(self, device: str | torch.device) -> torch.Tensor:
+        """Return the cold-path default joint positions as a cached Torch tensor."""
+        resolved = torch.device(device)
+        cached = self._default_joint_pos_tensor
+        if cached is None or cached.device != resolved:
+            cached = torch.from_numpy(np.ascontiguousarray(self.default_joint_pos)).to(
+                device=resolved, dtype=torch.float32
+            )
+            self._default_joint_pos_tensor = cached
+        return cached
+
     @property
     def default_joint_vel(self) -> np.ndarray:
         """Read-only zero default velocities from the UniLab reset contract."""
         return self._require(self._default_joint_vel, "default joint velocity")
+
+    def default_joint_vel_torch(self, device: str | torch.device) -> torch.Tensor:
+        """Return the cold-path default joint velocities as a cached Torch tensor."""
+        resolved = torch.device(device)
+        cached = self._default_joint_vel_tensor
+        if cached is None or cached.device != resolved:
+            cached = torch.from_numpy(np.ascontiguousarray(self.default_joint_vel)).to(
+                device=resolved, dtype=torch.float32
+            )
+            self._default_joint_vel_tensor = cached
+        return cached
 
     @property
     def soft_joint_pos_limits(self) -> np.ndarray:
@@ -1262,8 +1289,26 @@ class Entity:
             )
         self._actuator_ids = actuator_ids
 
-        self._validate_joint_state(backend, joint_pos_ids, joint_vel_ids)
-        self._validate_body_state(backend, root_body_ids, body_ids)
+        # Mapped DEVICE_RESIDENT backends deliberately release their legacy
+        # host state slots after materialization.  Their immutable public
+        # layout already validates the selected addresses without a cold D2H.
+        cold_layout_readonly = (
+            self._entity_defaults is not None
+            and backend.get_tensor_capabilities().execution is TensorExecution.DEVICE_RESIDENT
+        )
+        if cold_layout_readonly:
+            assert reset_state is not None and reset_state.scene_layout is not None
+            self._validate_mapped_state_addresses(
+                reset_state.scene_layout,
+                self._physical_entity,
+                joint_pos_ids,
+                joint_vel_ids,
+                root_body_ids,
+                body_ids,
+            )
+        else:
+            self._validate_joint_state(backend, joint_pos_ids, joint_vel_ids)
+            self._validate_body_state(backend, root_body_ids, body_ids)
         (
             self._reset_root_layout,
             default_root_state,
@@ -1277,7 +1322,9 @@ class Entity:
 
         default_joint_vel = self._materialize_default_joint_vel(backend, joint_vel_ids)
         soft_joint_pos_limits = self._materialize_soft_joint_pos_limits(backend, joint_pos_ids)
-        gravity_vec_w = self._materialize_gravity_vector(backend, root_body_ids)
+        gravity_vec_w = self._materialize_gravity_vector(
+            backend, root_body_ids, entity_defaults=self._entity_defaults
+        )
         actuator_ctrl_range = self._materialize_actuator_ctrl_range(backend, actuator_ids)
         (
             self._actuator_target_joint_names,
@@ -1333,11 +1380,28 @@ class Entity:
                 "body_names were not declared in EntityCfg",
             )
         if self._motion_body_ids is None:
-            self._motion_body_ids = self._resolve_ids(
-                "motion body",
-                self._body_names,
-                self._backend.get_motion_body_ids,
-            )
+            if self._physical_entity is not None:
+                # Motion datasets use MuJoCo world-inclusive body numbering.
+                # Mapped public body IDs exclude the unowned world row, so the
+                # immutable layout gives the same mapping without coupling the
+                # cold command materialization to backend-specific getters.
+                assert self._reset_state is not None and self._reset_state.scene_layout is not None
+                assert self._body_names is not None
+                owner = self._reset_state.scene_layout.get_entity(self._physical_entity)
+                local_motion_body_ids = {
+                    local_name: index for index, local_name in enumerate(owner.body_names)
+                }
+                self._motion_body_ids = np.asarray(
+                    [local_motion_body_ids[name.split("/", 1)[1]] + 1 for name in self._body_names],
+                    dtype=np.int32,
+                )
+            else:
+                self._motion_body_ids = self._resolve_ids(
+                    "motion body",
+                    self._body_names,
+                    self._backend.get_motion_body_ids,
+                )
+            self._motion_body_ids.setflags(write=False)
         return self._motion_body_ids
 
     def _capability_error(self, capability: str, detail: str) -> NotImplementedError:
@@ -1738,6 +1802,50 @@ class Entity:
                     f"only {value.shape[1]} columns"
                 )
 
+    def _validate_mapped_state_addresses(
+        self,
+        layout: Any,
+        physical_entity: str | None,
+        pos_ids: np.ndarray | None,
+        vel_ids: np.ndarray | None,
+        root_body_ids: np.ndarray | None,
+        body_ids: np.ndarray | None,
+    ) -> None:
+        """Validate mapped selections against immutable public layout addresses.
+
+        DEVICE_RESIDENT mapped backends intentionally close their legacy host
+        state getters after materialization.  Entity construction is cold and
+        contract-only here: selected column and body addresses were already
+        resolved through public name APIs, so validate their bounds against the
+        immutable scene layout rather than copying live CUDA state to host.
+        """
+        assert physical_entity is not None
+        owner = layout.get_entity(physical_entity)
+        if pos_ids is not None and pos_ids.size and int(np.max(pos_ids)) >= layout.nq:
+            raise ValueError(
+                f"Entity '{self.name}' joint position index {int(np.max(pos_ids))} "
+                f"exceeds mapped qpos width {layout.nq}"
+            )
+        if vel_ids is not None and vel_ids.size and int(np.max(vel_ids)) >= layout.nv:
+            raise ValueError(
+                f"Entity '{self.name}' joint velocity index {int(np.max(vel_ids))} "
+                f"exceeds mapped qvel width {layout.nv}"
+            )
+        for label, ids in (("root body", root_body_ids), ("body", body_ids)):
+            if ids is not None and ids.size and int(np.max(ids)) >= layout.nbody:
+                raise ValueError(
+                    f"Entity '{self.name}' {label} id {int(np.max(ids))} exceeds "
+                    f"mapped body count {layout.nbody}"
+                )
+        expected_root = owner.body_ids[owner.body_names.index(owner.root_body)]
+        if root_body_ids is not None and len(root_body_ids) != 1:
+            raise ValueError(f"Entity '{self.name}' root body selection must contain one row")
+        if root_body_ids is not None and int(root_body_ids[0]) != expected_root:
+            raise ValueError(
+                f"Entity '{self.name}' selected root body {int(root_body_ids[0])}; "
+                f"mapped layout declares {expected_root}"
+            )
+
     def _validate_body_state(
         self,
         backend: SimBackend,
@@ -1984,13 +2092,20 @@ class Entity:
         return result
 
     def _materialize_gravity_vector(
-        self, backend: SimBackend, root_body_ids: np.ndarray | None
+        self,
+        backend: SimBackend,
+        root_body_ids: np.ndarray | None,
+        *,
+        entity_defaults: Mapping[str, np.ndarray] | None = None,
     ) -> np.ndarray | None:
         if root_body_ids is None:
             return None
-        quat = self._read_state(
-            "root body quaternion state", backend.get_body_quat_w, root_body_ids
-        )
+        if entity_defaults is not None:
+            quat = np.asarray(entity_defaults["root_pose"][:, 3:7])
+        else:
+            quat = self._read_state(
+                "root body quaternion state", backend.get_body_quat_w, root_body_ids
+            )
         gravity = np.zeros((backend.num_envs, 3), dtype=quat.dtype)
         gravity[:, 2] = -1.0
         gravity.setflags(write=False)

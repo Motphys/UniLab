@@ -595,6 +595,17 @@ class ObservationManager(ManagerBase):
                     cast("list[torch.Tensor]", values),
                     dim=self._group_obs_concatenate_dim[group_name],
                 )
+            elif self._device.type == "cuda":
+                mixed = [
+                    term_name
+                    for term_name, value in group_obs.items()
+                    if not isinstance(value, torch.Tensor)
+                ]
+                raise TypeError(
+                    f"ObservationManager group '{group_name}' uses CUDA runtime device "
+                    f"{self._device}, but terms {mixed} returned NumPy observations; "
+                    "all observation terms must be tensor-native on a CUDA runtime"
+                )
             else:
                 result = np.concatenate(values, axis=self._group_obs_concatenate_dim[group_name])
             if defer_error_nan_check:

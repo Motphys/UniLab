@@ -177,6 +177,9 @@ class ManagerScene(Protocol):
         self, values: np.ndarray, env_ids: np.ndarray, *, term_name: str
     ) -> None: ...
 
+    @property
+    def _tensor_read_plan(self) -> Any: ...
+
 
 class ManagerActionTerm(Protocol):
     @property
@@ -234,6 +237,9 @@ class ManagerBasedRlEnv(Protocol):
 
     @property
     def num_envs(self) -> int: ...
+
+    @property
+    def device(self) -> torch.device: ...
 
     @property
     def rng(self) -> np.random.Generator: ...

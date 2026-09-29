@@ -205,6 +205,17 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         world_size=1,
         learner_device=rank_device,
     )
+    # The off-policy learner owns this rank's replay/inference device.  Make
+    # the same rank-local placement explicit for Manager public tensors so a
+    # CUDA tensor runtime cannot infer CPU from a pre-materialize external
+    # worker handshake (issue #1743).  Final backend capability validation
+    # remains after ``materialize()``.
+    if (
+        env_cfg_override is not None
+        and env_cfg_override.get("tensor_runtime", False)
+        and rank_device.split(":", 1)[0] == "cuda"
+    ):
+        env_cfg_override["tensor_runtime_device"] = str(rank_device)
     host_cpu_count = os.cpu_count() or 1
     explicit_cpu_ids = getattr(cfg.training, "dp_collector_cpu_ids", None)
     if explicit_cpu_ids is not None:

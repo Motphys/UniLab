@@ -116,6 +116,10 @@ class SensorTermBase(ManagerTermBase):
 
     _allowed_params: ClassVar[frozenset[str]] = frozenset()
 
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return ()
+
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
         unexpected = set(cfg.params) - self._allowed_params

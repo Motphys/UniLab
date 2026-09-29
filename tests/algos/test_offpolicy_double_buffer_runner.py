@@ -12,7 +12,11 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
 from uni_rl.ipc.dp_launcher import UNILAB_DP_LOG_DIR, UNILAB_DP_RANK, UNILAB_DP_WORLD_SIZE
-from uni_rl.utils.tensor_runtime import TensorRuntimeSettings
+from uni_rl.utils.tensor_runtime import (
+    InferencePlacement,
+    InferenceTransport,
+    TensorRuntimeSettings,
+)
 
 _ROOT = Path(__file__).parent.parent.parent
 _CONF_DIR = _ROOT / "src" / "unilab" / "conf"
@@ -388,7 +392,16 @@ def test_flashsac_n_step_is_rejected():
 def _bare_runner():
     from uni_rl.offpolicy.double_buffer_runner import DoubleBufferOffPolicyRunner
 
-    return object.__new__(DoubleBufferOffPolicyRunner)
+    runner = object.__new__(DoubleBufferOffPolicyRunner)
+    runner.inference_placement = InferencePlacement(
+        mode=InferenceTransport.CPU,
+        env_device="cpu",
+        ring_device="cpu",
+        learner_device="cpu",
+        collector_tensor_native=False,
+        staging_policy="cpu_explicit_staging",
+    )
+    return runner
 
 
 def test_inference_response_detects_dead_collector():
@@ -547,7 +560,7 @@ def test_collector_env_cfg_override_without_cpu_ids_passes_through():
     runner = _bare_runner()
     runner.env_cfg_override = {"a": 1}
     runner.collector_cpu_ids = None
-    assert runner._collector_env_cfg_override() is runner.env_cfg_override
+    assert runner._collector_env_cfg_override() == runner.env_cfg_override
 
 
 def test_collector_env_cfg_override_from_none_base():

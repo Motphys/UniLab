@@ -1241,13 +1241,6 @@ class ResetStateTransaction:
                     "tensor reset commit supports scalar qpos/qvel rows only; "
                     "randomization and mocap writes remain explicit migration boundaries"
                 )
-            if self._packed_reset_device is not None and self._packed_reset_device.type == "cuda":
-                # The staged NumPy transaction must cross exactly one public
-                # host/device boundary. A device plan requires a device-resident
-                # reset composer and must not be converted row-by-row here.
-                raise NotImplementedError(
-                    "tensor reset commit currently requires a host Torch device"
-                )
             rows = torch.from_numpy(dirty_ids.astype(np.int64, copy=True))
             staged_qpos = self._qpos[dirty_ids]
             staged_qvel = self._qvel[dirty_ids]
@@ -1265,6 +1258,15 @@ class ResetStateTransaction:
                 )
             qpos = torch.from_numpy(np.ascontiguousarray(staged_qpos, dtype=np.float32))
             qvel = torch.from_numpy(np.ascontiguousarray(staged_qvel, dtype=np.float32))
+            packed_reset_device = self._packed_reset_device
+            if packed_reset_device is not None and packed_reset_device.type == "cuda":
+                # The packed public bridge owns exactly one cross-device staging
+                # boundary. Move the already validated selected rows there as a
+                # single contiguous batch; the backend still converts them once
+                # to its CPU-authoritative state.
+                rows = rows.to(device=packed_reset_device, non_blocking=False)
+                qpos = qpos.to(device=packed_reset_device, non_blocking=False)
+                qvel = qvel.to(device=packed_reset_device, non_blocking=False)
             try:
                 set_state_t0 = time.perf_counter()
                 result = host_plan.apply_reset(rows, qpos, qvel, randomization=None)

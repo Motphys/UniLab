@@ -115,6 +115,15 @@ class TorchEnv(ABEnv):
     def _bind_tensor_runtime(self) -> None:
         if self._tensor_runtime_bound:
             return
+        # A device-resident backend cannot expose a public CPU lifecycle. The
+        # only valid false request is a task-owned cold-path proxy used to extract
+        # contracts before its direct CUDA runtime is constructed.
+        if (
+            getattr(self.cfg, "tensor_runtime", True) is False
+            and self._backend.get_tensor_capabilities().execution is TensorExecution.DEVICE_RESIDENT
+        ):
+            self._tensor_runtime_bound = True
+            return
         capabilities = self._backend.get_tensor_capabilities()
         execution = capabilities.execution
         if execution not in {TensorExecution.HOST_BRIDGE, TensorExecution.DEVICE_RESIDENT}:

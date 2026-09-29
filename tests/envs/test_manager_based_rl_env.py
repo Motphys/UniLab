@@ -239,6 +239,45 @@ class _KeyframeBackend(_ResetBackend):
         return self.keyframe_qpos
 
 
+class _DeferredTensorBackend(_FakeBackend):
+    """External worker whose capabilities only become known after materialize."""
+
+    def __init__(
+        self,
+        num_envs: int,
+        *,
+        post_capabilities: TensorLifecycleCapabilities | None = None,
+    ) -> None:
+        super().__init__(num_envs)
+        self.post_capabilities = post_capabilities
+
+    def get_tensor_capabilities(self) -> TensorLifecycleCapabilities:
+        if self.materialize_calls == 0:
+            return TensorLifecycleCapabilities(execution=TensorExecution.UNSUPPORTED)
+        return (
+            self.post_capabilities
+            if self.post_capabilities is not None
+            else TensorLifecycleCapabilities(
+                execution=TensorExecution.HOST_BRIDGE,
+                state_fields=frozenset({"qpos", "qvel"}),
+                stepping=True,
+                selected_reset=True,
+                packed_host_bridge=True,
+                data_plane=TensorDataPlane.HOST_BRIDGE,
+                stream_event_ownership="test",
+                torch_devices=("cpu", "cuda"),
+            )
+        )
+
+    def tensor_execution(self) -> TensorExecution:
+        capabilities = self.get_tensor_capabilities()
+        return (
+            TensorExecution.HOST_BRIDGE
+            if capabilities.execution is not TensorExecution.UNSUPPORTED
+            else TensorExecution.UNSUPPORTED
+        )
+
+
 class _ScenePlanBackend(_StateBackend):
     """State backend with the public packed scene-read contract."""
 
@@ -524,6 +563,28 @@ class _TestEnv(ManagerBasedRlEnv):
         super().__init__(cfg, backend, num_envs)
 
 
+class _NamedSensorTensorObservation:
+    tensor_sensor_names = ("track_pos_w_ball",)
+
+    def __init__(self, cfg: ObservationTermCfg, env: _TestEnv) -> None:
+        del cfg
+        self._env = env
+
+    def __call__(self, env: _TestEnv) -> torch.Tensor:
+        assert env is self._env
+        plan = env.scene._tensor_read_plan
+        if plan is None:
+            # Manager construction probes the term shape before the cold-path
+            # read plan exists. The cold probe mirrors one packed sensor row;
+            # all hot-path calls below require the compiled plan.
+            backend = cast(_ScenePlanBackend, env._backend)
+            return backend.sensors["track_pos_w_ball"].clone()
+        entity = env.scene["robot"]
+        return plan.sensor_tensor_views(entity, self.tensor_sensor_names).values[
+            self.tensor_sensor_names[0]
+        ]
+
+
 def _policy_obs(env: _TestEnv) -> np.ndarray:
     return np.column_stack(
         (env.episode_length_buf.astype(np.float32), env.action_manager.action[:, 0])
@@ -532,6 +593,19 @@ def _policy_obs(env: _TestEnv) -> np.ndarray:
 
 def _critic_obs(env: _TestEnv) -> np.ndarray:
     return env.episode_length_buf[:, None].astype(np.float32)
+
+
+def _tensor_runtime_policy_obs(env: _TestEnv) -> torch.Tensor:
+    return torch.column_stack(
+        (
+            torch.asarray(env.episode_length_buf, dtype=torch.float32, device=env.device),
+            env.action_manager.action[:, 0],
+        )
+    )
+
+
+def _tensor_runtime_critic_obs(env: _TestEnv) -> torch.Tensor:
+    return torch.asarray(env.episode_length_buf[:, None], dtype=torch.float32, device=env.device)
 
 
 def _episode_step_observation(env: ManagerBasedRlEnv) -> np.ndarray:
@@ -674,6 +748,23 @@ def _make_env(
     return env, backend
 
 
+def _make_tensor_runtime_env(
+    backend: _FakeBackend,
+) -> _TestEnv:
+    cfg = _make_cfg()
+    cfg.tensor_runtime = True
+    cfg.tensor_runtime_device = "cuda"
+    cfg.observations = {
+        "actor": ObservationGroupCfg(
+            terms={"policy": ObservationTermCfg(func=_tensor_runtime_policy_obs)}
+        ),
+        "value": ObservationGroupCfg(
+            terms={"critic": ObservationTermCfg(func=_tensor_runtime_critic_obs)}
+        ),
+    }
+    return _TestEnv(cfg, cast(SimBackend, backend), 2)
+
+
 def test_training_progress_restore_survives_next_step_and_rejects_invalid_state():
     env, _ = _make_env()
     env.reset()
@@ -714,6 +805,64 @@ def test_manager_public_inputs_and_episode_counters_are_tensor_first() -> None:
     torch.testing.assert_close(env.state.info["steps"], values)
     np.testing.assert_array_equal(env.episode_length_buf, values)
     env.close()
+
+
+@pytest.mark.parametrize(
+    ("explicit_device", "expected_device"),
+    [
+        (None, torch.device("cpu")),
+        ("cpu", torch.device("cpu")),
+    ],
+)
+def test_tensor_runtime_device_defaults_to_cpu_for_host_bridge(
+    explicit_device: str | None, expected_device: torch.device
+) -> None:
+    cfg = _make_cfg()
+    cfg.tensor_runtime_device = explicit_device
+
+    env, backend = _make_env(cfg)
+
+    assert env.device == expected_device
+    assert backend.lifecycle[-1] == "materialize"
+    assert env._tensor_runtime_bound is True
+    env.reset()
+    assert all(value.device == env.device for value in env.obs_buf.values())
+    env.close()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a local CUDA device")
+def test_explicit_tensor_runtime_device_wins_before_materialize() -> None:
+    backend = _DeferredTensorBackend(2)
+    env = _make_tensor_runtime_env(backend)
+
+    # The pre-materialize UNSUPPORTED handshake must not override the owner's
+    # authoritative buffer placement.
+    assert env.device == torch.device("cuda", index=torch.cuda.current_device())
+    assert backend.lifecycle == ["materialize"]
+    assert env._tensor_runtime_bound is True
+    env.close()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a local CUDA device")
+def test_materialize_rejects_explicit_tensor_runtime_device_not_advertised() -> None:
+    backend = _DeferredTensorBackend(
+        2,
+        post_capabilities=TensorLifecycleCapabilities(
+            execution=TensorExecution.HOST_BRIDGE,
+            state_fields=frozenset({"qpos", "qvel"}),
+            stepping=True,
+            selected_reset=True,
+            packed_host_bridge=True,
+            data_plane=TensorDataPlane.HOST_BRIDGE,
+            stream_event_ownership="test",
+            torch_devices=("cpu",),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="supported devices are \\('cpu',\\)"):
+        _make_tensor_runtime_env(backend)
+
+    assert backend.materialize_calls == 1
 
 
 def _make_state_env(
@@ -1549,6 +1698,67 @@ def test_scene_read_plan_refreshes_once_per_phase_and_after_mutations() -> None:
         env.scene._tensor_read_plan = None
         state = env.step(torch.zeros((2, 1), dtype=torch.float32))
         assert state.obs["obs"].shape == (2, 2)
+    finally:
+        if env.scene._tensor_read_plan is not None:
+            env.scene._tensor_read_plan.close()
+            env.scene._tensor_read_plan = None
+        env.close()
+
+
+def test_scene_read_plan_compiles_named_sensor_observation_requests() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
+    )
+    cfg.actions = {
+        "tilt": _TensorBodyActionCfg(
+            entity_name="robot",
+            top_body_name="platform",
+            ball_body_name="ball",
+        )
+    }
+    cfg.observations = {
+        "actor": ObservationGroupCfg(
+            terms={
+                "sensor": ObservationTermCfg(func=_NamedSensorTensorObservation),
+            }
+        ),
+        "value": ObservationGroupCfg(
+            terms={"critic": ObservationTermCfg(func=_episode_step_observation)}
+        ),
+    }
+    cfg.critic_observation_group = "value"
+    backend = _ScenePlanBackend(2)
+    backend.sensors["track_pos_w_ball"].add_(5.0)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        plan = env.scene._tensor_read_plan
+        assert plan is not None
+        assert plan.host_plan is not None
+        assert "track_pos_w_ball" in plan.host_plan.spec.sensor_names
+        assert set(plan.host_plan.spec.sensor_names) == {
+            *{f"{prefix}ball" for prefix in ("track_pos_w_", "track_quat_w_")},
+            *{
+                f"{prefix}{body}"
+                for prefix in (
+                    "track_pos_w_",
+                    "track_quat_w_",
+                    "track_linvel_w_",
+                    "track_angvel_w_",
+                )
+                for body in ("ball", "platform")
+            },
+        }
+
+        obs, _ = env.reset()
+        torch.testing.assert_close(
+            obs["obs"],
+            torch.tensor([[5.1, 5.2, 6.2], [5.3, 5.4, 6.2]], dtype=torch.float32),
+        )
+        assert backend.selected_reads == 1
     finally:
         if env.scene._tensor_read_plan is not None:
             env.scene._tensor_read_plan.close()

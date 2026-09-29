@@ -41,7 +41,7 @@ def _materialize_task(task: str, *, algo: str = "flashsac") -> ManagerBasedRlEnv
 def test_torch_owner_fingerprint_accepts_both_canonical_backends() -> None:
     mujoco = _materialize_task("g1_motion_tracking/mujoco")
     mjwarp = _materialize_task("g1_motion_tracking/mjwarp")
-    expected = module._TORCH_G1_FLASHSAC_OWNER_IDENTITY_V1
+    expected = module._TORCH_G1_FLASHSAC_OWNER_IDENTITY_V2
     assert module._torch_g1_flashsac_owner_identity(mujoco) == expected
     assert module._torch_g1_flashsac_owner_identity(mjwarp) == expected
 
@@ -103,7 +103,7 @@ def test_torch_observation_noise_uses_configured_bounds_and_keeps_critic_clean()
     num_envs, num_joints, num_bodies = 2, 29, 2
     device = torch.device("cpu")
     env._torch = torch  # pyright: ignore[reportAttributeAccessIssue]
-    env.device = device
+    env._device = device
     env._motion_joint_pos = torch.arange(num_envs * num_joints, dtype=torch.float32).reshape(
         num_envs, num_joints
     )
@@ -157,7 +157,7 @@ def test_torch_observation_noise_uses_configured_bounds_and_keeps_critic_clean()
 def test_second_g1_owner_keeps_actor_encoder_bias_out_of_critic() -> None:
     env = module.TorchG1MotionTrackingFlashSACEnv.__new__(module.TorchG1MotionTrackingFlashSACEnv)
     env._torch = torch
-    env.device = torch.device("cpu")
+    env._device = torch.device("cpu")
     env._actor_joint_pos_biased = True
     env._actor_corruption = False
     env._critic_prefix_names = (
@@ -200,7 +200,7 @@ def test_manual_torch_reset_clears_only_selected_done_flags(
 ) -> None:
     env = module.TorchG1MotionTrackingFlashSACEnv.__new__(module.TorchG1MotionTrackingFlashSACEnv)
     env._num_envs = 3
-    env.device = torch.device("cpu")
+    env._device = torch.device("cpu")
     env._state = TorchEnvState(
         obs={"obs": torch.zeros((3, 2))},
         reward=torch.zeros(3),
@@ -251,7 +251,7 @@ def test_torch_device_state_store_renegotiates_and_preserves_policy_sensor_bound
             return torch.full(shape, 2.0, device=device)
 
     env = module.TorchG1MotionTrackingFlashSACEnv.__new__(module.TorchG1MotionTrackingFlashSACEnv)
-    env.device = torch.device("cpu")
+    env._device = torch.device("cpu")
     env._state_store = module.TensorDeviceStateStore(
         backend=Backend(),  # pyright: ignore[reportArgumentType]
         device=env.device,
@@ -325,7 +325,7 @@ def test_torch_backend_validation_is_capability_driven(
 
     env = module.TorchG1MotionTrackingFlashSACEnv.__new__(module.TorchG1MotionTrackingFlashSACEnv)
     env._cfg = _materialize_task("g1_motion_tracking/mujoco")
-    env.device = torch.device("cpu")
+    env._device = torch.device("cpu")
     env._backend = Backend()
 
     env._validate_backend()
@@ -373,7 +373,7 @@ def test_g1_backend_validation_accepts_cuda_family_and_current_exact_device(exac
 
     env = module.TorchG1MotionTrackingFlashSACEnv.__new__(module.TorchG1MotionTrackingFlashSACEnv)
     env._cfg = _materialize_task("g1_motion_tracking/mujoco")
-    env.device = torch.device("cuda", index=torch.cuda.current_device())
+    env._device = torch.device("cuda", index=torch.cuda.current_device())
     env._backend = Backend()
 
     env._validate_backend()
@@ -398,7 +398,7 @@ def test_g1_backend_validation_rejects_wrong_exact_cuda_device() -> None:
             )
 
     env = module.TorchG1MotionTrackingFlashSACEnv.__new__(module.TorchG1MotionTrackingFlashSACEnv)
-    env.device = torch.device("cuda", index=torch.cuda.current_device())
+    env._device = torch.device("cuda", index=torch.cuda.current_device())
     env._backend = Backend()
 
     with pytest.raises(RuntimeError, match="did not accept Torch device"):

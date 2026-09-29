@@ -34,6 +34,7 @@ from unilab.base.variants import (
     _require_fixed_variant_support,
 )
 from unilab.dtype_config import get_global_dtype
+from unilab.envs import mdp
 from unilab.managers import (
     ActionManager,
     ActionTermCfg,
@@ -51,6 +52,7 @@ from unilab.managers import (
     NullRecorderManager,
     ObservationGroupCfg,
     ObservationManager,
+    ObservationTermCfg,
     RecorderManager,
     RecorderTermCfg,
     RewardManager,
@@ -58,6 +60,11 @@ from unilab.managers import (
     TerminationManager,
     TerminationTermCfg,
 )
+from unilab.managers.scene_entity_config import SceneEntityCfg
+
+_DEVICE_RESIDENT_TENSOR_SENSORS: dict[str, frozenset[str]] = {
+    "isaacgym": frozenset({"pelvis_local_linvel", "torso_gyro"}),
+}
 
 
 def _manager_terms_field() -> Any:
@@ -90,6 +97,7 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     is_finite_horizon: bool = False
     auto_reset: bool = True
     tensor_runtime: bool = False
+    tensor_runtime_device: str | None = None
     scale_rewards_by_dt: bool = True
     policy_observation_group: str = "policy"
     critic_observation_group: str | None = None
@@ -102,6 +110,37 @@ class ManagerBasedRlEnvCfg(EnvCfg):
                 raise ValueError(f"ManagerBasedRlEnvCfg {name} must be finite and positive")
         if not isinstance(self.tensor_runtime, bool):
             raise TypeError("ManagerBasedRlEnvCfg tensor_runtime must be a boolean")
+        if self.tensor_runtime_device is not None:
+            if (
+                not isinstance(self.tensor_runtime_device, str)
+                or not self.tensor_runtime_device.strip()
+            ):
+                raise TypeError(
+                    "ManagerBasedRlEnvCfg tensor_runtime_device must be a device string "
+                    f"or None; got {self.tensor_runtime_device!r}"
+                )
+            try:
+                requested_device = torch.device(self.tensor_runtime_device)
+            except (RuntimeError, ValueError) as exc:
+                raise ValueError(
+                    "ManagerBasedRlEnvCfg tensor_runtime_device is not a valid Torch "
+                    f"device: {self.tensor_runtime_device!r}"
+                ) from exc
+            if requested_device.type not in {"cpu", "cuda"}:
+                raise ValueError(
+                    "ManagerBasedRlEnvCfg tensor_runtime_device must be cpu, cuda, or "
+                    f"None; got {self.tensor_runtime_device!r}"
+                )
+            if self.tensor_runtime and requested_device.type != "cuda":
+                raise ValueError(
+                    "ManagerBasedRlEnvCfg tensor_runtime=true requires a CUDA "
+                    f"tensor_runtime_device; got {self.tensor_runtime_device!r}"
+                )
+            if not self.tensor_runtime and requested_device.type != "cpu":
+                raise ValueError(
+                    "ManagerBasedRlEnvCfg CPU tensor runtime requires cpu or None "
+                    f"tensor_runtime_device; got {self.tensor_runtime_device!r}"
+                )
         if self.isaacsim_tensor_cuda_ipc and not self.tensor_runtime:
             raise ValueError(
                 "ManagerBasedRlEnvCfg isaacsim_tensor_cuda_ipc requires tensor_runtime"
@@ -294,11 +333,15 @@ class ManagerBasedRlEnv(TorchEnv):
             )
 
         initial_capabilities = backend.get_tensor_capabilities()
-        runtime_device = (
-            torch.device("cuda", index=torch.cuda.current_device())
-            if initial_capabilities.execution is TensorExecution.DEVICE_RESIDENT
-            else torch.device("cpu")
-        )
+        requested_runtime_device = cfg.tensor_runtime_device
+        if requested_runtime_device is not None:
+            runtime_device = torch.device(requested_runtime_device)
+        else:
+            runtime_device = (
+                torch.device("cuda", index=torch.cuda.current_device())
+                if initial_capabilities.execution is TensorExecution.DEVICE_RESIDENT
+                else torch.device("cpu")
+            )
         super().__init__(cfg, backend, num_envs, device=runtime_device)
         actual_seed = cfg.seed if cfg.seed is not None else secrets.randbits(63)
         cfg.seed = actual_seed
@@ -310,7 +353,7 @@ class ManagerBasedRlEnv(TorchEnv):
             (num_envs, backend.num_actuators), dtype=torch.float32, device=self.device
         )
         if cfg.scene.entity_assets:
-            self._control.copy_(self._backend.get_state_views(("ctrl",))["ctrl"])
+            self._control.copy_(self._initial_backend_control())
         self._reset_state = ResetStateTransaction(
             backend,
             default_qpos=default_qpos,
@@ -354,6 +397,15 @@ class ManagerBasedRlEnv(TorchEnv):
     def _compile_tensor_read_plan(self) -> None:
         """Compile the scene's only packed tensor read phase."""
         specs: list[SceneTensorReadSpec] = []
+        specs.extend(self._action_tensor_read_specs())
+        specs.extend(self._observation_tensor_read_specs())
+        specs.extend(self._manager_term_tensor_read_specs())
+        self.scene._tensor_read_plan = (
+            self.scene.compile_tensor_reads(self.device, specs) if specs else None
+        )
+
+    def _action_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
+        specs: list[SceneTensorReadSpec] = []
         for name in self.action_manager.active_terms:
             term = self.action_manager.get_term(name)
             body_names = getattr(term, "tensor_body_names", None)
@@ -371,9 +423,58 @@ class ManagerBasedRlEnv(TorchEnv):
             specs.append(
                 SceneTensorReadSpec(entity=term.cfg.entity_name, body_names=tuple(body_names))
             )
+        return specs
+
+    def _observation_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
+        specs: list[SceneTensorReadSpec] = []
         for group_name, terms in self.observation_manager.active_terms.items():
             for name in terms:
                 term_cfg = self.observation_manager.get_term_cfg(group_name, name)
+                sensor_names = getattr(term_cfg.func, "tensor_sensor_names", None)
+                if sensor_names is not None:
+                    if (
+                        not isinstance(sensor_names, (tuple, list))
+                        or any(
+                            not isinstance(sensor_name, str) or not sensor_name
+                            for sensor_name in sensor_names
+                        )
+                        or len(set(sensor_names)) != len(sensor_names)
+                    ):
+                        raise TypeError(
+                            "ManagerBasedRlEnv tensor read declaration for observation "
+                            f"term '{group_name}/{name}' must be a unique sequence of "
+                            f"sensor names; got {sensor_names!r}"
+                        )
+                    if (
+                        self._backend.get_tensor_capabilities().execution
+                        is TensorExecution.DEVICE_RESIDENT
+                    ):
+                        supported = _DEVICE_RESIDENT_TENSOR_SENSORS.get(
+                            self._backend.backend_type,
+                            {"pelvis_local_linvel", "torso_gyro", "torso_upvector"},
+                        )
+                        sensor_names = tuple(
+                            sensor_name for sensor_name in sensor_names if sensor_name in supported
+                        )
+                        if not sensor_names:
+                            body_names = term_cfg.params.get("tensor_body_names")
+                            if body_names is None:
+                                continue
+                    specs.append(
+                        SceneTensorReadSpec(
+                            entity=self._observation_tensor_entity(term_cfg),
+                            sensor_names=tuple(sensor_names),
+                        )
+                    )
+                if self.device.type != "cpu" and term_cfg.func in (
+                    mdp.joint_pos_rel,
+                    mdp.joint_vel_rel,
+                ):
+                    specs.append(
+                        SceneTensorReadSpec(
+                            entity=self._observation_tensor_entity(term_cfg), body_names=()
+                        )
+                    )
                 body_names = term_cfg.params.get("tensor_body_names")
                 if body_names is None:
                     continue
@@ -393,9 +494,111 @@ class ManagerBasedRlEnv(TorchEnv):
                         f"'{name}' requires an entity_name parameter"
                     )
                 specs.append(SceneTensorReadSpec(entity=entity_name, body_names=tuple(body_names)))
-        self.scene._tensor_read_plan = (
-            self.scene.compile_tensor_reads(self.device, specs) if specs else None
+        return specs
+
+    def _manager_term_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
+        specs: list[SceneTensorReadSpec] = []
+        narrow = (
+            self._backend.get_tensor_capabilities().execution is TensorExecution.DEVICE_RESIDENT
         )
+        backend_type = self._backend.backend_type
+        for manager_name, manager in (
+            ("reward", self.reward_manager),
+            ("termination", self.termination_manager),
+        ):
+            for name in manager.active_terms:
+                specs.extend(
+                    self._term_tensor_read_specs(
+                        manager_name,
+                        name,
+                        manager.get_term_cfg(name),
+                        narrow=narrow,
+                        backend_type=backend_type,
+                    )
+                )
+        return specs
+
+    @staticmethod
+    def _term_tensor_read_specs(
+        manager_name: str,
+        term_name: str,
+        term_cfg: RewardTermCfg | TerminationTermCfg,
+        *,
+        narrow: bool = False,
+        backend_type: str = "",
+    ) -> list[SceneTensorReadSpec]:
+        sensor_names = getattr(term_cfg.func, "tensor_sensor_names", None)
+        if sensor_names is None:
+            return []
+        if (
+            not isinstance(sensor_names, (tuple, list))
+            or any(not isinstance(name, str) or not name for name in sensor_names)
+            or len(set(sensor_names)) != len(sensor_names)
+        ):
+            raise TypeError(
+                f"ManagerBasedRlEnv tensor read declaration for {manager_name} term "
+                f"'{term_name}' must be a unique sequence of sensor names; got "
+                f"{sensor_names!r}"
+            )
+        if narrow:
+            sensor_names = tuple(
+                name
+                for name in sensor_names
+                if name
+                in _DEVICE_RESIDENT_TENSOR_SENSORS.get(
+                    backend_type,
+                    {"pelvis_local_linvel", "torso_gyro", "torso_upvector"},
+                )
+            )
+            if not sensor_names:
+                return []
+        return [SceneTensorReadSpec(entity="robot", sensor_names=tuple(sensor_names))]
+
+    def _warm_external_cuda_ipc_views(self) -> None:
+        """Materialize IsaacGym's post-step view aliases before Manager reads."""
+
+        # IsaacGym's worker CUDA IPC projection does not publish rigid-body
+        # state during its reset stale window. The public selected-reset path
+        # therefore performs one untimed zero-control tensor step after commit,
+        # matching the documented phase-local benchmark warm-up, before Manager
+        # observation terms read the stable views.
+        if self._backend.backend_type != "isaacgym" or self.device.type != "cuda":
+            return
+        try:
+            self._backend.step_tensor(
+                torch.zeros_like(self._control), nsteps=self._cfg.sim_substeps
+            )
+        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "ManagerBasedRlEnv could not materialize IsaacGym CUDA IPC sensor "
+                f"views after reset: {exc}"
+            ) from exc
+
+    def _initial_backend_control(self) -> torch.Tensor:
+        """Return mapped-scene initial control without assuming a ctrl state view."""
+
+        try:
+            return self._backend.get_state_views(("ctrl",))["ctrl"]
+        except KeyError:
+            # IsaacSim's mapped CUDA IPC arena owns a control tensor, but state
+            # views remain deliberately limited to qpos/qvel. Zero is the
+            # backend bootstrap value and remains the cold-path seed.
+            return torch.zeros_like(self._control)
+
+    @staticmethod
+    def _observation_tensor_entity(term_cfg: ObservationTermCfg) -> str:
+        asset_cfg = term_cfg.params.get("asset_cfg")
+        if isinstance(asset_cfg, SceneEntityCfg):
+            return asset_cfg.name
+        entity_name = term_cfg.params.get("entity_name")
+        if entity_name is None:
+            return "robot"
+        if not isinstance(entity_name, str) or not entity_name:
+            raise TypeError(
+                "Manager tensor observation entity_name must be a non-empty string; "
+                f"got {entity_name!r}"
+            )
+        return entity_name
 
     def _validate_manager_tensor_runtime(self) -> None:
         """Bind the tensor lifecycle after backend materialization."""
@@ -796,7 +999,7 @@ class ManagerBasedRlEnv(TorchEnv):
 
         self.episode_length_buf[ids] = 0
         if self._reset_state.scene_layout is not None:
-            self._control[ids] = self._backend.get_state_views(("ctrl",))["ctrl"][ids]
+            self._control[ids] = self._initial_backend_control()[ids]
         else:
             self._control[ids] = 0.0
         self._manual_reset_pending[ids] = False
@@ -815,6 +1018,7 @@ class ManagerBasedRlEnv(TorchEnv):
                 if use_packed_reset:
                     read_plan.refresh_selected()
                 else:
+                    self._warm_external_cuda_ipc_views()
                     read_plan.refresh()
             self.command_manager.compute(dt=0.0, env_ids=ids)
             self.command_manager.post_compute()

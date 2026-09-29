@@ -165,6 +165,15 @@ def _env() -> tuple[ManagerBasedRlEnv, _Backend]:
     return env, backend
 
 
+def _tensor_observation(env: ManagerBasedRlEnv) -> torch.Tensor:
+    return torch.asarray([[0.1], [-0.1]], dtype=torch.float32, device=env.device)
+
+
+def _host_observation(env: ManagerBasedRlEnv) -> np.ndarray:
+    del env
+    return np.asarray([[1.0], [2.0]], dtype=np.float32)
+
+
 def test_root_joint_action_and_command_terms_match_numpy_contract() -> None:
     env, backend = _env()
     robot = cast(Any, env.scene["robot"])
@@ -195,15 +204,15 @@ def test_root_joint_action_and_command_terms_match_numpy_contract() -> None:
     )
 
 
-def test_last_action_publishes_torch_history_to_numpy_observation_boundary() -> None:
+def test_last_action_publishes_torch_history_without_a_host_boundary() -> None:
     env, _ = _env()
     action = torch.arange(6, dtype=torch.float32).reshape(2, 3)
     env.action_manager.action = action
 
     result = mdp.last_action(env)
 
-    assert isinstance(result, np.ndarray)
-    np.testing.assert_array_equal(result, action.numpy())
+    assert isinstance(result, torch.Tensor)
+    assert result is action
     np.testing.assert_array_equal(
         mdp.last_action(env, "legs"), env.action_manager.get_term("legs").raw_action
     )
@@ -287,6 +296,57 @@ def test_named_sensor_terms_bind_once_and_only_read_cached_views() -> None:
     gravity_term = manager.get_term_cfg("policy", "gravity").func
     assert isinstance(gyro_term, mdp.builtin_sensor)
     assert isinstance(gravity_term, mdp.projected_gravity_from_sensor)
+
+
+def test_cuda_manager_names_every_non_tensor_observation_term() -> None:
+    env, _ = _env()
+    cast(Any, env).device = torch.device("cuda", index=torch.cuda.current_device())
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "torch_sensor": ObservationTermCfg(
+                        func=_tensor_observation,
+                    ),
+                    "host_sensor": ObservationTermCfg(func=_host_observation),
+                    "another_host_sensor": ObservationTermCfg(func=_host_observation),
+                }
+            )
+        },
+        env,
+    )
+
+    with pytest.raises(TypeError) as error:
+        manager.compute_group("policy")
+
+    message = str(error.value)
+    assert "CUDA runtime device cuda" in message
+    assert "terms ['host_sensor', 'another_host_sensor'] returned NumPy observations" in message
+    assert "tensor-native" in message
+
+
+def test_cpu_manager_remains_compatible_with_mixed_carrier_observations() -> None:
+    env, _ = _env()
+    cast(Any, env).device = torch.device("cpu")
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "torch_sensor": ObservationTermCfg(func=_tensor_observation),
+                    "host_sensor": ObservationTermCfg(func=_host_observation),
+                }
+            )
+        },
+        env,
+    )
+
+    result = manager.compute_group("policy")
+
+    assert isinstance(result, torch.Tensor)
+    np.testing.assert_allclose(
+        result.detach().cpu().numpy(),
+        [[0.1, 1.0], [-0.1, 2.0]],
+    )
 
 
 @pytest.mark.parametrize(

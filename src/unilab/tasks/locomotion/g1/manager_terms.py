@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast
 from weakref import WeakKeyDictionary
 
 import numpy as np
+import torch
 
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.curriculum import EpisodeLengthTracker
@@ -97,6 +98,36 @@ def _weights(term: str, name: str, value: Any) -> np.ndarray:
     return result
 
 
+def _square(value: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
+    if isinstance(value, torch.Tensor):
+        return torch.square(value)
+    return np.square(value)
+
+
+def _exp(value: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
+    if isinstance(value, torch.Tensor):
+        return torch.exp(value)
+    return np.exp(value)
+
+
+def _values(value: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
+    if isinstance(value, torch.Tensor):
+        return value.to(dtype=torch.float32)
+    return np.asarray(value, dtype=get_global_dtype())
+
+
+def _bool_values(value: np.ndarray | torch.Tensor | Any) -> np.ndarray | torch.Tensor:
+    if isinstance(value, torch.Tensor):
+        return value.to(dtype=torch.float32)
+    return np.asarray(value, dtype=get_global_dtype())
+
+
+def _array_like(value: np.ndarray | torch.Tensor | bool | np.bool_) -> np.ndarray | torch.Tensor:
+    if isinstance(value, (bool, np.bool_)):
+        return np.asarray(value)
+    return value
+
+
 def _state(term: str, capability: str, value: Any, shape: tuple[int, ...]) -> np.ndarray:
     if not isinstance(value, np.ndarray):
         raise TypeError(f"{term} {capability} must be an np.ndarray")
@@ -127,6 +158,44 @@ def _asset(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> Entity:
 class _SensorTerm(SensorTermBase):
     """G1 manager terms share the locomotion-wide named-sensor binding."""
 
+    def _read_state_tensor(
+        self,
+        env: ManagerBasedRlEnv,
+        capability: str,
+        binding: tuple[Any, tuple[str, ...]],
+        shape: tuple[int, ...],
+    ) -> np.ndarray | torch.Tensor:
+        view, sensor_names = binding
+        read_plan = getattr(env.scene, "_tensor_read_plan", None)
+        if read_plan is not None and read_plan.device.type == "cuda":
+            owner_sensors = set(read_plan.sensor_names.get("robot", ()))
+            if not set(sensor_names).issubset(owner_sensors):
+                # Device-resident adapters currently publish only the audited
+                # named IMU subset. Body-frame task sensors still use their
+                # validated host cache until carrier migration completes.
+                read_plan = None
+        if read_plan is None:
+            return _state(self.name, capability, self._read(view, self.name), shape)
+        entity = env.scene["robot"]
+        views = read_plan.sensor_tensor_views(entity, sensor_names).values
+        if len(sensor_names) == 1:
+            values = views[sensor_names[0]]
+            if tuple(values.shape) != shape:
+                raise ValueError(
+                    f"{self.name} {capability} must have shape {shape}, got {tuple(values.shape)}"
+                )
+            if not bool(torch.isfinite(values).all()):
+                raise ValueError(f"{self.name} {capability} contains NaN or Inf")
+            return values
+        values = torch.cat([views[name] for name in sensor_names], dim=1)
+        if tuple(values.shape) != shape:
+            raise ValueError(
+                f"{self.name} {capability} must have shape {shape}, got {tuple(values.shape)}"
+            )
+        if not bool(torch.isfinite(values).all()):
+            raise ValueError(f"{self.name} {capability} contains NaN or Inf")
+        return values
+
 
 # ---------------------------------------------------------------------------
 # Gait phase state (shared by the observation term and the gait reward terms)
@@ -134,11 +203,23 @@ class _SensorTerm(SensorTermBase):
 
 
 def compute_feet_phase_height_targets(
-    gait_phase: np.ndarray, swing_height: float
-) -> tuple[np.ndarray, np.ndarray]:
+    gait_phase: np.ndarray | torch.Tensor, swing_height: float
+) -> tuple[np.ndarray | torch.Tensor, np.ndarray | torch.Tensor]:
     """Cubic-Bézier per-foot height targets, ported from the legacy G1 task."""
 
-    def cubic_bezier_height(phi: np.ndarray, swing_height: float) -> np.ndarray:
+    def cubic_bezier_height(
+        phi: np.ndarray | torch.Tensor, swing_height: float
+    ) -> np.ndarray | torch.Tensor:
+        if isinstance(phi, torch.Tensor):
+            # Keep the legacy branch structure while bounding only the half
+            # of the domain it selects; ``where`` preserves the original values.
+            phi_normalized = torch.remainder(phi + math.pi, 2 * math.pi) - math.pi
+            x = (phi_normalized + math.pi) / (2 * math.pi)
+            stance_t = (2 * x).clamp(max=1.0)
+            stance = swing_height * (stance_t**3 + 3 * stance_t**2 * (1 - stance_t))
+            swing_t = (2 * x - 1).clamp(min=0.0)
+            swing = swing_height - swing_height * (swing_t**3 + 3 * swing_t**2 * (1 - swing_t))
+            return torch.where(x <= 0.5, stance, swing)
         phi_normalized = np.fmod(phi + np.pi, 2 * np.pi) - np.pi
         x = (phi_normalized + np.pi) / (2 * np.pi)
 
@@ -161,8 +242,8 @@ def compute_feet_phase_height_targets(
 
 
 def compute_feet_phase_contact_targets(
-    gait_phase: np.ndarray, swing_height: float
-) -> tuple[np.ndarray, np.ndarray]:
+    gait_phase: np.ndarray | torch.Tensor, swing_height: float
+) -> tuple[np.ndarray | torch.Tensor, np.ndarray | torch.Tensor]:
     """Expected per-foot contact flags derived from the Bézier height targets."""
     left_target, right_target = compute_feet_phase_height_targets(gait_phase, swing_height)
     contact_height_threshold = swing_height * 0.5
@@ -171,7 +252,7 @@ def compute_feet_phase_contact_targets(
 
 @dataclass
 class _G1GaitContext:
-    phase: np.ndarray  # (num_envs, 2), radians in [0, 2*pi)
+    phase: np.ndarray | torch.Tensor  # (num_envs, 2), radians in [0, 2*pi)
     delta: float  # 2*pi*frequency*ctrl_dt
     frequency: float
     init_mode: str
@@ -190,8 +271,14 @@ def _gait_context(env: _G1Env, term: str, frequency: float, init_mode: str) -> _
             * frequency
             * _real(term, "step_dt", env.step_dt, minimum=0.0, strict_minimum=True)
         )
+        device = torch.device(env.device)
+        phase = (
+            torch.zeros((env.num_envs, 2), dtype=torch.float32, device=device)
+            if device.type == "cuda"
+            else np.zeros((env.num_envs, 2), dtype=get_global_dtype())
+        )
         context = _G1GaitContext(
-            phase=np.zeros((env.num_envs, 2), dtype=get_global_dtype()),
+            phase=phase,
             delta=delta,
             frequency=frequency,
             init_mode=init_mode,
@@ -208,7 +295,7 @@ def _gait_context(env: _G1Env, term: str, frequency: float, init_mode: str) -> _
     return context
 
 
-def _advance_gait(env: _G1Env, context: _G1GaitContext) -> np.ndarray:
+def _advance_gait(env: _G1Env, context: _G1GaitContext) -> np.ndarray | torch.Tensor:
     counter = env.common_step_counter
     if isinstance(counter, (bool, np.bool_)) or not isinstance(counter, (int, np.integer)):
         raise TypeError("G1 gait terms require an integer common_step_counter")
@@ -216,6 +303,13 @@ def _advance_gait(env: _G1Env, context: _G1GaitContext) -> np.ndarray:
     if counter < context.last_counter:
         raise ValueError("G1 gait terms common_step_counter cannot move backwards")
     two_pi = 2.0 * np.pi
+    if isinstance(context.phase, torch.Tensor):
+        steps = counter - context.last_counter
+        if steps:
+            phase = torch.remainder(context.phase + steps * context.delta, two_pi)
+            context.phase = phase
+        context.last_counter = counter
+        return context.phase
     for _ in range(counter - context.last_counter):
         context.phase = np.asarray(
             np.fmod(context.phase + context.delta, two_pi), dtype=get_global_dtype()
@@ -235,7 +329,13 @@ def _resample_gait(env: _G1Env, context: _G1GaitContext, env_ids: np.ndarray) ->
     else:
         left = env.rng.uniform(0.0, 2.0 * np.pi, size=(count,))
         right = left + np.pi
-    context.phase[ids] = np.column_stack([left, right]).astype(get_global_dtype(), copy=False)
+    samples = np.column_stack([left, right]).astype(get_global_dtype(), copy=False)
+    if isinstance(context.phase, torch.Tensor):
+        context.phase[torch.as_tensor(ids, device=context.phase.device)] = torch.from_numpy(
+            samples
+        ).to(device=context.phase.device, dtype=context.phase.dtype)
+    else:
+        context.phase[ids] = samples
 
 
 class G1GaitPhase(ManagerTermBase):
@@ -254,9 +354,12 @@ class G1GaitPhase(ManagerTermBase):
             raise ValueError(f"{self.name} init_mode must be one of {_GAIT_INIT_MODES}")
         self._context = _gait_context(env, self.name, frequency, init_mode)
 
-    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray:
+    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray | torch.Tensor:
         del params
-        return _advance_gait(env, self._context).copy()
+        phase = _advance_gait(env, self._context)
+        if isinstance(phase, torch.Tensor):
+            return phase
+        return phase.copy()
 
     def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
         if env_ids is None:
@@ -317,23 +420,32 @@ class _GaitRewardTerm(_SensorTerm):
             )
         self._linvel = self._bind(("pelvis_local_linvel",))
 
-    def _targets(self, env: _G1Env) -> tuple[np.ndarray, np.ndarray]:
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return (*_FOOT_POS_SENSORS, "pelvis_local_linvel")
+
+    def _targets(self, env: _G1Env) -> tuple[np.ndarray | torch.Tensor, np.ndarray | torch.Tensor]:
         phase = _advance_gait(env, self._context)
         return compute_feet_phase_height_targets(phase, self._swing_height)
 
-    def _foot_heights(self) -> tuple[np.ndarray, np.ndarray]:
-        values = _state(
-            self.name, "foot position", self._read(self._feet_pos, self.name), (self.num_envs, 6)
+    def _foot_heights(
+        self, env: _G1Env
+    ) -> tuple[np.ndarray | torch.Tensor, np.ndarray | torch.Tensor]:
+        values = self._read_state_tensor(
+            env, "foot position", (self._feet_pos, _FOOT_POS_SENSORS), (self.num_envs, 6)
         )
         return values[:, 2], values[:, 5]
 
-    def _gate(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        linvel = _state(
-            self.name,
+    def _gate(self, env: ManagerBasedRlEnv) -> np.ndarray | torch.Tensor:
+        linvel = self._read_state_tensor(
+            env,
             "pelvis linear velocity",
-            self._read(self._linvel, self.name),
+            (self._linvel, ("pelvis_local_linvel",)),
             (env.num_envs, 3),
         )
+        if isinstance(linvel, torch.Tensor):
+            forward_speed = torch.clamp(linvel[:, 0], min=0.0)
+            return (forward_speed >= self._min_forward_speed).to(dtype=torch.float32)
         forward_speed = np.maximum(linvel[:, 0], 0.0)
         return np.asarray(forward_speed >= self._min_forward_speed, dtype=get_global_dtype())
 
@@ -341,25 +453,32 @@ class _GaitRewardTerm(_SensorTerm):
 class feet_phase(_GaitRewardTerm):
     """Reward gait phase tracking by encouraging the expected swing-foot height."""
 
-    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray:
+    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray | torch.Tensor:
         del params
         left_target, right_target = self._targets(env)
-        left_height, right_height = self._foot_heights()
-        error = np.square(left_height - left_target) + np.square(right_height - right_target)
-        reward = np.exp(-error / self._tracking_sigma)
-        return np.asarray(reward * self._gate(env), dtype=get_global_dtype())
+        left_height, right_height = self._foot_heights(env)
+        if isinstance(left_height, torch.Tensor) or isinstance(left_target, torch.Tensor):
+            source = left_height if isinstance(left_height, torch.Tensor) else left_target
+            device = source.device
+            left_height = torch.as_tensor(left_height, device=device, dtype=torch.float32)
+            right_height = torch.as_tensor(right_height, device=device, dtype=torch.float32)
+            left_target = torch.as_tensor(left_target, device=device, dtype=torch.float32)
+            right_target = torch.as_tensor(right_target, device=device, dtype=torch.float32)
+        error = _square(left_height - left_target) + _square(right_height - right_target)
+        reward = _exp(-error / self._tracking_sigma)
+        return _values(reward * self._gate(env))
 
 
 class feet_phase_contrast(_GaitRewardTerm):
     """Reward left/right foot-height contrast against the gait-phase targets."""
 
-    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray:
+    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray | torch.Tensor:
         del params
         left_target, right_target = self._targets(env)
-        left_height, right_height = self._foot_heights()
-        error = np.square((left_height - right_height) - (left_target - right_target))
-        reward = np.exp(-error / self._tracking_sigma)
-        return np.asarray(reward * self._gate(env), dtype=get_global_dtype())
+        left_height, right_height = self._foot_heights(env)
+        error = _square((left_height - right_height) - (left_target - right_target))
+        reward = _exp(-error / self._tracking_sigma)
+        return _values(reward * self._gate(env))
 
 
 class _FootContactTerm(_GaitRewardTerm):
@@ -374,10 +493,20 @@ class _FootContactTerm(_GaitRewardTerm):
                 f"{self._contacts.dimensions} on backend '{self._contacts.backend_type}'"
             )
 
-    def _contact_pair(self) -> tuple[np.ndarray, np.ndarray]:
-        values = _state(
-            self.name, "foot contact", self._read(self._contacts, self.name), (self.num_envs, 8)
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return (*super().tensor_sensor_names, *_FOOT_CONTACT_SENSORS)
+
+    def _contact_pair(
+        self, env: ManagerBasedRlEnv
+    ) -> tuple[np.ndarray | torch.Tensor, np.ndarray | torch.Tensor]:
+        values = self._read_state_tensor(
+            env, "foot contact", (self._contacts, _FOOT_CONTACT_SENSORS), (self.num_envs, 8)
         )
+        if isinstance(values, torch.Tensor):
+            left = torch.any(values[:, :4] > 0.5, dim=1)
+            right = torch.any(values[:, 4:] > 0.5, dim=1)
+            return left, right
         left = np.any(values[:, :4] > 0.5, axis=1)
         right = np.any(values[:, 4:] > 0.5, axis=1)
         return left, right
@@ -386,24 +515,25 @@ class _FootContactTerm(_GaitRewardTerm):
 class feet_phase_contact(_FootContactTerm):
     """Reward foot contact matching the expected stance phase of the gait."""
 
-    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray:
+    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray | torch.Tensor:
         del params
         phase = _advance_gait(env, self._context)
         left_target, right_target = compute_feet_phase_contact_targets(phase, self._swing_height)
-        left_contact, right_contact = self._contact_pair()
-        left_match = np.asarray(left_contact == left_target, dtype=get_global_dtype())
-        right_match = np.asarray(right_contact == right_target, dtype=get_global_dtype())
-        reward = np.asarray(0.5 * (left_match + right_match), dtype=get_global_dtype())
-        return np.asarray(reward * self._gate(env), dtype=get_global_dtype())
+        left_contact, right_contact = self._contact_pair(env)
+        left_values: np.ndarray | torch.Tensor = left_contact
+        right_values: np.ndarray | torch.Tensor = right_contact
+        left_match = _bool_values(_array_like(left_values) == left_target)
+        right_match = _bool_values(_array_like(right_values) == right_target)
+        return _values(0.5 * (left_match + right_match) * self._gate(env))
 
 
 class feet_double_stance(_FootContactTerm):
     """Penalize double-stance contact while a forward command is active."""
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         del params
         command = _command(env, self.name, self._command_name)
-        left_contact, right_contact = self._contact_pair()
+        left_contact, right_contact = self._contact_pair(env)
         double_stance = np.asarray(
             np.logical_and(left_contact, right_contact), dtype=get_global_dtype()
         )
@@ -421,9 +551,9 @@ class feet_air_time(_FootContactTerm):
     def reset(self, env_ids: np.ndarray | slice | None = None) -> None:
         self._air_time[env_ids if env_ids is not None else slice(None)] = 0.0
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         del params
-        left_contact, right_contact = self._contact_pair()
+        left_contact, right_contact = self._contact_pair(env)
         contact = np.column_stack([left_contact, right_contact])
         step_dt = _real(self.name, "step_dt", env.step_dt, minimum=0.0, strict_minimum=True)
         self._air_time = np.where(contact, 0.0, self._air_time + step_dt).astype(
@@ -445,11 +575,15 @@ class _LinVelTerm(_SensorTerm):
         super().__init__(cfg, env)
         self._linvel = self._bind(("pelvis_local_linvel",))
 
-    def _read_linvel(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        return _state(
-            self.name,
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return ("pelvis_local_linvel",)
+
+    def _read_linvel(self, env: ManagerBasedRlEnv) -> np.ndarray | torch.Tensor:
+        return self._read_state_tensor(
+            env,
             "pelvis linear velocity",
-            self._read(self._linvel, self.name),
+            (self._linvel, ("pelvis_local_linvel",)),
             (env.num_envs, 3),
         )
 
@@ -459,8 +593,14 @@ class _GyroTerm(_SensorTerm):
         super().__init__(cfg, env)
         self._gyro = self._bind(("torso_gyro",))
 
-    def _read_gyro(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        return _state(self.name, "torso gyro", self._read(self._gyro, self.name), (env.num_envs, 3))
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return ("torso_gyro",)
+
+    def _read_gyro(self, env: ManagerBasedRlEnv) -> np.ndarray | torch.Tensor:
+        return self._read_state_tensor(
+            env, "torso gyro", (self._gyro, ("torso_gyro",)), (env.num_envs, 3)
+        )
 
 
 class _UpvectorTerm(_SensorTerm):
@@ -468,9 +608,13 @@ class _UpvectorTerm(_SensorTerm):
         super().__init__(cfg, env)
         self._upvector = self._bind(("torso_upvector",))
 
-    def _read_upvector(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        return _state(
-            self.name, "torso upvector", self._read(self._upvector, self.name), (env.num_envs, 3)
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return ("torso_upvector",)
+
+    def _read_upvector(self, env: ManagerBasedRlEnv) -> np.ndarray | torch.Tensor:
+        return self._read_state_tensor(
+            env, "torso upvector", (self._upvector, ("torso_upvector",)), (env.num_envs, 3)
         )
 
 
@@ -479,7 +623,7 @@ class forward_progress(_LinVelTerm):
 
     _allowed_params = frozenset({"command_name"})
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         command = _command(env, self.name, _term_command_name(self.name, params))
         linvel = self._read_linvel(env)
         commanded_speed = np.maximum(command[:, 0], 1e-6)
@@ -501,7 +645,7 @@ class under_speed(_LinVelTerm):
 
     _allowed_params = frozenset({"command_name"})
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         command = _command(env, self.name, _term_command_name(self.name, params))
         linvel = self._read_linvel(env)
         commanded_speed = np.maximum(command[:, 0], 1e-6)
@@ -520,9 +664,12 @@ class g1_tilt_exceeded(_UpvectorTerm):
         max_tilt_deg = _real(self.name, "max_tilt_deg", cfg.params.get("max_tilt_deg"), minimum=0.0)
         self._max_tilt_rad = math.radians(max_tilt_deg)
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         del params
         upvector = self._read_upvector(env)
+        if isinstance(upvector, torch.Tensor):
+            z = torch.clamp(upvector[:, 2], min=-1.0, max=1.0)
+            return torch.acos(z) > self._max_tilt_rad
         tilt = np.arccos(np.clip(upvector[:, 2], -1.0, 1.0))
         return np.asarray(tilt > self._max_tilt_rad, dtype=np.bool_)
 
@@ -539,18 +686,21 @@ class penalty_feet_ori(_SensorTerm):
                 f"{self._quats.dimensions} on backend '{self._quats.backend_type}'"
             )
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return _FOOT_QUAT_SENSORS
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         del params
-        values = _state(
-            self.name, "foot quaternion", self._read(self._quats, self.name), (env.num_envs, 8)
+        values = self._read_state_tensor(
+            env,
+            "foot quaternion",
+            (self._quats, _FOOT_QUAT_SENSORS),
+            (env.num_envs, 8),
         )
-        return np.asarray(
-            np.square(values[:, 1])
-            + np.square(values[:, 2])
-            + np.square(values[:, 5])
-            + np.square(values[:, 6]),
-            dtype=get_global_dtype(),
-        )
+        penalty = _square(values[:, 1]) + _square(values[:, 2])
+        penalty = penalty + _square(values[:, 5]) + _square(values[:, 6])
+        return _values(penalty)
 
 
 class penalty_close_feet_xy(_SensorTerm):
@@ -570,18 +720,30 @@ class penalty_close_feet_xy(_SensorTerm):
                 f"{self._feet_pos.dimensions} on backend '{self._feet_pos.backend_type}'"
             )
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        return _FOOT_POS_SENSORS
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         del params
-        values = _state(
-            self.name, "foot position", self._read(self._feet_pos, self.name), (env.num_envs, 6)
+        values = self._read_state_tensor(
+            env,
+            "foot position",
+            (self._feet_pos, _FOOT_POS_SENSORS),
+            (env.num_envs, 6),
         )
-        feet_dist = np.linalg.norm(values[:, :2] - values[:, 3:5], axis=1)
-        return np.asarray(
-            np.where(
+        feet_delta = values[:, :2] - values[:, 3:5]
+        if isinstance(values, torch.Tensor):
+            feet_dist = torch.linalg.vector_norm(feet_delta, dim=1)
+            feet_gap = torch.square(feet_dist - self._threshold)
+            return torch.where(
                 feet_dist < self._threshold,
-                np.square(feet_dist - self._threshold),
-                0.0,
-            ),
+                feet_gap,
+                torch.zeros_like(feet_dist),
+            ).to(dtype=torch.float32)
+        feet_dist = np.linalg.norm(feet_delta, axis=1)
+        return np.asarray(
+            np.where(feet_dist < self._threshold, _square(feet_dist - self._threshold), 0.0),
             dtype=get_global_dtype(),
         )
 
@@ -595,28 +757,47 @@ def weighted_pose(
     env: ManagerBasedRlEnv,
     pose_weights: Any,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> np.ndarray | torch.Tensor:
     """Weighted L2 penalty for joint position deviation from the default pose."""
     asset = _asset(env, asset_cfg)
-    position = asset.data.joint_pos[:, asset_cfg.joint_ids]
-    default = asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+    read_plan = getattr(env.scene, "_tensor_read_plan", None)
+    if read_plan is None:
+        position = asset.data.joint_pos[:, asset_cfg.joint_ids]
+        default = asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+    else:
+        state = read_plan.joint_tensor_view(asset)
+        position = state.joint_pos[:, asset_cfg.joint_ids]
+        default = asset.data.default_joint_pos_torch(env.device)[:, asset_cfg.joint_ids]
     weights = _weights("weighted_pose", "pose_weights", pose_weights)
     if weights.shape[0] != position.shape[1]:
         raise ValueError(
             f"weighted_pose pose_weights length {weights.shape[0]} does not match "
             f"joint count {position.shape[1]}"
         )
-    diff = _state("weighted_pose", "joint position", position, position.shape) - _state(
-        "weighted_pose", "default joint position", default, position.shape
-    )
-    return np.asarray(np.sum(weights * np.square(diff), axis=1), dtype=get_global_dtype())
+    if isinstance(position, torch.Tensor):
+        weights_torch = torch.as_tensor(
+            weights, device=position.device, dtype=position.dtype
+        ).expand_as(position)
+        diff = position - default
+    else:
+        diff = _state("weighted_pose", "joint position", position, position.shape) - _state(
+            "weighted_pose", "default joint position", default, position.shape
+        )
+        weights_torch = weights
+    return _values(torch_or_np_sum(weights_torch * _square(diff), axis=1))
+
+
+def torch_or_np_sum(value: np.ndarray | torch.Tensor, *, axis: int) -> np.ndarray | torch.Tensor:
+    if isinstance(value, torch.Tensor):
+        return torch.sum(value, dim=axis)
+    return np.sum(value, axis=axis)
 
 
 def upper_body_pose(
     env: ManagerBasedRlEnv,
     pose_weights: Any,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> np.ndarray | torch.Tensor:
     """Weighted L2 pose penalty with the twelve leg joints zeroed out."""
     weights = _weights("upper_body_pose", "pose_weights", pose_weights)
     if weights.shape[0] < 12:

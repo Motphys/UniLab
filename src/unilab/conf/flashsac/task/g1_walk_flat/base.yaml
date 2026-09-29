@@ -84,11 +84,11 @@ env:
       terms:
         base_ang_vel:
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: torso_gyro}
+          params: {sensor_name: torso_gyro, entity_name: robot}
           scale: 0.25
         projected_gravity:
           func: unilab.envs.mdp.projected_gravity_from_sensor
-          params: {sensor_name: torso_upvector}
+          params: {sensor_name: torso_upvector, entity_name: robot}
         joint_pos:
           func: unilab.envs.mdp.joint_pos_rel
           noise:
@@ -119,11 +119,11 @@ env:
       terms:
         base_ang_vel:
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: torso_gyro}
+          params: {sensor_name: torso_gyro, entity_name: robot}
           scale: 0.25
         projected_gravity:
           func: unilab.envs.mdp.projected_gravity_from_sensor
-          params: {sensor_name: torso_upvector}
+          params: {sensor_name: torso_upvector, entity_name: robot}
         joint_pos:
           func: unilab.envs.mdp.joint_pos_rel
         joint_vel:
@@ -142,7 +142,7 @@ env:
             init_mode: offset_phase
         base_lin_vel:
           func: unilab.envs.mdp.builtin_sensor
-          params: {sensor_name: pelvis_local_linvel}
+          params: {sensor_name: pelvis_local_linvel, entity_name: robot}
           scale: 2.0
   actions:
     joint_pos:
