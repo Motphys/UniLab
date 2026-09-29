@@ -55,6 +55,12 @@ env:
         motion_anchor_ori_b: null
         base_lin_vel: null
         actions: null
+        # These three are redefined below under _g-suffixed names: hydra
+        # merges nested dicts, so overriding the inherited UniformNoiseCfg
+        # noise with a Gaussian one would keep the stale n_min/n_max keys.
+        base_ang_vel: null
+        joint_pos: null
+        joint_vel: null
         # mimic-lite observation set.
         ref_root_pos_future_local: &ref_root_pos_future_local_obs
           func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_pos_future_local
@@ -77,13 +83,11 @@ env:
             _target_: unilab.managers._noise.GaussianNoiseCfg
             std: 0.01
             clamp: 3.0
-        base_ang_vel: &base_ang_vel_obs
+        base_ang_vel_g: &base_ang_vel_obs
           func: unilab.envs.mdp.builtin_sensor
           params: {sensor_name: torso_gyro}
           noise:
             _target_: unilab.managers._noise.GaussianNoiseCfg
-            n_min: null
-            n_max: null
             std: 0.2
             clamp: 3.0
         projected_gravity: &projected_gravity_obs
@@ -92,22 +96,18 @@ env:
             _target_: unilab.managers._noise.GaussianNoiseCfg
             std: 0.01
             clamp: 3.0
-        joint_pos: &joint_pos_obs
+        joint_pos_g: &joint_pos_obs
           func: unilab.tasks.motion_tracking.common.obs_terms.motion_joint_pos
           params: {command_name: motion}
           noise:
             _target_: unilab.managers._noise.GaussianNoiseCfg
-            n_min: null
-            n_max: null
             std: 0.02
             clamp: 3.0
-        joint_vel: &joint_vel_obs
+        joint_vel_g: &joint_vel_obs
           func: unilab.tasks.motion_tracking.common.obs_terms.motion_joint_vel
           params: {command_name: motion}
           noise:
             _target_: unilab.managers._noise.GaussianNoiseCfg
-            n_min: null
-            n_max: null
             std: 0.5
             clamp: 3.0
         last_action: &last_action_obs
@@ -127,14 +127,17 @@ env:
         body_pos: null
         body_ori: null
         sac_base_lin_vel: null
+        base_ang_vel: null
+        joint_pos: null
+        joint_vel: null
         # Shared actor terms.
         ref_root_pos_future_local: *ref_root_pos_future_local_obs
         ref_root_ori_future_b: *ref_root_ori_future_b_obs
         ref_joint_pos_future: *ref_joint_pos_future_obs
-        base_ang_vel: *base_ang_vel_obs
+        base_ang_vel_g: *base_ang_vel_obs
         projected_gravity: *projected_gravity_obs
-        joint_pos: *joint_pos_obs
-        joint_vel: *joint_vel_obs
+        joint_pos_g: *joint_pos_obs
+        joint_vel_g: *joint_vel_obs
         last_action: *last_action_obs
         # Privileged terms.
         ref_root_pos_future_b:
