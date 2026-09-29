@@ -44,6 +44,20 @@ def _noisy_cfg() -> dict[str, ObservationGroupCfg]:
     }
 
 
+def _row_scale_cfg() -> dict[str, ObservationGroupCfg]:
+    """Exercise a per-environment scale on the row-scoped reset path."""
+    return {
+        "policy": ObservationGroupCfg(
+            terms={
+                "scaled": ObservationTermCfg(
+                    func=lambda env: env.obs,
+                    scale=np.array([[1.0], [10.0], [100.0], [1000.0]], dtype=np.float32),
+                ),
+            },
+        ),
+    }
+
+
 def test_partial_reset_row_scoped_noise() -> None:
     env = FakeEnv(seed=11)
     manager = ObservationManager(_noisy_cfg(), env)
@@ -88,6 +102,17 @@ def test_partial_reset_does_not_populate_obs_cache() -> None:
     manager.compute(update_history=True)
     assert manager._obs_buffer is not None
     assert manager._obs_buffer["policy"].shape[0] == env.num_envs
+
+
+def test_partial_reset_slices_per_env_scale() -> None:
+    env = FakeEnv(seed=13)
+    manager = ObservationManager(_row_scale_cfg(), env)
+    full = manager.compute(update_history=True)
+    ids = np.array([1, 3], dtype=np.int32)
+    rows = manager.compute(update_history=True, env_ids=ids)
+
+    assert rows["policy"].shape == (len(ids), full["policy"].shape[1])
+    np.testing.assert_allclose(rows["policy"].cpu().numpy(), full["policy"][ids].cpu().numpy())
 
 
 def test_partial_reset_temporal_group_falls_back_and_preserves_rows() -> None:

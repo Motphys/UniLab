@@ -524,16 +524,32 @@ class ObservationManager(ManagerBase):
                         out=host_obs,
                     )
             if term_cfg.scale is not None:
-                scale = term_cfg.scale
                 if tensor_obs:
                     tensor_obs_value = cast("torch.Tensor", obs)
+                    scale_tensor = self._scale_tensors[id(term_cfg)]
+                    if (
+                        env_ids is not None
+                        and scale_tensor.ndim != 0
+                        and scale_tensor.shape[0] == self.num_envs
+                    ):
+                        # Row-scoped reset terms slice the observation before
+                        # in-place scaling. Slice the prebroadcast full-batch
+                        # scale by the same manager row indices.
+                        scale_tensor = scale_tensor[
+                            torch.as_tensor(
+                                np.asarray(env_ids, dtype=np.int64), device=self._device
+                            )
+                        ]
                     torch.multiply(
                         tensor_obs_value,
-                        self._scale_tensors[id(term_cfg)],
+                        scale_tensor,
                         out=tensor_obs_value,
                     )
                 else:
-                    assert isinstance(scale, np.ndarray)
+                    assert isinstance(term_cfg.scale, np.ndarray)
+                    scale = term_cfg.scale
+                    if env_ids is not None and scale.ndim != 0 and scale.shape[0] == self.num_envs:
+                        scale = scale[env_ids]
                     host_obs = cast("np.ndarray", obs)
                     np.multiply(host_obs, scale, out=host_obs)
 
