@@ -1,0 +1,43 @@
+# @package _global_
+# Wide-kernel tracking warm-up for the deployment-compatible actor.
+#
+# The 514-d observation contract is inherited unchanged from v4.  The wider
+# exponential kernels keep a useful gradient while the policy is far from the
+# reference; v4's narrow kernels otherwise make the low-action survival policy
+# an easier local optimum.  This is a no-DR diagnostic/warm-up owner, not yet a
+# final-DR owner.
+defaults:
+  - /task/g1_wbt_obs_v4_critic_first/mjwarp
+  - _self_
+
+algo:
+  max_iterations: 80000
+  save_interval: 1000
+
+reward:
+  motion_global_root_pos:
+    weight: 1.0
+    params: {std: 0.6}
+  motion_global_root_ori:
+    weight: 1.0
+    params: {std: 0.8}
+  motion_body_pos:
+    weight: 1.0
+    params: {std: 0.6}
+  motion_body_ori:
+    weight: 1.0
+    params: {std: 0.8}
+  motion_body_lin_vel:
+    weight: 1.0
+    params: {std: 2.0}
+  motion_body_ang_vel:
+    weight: 1.0
+    params: {std: 4.0}
+  motion_joint_pos:
+    weight: 2.0
+    params: {std: 0.6}
+  motion_joint_vel:
+    weight: 0.2
+    params: {std: 2.0}
+  joint_limit:
+    weight: -1.0

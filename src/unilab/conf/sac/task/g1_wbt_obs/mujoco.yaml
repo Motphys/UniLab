@@ -16,6 +16,8 @@ algo:
   num_atoms: 501
   updates_per_step: 4
   policy_frequency: 2
+  # Historical May-24 deployable SAC profile used empirical obs normalization.
+  obs_normalization: true
   algo_params:
     alpha_init: 0.1
     target_entropy_ratio: 0.5
@@ -160,9 +162,9 @@ env:
       is_global_time: true
       params:
         velocity_range:
-          x: [-1.0, 1.0]
-          y: [-1.0, 1.0]
-          z: [-0.5, 0.5]
+          x: [-0.18, 0.18]
+          y: [-0.18, 0.18]
+          z: [-0.072, 0.072]
           roll: [0.0, 0.0]
           pitch: [0.0, 0.0]
           yaw: [0.0, 0.0]

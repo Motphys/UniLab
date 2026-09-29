@@ -963,6 +963,106 @@ def motion_joint_velocity_error_exp(
     return np.exp(error, out=error)
 
 
+def _normalized_squared_error(
+    reference: np.ndarray,
+    actual: np.ndarray,
+    scale: float,
+    *,
+    term_name: str,
+) -> np.ndarray:
+    """Return a dense negative mean-squared tracking error.
+
+    The exponential tracking terms are useful near the target but their
+    gradient vanishes when the initial motion error is large.  These terms
+    deliberately keep a non-zero, linear-in-error gradient for the warm-up
+    stage.  ``reference`` and ``actual`` are never modified in place.
+    """
+    error = np.subtract(reference, actual)
+    np.square(error, out=error)
+    if error.ndim > 1:
+        error = error.mean(axis=tuple(range(1, error.ndim)))
+    scale_value = _positive_std(scale, term_name=term_name)
+    return -error / (scale_value**2)
+
+
+def motion_global_body_linear_velocity_error_l2(
+    env: ManagerBasedRlEnv, command_name: str, scale: float
+) -> np.ndarray:
+    """Dense normalized body linear-velocity tracking penalty."""
+    command = _command(env, command_name)
+    return _normalized_squared_error(
+        command.body_lin_vel_w,
+        command.robot_body_lin_vel_w,
+        scale,
+        term_name="motion body linear velocity",
+    )
+
+
+def motion_global_body_angular_velocity_error_l2(
+    env: ManagerBasedRlEnv, command_name: str, scale: float
+) -> np.ndarray:
+    """Dense normalized body angular-velocity tracking penalty."""
+    command = _command(env, command_name)
+    return _normalized_squared_error(
+        command.body_ang_vel_w,
+        command.robot_body_ang_vel_w,
+        scale,
+        term_name="motion body angular velocity",
+    )
+
+
+def motion_joint_velocity_error_l2(
+    env: ManagerBasedRlEnv, command_name: str, scale: float
+) -> np.ndarray:
+    """Dense normalized joint-velocity tracking penalty."""
+    command = _command(env, command_name)
+    return _normalized_squared_error(
+        command.joint_vel,
+        command.robot_joint_vel,
+        scale,
+        term_name="motion joint velocity",
+    )
+
+
+def motion_joint_action_prior_l2(
+    env: ManagerBasedRlEnv,
+    command_name: str,
+    action_name: str,
+    scale: float,
+) -> np.ndarray:
+    """Dense prior matching raw actions to the reference joint target.
+
+    ``MotionJointPositionAction`` applies ``raw * scale + default + bias``.
+    Matching the reference target gives the actor a non-vanishing action signal
+    while keeping the actor observation unchanged: the reference joint target
+    is already present in the 58-D motion command.  Encoder bias is deliberately
+    omitted from the prior so the actor is not trained on a deployment-hidden
+    reset randomization.
+    """
+    command = _command(env, command_name)
+    action_term = env.action_manager.get_term(action_name)
+    if not isinstance(action_term, JointPositionAction):
+        raise TypeError(
+            f"motion_joint_action_prior_l2 requires JointPositionAction, "
+            f"got {type(action_term).__name__}"
+        )
+    raw_action = action_term.raw_action
+    action_scale = np.asarray(action_term.scale)
+    action_offset = np.asarray(action_term.offset)
+    if action_scale.ndim == 0:
+        action_scale = np.full_like(raw_action, action_scale)
+    if action_offset.ndim == 0:
+        action_offset = np.full_like(raw_action, action_offset)
+    target_raw = command.joint_pos - action_offset - command.joint_default_bias
+    np.divide(target_raw, action_scale, out=target_raw)
+    return _normalized_squared_error(
+        target_raw,
+        raw_action,
+        scale,
+        term_name="motion joint action prior",
+    )
+
+
 def joint_pos_limits(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -1160,11 +1260,15 @@ __all__ = [
     "motion_global_anchor_orientation_error_exp",
     "motion_global_anchor_position_error_exp",
     "motion_global_body_angular_velocity_error_exp",
+    "motion_global_body_angular_velocity_error_l2",
     "motion_global_body_linear_velocity_error_exp",
+    "motion_global_body_linear_velocity_error_l2",
     "motion_joint_pos_rel",
     "motion_joint_pos_rel_biased",
     "motion_joint_position_error_exp",
+    "motion_joint_action_prior_l2",
     "motion_joint_velocity_error_exp",
+    "motion_joint_velocity_error_l2",
     "motion_relative_body_orientation_error_exp",
     "motion_relative_body_position_error_exp",
     "motion_relative_body_position_z_error_exp",

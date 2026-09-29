@@ -1,0 +1,12 @@
+# @package _global_
+# v6 kernel curriculum with a less aggressive entropy-temperature target.
+# Keep one v6 seed as the control; this A/B tests whether temperature collapse
+# is the trigger for the 6k survival/drift turn.
+defaults:
+  - /task/g1_wbt_obs_v6_velocity_kernel_curriculum/mjwarp
+  - _self_
+
+algo:
+  algo_params:
+    temp_initial_value: 0.1
+    temp_target_sigma: 0.25

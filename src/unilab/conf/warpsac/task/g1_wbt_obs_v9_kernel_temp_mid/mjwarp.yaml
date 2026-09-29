@@ -1,0 +1,10 @@
+# @package _global_
+# Mid-temperature A/B between v7 (.25) and v8 (.8).
+defaults:
+  - /task/g1_wbt_obs_v6_velocity_kernel_curriculum/mjwarp
+  - _self_
+
+algo:
+  algo_params:
+    temp_initial_value: 0.1
+    temp_target_sigma: 0.55

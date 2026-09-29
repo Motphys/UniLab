@@ -1,0 +1,84 @@
+# @package _global_
+# Deployment-compatible velocity-wide tracking with a staged kernel schedule.
+#
+# The wide v5 kernels are useful for credit assignment but inflate the scalar
+# reward while physical error is still large.  Narrow the same reward terms
+# before the first DR stage so promotion is based on actual tracking.
+defaults:
+  - /task/g1_wbt_obs_v5_velocity_wide/mjwarp
+  - _self_
+
+env:
+  curriculum:
+    root_pos_kernel:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: motion_global_root_pos
+        stages:
+          - {step: 0, params: {std: 0.6}}
+          - {step: 8000, params: {std: 0.45}}
+          - {step: 16000, params: {std: 0.36}}
+          - {step: 20000, params: {std: 0.3}}
+    root_ori_kernel:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: motion_global_root_ori
+        stages:
+          - {step: 0, params: {std: 0.8}}
+          - {step: 8000, params: {std: 0.6}}
+          - {step: 16000, params: {std: 0.48}}
+          - {step: 20000, params: {std: 0.4}}
+    body_pos_kernel:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: motion_body_pos
+        stages:
+          - {step: 0, params: {std: 0.6}}
+          - {step: 8000, params: {std: 0.45}}
+          - {step: 16000, params: {std: 0.36}}
+          - {step: 20000, params: {std: 0.3}}
+    body_ori_kernel:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: motion_body_ori
+        stages:
+          - {step: 0, params: {std: 0.8}}
+          - {step: 8000, params: {std: 0.6}}
+          - {step: 16000, params: {std: 0.48}}
+          - {step: 20000, params: {std: 0.4}}
+    body_lin_vel_kernel:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: motion_body_lin_vel
+        stages:
+          - {step: 0, params: {std: 4.0}}
+          - {step: 8000, params: {std: 2.0}}
+          - {step: 16000, params: {std: 1.25}}
+          - {step: 20000, params: {std: 1.0}}
+    body_ang_vel_kernel:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: motion_body_ang_vel
+        stages:
+          - {step: 0, params: {std: 10.0}}
+          - {step: 8000, params: {std: 6.0}}
+          - {step: 16000, params: {std: 4.0}}
+          - {step: 20000, params: {std: 3.14}}
+    joint_pos_kernel:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: motion_joint_pos
+        stages:
+          - {step: 0, params: {std: 0.6}}
+          - {step: 8000, params: {std: 0.45}}
+          - {step: 16000, params: {std: 0.36}}
+          - {step: 20000, params: {std: 0.3}}
+    joint_vel_kernel:
+      func: unilab.envs.mdp.reward_curriculum
+      params:
+        reward_name: motion_joint_vel
+        stages:
+          - {step: 0, params: {std: 4.0}}
+          - {step: 8000, params: {std: 2.0}}
+          - {step: 16000, params: {std: 1.25}}
+          - {step: 20000, params: {std: 1.0}}

@@ -1,0 +1,68 @@
+# @package _global_
+# Diagnostic privileged teacher only.  The actor group is populated from the
+# critic terms to test whether root/velocity tracking is learnable when the
+# missing privileged signals are observable.  This owner is not deployable.
+defaults:
+  - /task/g1_wbt_obs_v4_critic_first/mjwarp
+  - _self_
+
+env:
+  policy_observation_group: actor
+  critic_observation_group: critic
+  observations:
+    actor:
+      # Do not use a nested Hydra interpolation here.  In this owner it is
+      # retained as a literal/default merge and leaves the actor at 514 dims.
+      # Keep the group names distinct (the env contract requires that), while
+      # explicitly giving the diagnostic teacher the privileged terms.
+      terms:
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: motion}
+        motion_anchor_pos_b:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_anchor_pos_b
+          params: {command_name: motion}
+        motion_anchor_ori_b:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_anchor_ori_b
+          params: {command_name: motion}
+        base_lin_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: pelvis_local_linvel}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.1
+            n_max: 0.1
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: pelvis_gyro}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
+        joint_pos:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel
+          params: {command_name: motion}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -1.5
+            n_max: 1.5
+        actions:
+          func: unilab.envs.mdp.last_action
+        body_pos:
+          func: unilab.tasks.motion_tracking.common.manager_terms.robot_body_pos_b
+          params: {command_name: motion}
+        body_ori:
+          func: unilab.tasks.motion_tracking.common.manager_terms.robot_body_ori_b
+          params: {command_name: motion}
+        sac_base_lin_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: pelvis_local_linvel}
+
+training:
+  export_onnx: false
