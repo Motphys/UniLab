@@ -46,6 +46,40 @@ def _command(env: ManagerBasedRlEnv, command_name: str) -> MotionCommand:
     return command
 
 
+def _future_aux(command: MotionCommand, future: MotionObsFuture, key: str, compute):
+    """Memoize derived per-step quantities on the command, keyed by future identity.
+
+    ``MotionCommand.obs_future`` returns a fresh ``MotionObsFuture`` whenever
+    the underlying gather is recomputed (new env step, or the reset path's
+    motion-reference refresh), so identity-keyed memoization stays consistent
+    without hooking manager internals. The memo holds a strong reference to
+    each future (preventing id reuse) and is bounded: it resets once more
+    than 8 distinct futures accumulate.
+    """
+    memo = getattr(command, "_obs_terms_aux_memo", None)
+    if memo is None or len(memo) >= 8:
+        memo = {}
+        command._obs_terms_aux_memo = memo
+    entry = memo.get(id(future))
+    if entry is None or entry[0] is not future:
+        entry = (future, {})
+        memo[id(future)] = entry
+    values: dict = entry[1]
+    if key not in values:
+        values[key] = compute()
+    return values[key]
+
+
+def _robot_anchor_yaw(command: MotionCommand, future: MotionObsFuture) -> np.ndarray:
+    """Robot root projected-yaw quats, shared by all robot-frame terms in a step."""
+    return _future_aux(
+        command,
+        future,
+        "robot_anchor_yaw",
+        lambda: _projected_yaw_quat(command.obs_robot_root_quat_w),
+    )
+
+
 def _projected_yaw_quat(quat: np.ndarray, x_axis_xy_threshold: float = 0.1) -> np.ndarray:
     """Build a level yaw quaternion from horizontal axis projections.
 
@@ -104,6 +138,19 @@ def _z0ed(arr: np.ndarray) -> np.ndarray:
 def _diff_body_frames(
     command: MotionCommand, future: MotionObsFuture
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Memoized wrapper around :func:`_compute_diff_body_frames`.
+
+    The pos- and ori-diff terms need the same local frames, so the (E, S, B,
+    ...) quaternion transforms are computed at most once per gathered future.
+    """
+    return _future_aux(
+        command, future, "diff_body_frames", lambda: _compute_diff_body_frames(command, future)
+    )
+
+
+def _compute_diff_body_frames(
+    command: MotionCommand, future: MotionObsFuture
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Shared projected-yaw local frames for the body-diff observations.
 
     Ports mimic-lite's ``_compute_body_diff_obs``: reference bodies are
@@ -125,7 +172,7 @@ def _diff_body_frames(
     ref_anchor_pos_w = _z0ed(future.ref_body_pos_w[:, idx0, root_idx])
     ref_anchor_yaw_quat_w = _projected_yaw_quat(future.ref_body_quat_w[:, idx0, root_idx])
     robot_anchor_pos_w = _z0ed(command.obs_robot_root_pos_w)
-    robot_anchor_yaw_quat_w = _projected_yaw_quat(command.obs_robot_root_quat_w)
+    robot_anchor_yaw_quat_w = _robot_anchor_yaw(command, future)
 
     ref_pos_local = np_quat_apply_inverse_batched(
         ref_anchor_yaw_quat_w[:, None, None, :],
@@ -165,7 +212,7 @@ def ref_root_pos_future_local(
     command = _command(env, command_name)
     future = command.obs_future(future_steps)
     ref_root_pos_w = future.ref_body_pos_w[:, :, command.obs_root_body_idx]
-    robot_yaw_quat_w = _projected_yaw_quat(command.obs_robot_root_quat_w)
+    robot_yaw_quat_w = _robot_anchor_yaw(command, future)
     local = np_quat_apply_inverse_batched(
         robot_yaw_quat_w[:, None, :],
         ref_root_pos_w - command.obs_robot_root_pos_w[:, None, :],

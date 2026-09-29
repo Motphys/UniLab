@@ -1,12 +1,9 @@
 # @package _global_
 # Canonical G1 Whole-Body Tracking (WBT) Manager-Based task declaration for
-# FlashSAC owners. Env/reward semantics match
-# conf/sac/task/g1_motion_tracking/mujoco.yaml so the sim2sim DENYLIST
-# contract keeps parity across backends; the observation groups follow the
-# mimic-lite tracking layout (future-step reference windows + proprio for the
-# actor, plus privileged ref/diff terms for the critic) instead of the SAC
-# tree's observation set. Backend owner leaves inherit this file and only
-# override backend/algo tuning.
+# FlashSAC owners. Env/reward identity matches
+# conf/sac/task/g1_motion_tracking/mujoco.yaml verbatim so the sim2sim
+# DENYLIST contract keeps parity across algos and backends; backend owner
+# leaves inherit this file and only override backend/algo tuning.
 env:
   seed: null
   scene:
@@ -46,10 +43,7 @@ env:
           - right_wrist_pitch_joint
           - right_wrist_yaw_joint
         actuator_names: *g1_joints
-        # 16 bodies: the 14 reward-tracking bodies (mirrored verbatim in
-        # commands.motion.params.body_names) plus the two shoulder-yaw links
-        # the mimic-lite observation body set needs.
-        body_names:
+        body_names: &tracked_bodies
           - pelvis
           - left_hip_roll_link
           - left_knee_link
@@ -64,104 +58,70 @@ env:
           - right_shoulder_roll_link
           - right_elbow_link
           - right_wrist_yaw_link
-          - left_shoulder_yaw_link
-          - right_shoulder_yaw_link
   sim_dt: 0.006666666666666667
   ctrl_dt: 0.02
   max_episode_seconds: 10.0
   observations:
-    # mimic-lite-style observation groups. Actor: future-step reference
-    # windows (frames [-8, -4, -2, 0, 1, 2, 3, 4] at the 50 Hz control rate)
-    # plus single-step proprio; noise is Gaussian clamped at 3 sigma, matching
-    # mimic-lite's `randn.clamp(-3, 3) * std`. Critic: the (shared) actor
-    # terms plus privileged reference/diff terms over the 9-body obs set and
-    # the applied action/torque.
     actor:
       enable_corruption: true
       terms:
-        ref_root_pos_future_local: &ref_root_pos_future_local_obs
-          func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_pos_future_local
-          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
+        command: &command_obs
+          func: unilab.envs.mdp.generated_commands
+          params: {command_name: motion}
+        motion_anchor_pos_b: &anchor_pos_obs
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_anchor_pos_b
+          params: {command_name: motion}
+        motion_anchor_ori_b: &anchor_ori_obs
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_anchor_ori_b
+          params: {command_name: motion}
+        base_lin_vel: &base_lin_vel_obs
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: pelvis_local_linvel}
           noise:
-            _target_: unilab.managers._noise.GaussianNoiseCfg
-            std: 0.005
-            clamp: 3.0
-        ref_root_ori_future_b: &ref_root_ori_future_b_obs
-          func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_ori_future_b
-          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
-          noise:
-            _target_: unilab.managers._noise.GaussianNoiseCfg
-            std: 0.05
-            clamp: 3.0
-        ref_joint_pos_future: &ref_joint_pos_future_obs
-          func: unilab.tasks.motion_tracking.common.obs_terms.ref_joint_pos_future
-          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
-          noise:
-            _target_: unilab.managers._noise.GaussianNoiseCfg
-            std: 0.01
-            clamp: 3.0
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.1
+            n_max: 0.1
         base_ang_vel: &base_ang_vel_obs
           func: unilab.envs.mdp.builtin_sensor
           params: {sensor_name: torso_gyro}
           noise:
-            _target_: unilab.managers._noise.GaussianNoiseCfg
-            std: 0.2
-            clamp: 3.0
-        projected_gravity: &projected_gravity_obs
-          func: unilab.envs.mdp.projected_gravity
-          noise:
-            _target_: unilab.managers._noise.GaussianNoiseCfg
-            std: 0.01
-            clamp: 3.0
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
         joint_pos: &joint_pos_obs
-          func: unilab.tasks.motion_tracking.common.obs_terms.motion_joint_pos
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel
           params: {command_name: motion}
           noise:
-            _target_: unilab.managers._noise.GaussianNoiseCfg
-            std: 0.02
-            clamp: 3.0
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.01
+            n_max: 0.01
         joint_vel: &joint_vel_obs
-          func: unilab.tasks.motion_tracking.common.obs_terms.motion_joint_vel
-          params: {command_name: motion}
+          func: unilab.envs.mdp.joint_vel_rel
           noise:
-            _target_: unilab.managers._noise.GaussianNoiseCfg
-            std: 0.5
-            clamp: 3.0
-        last_action: &last_action_obs
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -1.5
+            n_max: 1.5
+        actions: &actions_obs
           func: unilab.envs.mdp.last_action
     critic:
-      # Corruption mirrors mimic-lite, where the critic consumes the same
-      # noised policy observations; the privileged terms carry no noise.
-      enable_corruption: true
       terms:
-        ref_root_pos_future_local: *ref_root_pos_future_local_obs
-        ref_root_ori_future_b: *ref_root_ori_future_b_obs
-        ref_joint_pos_future: *ref_joint_pos_future_obs
+        command: *command_obs
+        motion_anchor_pos_b: *anchor_pos_obs
+        motion_anchor_ori_b: *anchor_ori_obs
+        base_lin_vel: *base_lin_vel_obs
         base_ang_vel: *base_ang_vel_obs
-        projected_gravity: *projected_gravity_obs
         joint_pos: *joint_pos_obs
         joint_vel: *joint_vel_obs
-        last_action: *last_action_obs
-        ref_root_pos_future_b:
-          func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_pos_future_b
-          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
-        diff_body_pos_future_local:
-          func: unilab.tasks.motion_tracking.common.obs_terms.diff_body_pos_future_local
-          params: {command_name: motion, future_steps: [0, 1]}
-        diff_body_ori_future_local:
-          func: unilab.tasks.motion_tracking.common.obs_terms.diff_body_ori_future_local
-          params: {command_name: motion, future_steps: [0, 1]}
-        diff_body_lin_vel_future:
-          func: unilab.tasks.motion_tracking.common.obs_terms.diff_body_lin_vel_future
-          params: {command_name: motion, future_steps: [0, 1]}
-        diff_body_ang_vel_future:
-          func: unilab.tasks.motion_tracking.common.obs_terms.diff_body_ang_vel_future
-          params: {command_name: motion, future_steps: [0, 1]}
-        applied_action:
-          func: unilab.tasks.motion_tracking.common.obs_terms.motion_applied_action
-        applied_torque:
-          func: unilab.tasks.motion_tracking.common.obs_terms.motion_applied_torque
+        actions: *actions_obs
+        body_pos:
+          func: unilab.tasks.motion_tracking.common.manager_terms.robot_body_pos_b
           params: {command_name: motion}
+        body_ori:
+          func: unilab.tasks.motion_tracking.common.manager_terms.robot_body_ori_b
+          params: {command_name: motion}
+        sac_base_lin_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: pelvis_local_linvel}
   actions:
     joint_pos:
       _target_: unilab.tasks.motion_tracking.common.manager_terms.MotionJointPositionActionCfg
@@ -178,36 +138,7 @@ env:
       params:
         motion_file: motions/g1/dance1_subject2_part.npz
         anchor_body_name: torso_link
-        # Reward-facing tracked bodies (14); must mirror the first 14 entries
-        # of env.scene.entities.robot.body_names.
-        body_names:
-          - pelvis
-          - left_hip_roll_link
-          - left_knee_link
-          - left_ankle_roll_link
-          - right_hip_roll_link
-          - right_knee_link
-          - right_ankle_roll_link
-          - torso_link
-          - left_shoulder_roll_link
-          - left_elbow_link
-          - left_wrist_yaw_link
-          - right_shoulder_roll_link
-          - right_elbow_link
-          - right_wrist_yaw_link
-        # mimic-lite observation body set (9 on this G1 model: no toe_link,
-        # matching mimic-lite's intersection with available bodies).
-        obs_body_names:
-          - pelvis
-          - left_knee_link
-          - right_knee_link
-          - left_shoulder_yaw_link
-          - right_shoulder_yaw_link
-          - left_elbow_link
-          - right_elbow_link
-          - left_wrist_yaw_link
-          - right_wrist_yaw_link
-        obs_root_body_name: pelvis
+        body_names: *tracked_bodies
         sampling_mode: adaptive
         sampling_start_ratio: 0.0
         truncate_on_clip_end: true
@@ -292,15 +223,6 @@ reward:
     func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_velocity_error_exp
     weight: 0.0
     params: {command_name: motion, std: 1.0}
-  # KDTO+T torque tracking (SPARK): disabled by default via weight 0.0, the
-  # repo's reward-term off switch (RewardManager skips zero-weight terms).
-  # Enable on a torque-reference NPZ with
-  # `reward.motion_joint_torque.weight=1.0`; the term returns zeros when the
-  # motion file carries no joint_torque/joint_torque_limit fields.
-  motion_joint_torque:
-    func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_torque
-    weight: 0.0
-    params: {command_name: motion, std: 0.5}
   action_rate_l2:
     func: unilab.envs.mdp.action_rate_l2
     weight: -0.1

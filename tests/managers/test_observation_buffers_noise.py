@@ -417,3 +417,146 @@ def test_class_terms_are_never_shared_across_groups() -> None:
     )
     assert manager._group_obs_term_share["policy"] == {}
     assert manager._group_obs_term_share["critic"] == {}
+
+
+def test_list_param_terms_share_raw_compute_across_groups() -> None:
+    """Terms whose params contain lists (e.g. future_steps windows) must still
+    share raw compute across groups — the share key freezes containers."""
+    calls = {"n": 0}
+
+    def windowed(env: FakeEnv, future_steps: list[int]) -> np.ndarray:
+        calls["n"] += 1
+        width = len(future_steps)
+        return np.tile(env.obs[:, :1], (1, width))
+
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={"ref": ObservationTermCfg(func=windowed, params={"future_steps": [0, 1, 2]})}
+            ),
+            "critic": ObservationGroupCfg(
+                terms={"ref": ObservationTermCfg(func=windowed, params={"future_steps": [0, 1, 2]})}
+            ),
+        },
+        FakeEnv(seed=11),
+    )
+    calls["n"] = 0
+    out = manager.compute(update_history=True)
+    assert calls["n"] == 1
+    np.testing.assert_array_equal(out["policy"], out["critic"])
+
+
+def test_fused_noise_matches_per_term_distribution() -> None:
+    """Fused group noise reproduces per-term Gaussian add noise slice-wise,
+    including term scale remapping and clamping; noiseless terms stay exact."""
+
+    def term_a(env: FakeEnv) -> np.ndarray:
+        return np.ones((env.num_envs, 4), dtype=np.float32)
+
+    def term_b(env: FakeEnv) -> np.ndarray:
+        return np.zeros((env.num_envs, 2), dtype=np.float32)
+
+    def build(fused: bool) -> ObservationManager:
+        return ObservationManager(
+            {
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "a": ObservationTermCfg(
+                            func=term_a,
+                            noise=GaussianNoiseCfg(std=0.5, clamp=3.0),
+                            scale=2.0,
+                        ),
+                        "b": ObservationTermCfg(func=term_b),
+                    },
+                    enable_corruption=True,
+                    fused_noise=fused,
+                )
+            },
+            FakeEnv(seed=13, num_envs=256),
+        )
+
+    fused = build(fused=True)
+    per_term = build(fused=False)
+    fused_out = np.stack([fused.compute(update_history=True)["policy"] for _ in range(40)])
+    per_term_out = np.stack([per_term.compute(update_history=True)["policy"] for _ in range(40)])
+
+    # Slice a: scale 2.0 remaps std 0.5 -> 1.0 in output units; signal is 1*2.
+    for out in (fused_out, per_term_out):
+        np.testing.assert_allclose(out[..., :4].mean(), 2.0, atol=0.05)
+        np.testing.assert_allclose(out[..., :4].std(), 1.0, atol=0.05)
+        assert np.abs(out[..., :4] - 2.0).max() <= 3.0 * 1.0 + 1e-5
+        # Slice b: no noise configured, stays exact.
+        np.testing.assert_array_equal(out[..., 4:], 0.0)
+
+
+def test_fused_noise_reset_path_noises_reset_rows_only() -> None:
+    """On the row-scoped reset path the fused draw covers only the reset rows."""
+
+    def term_a(env: FakeEnv) -> np.ndarray:
+        return np.zeros((env.num_envs, 3), dtype=np.float32)
+
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "a": ObservationTermCfg(func=term_a, noise=GaussianNoiseCfg(std=1.0, clamp=3.0))
+                },
+                enable_corruption=True,
+                fused_noise=True,
+            )
+        },
+        FakeEnv(seed=17, num_envs=8),
+    )
+    out = manager.compute(update_history=True, env_ids=np.array([1, 5]))
+    assert out["policy"].shape == (2, 3)
+    assert np.abs(out["policy"]).max() > 0.0
+
+
+def test_fused_noise_rejects_unsupported_configs() -> None:
+    def term_a(env: FakeEnv) -> np.ndarray:
+        return np.zeros((env.num_envs, 2), dtype=np.float32)
+
+    with pytest.raises(ValueError, match="delay/history"):
+        ObservationManager(
+            {
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "a": ObservationTermCfg(
+                            func=term_a,
+                            noise=GaussianNoiseCfg(std=1.0),
+                            history_length=2,
+                        )
+                    },
+                    enable_corruption=True,
+                    fused_noise=True,
+                )
+            },
+            FakeEnv(seed=19),
+        )
+    with pytest.raises(ValueError, match="GaussianNoiseCfg"):
+        ObservationManager(
+            {
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "a": ObservationTermCfg(
+                            func=term_a, noise=UniformNoiseCfg(n_min=-1.0, n_max=1.0)
+                        )
+                    },
+                    enable_corruption=True,
+                    fused_noise=True,
+                )
+            },
+            FakeEnv(seed=19),
+        )
+    with pytest.raises(ValueError, match="concatenate"):
+        ObservationManager(
+            {
+                "policy": ObservationGroupCfg(
+                    terms={"a": ObservationTermCfg(func=term_a, noise=GaussianNoiseCfg(std=1.0))},
+                    enable_corruption=True,
+                    concatenate_terms=False,
+                    fused_noise=True,
+                )
+            },
+            FakeEnv(seed=19),
+        )

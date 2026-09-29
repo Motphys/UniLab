@@ -1,0 +1,199 @@
+# @package _global_
+# mimic-lite observation variant of the G1 WBT FlashSAC mjwarp task.
+#
+# Inherits the canonical mjwarp owner (base -> mujoco -> mjwarp chain keeps
+# the sim2sim DENYLIST parity and reward/env semantics) and replaces ONLY the
+# observation layout with the mimic-lite tracking set: future-step reference
+# windows (frames [-8, -4, -2, 0, 1, 2, 3, 4] at the 50 Hz control rate) plus
+# single-step proprio for the actor, and the (shared) actor terms plus
+# privileged ref/diff terms over the 9-body obs set for the critic. Noise is
+# Gaussian clamped at 3 sigma, matching mimic-lite's `randn.clamp(-3, 3) *
+# std`, applied as one fused draw per group (ObservationGroupCfg.fused_noise).
+#
+# Hydra merges term dicts, so the base observation terms are explicitly
+# nulled before the mimic-lite terms are added (a null term is skipped by
+# ObservationManager).
+defaults:
+  - /task/g1_motion_tracking/mjwarp
+  - _self_
+
+env:
+  scene:
+    entities:
+      robot:
+        # 16 bodies: the 14 reward-tracking bodies (mirrored verbatim in
+        # commands.motion.params.body_names) plus the two shoulder-yaw links
+        # the mimic-lite observation body set needs.
+        body_names:
+          - pelvis
+          - left_hip_roll_link
+          - left_knee_link
+          - left_ankle_roll_link
+          - right_hip_roll_link
+          - right_knee_link
+          - right_ankle_roll_link
+          - torso_link
+          - left_shoulder_roll_link
+          - left_elbow_link
+          - left_wrist_yaw_link
+          - right_shoulder_roll_link
+          - right_elbow_link
+          - right_wrist_yaw_link
+          - left_shoulder_yaw_link
+          - right_shoulder_yaw_link
+  observations:
+    actor:
+      fused_noise: true
+      terms:
+        # Base observation set (disabled; null terms are skipped).
+        command: null
+        motion_anchor_pos_b: null
+        motion_anchor_ori_b: null
+        base_lin_vel: null
+        actions: null
+        # mimic-lite observation set.
+        ref_root_pos_future_local: &ref_root_pos_future_local_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_pos_future_local
+          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
+          noise:
+            _target_: unilab.managers._noise.GaussianNoiseCfg
+            std: 0.005
+            clamp: 3.0
+        ref_root_ori_future_b: &ref_root_ori_future_b_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_ori_future_b
+          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
+          noise:
+            _target_: unilab.managers._noise.GaussianNoiseCfg
+            std: 0.05
+            clamp: 3.0
+        ref_joint_pos_future: &ref_joint_pos_future_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.ref_joint_pos_future
+          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
+          noise:
+            _target_: unilab.managers._noise.GaussianNoiseCfg
+            std: 0.01
+            clamp: 3.0
+        base_ang_vel: &base_ang_vel_obs
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: torso_gyro}
+          noise:
+            _target_: unilab.managers._noise.GaussianNoiseCfg
+            n_min: null
+            n_max: null
+            std: 0.2
+            clamp: 3.0
+        projected_gravity: &projected_gravity_obs
+          func: unilab.envs.mdp.projected_gravity
+          noise:
+            _target_: unilab.managers._noise.GaussianNoiseCfg
+            std: 0.01
+            clamp: 3.0
+        joint_pos: &joint_pos_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.motion_joint_pos
+          params: {command_name: motion}
+          noise:
+            _target_: unilab.managers._noise.GaussianNoiseCfg
+            n_min: null
+            n_max: null
+            std: 0.02
+            clamp: 3.0
+        joint_vel: &joint_vel_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.motion_joint_vel
+          params: {command_name: motion}
+          noise:
+            _target_: unilab.managers._noise.GaussianNoiseCfg
+            n_min: null
+            n_max: null
+            std: 0.5
+            clamp: 3.0
+        last_action: &last_action_obs
+          func: unilab.envs.mdp.last_action
+    critic:
+      # Corruption mirrors mimic-lite, where the critic consumes the same
+      # noised policy observations; the privileged terms carry no noise.
+      enable_corruption: true
+      fused_noise: true
+      terms:
+        # Base observation set (disabled; null terms are skipped).
+        command: null
+        motion_anchor_pos_b: null
+        motion_anchor_ori_b: null
+        base_lin_vel: null
+        actions: null
+        body_pos: null
+        body_ori: null
+        sac_base_lin_vel: null
+        # Shared actor terms.
+        ref_root_pos_future_local: *ref_root_pos_future_local_obs
+        ref_root_ori_future_b: *ref_root_ori_future_b_obs
+        ref_joint_pos_future: *ref_joint_pos_future_obs
+        base_ang_vel: *base_ang_vel_obs
+        projected_gravity: *projected_gravity_obs
+        joint_pos: *joint_pos_obs
+        joint_vel: *joint_vel_obs
+        last_action: *last_action_obs
+        # Privileged terms.
+        ref_root_pos_future_b:
+          func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_pos_future_b
+          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
+        diff_body_pos_future_local:
+          func: unilab.tasks.motion_tracking.common.obs_terms.diff_body_pos_future_local
+          params: {command_name: motion, future_steps: [0, 1]}
+        diff_body_ori_future_local:
+          func: unilab.tasks.motion_tracking.common.obs_terms.diff_body_ori_future_local
+          params: {command_name: motion, future_steps: [0, 1]}
+        diff_body_lin_vel_future:
+          func: unilab.tasks.motion_tracking.common.obs_terms.diff_body_lin_vel_future
+          params: {command_name: motion, future_steps: [0, 1]}
+        diff_body_ang_vel_future:
+          func: unilab.tasks.motion_tracking.common.obs_terms.diff_body_ang_vel_future
+          params: {command_name: motion, future_steps: [0, 1]}
+        applied_action:
+          func: unilab.tasks.motion_tracking.common.obs_terms.motion_applied_action
+        applied_torque:
+          func: unilab.tasks.motion_tracking.common.obs_terms.motion_applied_torque
+          params: {command_name: motion}
+  commands:
+    motion:
+      params:
+        # Reward-facing tracked bodies (14); must mirror the first 14 entries
+        # of env.scene.entities.robot.body_names above.
+        body_names:
+          - pelvis
+          - left_hip_roll_link
+          - left_knee_link
+          - left_ankle_roll_link
+          - right_hip_roll_link
+          - right_knee_link
+          - right_ankle_roll_link
+          - torso_link
+          - left_shoulder_roll_link
+          - left_elbow_link
+          - left_wrist_yaw_link
+          - right_shoulder_roll_link
+          - right_elbow_link
+          - right_wrist_yaw_link
+        # mimic-lite observation body set (9 on this G1 model: no toe_link,
+        # matching mimic-lite's intersection with available bodies).
+        obs_body_names:
+          - pelvis
+          - left_knee_link
+          - right_knee_link
+          - left_shoulder_yaw_link
+          - right_shoulder_yaw_link
+          - left_elbow_link
+          - right_elbow_link
+          - left_wrist_yaw_link
+          - right_wrist_yaw_link
+        obs_root_body_name: pelvis
+
+reward:
+  # KDTO+T torque tracking (SPARK): disabled by default via weight 0.0, the
+  # repo's reward-term off switch (RewardManager skips zero-weight terms).
+  # Enable on a torque-reference NPZ with
+  # `reward.motion_joint_torque.weight=1.0`; the term returns zeros when the
+  # motion file carries no joint_torque/joint_torque_limit fields.
+  motion_joint_torque:
+    func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_torque
+    weight: 0.0
+    params: {command_name: motion, std: 0.5}
