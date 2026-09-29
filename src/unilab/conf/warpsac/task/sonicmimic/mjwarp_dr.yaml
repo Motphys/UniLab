@@ -1,0 +1,223 @@
+# @package _global_
+# SONICMimic with a deliberately mild deployment-style DR profile.
+#
+# This owner is intentionally separate from mjwarp.yaml: the no-DR uniform
+# recipe remains reproducible, while this profile tests whether the same
+# observation/actor weights can survive the deployment perturbations.  The
+# final stage is 30% of the ranges in sac/task/g1_wbt_obs/mujoco.yaml and is
+# reached gradually before the 50k-iteration stop.
+defaults:
+  - /task/sonicmimic/mjwarp
+  - _self_
+
+training:
+  task_name: G1SonicMimicDR
+  sim_backend: mjwarp
+  play_render_mode: record
+
+algo:
+  max_iterations: 50000
+  save_interval: 5000
+
+env:
+  observations:
+    actor:
+      enable_corruption: true
+      terms:
+        base_ang_vel:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.06
+            n_max: 0.06
+        joint_pos:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.003
+            n_max: 0.003
+        joint_vel:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.15
+            n_max: 0.15
+    critic:
+      terms:
+        base_ang_vel:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.06
+            n_max: 0.06
+        joint_pos:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.003
+            n_max: 0.003
+        joint_vel:
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.15
+            n_max: 0.15
+  scene:
+    entities:
+      robot:
+        geom_names:
+          - left_foot1_collision
+          - left_foot2_collision
+          - left_foot3_collision
+          - left_foot4_collision
+          - left_foot5_collision
+          - left_foot6_collision
+          - left_foot7_collision
+          - right_foot1_collision
+          - right_foot2_collision
+          - right_foot3_collision
+          - right_foot4_collision
+          - right_foot5_collision
+          - right_foot6_collision
+          - right_foot7_collision
+  actions:
+    joint_pos:
+      simulate_action_latency: true
+  events:
+    base_mass:
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: pelvis
+        mass_distribution_params: [-0.3, 0.3]
+        operation: add
+        recompute_inertia: false
+    base_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: pelvis
+        com_range:
+          x: [-0.015, 0.015]
+          y: [-0.015, 0.015]
+          z: [-0.015, 0.015]
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [0.97, 1.03]
+        kd_range: [0.955, 1.045]
+        operation: scale
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          actuator_names: ".*"
+    foot_friction:
+      func: unilab.envs.mdp.geom_friction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: "^(left|right)_foot[1-7]_collision$"
+        # 30% of the SAC WBT [0.3, 1.2] excursion around nominal 0.6.
+        ranges: [0.51, 0.78]
+        operation: abs
+        shared_random: true
+    encoder_bias:
+      func: unilab.envs.mdp.randomize_encoder_bias
+      mode: reset
+      params:
+        bias_range: [-0.003, 0.003]
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: ".*"
+    push_robot:
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [4.0, 4.0]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-0.054, 0.054]
+          y: [-0.054, 0.054]
+          z: [-0.0216, 0.0216]
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]
+  curriculum:
+    base_mass_dr:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: base_mass
+        stages:
+          - {step: 0, params: {mass_distribution_params: [0.0, 0.0]}}
+          - {step: 10000, params: {mass_distribution_params: [-0.1, 0.1]}}
+          - {step: 25000, params: {mass_distribution_params: [-0.2, 0.2]}}
+          - {step: 40000, params: {mass_distribution_params: [-0.3, 0.3]}}
+    base_com_dr:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: base_com
+        stages:
+          - step: 0
+            params: {com_range: {x: [0.0, 0.0], y: [0.0, 0.0], z: [0.0, 0.0]}}
+          - step: 10000
+            params: {com_range: {x: [-0.005, 0.005], y: [-0.005, 0.005], z: [-0.005, 0.005]}}
+          - step: 25000
+            params: {com_range: {x: [-0.01, 0.01], y: [-0.01, 0.01], z: [-0.01, 0.01]}}
+          - step: 40000
+            params: {com_range: {x: [-0.015, 0.015], y: [-0.015, 0.015], z: [-0.015, 0.015]}}
+    pd_gains_dr:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: pd_gains
+        stages:
+          - {step: 0, params: {kp_range: [1.0, 1.0], kd_range: [1.0, 1.0]}}
+          - {step: 10000, params: {kp_range: [0.99, 1.01], kd_range: [0.985, 1.015]}}
+          - {step: 25000, params: {kp_range: [0.98, 1.02], kd_range: [0.97, 1.03]}}
+          - {step: 40000, params: {kp_range: [0.97, 1.03], kd_range: [0.955, 1.045]}}
+    foot_friction_dr:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: foot_friction
+        stages:
+          - {step: 0, params: {ranges: [0.6, 0.6]}}
+          - {step: 10000, params: {ranges: [0.57, 0.66]}}
+          - {step: 25000, params: {ranges: [0.54, 0.72]}}
+          - {step: 40000, params: {ranges: [0.51, 0.78]}}
+    encoder_bias_dr:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: encoder_bias
+        stages:
+          - {step: 0, params: {bias_range: [0.0, 0.0]}}
+          - {step: 10000, params: {bias_range: [-0.001, 0.001]}}
+          - {step: 25000, params: {bias_range: [-0.002, 0.002]}}
+          - {step: 40000, params: {bias_range: [-0.003, 0.003]}}
+    push_robot_dr:
+      func: unilab.envs.mdp.event_curriculum
+      params:
+        event_name: push_robot
+        stages:
+          - step: 0
+            params:
+              velocity_range: {x: [0.0, 0.0], y: [0.0, 0.0], z: [0.0, 0.0], roll: [0.0, 0.0], pitch: [0.0, 0.0], yaw: [0.0, 0.0]}
+          - step: 10000
+            params:
+              velocity_range: {x: [-0.018, 0.018], y: [-0.018, 0.018], z: [-0.0072, 0.0072], roll: [0.0, 0.0], pitch: [0.0, 0.0], yaw: [0.0, 0.0]}
+          - step: 25000
+            params:
+              velocity_range: {x: [-0.036, 0.036], y: [-0.036, 0.036], z: [-0.0144, 0.0144], roll: [0.0, 0.0], pitch: [0.0, 0.0], yaw: [0.0, 0.0]}
+          - step: 40000
+            params:
+              velocity_range: {x: [-0.054, 0.054], y: [-0.054, 0.054], z: [-0.0216, 0.0216], roll: [0.0, 0.0], pitch: [0.0, 0.0], yaw: [0.0, 0.0]}
+    deployment_dr_stage:
+      func: unilab.tasks.motion_tracking.common.manager_terms.deployment_dr_stage
+      params:
+        stages:
+          - {step: 0, stage: 0}
+          - {step: 10000, stage: 1}
+          - {step: 25000, stage: 2}
+          - {step: 40000, stage: 3}

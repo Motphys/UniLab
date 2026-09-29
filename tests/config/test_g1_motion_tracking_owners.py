@@ -176,6 +176,26 @@ def test_warpsac_sonicmimic_owner_aligns_deployable_actor() -> None:
     assert cfg.algo.critic_hidden_dim == 1024
 
 
+def test_warpsac_sonicmimic_dr_is_isolated_and_thirty_percent() -> None:
+    cfg = _compose_warpsac("sonicmimic/mjwarp_dr")
+
+    assert cfg.training.task_name == "G1SonicMimicDR"
+    assert cfg.training.sim_backend == "mjwarp"
+    assert cfg.algo.max_iterations == 50000
+    assert cfg.env.observations.actor.enable_corruption is True
+    assert cfg.env.events.base_mass.params.mass_distribution_params == [-0.3, 0.3]
+    assert cfg.env.events.base_com.params.com_range.x == [-0.015, 0.015]
+    assert cfg.env.events.pd_gains.params.kp_range == [0.97, 1.03]
+    assert cfg.env.events.pd_gains.params.kd_range == [0.955, 1.045]
+    assert cfg.env.events.foot_friction.params.ranges == [0.51, 0.78]
+    assert cfg.env.events.encoder_bias.params.bias_range == [-0.003, 0.003]
+    assert cfg.env.events.push_robot.params.velocity_range.x == [-0.054, 0.054]
+    assert cfg.env.curriculum.base_mass_dr.params.stages[-1].params.mass_distribution_params == [
+        -0.3,
+        0.3,
+    ]
+
+
 def test_warpsac_g1_motion_tracking_owners_share_policy_contract() -> None:
     mujoco_cfg = _compose_warpsac("g1_motion_tracking/mujoco")
     mjwarp_cfg = _compose_warpsac("g1_motion_tracking/mjwarp")

@@ -9,6 +9,7 @@ G1_MOTION_TASKS = (
     "G1MotionTracking",
     "G1MotionTrackingSAC",
     "G1SonicMimic",
+    "G1SonicMimicDR",
     "G1BoxTracking",
     "G1FlipTracking",
     "G1FlipTrackingSAC",
@@ -24,6 +25,7 @@ for _task_name in G1_MOTION_TASKS:
 # other motion tasks keep mujoco/motrix until their mjwarp paths are validated.
 registry.register_env("G1MotionTrackingSAC", make_manager_based_rl_env, sim_backend="mjwarp")
 registry.register_env("G1SonicMimic", make_manager_based_rl_env, sim_backend="mjwarp")
+registry.register_env("G1SonicMimicDR", make_manager_based_rl_env, sim_backend="mjwarp")
 registry.register_env("G1WBTObs", make_manager_based_rl_env, sim_backend="mjwarp")
 
 # genesis/newton implement the motion-body-id capability since unisim-core 1.5.1
