@@ -91,6 +91,10 @@ class BoxMotionLoader(MotionLoader):
             self.num_joints = n_robot_joints
             self.joint_pos = self.joint_pos[:, :n_robot_joints]
             self.joint_vel = self.joint_vel[:, :n_robot_joints]
+            if self.joint_torque is not None:
+                self.joint_torque = self.joint_torque[:, :n_robot_joints]
+                if self.joint_torque_limit is not None:
+                    self.joint_torque_limit = self.joint_torque_limit[:n_robot_joints]
 
     def make_motion_data_buffer(self, num_frames: int) -> BoxMotionData:
         base = super().make_motion_data_buffer(num_frames)
@@ -106,6 +110,7 @@ class BoxMotionLoader(MotionLoader):
             body_quat_w=base.body_quat_w,
             body_lin_vel_w=base.body_lin_vel_w,
             body_ang_vel_w=base.body_ang_vel_w,
+            joint_torque=base.joint_torque,
             object_pos_w=np.empty((num_frames, 3), dtype=self.object_pos_w.dtype),
             object_quat_w=np.empty((num_frames, 4), dtype=self.object_quat_w.dtype),
             object_lin_vel_w=np.empty((num_frames, 3), dtype=self.object_lin_vel_w.dtype),
@@ -124,6 +129,7 @@ class BoxMotionLoader(MotionLoader):
                 body_quat_w=base.body_quat_w,
                 body_lin_vel_w=base.body_lin_vel_w,
                 body_ang_vel_w=base.body_ang_vel_w,
+                joint_torque=base.joint_torque,
             )
         if (
             isinstance(out, BoxMotionData)
@@ -144,6 +150,7 @@ class BoxMotionLoader(MotionLoader):
             body_quat_w=base.body_quat_w,
             body_lin_vel_w=base.body_lin_vel_w,
             body_ang_vel_w=base.body_ang_vel_w,
+            joint_torque=base.joint_torque,
             object_pos_w=self.object_pos_w[frame_idx],
             object_quat_w=self.object_quat_w[frame_idx],
             object_lin_vel_w=self.object_lin_vel_w[frame_idx],

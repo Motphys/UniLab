@@ -96,10 +96,19 @@ class UniformNoiseCfg(NoiseCfg):
 class GaussianNoiseCfg(NoiseCfg):
     mean: NoiseParam = 0.0
     std: NoiseParam = 1.0
+    # Optional symmetric clamp on the standard-normal draw, in units of sigma
+    # (e.g. clamp=3.0 bounds the additive noise to ±3*std). None keeps the
+    # unbounded Gaussian.
+    clamp: float | None = None
 
     def __post_init__(self):
         if isinstance(self.std, float) and self.std <= 0:
             raise ValueError(f"std ({self.std}) must be positive")
+        if self.clamp is not None:
+            if isinstance(self.clamp, bool) or not isinstance(self.clamp, (int, float)):
+                raise TypeError(f"clamp ({self.clamp!r}) must be a real number or None")
+            if not np.isfinite(self.clamp) or self.clamp <= 0:
+                raise ValueError(f"clamp ({self.clamp}) must be finite and positive")
 
     @override
     def apply(self, data: np.ndarray, *, rng: np.random.Generator | None = None) -> np.ndarray:
@@ -114,6 +123,8 @@ class GaussianNoiseCfg(NoiseCfg):
             noise = rng.standard_normal(data.shape, dtype=np.float32)
         else:
             noise = rng.standard_normal(data.shape).astype(data.dtype, copy=False)
+        if self.clamp is not None:
+            np.clip(noise, -self.clamp, self.clamp, out=noise)
         noise = mean + std * noise
 
         if self.operation == "add":

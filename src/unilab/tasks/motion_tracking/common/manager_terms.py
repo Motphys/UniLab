@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -33,12 +34,15 @@ from .motion_loader import MotionData, MotionLoader, MotionSampler
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
-    from unilab.managers._types import ManagerBasedRlEnv
+    from unilab.managers._types import ManagerBasedRlEnv, ManagerSensorView
 
 
 SamplingMode = Literal["start", "clip_start", "uniform", "adaptive", "mixed"]
 _RANGE_KEYS = ("x", "y", "z", "roll", "pitch", "yaw")
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
+# Name suffix of the per-actuator ``actuatorfrc`` sensors declared in the task
+# scene XML; one scalar sensor per entity joint, named ``<joint_name><suffix>``.
+_TORQUE_SENSOR_SUFFIX = "_torque"
 
 
 def _range_matrix(value: dict[str, tuple[float, float]], *, name: str) -> np.ndarray:
@@ -88,6 +92,14 @@ class MotionCommandParamsCfg:
     adaptive_kernel_size: int = 1
     adaptive_uniform_ratio: float = 0.1
     adaptive_alpha: float = 0.001
+    # Optional mimic-lite-style observation body set. When set, the command
+    # loads a second body-sliced view of the motion and tracks the robot state
+    # of these bodies so observation terms can build future-step reference
+    # windows without touching the reward-facing ``body_names`` set.
+    obs_body_names: tuple[str, ...] | list[str] | None = None
+    # Body used as the observation root (reference/robot frame anchor for the
+    # root-diff and body-diff observations). Defaults to obs_body_names[0].
+    obs_root_body_name: str | None = None
 
 
 @dataclass(kw_only=True)
@@ -115,6 +127,24 @@ class MotionCommandCfg(CommandTermCfg):
     @property
     def sampling_mode(self) -> SamplingMode:
         return self.params.sampling_mode
+
+
+@dataclass(frozen=True)
+class MotionObsFuture:
+    """Future-step reference gather over the configured observation body set.
+
+    All body quantities are world-frame with per-env origins already added to
+    positions, gathered at ``clamp(current_frame + step)`` per env within that
+    env's current clip bounds. ``S = len(future_steps)``, ``B`` the number of
+    configured observation bodies, ``J`` the motion joint width.
+    """
+
+    future_steps: tuple[int, ...]
+    ref_joint_pos: np.ndarray  # (E, S, J)
+    ref_body_pos_w: np.ndarray  # (E, S, B, 3)
+    ref_body_quat_w: np.ndarray  # (E, S, B, 4)
+    ref_body_lin_vel_w: np.ndarray  # (E, S, B, 3)
+    ref_body_ang_vel_w: np.ndarray  # (E, S, B, 3)
 
 
 class MotionCommand(CommandTerm):
@@ -148,6 +178,62 @@ class MotionCommand(CommandTerm):
             )
 
         self.anchor_body_idx = cfg.body_names.index(cfg.anchor_body_name)
+        # Future-step observation gather cache, keyed by the env step counter.
+        # Initialized before any `_refresh_motion`/`_ingest_motion_rows` call
+        # (both invalidate it); populated lazily by `obs_future`.
+        self._obs_future_cache_step = -1
+        self._obs_future_cache: dict[tuple[int, ...], MotionObsFuture] = {}
+        obs_body_names = cfg.params.obs_body_names
+        if obs_body_names is None:
+            self.obs_motion: MotionLoader | None = None
+            self.obs_body_names: tuple[str, ...] | None = None
+            self.obs_root_body_idx = 0
+            self._obs_robot_body_ids: np.ndarray | None = None
+            self._copy_obs_robot_body_state = None
+            self._obs_robot_body_pos_w: np.ndarray | None = None
+            self._obs_robot_body_quat_w: np.ndarray | None = None
+            self._obs_robot_body_lin_vel_w: np.ndarray | None = None
+            self._obs_robot_body_ang_vel_w: np.ndarray | None = None
+        else:
+            obs_names = tuple(obs_body_names)
+            obs_ids, matched_names = self.robot.find_bodies(obs_names, preserve_order=True)
+            if tuple(matched_names) != obs_names:
+                raise ValueError(
+                    f"MotionCommand obs body order {tuple(matched_names)} does not match "
+                    f"{obs_names}"
+                )
+            self._obs_robot_body_ids = np.asarray(obs_ids, dtype=np.intp)
+            self._obs_robot_body_ids.setflags(write=False)
+            obs_motion_body_ids = self.robot.motion_body_ids[self._obs_robot_body_ids]
+            self.obs_motion = self._make_motion_loader(cfg.motion_file, obs_motion_body_ids)
+            if (
+                self.obs_motion.fps != self.motion.fps
+                or self.obs_motion.num_frames != self.motion.num_frames
+                or self.obs_motion.num_joints != self.motion.num_joints
+            ):
+                raise ValueError(
+                    "MotionCommand obs motion view is inconsistent with the main motion "
+                    f"(fps {self.obs_motion.fps}/{self.motion.fps}, frames "
+                    f"{self.obs_motion.num_frames}/{self.motion.num_frames}, joints "
+                    f"{self.obs_motion.num_joints}/{self.motion.num_joints})"
+                )
+            if self.obs_motion.num_bodies != len(obs_names):
+                raise ValueError(
+                    f"MotionCommand obs motion body width {self.obs_motion.num_bodies} does "
+                    f"not match configured obs body width {len(obs_names)}"
+                )
+            self.obs_body_names = obs_names
+            obs_root = cfg.params.obs_root_body_name or obs_names[0]
+            self.obs_root_body_idx = obs_names.index(obs_root)
+            self._copy_obs_robot_body_state = self.robot.bind_body_state_copy(
+                self._obs_robot_body_ids
+            )
+            dtype = self.motion.joint_pos.dtype
+            num_obs_bodies = len(obs_names)
+            self._obs_robot_body_pos_w = np.empty((self.num_envs, num_obs_bodies, 3), dtype=dtype)
+            self._obs_robot_body_quat_w = np.empty((self.num_envs, num_obs_bodies, 4), dtype=dtype)
+            self._obs_robot_body_lin_vel_w = np.empty_like(self._obs_robot_body_pos_w)
+            self._obs_robot_body_ang_vel_w = np.empty_like(self._obs_robot_body_pos_w)
         self.sampler = MotionSampler(
             self.motion,
             mode=cfg.params.sampling_mode,
@@ -186,6 +272,7 @@ class MotionCommand(CommandTerm):
         self.robot_body_pos_b = np.empty_like(self._body_pos_w)
         self.robot_body_ori_b = np.empty((self.num_envs, num_bodies, 6), dtype=dtype)
         self.joint_default_bias = np.zeros((self.num_envs, num_joints), dtype=dtype)
+        self._joint_torque_sensor_view: ManagerSensorView | None = None
         self._robot_cache_step = -1
         self._all_env_ids = np.arange(self.num_envs, dtype=np.int32)
         self._all_env_ids.setflags(write=False)
@@ -259,6 +346,15 @@ class MotionCommand(CommandTerm):
             raise ValueError("MotionCommandCfg sampling_start_ratio must be within [0, 1]")
         if not isinstance(cfg.params.truncate_on_clip_end, bool):
             raise TypeError("MotionCommandCfg truncate_on_clip_end must be bool")
+        obs_body_names = cfg.params.obs_body_names
+        if obs_body_names is not None:
+            if not obs_body_names:
+                raise ValueError("MotionCommandCfg obs_body_names must be non-empty when set")
+            if len(set(obs_body_names)) != len(obs_body_names):
+                raise ValueError("MotionCommandCfg obs_body_names must be unique")
+            obs_root = cfg.params.obs_root_body_name or tuple(obs_body_names)[0]
+            if obs_root not in obs_body_names:
+                raise ValueError("MotionCommandCfg obs_root_body_name must occur in obs_body_names")
 
     @property
     def command(self) -> np.ndarray:
@@ -271,6 +367,43 @@ class MotionCommand(CommandTerm):
     @property
     def joint_vel(self) -> np.ndarray:
         return self._motion_data.joint_vel
+
+    @property
+    def joint_torque_ref(self) -> np.ndarray | None:
+        """Per-env reference joint torques at the current frames, or None.
+
+        Rows follow the same per-env frame gather as every other motion
+        reference (``self.time_steps``), so uniform/RSI sampling modes line up
+        with the existing tracking rewards. None when the loaded motion files
+        carry no torque fields.
+        """
+        return self._motion_data.joint_torque
+
+    @property
+    def joint_torque_limit(self) -> np.ndarray | None:
+        """Per-joint torque limits (num_joints,), or None when torque-free."""
+        return self.motion.joint_torque_limit
+
+    @property
+    def robot_joint_torque(self) -> np.ndarray:
+        """Applied joint actuator torques in entity joint order.
+
+        Read from the per-actuator ``actuatorfrc`` sensors
+        (``<joint_name>_torque``) declared in the task scene XML — the same
+        quantity (MuJoCo ``data.actuator_force``) the offline pipeline exports
+        as ``joint_torque``. The sensor view binds lazily on first access so
+        runs that never enable the torque reward pay no binding cost.
+        """
+        if self._joint_torque_sensor_view is None:
+            names = tuple(f"{name}{_TORQUE_SENSOR_SUFFIX}" for name in self.robot.joint_names)
+            try:
+                self._joint_torque_sensor_view = self._env.scene.bind_sensor_data(names)
+            except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+                raise type(exc)(
+                    f"MotionCommand torque sensors {names} could not be bound; the task scene "
+                    f"XML must declare one 'actuatorfrc' sensor per joint: {exc}"
+                ) from exc
+        return self._joint_torque_sensor_view.read()
 
     @property
     def body_pos_w(self) -> np.ndarray:
@@ -348,6 +481,87 @@ class MotionCommand(CommandTerm):
     def robot_anchor_ang_vel_w(self) -> np.ndarray:
         return self.robot_body_ang_vel_w[:, self.anchor_body_idx]
 
+    def _require_obs_state(self) -> None:
+        if self.obs_motion is None:
+            raise ValueError(
+                "MotionCommand observation bodies are not configured; set params.obs_body_names"
+            )
+
+    @property
+    def obs_robot_body_pos_w(self) -> np.ndarray:
+        """Robot obs-body world positions (origins included), in obs body order."""
+        self._require_obs_state()
+        self._refresh_robot_state()
+        return cast(np.ndarray, self._obs_robot_body_pos_w)
+
+    @property
+    def obs_robot_body_quat_w(self) -> np.ndarray:
+        self._require_obs_state()
+        self._refresh_robot_state()
+        return cast(np.ndarray, self._obs_robot_body_quat_w)
+
+    @property
+    def obs_robot_body_lin_vel_w(self) -> np.ndarray:
+        self._require_obs_state()
+        self._refresh_robot_state()
+        return cast(np.ndarray, self._obs_robot_body_lin_vel_w)
+
+    @property
+    def obs_robot_body_ang_vel_w(self) -> np.ndarray:
+        self._require_obs_state()
+        self._refresh_robot_state()
+        return cast(np.ndarray, self._obs_robot_body_ang_vel_w)
+
+    @property
+    def obs_robot_root_pos_w(self) -> np.ndarray:
+        return self.obs_robot_body_pos_w[:, self.obs_root_body_idx]
+
+    @property
+    def obs_robot_root_quat_w(self) -> np.ndarray:
+        return self.obs_robot_body_quat_w[:, self.obs_root_body_idx]
+
+    def obs_future(self, future_steps: Iterable[int]) -> MotionObsFuture:
+        """Gather reference motion at ``current_frame + step`` per env.
+
+        Frame indices are clamped per env to that env's current clip bounds
+        (mimic-lite ``get_slice`` boundary semantics), so negative/overshooting
+        steps repeat the clip's first/last frame. Results are cached per env
+        step and per distinct ``future_steps`` tuple; the cache is invalidated
+        whenever the motion-reference buffers are refreshed (per-step advance
+        and reset-path resample both flow through `_refresh_motion` /
+        `_ingest_motion_rows`).
+        """
+        self._require_obs_state()
+        steps = tuple(int(step) for step in future_steps)
+        if not steps:
+            raise ValueError("obs_future requires at least one future step")
+        step_counter = self._env.common_step_counter
+        if self._obs_future_cache_step != step_counter:
+            self._obs_future_cache.clear()
+            self._obs_future_cache_step = step_counter
+        cached = self._obs_future_cache.get(steps)
+        if cached is None:
+            cached = self._gather_obs_future(steps)
+            self._obs_future_cache[steps] = cached
+        return cached
+
+    def _gather_obs_future(self, steps: tuple[int, ...]) -> MotionObsFuture:
+        motion = self.obs_motion
+        assert motion is not None  # guaranteed by `_require_obs_state`
+        frames = self.time_steps[:, None].astype(np.int64) + np.asarray(steps, dtype=np.int64)
+        lower = motion.clip_offsets[self.sampler.current_clip_indices][:, None]
+        upper = self.sampler.current_clip_end_frames[:, None].astype(np.int64)
+        frames = np.clip(frames, lower, upper)
+        body_pos_w = motion.body_pos_w[frames] + self._env.scene.env_origins[:, None, None, :]
+        return MotionObsFuture(
+            future_steps=steps,
+            ref_joint_pos=motion.joint_pos[frames],
+            ref_body_pos_w=body_pos_w,
+            ref_body_quat_w=motion.body_quat_w[frames],
+            ref_body_lin_vel_w=motion.body_lin_vel_w[frames],
+            ref_body_ang_vel_w=motion.body_ang_vel_w[frames],
+        )
+
     def reset(self, env_ids: np.ndarray | slice | None) -> dict[str, float]:
         ids = (
             np.arange(self.num_envs, dtype=np.int32)
@@ -383,6 +597,9 @@ class MotionCommand(CommandTerm):
         method to refresh additional buffers must override
         `_ingest_motion_rows` with the same additions (see BoxMotionCommand).
         """
+        # Any motion-reference refresh invalidates the future-step obs cache:
+        # resampled rows changed frames within the same env step counter.
+        self._obs_future_cache_step = -1
         if env_ids is None:
             self.motion.get_motion_at_frame(self.time_steps, out=self._motion_data)
             np.add(
@@ -403,6 +620,10 @@ class MotionCommand(CommandTerm):
         so the reset path gathers each reset row's motion frame exactly once
         (issue #1355).
         """
+        # Rows ingested here changed frames; invalidate the obs cache on the
+        # direct `_resample_command` path as well (`_refresh_motion` already
+        # invalidates at entry).
+        self._obs_future_cache_step = -1
         for motion_field in dataclasses.fields(data):
             value = getattr(data, motion_field.name)
             target = getattr(self._motion_data, motion_field.name)
@@ -427,6 +648,13 @@ class MotionCommand(CommandTerm):
                 self._robot_body_lin_vel_w,
                 self._robot_body_ang_vel_w,
             )
+            if self._copy_obs_robot_body_state is not None:
+                self._copy_obs_robot_body_state(
+                    cast(np.ndarray, self._obs_robot_body_pos_w),
+                    cast(np.ndarray, self._obs_robot_body_quat_w),
+                    cast(np.ndarray, self._obs_robot_body_lin_vel_w),
+                    cast(np.ndarray, self._obs_robot_body_ang_vel_w),
+                )
         else:
             # Partial-reset path (issue #1295): gather only the reset rows from
             # the backend instead of full-batch body reads sliced afterwards.
@@ -445,6 +673,16 @@ class MotionCommand(CommandTerm):
             self._robot_body_ang_vel_w[env_ids] = data.body_link_ang_vel_w_rows(env_ids)[
                 :, self._robot_body_ids
             ]
+            obs_ids = self._obs_robot_body_ids
+            if obs_ids is not None:
+                obs_pos_w = cast(np.ndarray, self._obs_robot_body_pos_w)
+                obs_quat_w = cast(np.ndarray, self._obs_robot_body_quat_w)
+                obs_lin_vel_w = cast(np.ndarray, self._obs_robot_body_lin_vel_w)
+                obs_ang_vel_w = cast(np.ndarray, self._obs_robot_body_ang_vel_w)
+                obs_pos_w[env_ids] = data.body_link_pos_w_rows(env_ids)[:, obs_ids]
+                obs_quat_w[env_ids] = data.body_link_quat_w_rows(env_ids)[:, obs_ids]
+                obs_lin_vel_w[env_ids] = data.body_link_lin_vel_w_rows(env_ids)[:, obs_ids]
+                obs_ang_vel_w[env_ids] = data.body_link_ang_vel_w_rows(env_ids)[:, obs_ids]
         self._robot_cache_step = step
 
     def _refresh_relative_state(self, env_ids: np.ndarray | None = None) -> None:
@@ -602,6 +840,10 @@ class MotionJointPositionAction(JointPositionAction):
         if not isinstance(cfg.simulate_action_latency, bool):
             raise TypeError("MotionJointPositionActionCfg simulate_action_latency must be bool")
         super().__init__(cfg, env)
+        # The base class allocates `_target` uninitialized; observation terms
+        # (applied_action) can read it before the first `apply_actions`, so
+        # start from a deterministic zero target.
+        self._target = np.zeros_like(self._processed_actions)
         self._motion_command = _command(env, cfg.command_name)
         self._previous_raw_actions = np.zeros_like(self._raw_actions)
 
@@ -963,6 +1205,30 @@ def motion_joint_velocity_error_exp(
     return np.exp(error, out=error)
 
 
+def motion_joint_torque(env: ManagerBasedRlEnv, command_name: str, std: float) -> np.ndarray:
+    """KDTO+T-style joint torque tracking: ``exp(-mean(((tau - tau*) / tau_max)^2) / std**2)``.
+
+    ``tau`` is the simulator's applied joint actuator torque (per-actuator
+    ``actuatorfrc`` sensors, i.e. MuJoCo ``data.actuator_force``), ``tau*`` the
+    motion reference torque at each env's current frame, and ``tau_max`` the
+    per-joint torque limit from the motion file. Returns zeros when the loaded
+    motion carries no torque fields so torque-free baselines keep running even
+    if the term is configured with a nonzero weight.
+    """
+    command = _command(env, command_name)
+    ref = command.joint_torque_ref
+    limit = command.joint_torque_limit
+    if ref is None or limit is None:
+        return np.zeros(env.num_envs, dtype=command.joint_pos.dtype)
+    scale = _positive_std(std, term_name="motion joint torque")
+    diff = command.robot_joint_torque - ref
+    np.divide(diff, limit, out=diff)
+    np.square(diff, out=diff)
+    error = diff.mean(axis=-1)
+    np.divide(error, -(scale**2), out=error)
+    return np.exp(error, out=error)
+
+
 def joint_pos_limits(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -1094,6 +1360,7 @@ __all__ = [
     "MotionCommandParamsCfg",
     "MotionJointPositionAction",
     "MotionJointPositionActionCfg",
+    "MotionObsFuture",
     "bad_anchor_ori",
     "bad_anchor_pos_z_only",
     "bad_motion_body_pos_z_only",
@@ -1109,6 +1376,7 @@ __all__ = [
     "motion_joint_pos_rel",
     "motion_joint_pos_rel_biased",
     "motion_joint_position_error_exp",
+    "motion_joint_torque",
     "motion_joint_velocity_error_exp",
     "motion_relative_body_orientation_error_exp",
     "motion_relative_body_position_error_exp",
