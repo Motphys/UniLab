@@ -119,6 +119,67 @@ def test_uniform_noise_inplace_matches_reference_expression(operation: str) -> N
     np.testing.assert_array_equal(data, np.arange(24, dtype=np.float32).reshape(8, 3))
 
 
+@pytest.mark.parametrize(
+    ("cfg", "expected"),
+    [
+        (
+            ConstantNoiseCfg(bias=(0.1, -0.2), operation="add"),
+            lambda data, noise: data + torch.tensor((0.1, -0.2)),
+        ),
+        (
+            ConstantNoiseCfg(bias=2.0, operation="scale"),
+            lambda data, noise: data * 2.0,
+        ),
+        (
+            ConstantNoiseCfg(bias=(0.3, -0.1), operation="abs"),
+            lambda data, noise: torch.tensor((0.3, -0.1)).expand_as(data),
+        ),
+    ],
+)
+def test_constant_tensor_noise_stays_on_device_without_rng(
+    cfg: ConstantNoiseCfg, expected, fake_env: FakeEnv
+) -> None:
+    device = fake_env.device
+    data = torch.arange(8, dtype=torch.float32, device=device).reshape(4, 2)
+    result = cfg.apply(data)
+
+    assert isinstance(result, torch.Tensor)
+    assert result.device == device
+    assert result.dtype == torch.float32
+    torch.testing.assert_close(result, expected(data, None))
+
+
+@pytest.mark.parametrize("operation", ["add", "scale", "abs"])
+def test_uniform_tensor_noise_preserves_rng_stream_and_device(operation: str) -> None:
+    device = torch.device("cpu")
+    data = torch.arange(24, dtype=torch.float32).reshape(8, 3)
+    cfg = UniformNoiseCfg(n_min=(-0.2, -0.1, -0.05), n_max=(0.3, 0.4, 0.5), operation=operation)
+
+    host_rng = np.random.default_rng(1702)
+    tensor_rng = np.random.default_rng(1702)
+    host_result = cfg.apply(data.numpy(), rng=host_rng)
+    tensor_result = cfg.apply(data, rng=tensor_rng)
+
+    assert isinstance(tensor_result, torch.Tensor)
+    assert tensor_result.device == device
+    np.testing.assert_array_equal(tensor_result.numpy(), host_result)
+    assert host_rng.bit_generator.state == tensor_rng.bit_generator.state
+
+
+def test_gaussian_tensor_noise_preserves_rng_stream_and_device() -> None:
+    data = torch.arange(12, dtype=torch.float32).reshape(4, 3)
+    cfg = GaussianNoiseCfg(mean=(0.1, -0.1, 0.0), std=(0.2, 0.3, 0.4))
+    host_rng = np.random.default_rng(31)
+    tensor_rng = np.random.default_rng(31)
+
+    host_result = cfg.apply(data.numpy(), rng=host_rng)
+    tensor_result = cfg.apply(data, rng=tensor_rng)
+
+    assert isinstance(tensor_result, torch.Tensor)
+    np.testing.assert_array_equal(tensor_result.numpy(), host_result)
+    assert host_rng.bit_generator.state == tensor_rng.bit_generator.state
+
+
 def test_additive_bias_noise_supports_scalar_terms() -> None:
     from unilab.managers._noise import NoiseModelWithAdditiveBias
 
@@ -130,6 +191,28 @@ def test_additive_bias_noise_supports_scalar_terms() -> None:
     result = model(np.ones(4, dtype=np.float32))
     np.testing.assert_array_equal(result, 1.5)
     assert result.shape == (4,)
+
+
+def test_additive_bias_noise_model_supports_tensor_carriers(fake_env: FakeEnv) -> None:
+    from unilab.managers._noise import NoiseModelWithAdditiveBias
+
+    device = fake_env.device
+    cfg = NoiseModelWithAdditiveBiasCfg(
+        noise_cfg=GaussianNoiseCfg(std=0.1),
+        bias_noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
+    )
+    data = torch.ones((4, 3), dtype=torch.float32, device=device)
+    host_model = NoiseModelWithAdditiveBias(cfg, num_envs=4, rng=np.random.default_rng(17))
+    tensor_model = NoiseModelWithAdditiveBias(cfg, num_envs=4, rng=np.random.default_rng(17))
+
+    host_result = host_model(data.cpu().numpy())
+    tensor_result = tensor_model(data)
+
+    assert isinstance(tensor_result, torch.Tensor)
+    assert tensor_result.device == device
+    np.testing.assert_array_equal(tensor_result.cpu().numpy(), host_result)
+    assert isinstance(tensor_model._bias, torch.Tensor)
+    assert tensor_model._bias.device == device
 
 
 def test_observation_groups_pipeline_order_and_history(fake_env: FakeEnv) -> None:
@@ -249,6 +332,47 @@ def test_tensor_delay_and_history_stay_on_device_without_host_detour(
         first[:, 2:4],
     )
     torch.testing.assert_close(second[:, 4:6], source)
+
+
+def test_tensor_noise_stays_on_device_without_observation_host_detour(
+    fake_env: FakeEnv,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    device = fake_env.device
+    source = torch.arange(fake_env.num_envs * 2, dtype=torch.float32, device=device).reshape(
+        fake_env.num_envs, 2
+    )
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "state": ObservationTermCfg(
+                        func=lambda env: source,
+                        noise=UniformNoiseCfg(n_min=-0.1, n_max=0.1),
+                    ),
+                    "biased": ObservationTermCfg(
+                        func=lambda env: source,
+                        noise=NoiseModelWithAdditiveBiasCfg(
+                            noise_cfg=GaussianNoiseCfg(std=0.1),
+                            bias_noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
+                        ),
+                    ),
+                }
+            )
+        },
+        fake_env,
+    )
+
+    def fail_cpu(self: torch.Tensor):
+        raise AssertionError("observation noise must not copy observations to host")
+
+    monkeypatch.setattr(torch.Tensor, "cpu", fail_cpu)
+    result = manager.compute(update_history=True)["policy"]
+
+    assert isinstance(result, torch.Tensor)
+    assert result.device == device
+    assert result.dtype == torch.float32
+    assert torch.isfinite(result).all()
 
 
 def test_tensor_terms_are_row_scoped_on_reset(fake_env: FakeEnv) -> None:

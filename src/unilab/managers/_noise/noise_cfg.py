@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal
 
 import numpy as np
+import torch
 from typing_extensions import override
 
 from unilab.managers._noise import noise_model
@@ -22,14 +23,23 @@ class NoiseCfg(abc.ABC):
 
     operation: Literal["add", "scale", "abs"] = "add"
 
-    @staticmethod
-    def _as_array(value: NoiseParam, dtype: np.dtype) -> np.ndarray:
-        """Convert a scalar or per-component parameter without a device abstraction."""
-        return np.asarray(value, dtype=dtype)
-
     @abc.abstractmethod
-    def apply(self, data: np.ndarray, *, rng: np.random.Generator | None = None) -> np.ndarray:
-        """Apply noise to the input data."""
+    def apply(
+        self,
+        data: np.ndarray | torch.Tensor,
+        *,
+        rng: np.random.Generator | None = None,
+    ) -> np.ndarray | torch.Tensor:
+        """Apply noise to NumPy or Torch data on its existing carrier/device."""
+
+    @staticmethod
+    def _as_torch(
+        value: NoiseParam,
+        *,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> torch.Tensor:
+        return torch.as_tensor(value, dtype=dtype, device=device)
 
 
 @dataclass
@@ -37,18 +47,31 @@ class ConstantNoiseCfg(NoiseCfg):
     bias: NoiseParam = 0.0
 
     @override
-    def apply(self, data: np.ndarray, *, rng: np.random.Generator | None = None) -> np.ndarray:
+    def apply(
+        self,
+        data: np.ndarray | torch.Tensor,
+        *,
+        rng: np.random.Generator | None = None,
+    ) -> np.ndarray | torch.Tensor:
         del rng
-        bias = self._as_array(self.bias, data.dtype)
+        if not isinstance(data, torch.Tensor):
+            bias = np.asarray(self.bias, dtype=data.dtype)
+            if self.operation == "add":
+                return data + bias
+            if self.operation == "scale":
+                return data * bias
+            if self.operation == "abs":
+                return np.zeros_like(data) + bias
+            raise ValueError(f"Unsupported noise operation: {self.operation}")
 
+        bias = self._as_torch(self.bias, dtype=data.dtype, device=data.device)
         if self.operation == "add":
             return data + bias
-        elif self.operation == "scale":
+        if self.operation == "scale":
             return data * bias
-        elif self.operation == "abs":
-            return np.zeros_like(data) + bias
-        else:
-            raise ValueError(f"Unsupported noise operation: {self.operation}")
+        if self.operation == "abs":
+            return torch.zeros_like(data) + bias
+        raise ValueError(f"Unsupported noise operation: {self.operation}")
 
 
 @dataclass
@@ -62,34 +85,58 @@ class UniformNoiseCfg(NoiseCfg):
                 raise ValueError(f"n_min ({self.n_min}) must be less than n_max ({self.n_max})")
 
     @override
-    def apply(self, data: np.ndarray, *, rng: np.random.Generator | None = None) -> np.ndarray:
+    def apply(
+        self,
+        data: np.ndarray | torch.Tensor,
+        *,
+        rng: np.random.Generator | None = None,
+    ) -> np.ndarray | torch.Tensor:
         if rng is None:
             raise ValueError("UniformNoiseCfg requires an env-owned NumPy generator.")
-        n_min = self._as_array(self.n_min, data.dtype)
-        n_max = self._as_array(self.n_max, data.dtype)
+        if not isinstance(data, torch.Tensor):
+            n_min = np.asarray(self.n_min, dtype=data.dtype)
+            n_max = np.asarray(self.n_max, dtype=data.dtype)
 
-        # Generate uniform noise in [0, 1) and transform the generated array
-        # in place.  Float32 data draws directly in float32 (Generator.random
-        # dtype fast path), which is ~2x faster than drawing float64 and
-        # casting; bit-level noise values differ from the float64 path, which
-        # the issue #1348 RNG-stream parity removal allows.
-        if data.dtype == np.float32:
-            noise = rng.random(data.shape, dtype=np.float32)
-        else:
-            noise = rng.random(data.shape).astype(data.dtype, copy=False)
-        np.multiply(noise, n_max - n_min, out=noise)
-        np.add(noise, n_min, out=noise)
+            # Generate uniform noise in [0, 1) and transform the generated array
+            # in place.  Float32 data draws directly in float32 (Generator.random
+            # dtype fast path), which is ~2x faster than drawing float64 and
+            # casting; bit-level noise values differ from the float64 path,
+            # which the issue #1348 RNG-stream parity removal allows.
+            if data.dtype == np.float32:
+                noise = rng.random(data.shape, dtype=np.float32)
+            else:
+                noise = rng.random(data.shape).astype(data.dtype, copy=False)
+            np.multiply(noise, n_max - n_min, out=noise)
+            np.add(noise, n_min, out=noise)
 
-        if self.operation == "add":
-            np.add(data, noise, out=noise)
-            return noise
-        elif self.operation == "scale":
-            np.multiply(data, noise, out=noise)
-            return noise
-        elif self.operation == "abs":
-            return noise
-        else:
+            if self.operation == "add":
+                np.add(data, noise, out=noise)
+                return noise
+            if self.operation == "scale":
+                np.multiply(data, noise, out=noise)
+                return noise
+            if self.operation == "abs":
+                return noise
             raise ValueError(f"Unsupported noise operation: {self.operation}")
+
+        n_min = self._as_torch(self.n_min, dtype=data.dtype, device=data.device)
+        n_max = self._as_torch(self.n_max, dtype=data.dtype, device=data.device)
+        if data.dtype == torch.float32:
+            unit = rng.random(tuple(data.shape), dtype=np.float32)
+        else:
+            unit = rng.random(tuple(data.shape)).astype(np.float32, copy=False)
+        # The env-owned NumPy RNG remains authoritative. This unit draw is the
+        # only host transfer in the tensor path; arithmetic and output stay on
+        # the observation device.
+        unit_torch = torch.from_numpy(unit).to(device=data.device, dtype=data.dtype)
+        noise = unit_torch * (n_max - n_min) + n_min
+        if self.operation == "add":
+            return data + noise
+        if self.operation == "scale":
+            return data * noise
+        if self.operation == "abs":
+            return noise
+        raise ValueError(f"Unsupported noise operation: {self.operation}")
 
 
 @dataclass
@@ -102,28 +149,49 @@ class GaussianNoiseCfg(NoiseCfg):
             raise ValueError(f"std ({self.std}) must be positive")
 
     @override
-    def apply(self, data: np.ndarray, *, rng: np.random.Generator | None = None) -> np.ndarray:
+    def apply(
+        self,
+        data: np.ndarray | torch.Tensor,
+        *,
+        rng: np.random.Generator | None = None,
+    ) -> np.ndarray | torch.Tensor:
         if rng is None:
             raise ValueError("GaussianNoiseCfg requires an env-owned NumPy generator.")
-        mean = self._as_array(self.mean, data.dtype)
-        std = self._as_array(self.std, data.dtype)
+        if not isinstance(data, torch.Tensor):
+            mean = np.asarray(self.mean, dtype=data.dtype)
+            std = np.asarray(self.std, dtype=data.dtype)
 
-        # Generate standard normal noise and scale.  Float32 data draws
-        # directly in float32 (same fast path as UniformNoiseCfg).
-        if data.dtype == np.float32:
-            noise = rng.standard_normal(data.shape, dtype=np.float32)
+            # Generate standard normal noise and scale.  Float32 data draws
+            # directly in float32 (same fast path as UniformNoiseCfg).
+            if data.dtype == np.float32:
+                noise = rng.standard_normal(data.shape, dtype=np.float32)
+            else:
+                noise = rng.standard_normal(data.shape).astype(data.dtype, copy=False)
+            noise = mean + std * noise
+
+            if self.operation == "add":
+                return data + noise
+            if self.operation == "scale":
+                return data * noise
+            if self.operation == "abs":
+                return noise
+            raise ValueError(f"Unsupported noise operation: {self.operation}")
+
+        mean = self._as_torch(self.mean, dtype=data.dtype, device=data.device)
+        std = self._as_torch(self.std, dtype=data.dtype, device=data.device)
+        if data.dtype == torch.float32:
+            unit = rng.standard_normal(tuple(data.shape), dtype=np.float32)
         else:
-            noise = rng.standard_normal(data.shape).astype(data.dtype, copy=False)
-        noise = mean + std * noise
-
+            unit = rng.standard_normal(tuple(data.shape)).astype(np.float32, copy=False)
+        unit_torch = torch.from_numpy(unit).to(device=data.device, dtype=data.dtype)
+        noise = mean + std * unit_torch
         if self.operation == "add":
             return data + noise
-        elif self.operation == "scale":
+        if self.operation == "scale":
             return data * noise
-        elif self.operation == "abs":
+        if self.operation == "abs":
             return noise
-        else:
-            raise ValueError(f"Unsupported noise operation: {self.operation}")
+        raise ValueError(f"Unsupported noise operation: {self.operation}")
 
 
 ##

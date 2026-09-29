@@ -473,20 +473,12 @@ class ObservationManager(ManagerBase):
                     obs = obs[env_ids]
                 fresh = True
             if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
-                if tensor_obs:
-                    obs = cast("torch.Tensor", obs).detach().cpu().numpy()
-                    tensor_obs = False
-                # NoiseCfg.apply always returns a newly allocated array.
-                obs = term_cfg.noise.apply(cast("np.ndarray", obs), rng=self._env.rng)
+                # Noise accepts either carrier and returns a fresh allocation.
+                obs = term_cfg.noise.apply(obs, rng=self._env.rng)
                 fresh = True
             elif isinstance(term_cfg.noise, noise_cfg.NoiseModelCfg):
-                if tensor_obs:
-                    obs = cast("torch.Tensor", obs).detach().cpu().numpy()
-                    tensor_obs = False
-                # NoiseModel.__call__ likewise returns a new array.
-                obs = self._group_obs_class_instances[group_name][term_name](
-                    cast("np.ndarray", obs)
-                )
+                # Noise models likewise return a fresh carrier allocation.
+                obs = self._group_obs_class_instances[group_name][term_name](obs)
                 fresh = True
             sanitizes_per_term = group_cfg.nan_check_per_term and group_cfg.nan_policy in (
                 "warn",
