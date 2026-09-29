@@ -303,6 +303,24 @@ class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
             raise RuntimeError("TorchG1MotionTrackingFlashSACEnv requires CUDA")
         if backend.num_envs != self._num_envs:
             raise ValueError("backend num_envs does not match the environment")
+        # External-worker backends publish their runtime-dependent tensor
+        # capability only after the public cold-path materialization point.
+        # Negotiate before constructing the proxy; otherwise IsaacGym's
+        # still-unmaterialized model info correctly (but prematurely) reports
+        # UNSUPPORTED and the task factory fails closed.
+        backend.materialize()
+        if backend.backend_type == "isaacgym":
+            # Preview 4 does not publish fresh rigid-body/sensor views until
+            # its first CUDA-IPC step.  This is a cold-path worker
+            # initialization barrier; the direct runtime resets the state
+            # before exposing the first observation.
+            backend.step_tensor(
+                torch.zeros(
+                    (self._num_envs, backend.num_actuators),
+                    dtype=torch.float32,
+                    device=self._device,
+                )
+            )
         self._validate_backend()
         # Cold-path contract extraction only. Keep the Manager proxy on CPU so
         # its temporary observation computation does not require every generic
