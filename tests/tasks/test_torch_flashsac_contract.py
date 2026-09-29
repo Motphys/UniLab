@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -437,3 +438,13 @@ def test_torch_factory_delegates_noncanonical_backends_to_capability_validation(
 
     assert result == (sentinel, created["backend"])
     assert created["args"][0] == "fake-device"
+
+
+def test_device_resident_cold_contract_proxy_skips_generic_tensor_reads() -> None:
+    """The proxy must not ask CUDA-only backends for a synthetic CPU plane."""
+    proxy = module._DeviceResidentColdContractProxy.__new__(module._DeviceResidentColdContractProxy)
+    proxy.scene = SimpleNamespace(_tensor_read_plan=object())
+
+    proxy._compile_tensor_read_plan()
+
+    assert proxy.scene._tensor_read_plan is None

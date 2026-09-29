@@ -19,6 +19,7 @@ training:
   # First tick includes collector env construction; genesis JIT startup exceeds
   # the 30s default (same override as sac g1_walk_flat/genesis).
 env:
+  tensor_runtime: true
   # GPU device id for the process-wide Genesis session. Multi-GPU training
   # overrides this cold-path field from the rank topology; zero preserves the
   # single-device owner default.

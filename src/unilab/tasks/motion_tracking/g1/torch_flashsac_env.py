@@ -226,6 +226,20 @@ def _euler_xyz_quat(roll: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) 
     )
 
 
+class _DeviceResidentColdContractProxy(ManagerBasedRlEnv):
+    """Manager proxy that extracts cold contract metadata without a CPU read plane.
+
+    The direct FlashSAC runtime owns all state reads, observations, and resets
+    on CUDA.  DEVICE_RESIDENT backends deliberately do not expose a CPU tensor
+    read plane, while a normal ``ManagerBasedRlEnv`` compiles its generic
+    observation reads during construction.  This proxy retains manager and
+    scene construction for contract extraction, but has no hot read lifecycle.
+    """
+
+    def _compile_tensor_read_plan(self) -> None:
+        self.scene._tensor_read_plan = None
+
+
 class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
     """GPU runtime for the exact canonical G1 FlashSAC owner contract."""
 
@@ -295,7 +309,12 @@ class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
         cfg.tensor_runtime = False
         cfg.tensor_runtime_device = "cpu"
         self._cpu_env: ManagerBasedRlEnv | None = None
-        self._cpu_env = ManagerBasedRlEnv(cfg, backend, self._num_envs)
+        proxy_type = (
+            _DeviceResidentColdContractProxy
+            if backend.tensor_execution() is TensorExecution.DEVICE_RESIDENT
+            else ManagerBasedRlEnv
+        )
+        self._cpu_env = proxy_type(cfg, backend, self._num_envs)
         try:
             self._extract_contract()
             self._state_store = TensorDeviceStateStore(
@@ -329,15 +348,17 @@ class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
         except BaseException:
             if self._cpu_env is not None:
                 self._cpu_env.close()
+            cfg.tensor_runtime, cfg.tensor_runtime_device = saved_tensor_runtime
             raise
         # The proxy compiled no packed reads, so this drop is enough to detach
         # any generic tensor-read terms from the cold-path proxy.
         self._cpu_env.scene._tensor_read_plan = None
-        # The Manager instance is cold-path contract extraction only. Perform
-        # its seeded default reset before dropping the proxy; the direct tensor
-        # runtime then owns every hot-path state and reset lifecycle.
+        # HOST_BRIDGE has a valid CPU plane, so retain its historical seeded
+        # proxy reset. DEVICE_RESIDENT has no CPU plane: its direct CUDA
+        # runtime seeds and resets state in ``init_state`` / ``_reset_rows``.
         try:
-            self._cpu_env.reset(seed=self._initial_seed)
+            if backend.tensor_execution() is TensorExecution.HOST_BRIDGE:
+                self._cpu_env.reset(seed=self._initial_seed)
         finally:
             cfg.tensor_runtime, cfg.tensor_runtime_device = saved_tensor_runtime
         del self._cpu_env

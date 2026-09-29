@@ -47,9 +47,12 @@ registry.register_env(
 # genesis/newton implement the motion-body-id capability since unisim-core 1.5.1
 # (unilabsim/unisim#137); isaacgym/isaacsim join them since unisim-core 1.7.4
 # fixed the subprocess body-state publish/reset paths (unilabsim/unisim#141,
-# PR #145).
+# PR #145). All DEVICE_RESIDENT candidates use the task-owned Torch runtime so
+# observations and selected reset never enter the generic NumPy manager path.
 for _backend in ("genesis", "newton", "isaacgym", "isaacsim"):
-    registry.register_env("G1MotionTrackingSAC", make_manager_based_rl_env, sim_backend=_backend)
+    registry.register_env(
+        "G1MotionTrackingSAC", make_torch_g1_motion_tracking_flashsac_env, sim_backend=_backend
+    )
 
 
 __all__ = ["BoxMotionData", "BoxMotionLoader", "G1_MOTION_TASKS"]
