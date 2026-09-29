@@ -5,8 +5,11 @@ This is a deliberately narrow GPU implementation of the canonical
 backend construction, scene materialization, and motion loading remain cold
 CPU work in their owning modules.  The per-step action transform, motion
 update, observations, reward, termination, and selected-row reset run on one
-CUDA device through UniSim's public tensor lifecycle.  Unsupported task or
-backend terms fail closed rather than falling back silently.
+CUDA device through UniSim's public tensor lifecycle.  A HOST_BRIDGE backend
+keeps its CPU-authoritative physics plane and performs only its negotiated
+packed boundaries; generic Manager NumPy observations never enter the CUDA
+hot path.  Unsupported task or backend terms fail closed rather than falling
+back silently.
 """
 
 from __future__ import annotations

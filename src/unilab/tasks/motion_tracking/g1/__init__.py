@@ -19,7 +19,7 @@ for _task_name in G1_MOTION_TASKS:
     registry.register_env_config(_task_name, ManagerBasedRlEnvCfg)
     if _task_name != "G1MotionTrackingSAC":
         registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="mujoco")
-    registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="motrix")
+        registry.register_env(_task_name, make_manager_based_rl_env, sim_backend="motrix")
 
 # FlashSAC G1 has a task-owned tensor runtime for the scoped MJWarp/MJBatch
 # owners; other G1 tasks retain the general NumPy Manager-Based runtime.
@@ -27,6 +27,16 @@ registry.register_env(
     "G1MotionTrackingSAC",
     make_torch_g1_motion_tracking_flashsac_env,
     sim_backend="mujoco",
+)
+# Motrix is an in-process HOST_BRIDGE backend: the task-owned runtime retains
+# its CPU cold-contract proxy while the hot state/sensor/control path uses the
+# backend's explicitly negotiated packed host bridge.  Registering the generic
+# manager factory here would instead execute NumPy-only observation terms in
+# the CUDA runtime selected by this FlashSAC owner.
+registry.register_env(
+    "G1MotionTrackingSAC",
+    make_torch_g1_motion_tracking_flashsac_env,
+    sim_backend="motrix",
 )
 
 # mjwarp is registered only for G1MotionTrackingSAC (benchmark scope, issue #1292);

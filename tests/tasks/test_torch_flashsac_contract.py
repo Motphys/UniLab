@@ -15,6 +15,7 @@ from unisim.backend.base import (
     TensorProcessTopology,
 )
 
+from unilab.base import registry
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.base.torch_env import TorchEnvState
@@ -45,6 +46,14 @@ def test_torch_owner_fingerprint_accepts_both_canonical_backends() -> None:
     expected = module._TORCH_G1_FLASHSAC_OWNER_IDENTITY_V2
     assert module._torch_g1_flashsac_owner_identity(mujoco) == expected
     assert module._torch_g1_flashsac_owner_identity(mjwarp) == expected
+
+
+def test_flashsac_motrix_owner_uses_task_host_bridge_runtime() -> None:
+    """The FlashSAC Motrix owner must bypass CUDA-generic NumPy observations."""
+    registry.ensure_registries()
+    factory = registry._envs["G1MotionTrackingSAC"].env_factory_dict["motrix"]
+
+    assert factory is module.make_torch_g1_motion_tracking_flashsac_env
 
 
 def test_reusable_tensor_runtime_accepts_second_g1_manager_owner() -> None:
