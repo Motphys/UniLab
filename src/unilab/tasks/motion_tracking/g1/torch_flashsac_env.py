@@ -308,7 +308,12 @@ class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
         # Negotiate before constructing the proxy; otherwise IsaacGym's
         # still-unmaterialized model info correctly (but prematurely) reports
         # UNSUPPORTED and the task factory fails closed.
-        backend.materialize()
+        # Some in-process backends materialize while their EntityScene is
+        # constructed; SimBackend exposes no idempotence query, so the backend
+        # owner's capability is the public readiness signal. Re-materialize
+        # only when negotiation still reports no tensor lifecycle.
+        if backend.tensor_execution() is TensorExecution.UNSUPPORTED:
+            backend.materialize()
         if backend.backend_type == "isaacgym":
             # Preview 4 does not publish fresh rigid-body/sensor views until
             # its first CUDA-IPC step.  This is a cold-path worker
