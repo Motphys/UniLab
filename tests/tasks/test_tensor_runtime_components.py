@@ -273,6 +273,23 @@ class _SelectedResetReadinessBackend:
         return np.zeros((1, 1, 3), dtype=np.float64)
 
 
+class _AdvancingNamedSensorBackend(_SelectedResetReadinessBackend):
+    """A DEVICE_RESIDENT adapter that recomputes named sensors on each read."""
+
+    backend_type = "fake-device-advancing-sensors"
+
+    def __init__(self):
+        super().__init__()
+        self.named_read_count = 0
+
+    def get_sensor_view(self, name, device=None):
+        if name in {"track_pos_w_pelvis", "track_quat_w_pelvis"}:
+            return super().get_sensor_view(name, device=device)
+        self.named_read_count += 1
+        value = float(self.named_read_count)
+        return torch.full((1, 3), value, device=device)
+
+
 def test_tensor_state_store_full_read_validates_layout_and_finite_state() -> None:
     store = TensorDeviceStateStore(
         backend=_HostBridgeBackend(),  # pyright: ignore[reportArgumentType]
@@ -323,6 +340,28 @@ def test_tensor_state_store_runs_backend_readiness_after_selected_reset() -> Non
     # The barrier is idempotent after the backend has published fresh views.
     assert store.refresh_after_selected_reset(ctrl, nsteps=3) is None
     assert len(backend.step_calls) == 1
+
+
+def test_tensor_state_store_crosses_named_sensor_read_boundary_each_read() -> None:
+    backend = _AdvancingNamedSensorBackend()
+    store = TensorDeviceStateStore(
+        backend=backend,  # pyright: ignore[reportArgumentType]
+        device=torch.device("cpu"),
+        num_envs=1,
+        joint_qpos_ids=np.array([7], dtype=np.int64),
+        joint_qvel_ids=np.array([6], dtype=np.int64),
+        body_names=("pelvis",),
+        body_ids=np.array([0], dtype=np.intp),
+    )
+
+    store.read()
+    first = store.linvel.clone()
+    store.read()
+    second = store.linvel.clone()
+
+    torch.testing.assert_close(first, torch.ones((1, 3)))
+    torch.testing.assert_close(second, torch.full((1, 3), 5.0))
+    torch.testing.assert_close(store.gyro, torch.full((1, 3), 6.0))
 
 
 def test_tensor_state_store_selected_reset_reads_authoritative_selected_rows() -> None:

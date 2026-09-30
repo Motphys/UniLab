@@ -183,15 +183,17 @@ class TensorDeviceStateStore:
             self.linvel = linvel_view.clone()
             self.gyro = gyro_view.clone()
         else:
-            assert self._device_linvel_view is not None
-            assert self._device_gyro_view is not None
-            # Some device-resident adapters refresh tracked-body state through
-            # the public sensor lifecycle. Preserve their authored frame-sensor
-            # boundary semantics while refreshing only tracked body views.
-            self.linvel.copy_(self._device_linvel_view)
-            self.gyro.copy_(self._device_gyro_view)
-            # Stable views do not negotiate lifecycle state on dereference. One
-            # tracked-sensor read refreshes all injected frame sensors.
+            # Named sensor views are not guaranteed to be stable snapshots on
+            # every DEVICE_RESIDENT adapter. Crossing the public sensor-read
+            # boundary here is what refreshes adapter-owned projections before
+            # task code consumes them.
+            linvel_view = self.backend.get_sensor_view("pelvis_local_linvel", device=self.device)
+            gyro_view = self.backend.get_sensor_view("torso_gyro", device=self.device)
+            self._device_linvel_view = linvel_view
+            self._device_gyro_view = gyro_view
+            self.linvel.copy_(linvel_view)
+            self.gyro.copy_(gyro_view)
+            # One tracked-sensor read refreshes all injected frame sensors.
             self.backend.get_sensor_view(f"track_pos_w_{self.body_names[0]}", device=self.device)
             if rows is not None:
                 self.linvel[rows] = self._device_linvel_view.index_select(0, rows)
