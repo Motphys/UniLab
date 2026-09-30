@@ -96,32 +96,30 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco
 
 ## 多节点训练
 
-两台单 GPU 主机可以同步训练：PPO 走标准 `torchrun`，off-policy 算法走
-uni_rl 的外部数据并行拓扑（TCP rendezvous）。已在两台经 200 Gb/s QSFP
-直连的 NVIDIA Spark（GB10）上验证——每节点按单机同等规模满配运行，
-系统吞吐 1.40–1.97×（PPO 最高 1.97×，FlashSAC 最高 1.91×）。见
-[双机连接指南](docs/sphinx/source/zh_CN/2-user_guide/2-algorithms/5-multi-node-training.md)
-与[双 Spark 吞吐报告](docs/reports/dual_spark_2026-09.md)。
+两台单 GPU 主机可通过一条命令同步训练。已在两台经 QSFP 直连的
+NVIDIA Spark（GB10）上验证——系统吞吐 **1.40–1.97×**（PPO 最高
+1.97×，FlashSAC 最高 1.91×）。完整流程见
+[双机搭建指南](docs/sphinx/source/zh_CN/2-user_guide/2-algorithms/5-multi-node-training.md)
+（连接主机 → 克隆仓库 → 安装 → 启动 → 验证）与
+[双 Spark 吞吐报告](docs/reports/dual_spark_2026-09.md)。
 
 ```bash
-# PPO：两台执行相同命令，仅 --node_rank 不同。
-# algo.num_envs 为每 rank 数量，每台传“全局/2”。
-NCCL_IB_DISABLE=1 NCCL_SOCKET_IFNAME=enp1s0f1np1 \
-python -m torch.distributed.run --nnodes=2 --nproc_per_node=1 \
-  --master_addr=192.168.100.1 --master_port=29500 --node_rank=0 \
-  src/unilab/scripts/train_rsl_rl.py task=g1_flip_tracking/mujoco \
-  algo.num_envs=512 algo.max_iterations=1000 \
-  training.no_play=true training.log_dir=logs/dual
+# 只需在 spark0 上一条命令，通过 SSH 自动拉起 spark1。
+# 网络/SSH/克隆等前置步骤见搭建指南。
 
-# SAC / FlashSAC：两台执行相同命令，仅 UNILAB_DP_RANK 不同。
-# algo.num_envs / algo.batch_size 为每 rank 数量，每台传“全局/2”。
-UNILAB_DP_EXTERNAL=1 UNILAB_DP_WORLD_SIZE=2 UNILAB_DP_RANK=0 \
-UNILAB_DP_RENDEZVOUS_URL=tcp://192.168.100.1:29501 \
-UNILAB_DP_LOG_DIR=logs/dual \
-NCCL_IB_DISABLE=1 NCCL_SOCKET_IFNAME=enp1s0f1np1 \
-python src/unilab/scripts/train_sac.py task=g1_walk_flat/mujoco \
-  algo.num_envs=1024 algo.batch_size=4096 \
-  training.no_play=true training.log_dir=logs/dual
+# PPO 双机（每节点 2048 envs）
+python scripts/launch_distributed.py \
+  --algo ppo --task g1_walk_flat --sim mujoco \
+  --ifname enp1s0f1np1 --master-ip 192.168.100.1 \
+  --peer spark1 --num-nodes 2 \
+  algo.num_envs=2048
+
+# FlashSAC 双机（每节点按单机同等规模满配）
+python scripts/launch_distributed.py \
+  --algo flashsac --task g1_walk_flat --sim mujoco \
+  --ifname enp1s0f1np1 --master-ip 192.168.100.1 \
+  --peer spark1 --num-nodes 2 \
+  algo.num_envs=4096 algo.batch_size=8192
 ```
 
 ## 生态
