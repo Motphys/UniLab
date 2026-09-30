@@ -215,6 +215,60 @@ class _HostBridgeBackend:
     def get_body_lin_vel_w(self, body_ids):
         return np.zeros((1, 1, 3), dtype=np.float64)
 
+
+class _SelectedResetReadinessBackend:
+    backend_type = "fake-device-reset"
+
+    def __init__(self):
+        self.stale = False
+        self.step_calls: list[tuple[torch.Tensor, int]] = []
+
+    def get_tensor_capabilities(self):
+        return TensorLifecycleCapabilities(
+            execution=TensorExecution.DEVICE_RESIDENT,
+            state_views=True,
+            state_fields=frozenset({"qpos", "qvel"}),
+            sensor_views=True,
+            stepping=True,
+            selected_reset=True,
+            process_topology=TensorProcessTopology.EXTERNAL_WORKER,
+            data_plane=TensorDataPlane.CUDA_IPC,
+            stream_event_ownership="backend invalidates derived views until readiness step",
+            torch_devices=("cpu",),
+        )
+
+    def set_state_tensor(self, env_indices, qpos, qvel, randomization=None):
+        assert randomization is None
+        self.stale = True
+        return {"timing": {"selected_reset_ms": 1.0}}
+
+    def step_tensor(self, ctrl, nsteps=1):
+        # The readiness call is the only public way to clear this fake's stale
+        # derived-view lifecycle, matching the IsaacGym CUDA IPC contract.
+        self.stale = False
+        self.step_calls.append((ctrl.detach().clone(), int(nsteps)))
+        return {"timing": {"readiness_ms": 2.0}}
+
+    def get_state_views(self, names, device=None):
+        assert names == ("qpos", "qvel")
+        return {
+            "qpos": torch.tensor([[0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.25]], device=device),
+            "qvel": torch.zeros((1, 7), device=device),
+        }
+
+    def get_sensor_view(self, name, device=None):
+        if self.stale:
+            raise RuntimeError("derived sensor views are stale until the readiness step")
+        if name == "pelvis_local_linvel":
+            return torch.tensor([[1.0, 2.0, 3.0]], device=device)
+        if name == "torso_gyro":
+            return torch.tensor([[-1.0, -2.0, -3.0]], device=device)
+        if name == "track_pos_w_pelvis":
+            return torch.tensor([[0.1, 0.2, 0.3]], device=device)
+        if name == "track_quat_w_pelvis":
+            return torch.tensor([[1.0, 0.0, 0.0, 0.0]], device=device)
+        return torch.zeros((1, 3), device=device)
+
     def get_body_ang_vel_w(self, body_ids):
         return np.zeros((1, 1, 3), dtype=np.float64)
 
@@ -236,6 +290,39 @@ def test_tensor_state_store_full_read_validates_layout_and_finite_state() -> Non
     torch.testing.assert_close(store.joint_pos, torch.tensor([[0.25]]))
     torch.testing.assert_close(store.linvel, torch.tensor([[1.0, 2.0, 3.0]]))
     torch.testing.assert_close(store.robot_body_pos, torch.tensor([[[0.1, 0.2, 0.3]]]))
+
+
+def test_tensor_state_store_runs_backend_readiness_after_selected_reset() -> None:
+    backend = _SelectedResetReadinessBackend()
+    store = TensorDeviceStateStore(
+        backend=backend,  # pyright: ignore[reportArgumentType]
+        device=torch.device("cpu"),
+        num_envs=1,
+        joint_qpos_ids=np.array([7], dtype=np.int64),
+        joint_qvel_ids=np.array([6], dtype=np.int64),
+        body_names=("pelvis",),
+        body_ids=np.array([0], dtype=np.intp),
+    )
+    ctrl = torch.tensor([[0.25]], dtype=torch.float32)
+
+    reset_result = store.apply_reset(
+        torch.tensor([0], dtype=torch.int64),
+        torch.tensor([[0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.25]], dtype=torch.float32),
+        torch.zeros((1, 7), dtype=torch.float32),
+    )
+    readiness_result = store.refresh_after_selected_reset(ctrl, nsteps=3)
+
+    store.read()
+
+    assert reset_result == {"timing": {"selected_reset_ms": 1.0}}
+    assert readiness_result == {"timing": {"readiness_ms": 2.0}}
+    assert backend.step_calls == [(ctrl, 3)]
+    assert backend.stale is False
+    torch.testing.assert_close(store.robot_body_pos, torch.tensor([[[0.1, 0.2, 0.3]]]))
+
+    # The barrier is idempotent after the backend has published fresh views.
+    assert store.refresh_after_selected_reset(ctrl, nsteps=3) is None
+    assert len(backend.step_calls) == 1
 
 
 def test_tensor_state_store_selected_reset_reads_authoritative_selected_rows() -> None:

@@ -111,6 +111,7 @@ class TensorDeviceStateStore:
         self._device_sensor_views: dict[str, object] | None = None
         self._device_linvel_view: torch.Tensor | None = None
         self._device_gyro_view: torch.Tensor | None = None
+        self._views_require_readiness_barrier = False
 
     def _require_qviews(self) -> tuple[torch.Tensor, torch.Tensor]:
         if self.qpos is None or self.qvel is None:
@@ -332,7 +333,37 @@ class TensorDeviceStateStore:
         """Apply selected reset through the negotiated packed plan."""
         if self._host_bridge_plan is not None:
             return cast(dict | None, self._host_bridge_plan.apply_reset(rows, qpos, qvel))
-        return cast(dict | None, self.backend.set_state_tensor(rows, qpos, qvel))
+        result = cast(dict | None, self.backend.set_state_tensor(rows, qpos, qvel))
+        self._views_require_readiness_barrier = True
+        self.last_backend_result = result
+        return result
+
+    def refresh_after_selected_reset(self, ctrl: torch.Tensor, nsteps: int) -> dict | None:
+        """Cross the backend's public selected-reset readiness boundary.
+
+        A backend may invalidate derived sensor/body views after
+        ``set_state_tensor`` even though qpos/qvel views are already
+        authoritative. This method performs that backend-owned readiness
+        boundary explicitly through the same public tensor step API used by the
+        normal control path. It is a lifecycle barrier, not a hidden data copy:
+        control is published through the negotiated tensor plane, and the task
+        performs no host/device fallback.
+        """
+        if self._execution is not TensorExecution.DEVICE_RESIDENT:
+            raise RuntimeError(
+                "selected-reset readiness requires DEVICE_RESIDENT tensor execution; "
+                f"received {self._execution}"
+            )
+        if self._host_bridge_plan is not None:
+            raise RuntimeError(
+                "HOST_BRIDGE selected reset owns its paired post-reset read boundary"
+            )
+        if not self._views_require_readiness_barrier:
+            return None
+        result = self.step_tensor(ctrl, nsteps=nsteps)
+        self._views_require_readiness_barrier = False
+        self.last_backend_result = result
+        return result
 
     def validate_finite(self) -> None:
         qpos, qvel = self._require_qviews()

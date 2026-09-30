@@ -1210,10 +1210,15 @@ class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
         self._episode_metrics.reset(rows)
         self._refresh_motion_buffers(frames, rows)
         backend_result = self._state_store.apply_reset(rows, qpos, qvel)
+        readiness_result = self._state_store.refresh_after_selected_reset(
+            self._ctrl, self._cfg.sim_substeps
+        )
         read_result = self._read_robot_state(rows)
         combined_timing: dict[str, float] = {}
         if isinstance(backend_result, dict):
             combined_timing.update(backend_result.get("timing", {}))
+        if isinstance(readiness_result, dict):
+            combined_timing.update(readiness_result.get("timing", {}))
         if isinstance(read_result, dict):
             combined_timing.update(read_result.get("timing", {}))
         self._last_backend_reset_result = {"timing": combined_timing}
