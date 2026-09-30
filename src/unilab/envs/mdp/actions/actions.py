@@ -254,8 +254,25 @@ class JointPositionAction(BaseAction):
                 self._entity.data.default_joint_pos[:, self._target_ids].copy()
             )
         self._target = np.empty((self.num_envs, self.action_dim), dtype=np.float32)
+        self._tensor_target = torch.empty_like(self._processed_actions)
 
     def apply_actions(self) -> None:
+        control = self._entity.data.control_buffer
+        if isinstance(control, torch.Tensor):
+            # Stay on the control plane for tensor-native joint transmissions.
+            # EntityData.write_ctrl owns all layout/range/finite checks; this
+            # only removes the full-batch D2H and H2D scatter otherwise created
+            # by the temporary NumPy entity boundary.
+            encoder_bias = self._entity.data.encoder_bias_tensor.to(
+                device=self._device, non_blocking=True
+            )
+            torch.sub(
+                self._processed_actions,
+                encoder_bias.index_select(1, self._target_index),
+                out=self._tensor_target,
+            )
+            self._entity.set_joint_position_target(self._tensor_target, joint_ids=self._target_ids)
+            return
         processed = self._entity_values(self._processed_actions)
         encoder_bias = self._entity.data.encoder_bias[:, self._target_ids]
         np.subtract(processed, encoder_bias, out=self._target)

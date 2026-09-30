@@ -902,6 +902,17 @@ class EntityData:
         return self._require(self._encoder_bias, "joint encoder bias")
 
     @property
+    def encoder_bias_tensor(self) -> torch.Tensor:
+        """Return the mutable encoder bias as a same-storage Torch view."""
+        bias = self._require(self._encoder_bias, "joint encoder bias")
+        return torch.from_numpy(bias)
+
+    @property
+    def control_buffer(self) -> np.ndarray | torch.Tensor | None:
+        """Return the authoritative actuator control buffer without copying."""
+        return self._control_buffer
+
+    @property
     def body_link_pos_w(self) -> np.ndarray:
         ids = self._require(self._body_ids, "body state")
         return self._cached_getter(

@@ -118,7 +118,7 @@ def _action(
 
 def _build_action(action_cfg_type, **overrides):
     backend = _Backend()
-    control = np.zeros((backend.num_envs, backend.num_actuators), dtype=np.float32)
+    control = torch.zeros((backend.num_envs, backend.num_actuators), dtype=torch.float32)
     scene = EntityScene(
         {
             "robot": EntityCfg(
@@ -167,6 +167,23 @@ def test_default_offset_encoder_bias_and_control_order() -> None:
     )
     np.testing.assert_allclose(control[:, 0], action.processed_action[:, 1].numpy())
     np.testing.assert_array_equal(control[:, 2], 0.0)
+
+
+def test_tensor_control_writes_stay_on_control_plane() -> None:
+    action, control, scene = _action()
+    raw = np.asarray([[0.25, -0.5], [1.0, 1.5]], dtype=np.float32)
+    assert isinstance(control, torch.Tensor)
+    scene["robot"].data.encoder_bias[:, 0] = np.asarray([0.1, -0.1])
+
+    action.process_actions(torch.from_numpy(raw))
+    action.apply_actions()
+
+    expected_processed = np.asarray(
+        [[0.25 + 0.1, -0.5 + 0.2], [1.0 + 0.1, 1.5 + 0.2]], dtype=np.float32
+    )
+    np.testing.assert_allclose(control[:, 1].cpu().numpy(), expected_processed[:, 0] - [0.1, -0.1])
+    np.testing.assert_allclose(control[:, 0].cpu().numpy(), expected_processed[:, 1])
+    np.testing.assert_array_equal(control[:, 2].cpu().numpy(), 0.0)
 
 
 def test_regex_scale_offset_clip_and_local_reset() -> None:
