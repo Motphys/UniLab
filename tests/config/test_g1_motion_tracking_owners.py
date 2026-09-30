@@ -119,6 +119,13 @@ def test_flashsac_g1_motion_tracking_uses_comparable_dr_free_owner() -> None:
         )
 
 
+def test_flashsac_g1_motion_tracking_contact_policy_is_reward_only() -> None:
+    cfg = _compose_flashsac("g1_motion_tracking/mujoco")
+
+    assert "undesired_contacts" not in cfg.env.terminations
+    assert cfg.reward.undesired_contacts.weight == pytest.approx(-0.1)
+
+
 def test_sac_g1_motion_tracking_motrix_keeps_supported_dr() -> None:
     cfg = _compose_sac("g1_motion_tracking/motrix")
     assert cfg.env.events.base_com is not None

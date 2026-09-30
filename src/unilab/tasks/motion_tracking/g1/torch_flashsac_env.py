@@ -944,12 +944,6 @@ class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
             dim=-1,
         )
         failure = anchor_pos_bad | anchor_ori_bad | ee_bad
-        undesired_cfg = self._terminations.get("undesired_contacts")
-        if undesired_cfg is not None:
-            failure |= torch.any(
-                self._robot_body_pos[:, self._undesired_ids, 2] < float(undesired_cfg["threshold"]),
-                dim=-1,
-            )
         return failure
 
     def _compute_reward(self) -> torch.Tensor:

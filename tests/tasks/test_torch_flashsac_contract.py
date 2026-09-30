@@ -92,6 +92,29 @@ def test_torch_owner_fingerprint_fails_closed(mutate, monkeypatch: pytest.Monkey
         module.make_torch_g1_motion_tracking_flashsac_env(cfg, num_envs=2, backend_type="mujoco")
 
 
+def test_torch_terminations_do_not_inject_reward_contact_policy() -> None:
+    """Only declared termination terms may terminate a G1 episode."""
+    env = module.TorchG1MotionTrackingFlashSACEnv.__new__(module.TorchG1MotionTrackingFlashSACEnv)
+    env._anchor_idx = 0
+    env._ee_ids = torch.tensor([1], dtype=torch.int64)
+    env._terminations = {
+        "anchor_pos": {"threshold": 0.5},
+        "anchor_ori": {"threshold": 0.8},
+        "ee_body_pos": {"threshold": 0.5},
+        # This reward term has no termination counterpart and must not be
+        # consumed as an undeclared termination policy.
+        "undesired_contacts": {"threshold": 0.05},
+    }
+    env._motion_body_pos = torch.tensor([[[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]]])
+    env._robot_body_pos = torch.tensor([[[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]]])
+    identity_quat = torch.tensor([[[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]]])
+    env._motion_body_quat = identity_quat
+    env._robot_body_quat = identity_quat
+    env._body_pos_relative = env._motion_body_pos.clone()
+
+    assert not env._compute_terminations().any()
+
+
 def test_torch_owner_rejects_fixed_model_variants_before_backend_creation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
