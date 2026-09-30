@@ -11,7 +11,7 @@ training:
   play_render_mode: record
 
 algo:
-  max_iterations: 50000
+  max_iterations: 140000
   save_interval: 5000
 
 env:
@@ -65,7 +65,8 @@ env:
           - right_foot7_collision
   actions:
     joint_pos:
-      simulate_action_latency: true
+      # Match the SONIC controller path; no extra one-control-step delay.
+      simulate_action_latency: false
   events:
     base_mass:
       func: unilab.envs.mdp.randomize_rigid_body_mass
@@ -75,8 +76,8 @@ env:
           _target_: unilab.managers.SceneEntityCfg
           name: robot
           body_names: pelvis
-        mass_distribution_params: [-1.0, 1.0]
-        operation: add
+        mass_distribution_params: [0.8, 1.3]
+        operation: scale
         recompute_inertia: false
     base_com:
       func: unilab.envs.mdp.randomize_rigid_body_com
@@ -87,7 +88,7 @@ env:
           name: robot
           body_names: pelvis
         com_range:
-          x: [-0.05, 0.05]
+          x: [-0.025, 0.025]
           y: [-0.05, 0.05]
           z: [-0.05, 0.05]
     pd_gains:

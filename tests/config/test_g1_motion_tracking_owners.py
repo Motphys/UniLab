@@ -190,9 +190,14 @@ def test_warpsac_sonicmimic_dr_uses_full_ranges_without_curriculum() -> None:
     assert cfg.env.observations.actor.terms.base_ang_vel.noise.n_max == 0.2
     assert cfg.env.observations.actor.terms.joint_pos.noise.n_max == 0.01
     assert cfg.env.observations.actor.terms.joint_vel.noise.n_max == 0.5
-    assert cfg.env.actions.joint_pos.simulate_action_latency is True
-    assert cfg.env.events.base_mass.params.mass_distribution_params == [-1.0, 1.0]
-    assert cfg.env.events.base_com.params.com_range.x == [-0.05, 0.05]
+    assert cfg.env.actions.joint_pos.simulate_action_latency is False
+    assert (
+        cfg.env.events.base_mass.params.asset_cfg.body_names == "pelvis"
+    )
+    assert cfg.env.events.base_mass.params.mass_distribution_params == [0.8, 1.3]
+    assert cfg.env.events.base_mass.params.operation == "scale"
+    assert cfg.env.events.base_com.params.asset_cfg.body_names == "pelvis"
+    assert cfg.env.events.base_com.params.com_range.x == [-0.025, 0.025]
     assert cfg.env.events.pd_gains.params.kp_range == [0.9, 1.1]
     assert cfg.env.events.pd_gains.params.kd_range == [0.85, 1.15]
     assert cfg.env.events.foot_friction.params.ranges == [0.3, 1.2]
