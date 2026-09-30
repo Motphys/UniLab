@@ -102,6 +102,7 @@ class TorchEnv(ABEnv):
         self._truncated_scratch = torch.zeros((num_envs,), dtype=torch.bool, device=self._device)
         self._final_observation_scratch: dict[str, torch.Tensor] | None = None
         self._tensor_runtime_bound = False
+        self._last_initial_episode_steps: torch.Tensor | None = None
         self.step_counter = 0
         self._autoreset = True
         self._autoreset_reset_active = False
@@ -183,6 +184,10 @@ class TorchEnv(ABEnv):
 
     def init_state(self) -> TorchEnvState:
         self._bind_tensor_runtime()
+        initial_steps = self._initial_episode_steps()
+        # Preserve the initial draw across the bootstrap reset; a subclass may
+        # need it to restore randomized initial offsets after reset clears the
+        # public counters.
         obs = {
             name: torch.zeros((self._num_envs, dim), dtype=self._dtype, device=self._device)
             for name, dim in self.obs_groups_spec.items()
@@ -192,11 +197,16 @@ class TorchEnv(ABEnv):
             reward=torch.zeros((self._num_envs,), dtype=self._dtype, device=self._device),
             terminated=torch.ones((self._num_envs,), dtype=torch.bool, device=self._device),
             truncated=torch.zeros((self._num_envs,), dtype=torch.bool, device=self._device),
-            info={"steps": torch.zeros((self._num_envs,), dtype=torch.int64, device=self._device)},
+            info={"steps": initial_steps},
         )
+        self._last_initial_episode_steps = initial_steps.clone()
         self._reset_done_envs()
         self._clear_step_final_observation()
         return self._state
+
+    def _initial_episode_steps(self) -> torch.Tensor:
+        """Allocate the public int64 episode counter tensor before reset."""
+        return torch.zeros((self._num_envs,), dtype=torch.int64, device=self._device)
 
     def reset(
         self, env_indices: torch.Tensor | None = None

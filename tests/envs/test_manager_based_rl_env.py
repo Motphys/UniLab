@@ -1490,8 +1490,17 @@ def test_torch_env_owns_substeps_autoreset_and_final_observation() -> None:
     assert initial_obs["obs"].shape == (2, 2)
     assert initial_obs["critic"].shape == (2, 1)
     assert "log" in initial_info
-    torch.testing.assert_close(initial.info["steps"], torch.zeros(2, dtype=torch.int64))
+    initial_steps = initial.info["steps"]
+    assert initial_steps.dtype == torch.int64
+    assert int(initial_steps.min()) >= 0
+    assert int(initial_steps.max()) < 50
+    assert torch.any(initial_steps != 0)
+    np.testing.assert_array_equal(env.episode_length_buf, initial_steps.cpu().numpy())
     assert not hasattr(env, "_dr_manager")
+
+    # A production initial state is staggered; align this deterministic
+    # step-by-step lifecycle test with all rows at the beginning of an episode.
+    env.set_episode_length_buf(torch.zeros(2, dtype=torch.int64))
 
     state = env.step(torch.tensor([[0.25], [0.5]], dtype=torch.float32))
     assert env.action_input_types and env.action_input_types[0] is np.ndarray
@@ -1529,6 +1538,35 @@ def test_torch_env_owns_substeps_autoreset_and_final_observation() -> None:
     post_step_index = len(env.trace) - 1
     assert env.trace[post_step_index] == "post_step"
     assert pre_index < post_reset_index < post_step_index
+
+
+def test_initial_episode_steps_are_seeded_and_staggered() -> None:
+    first, _ = _make_env()
+    second, _ = _make_env()
+    try:
+        for env in (first, second):
+            initial_draws = [env._initial_episode_steps() for _ in range(2)]
+            assert all(int(draw.min()) >= 0 and int(draw.max()) < 50 for draw in initial_draws)
+            assert not torch.equal(initial_draws[0], initial_draws[1])
+            initial = env.init_state()
+            steps = initial.info["steps"]
+            assert steps.dtype == torch.int64
+            assert int(steps.min()) >= 0 and int(steps.max()) < 50
+            np.testing.assert_array_equal(env.episode_length_buf, steps.cpu().numpy())
+            assert torch.any(steps != 0)
+        torch.testing.assert_close(first._initial_episode_steps(), second._initial_episode_steps())
+        assert bool(torch.any(first._initial_episode_steps() != 0))
+    finally:
+        first.close()
+        second.close()
+
+
+def test_initial_episode_steps_fail_closed_without_a_staggering_range() -> None:
+    cfg = _make_cfg()
+    cfg.max_episode_seconds = cfg.ctrl_dt
+    env, _ = _make_env(cfg)
+    with pytest.raises(ValueError, match="max_episode_steps > 1"):
+        env.init_state()
 
 
 def test_reset_events_compose_then_commit_default_state_once() -> None:
@@ -1852,6 +1890,7 @@ def test_scene_read_plan_pairs_reset_with_selected_packed_transfer() -> None:
 def test_partial_reset_preserves_other_env_counter_and_terminal_obs() -> None:
     env, _ = _make_env()
     env.init_state()
+    env.set_episode_length_buf(torch.zeros(2, dtype=torch.int64))
 
     state = env.step(torch.tensor([[1.0], [0.0]], dtype=torch.float32))
 
@@ -1868,6 +1907,7 @@ def test_partial_reset_preserves_other_env_counter_and_terminal_obs() -> None:
 def test_finite_horizon_maps_time_out_to_terminated() -> None:
     env, _ = _make_env(_make_cfg(finite_horizon=True))
     env.init_state()
+    env.set_episode_length_buf(torch.zeros(2, dtype=torch.int64))
     env.step(torch.zeros((2, 1), dtype=torch.float32))
     state = env.step(torch.zeros((2, 1), dtype=torch.float32))
     torch.testing.assert_close(state.terminated, torch.tensor([True, True]))
@@ -1877,6 +1917,7 @@ def test_finite_horizon_maps_time_out_to_terminated() -> None:
 def test_manual_reset_is_required_when_autoreset_is_disabled() -> None:
     env, _ = _make_env(_make_cfg(auto_reset=False))
     env.init_state()
+    env.set_episode_length_buf(torch.zeros(2, dtype=torch.int64))
     state = env.step(torch.tensor([[1.0], [0.0]], dtype=torch.float32))
     torch.testing.assert_close(state.info["steps"], torch.ones(2, dtype=torch.int64))
     with pytest.raises(RuntimeError, match="must be reset"):

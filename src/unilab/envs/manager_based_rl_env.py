@@ -796,11 +796,32 @@ class ManagerBasedRlEnv(TorchEnv):
         """Publish public Torch flags to temporary NumPy Manager/recorder scratch."""
         return np.array(values.detach().cpu().numpy(), order="C", copy=True)
 
-    def _initial_episode_steps(self) -> np.ndarray:
-        return np.zeros((self.num_envs,), dtype=np.uint32)
+    def _initial_episode_steps(self) -> torch.Tensor:
+        max_steps = self._cfg.max_episode_steps
+        if max_steps is None:
+            return super()._initial_episode_steps()
+        if max_steps <= 1:
+            raise ValueError(
+                "ManagerBasedRlEnv randomized initial episode counters require "
+                f"max_episode_steps > 1; got {max_steps}"
+            )
+        return torch.from_numpy(
+            self.rng.integers(0, max_steps, size=self.num_envs, dtype=np.int64)
+        ).to(device=self.device, dtype=torch.int64)
 
     def init_state(self) -> TorchEnvState:
         state = super().init_state()
+        # TorchEnv's initial state allocates counters, marks every row
+        # terminated, and performs one full bootstrap reset (which clears the
+        # public counters).  The old NpEnv production behavior kept randomized
+        # initial offsets from the seed stream, preventing all vector rows in a
+        # large rollout from synchronizing on the same timeout boundary.  Keep
+        # the original draw made by ``super().init_state()`` rather than drawing
+        # a second time.
+        initial_steps = self._last_initial_episode_steps
+        self._last_initial_episode_steps = None
+        state.info["steps"].copy_(initial_steps)
+        self.episode_length_buf = self._tensor_steps_to_manager_boundary(state)
         self.reward_buf = np.zeros(self.num_envs, dtype=get_global_dtype())
         self.extras = state.info
         return state
