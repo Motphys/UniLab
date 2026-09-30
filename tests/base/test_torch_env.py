@@ -29,6 +29,7 @@ class _StubCfg(EnvCfg):
     max_episode_seconds: float | None = 1.0
     ctrl_dt: float = 0.1
     sim_dt: float = 0.1
+    tensor_runtime: bool = False
 
 
 def _backend() -> MagicMock:
@@ -50,6 +51,16 @@ def _backend() -> MagicMock:
     backend.get_play_capabilities.return_value = EnvPlayCapabilities(
         supports_physics_state_playback=False
     )
+    return backend
+
+
+def _unsupported_backend() -> MagicMock:
+    backend = _backend()
+    backend.tensor_execution.return_value = TensorExecution.UNSUPPORTED
+    backend.get_tensor_capabilities.return_value = TensorLifecycleCapabilities(
+        execution=TensorExecution.UNSUPPORTED
+    )
+    backend.step.return_value = None
     return backend
 
 
@@ -187,6 +198,29 @@ def test_step_uses_backend_tensor_contract_and_autoreset() -> None:
         assert state.info["timing"][key] >= 0.0
     assert "final_observation" not in state.info
     assert "_final_observation" not in state.info
+
+
+def test_legacy_runtime_uses_public_numpy_backend_step() -> None:
+    backend = _unsupported_backend()
+    env = _StubTorchEnv(cfg=_StubCfg(tensor_runtime=False), backend=backend)
+    env.init_state()
+    actions = torch.ones((env.num_envs, 4), dtype=torch.float32)
+
+    env.step(actions)
+
+    backend.step_tensor.assert_not_called()
+    backend.step.assert_called_once()
+    np.testing.assert_array_equal(backend.step.call_args.args[0], actions.numpy() * 2.0)
+    assert backend.step.call_args.args[1] == 1
+
+
+def test_unsupported_backend_tensor_runtime_fails_closed() -> None:
+    cfg = _StubCfg()
+    cfg.tensor_runtime = True
+    env = _StubTorchEnv(cfg=cfg, backend=_unsupported_backend())
+
+    with pytest.raises(ValueError, match="does not declare a tensor lifecycle"):
+        env.init_state()
 
 
 def test_step_without_done_does_not_create_final_observation() -> None:
@@ -461,7 +495,9 @@ def test_device_resident_backend_requires_cuda() -> None:
         stream_event_ownership="test",
         torch_devices=("cpu",),
     )
-    env = _StubTorchEnv(backend=backend, device="cpu")
+    cfg = _StubCfg()
+    cfg.tensor_runtime = True
+    env = _StubTorchEnv(cfg=cfg, backend=backend, device="cpu")
     with pytest.raises(ValueError, match="requires a CUDA device"):
         env.init_state()
 

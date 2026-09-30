@@ -115,6 +115,16 @@ class TorchEnv(ABEnv):
     def _bind_tensor_runtime(self) -> None:
         if self._tensor_runtime_bound:
             return
+        # A backend without a tensor lifecycle has only its public NumPy wire.
+        # That lifecycle is legal solely for the legacy runtime request, which
+        # is the default for subprocess owners such as IsaacSim. Tensor runtime
+        # requests remain fail-closed below.
+        if (
+            getattr(self.cfg, "tensor_runtime", True) is False
+            and self._backend.get_tensor_capabilities().execution is TensorExecution.UNSUPPORTED
+        ):
+            self._tensor_runtime_bound = True
+            return
         # A device-resident backend cannot expose a public CPU lifecycle. The
         # only valid false request is a task-owned cold-path proxy used to extract
         # contracts before its direct CUDA runtime is constructed.
@@ -242,7 +252,13 @@ class TorchEnv(ABEnv):
 
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
-        backend_result = self._backend.step_tensor(ctrl, self._cfg.sim_substeps)
+        if self._backend.get_tensor_capabilities().execution is TensorExecution.UNSUPPORTED:
+            if getattr(self.cfg, "tensor_runtime", True) is not False:
+                self._bind_tensor_runtime()
+            host_control = ctrl.detach().cpu().numpy()
+            backend_result = self._backend.step(host_control, self._cfg.sim_substeps)
+        else:
+            backend_result = self._backend.step_tensor(ctrl, self._cfg.sim_substeps)
         step_core_ms = (time.perf_counter() - phase) * 1000.0
         step_core_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
 

@@ -239,6 +239,21 @@ class _KeyframeBackend(_ResetBackend):
         return self.keyframe_qpos
 
 
+class _LegacyWireBackend(_ResetBackend):
+    """Subprocess backend whose only public lifecycle is the NumPy wire."""
+
+    tensor_controls: list[torch.Tensor]
+
+    def tensor_execution(self) -> TensorExecution:
+        return TensorExecution.UNSUPPORTED
+
+    def get_tensor_capabilities(self) -> TensorLifecycleCapabilities:
+        return TensorLifecycleCapabilities(execution=TensorExecution.UNSUPPORTED)
+
+    def step_tensor(self, ctrl: torch.Tensor, nsteps: int = 1) -> None:
+        raise AssertionError("the legacy CPU wire must not call step_tensor")
+
+
 class _DeferredTensorBackend(_FakeBackend):
     """External worker whose capabilities only become known after materialize."""
 
@@ -827,6 +842,22 @@ def test_tensor_runtime_device_defaults_to_cpu_for_host_bridge(
     assert env._tensor_runtime_bound is True
     env.reset()
     assert all(value.device == env.device for value in env.obs_buf.values())
+    env.close()
+
+
+def test_legacy_cpu_wire_skips_packed_reads_and_uses_numpy_step() -> None:
+    backend = _LegacyWireBackend(2)
+    cfg = _make_cfg()
+    cfg.tensor_runtime = False
+
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+
+    assert env._tensor_runtime_bound is True
+    assert env.scene._tensor_read_plan is None
+    env.reset()
+    env.step(torch.zeros((2, 1), dtype=torch.float32))
+    assert backend.applied_controls
+    assert backend.tensor_controls == []
     env.close()
 
 
