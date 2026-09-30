@@ -279,6 +279,38 @@ def test_torch_device_state_store_renegotiates_and_preserves_policy_sensor_bound
     torch.testing.assert_close(env._robot_body_pos, torch.full((2, 2, 3), 2.0))
 
 
+def test_torch_owner_close_drops_backend_view_aliases_before_backend_cleanup() -> None:
+    """Owner teardown must relinquish CUDA IPC views before backend close."""
+    backend = SimpleNamespace(cleanup_scene_assets=lambda: None)
+    env = module.TorchG1MotionTrackingFlashSACEnv.__new__(module.TorchG1MotionTrackingFlashSACEnv)
+    env._backend = backend
+    env._state_store = SimpleNamespace()
+    env._qpos = torch.zeros(1)
+    env._qvel = torch.zeros(1)
+    env._joint_pos = torch.zeros(1)
+    env._joint_vel = torch.zeros(1)
+    env._state = TorchEnvState(
+        obs={},
+        reward=torch.zeros(1),
+        terminated=torch.zeros(1, dtype=torch.bool),
+        truncated=torch.zeros(1, dtype=torch.bool),
+        info={},
+    )
+
+    def fail_after_owner_aliases_are_dropped() -> None:
+        assert env._state_store is None
+        assert env._qpos is None
+        assert env._qvel is None
+        assert env._joint_pos is None
+        assert env._joint_vel is None
+        assert env._state is None
+
+    backend.cleanup_scene_assets = fail_after_owner_aliases_are_dropped
+
+    env.close()
+    env.close()
+
+
 @pytest.mark.parametrize(
     ("backend_name", "execution", "packed"),
     [

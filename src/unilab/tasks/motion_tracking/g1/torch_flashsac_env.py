@@ -14,6 +14,7 @@ back silently.
 
 from __future__ import annotations
 
+import gc
 from time import perf_counter
 from typing import Any, Mapping
 
@@ -1351,6 +1352,28 @@ class TorchG1MotionTrackingFlashSACEnv(TorchEnv):
         return {name: values[rows].clone() for name, values in obs.items()}, {"log": {}}
 
     def close(self) -> None:
+        """Release owner-held tensor views before backend cleanup.
+
+        A CUDA IPC plan correctly refuses to detach while caller-held views
+        remain.  This owner therefore relinquishes its hot-path view aliases
+        first, without copying or moving tensor state.  Views retained through
+        another public API reference intentionally keep the backend's fail-closed
+        cleanup check active.
+        """
+        view_refs = (
+            "_state_store",
+            "_qpos",
+            "_qvel",
+            "_joint_pos",
+            "_joint_vel",
+            "_state",
+        )
+        for name in view_refs:
+            object.__setattr__(self, name, None)
+        # Make Python release the task-owner views now. CUDA IPC view liveness
+        # is refcount-based; the next backend cleanup barrier depends on these
+        # decrements reaching zero before close executes.
+        gc.collect()
         self._backend.cleanup_scene_assets()
 
     cleanup = close
