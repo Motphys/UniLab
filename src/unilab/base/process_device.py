@@ -110,6 +110,23 @@ def _cuda_device_index(device: str | None) -> int | None:
     return index
 
 
+def rank_local_visible_cuda_entries(
+    current_visible_devices: str | None = None,
+) -> tuple[str, ...]:
+    """Return opaque rank-local CUDA visibility entries before Torch init."""
+    raw = (
+        os.environ.get("CUDA_VISIBLE_DEVICES")
+        if current_visible_devices is None
+        else current_visible_devices
+    )
+    if raw is None:
+        return ()
+    entries = tuple(entry.strip() for entry in raw.split(",") if entry.strip())
+    if entries == ("-1",):
+        return ()
+    return entries
+
+
 def resolve_backend_env_device_id(
     backend_type: str,
     *,
@@ -144,6 +161,13 @@ def resolve_backend_env_device_id(
     field = BACKEND_ENV_DEVICE_FIELDS.get(backend) or BACKEND_ENV_DEVICE_STR_FIELDS.get(backend)
     if field is None:
         return None
+
+    visible_entries = rank_local_visible_cuda_entries()
+    if len(visible_entries) == 1:
+        # CUDA visibility is the rank-local namespace. Whether it was set by
+        # the user or by the data-parallel supervisor, every payload and every
+        # in-process consumer must use the same local ``cuda:0``.
+        return 0
 
     if backend == "genesis" and _genesis_device_pinned:
         # Post-pin the process sees exactly one CUDA device; every rank-local
@@ -243,6 +267,9 @@ def warn_if_backend_device_collision(
 
     backend = _normalize_backend(backend_type)
     if backend not in BACKEND_ENV_DEVICE_FIELDS and backend not in BACKEND_ENV_DEVICE_STR_FIELDS:
+        return
+    if len(rank_local_visible_cuda_entries()) == 1:
+        # Rank-local visibility makes local index zero the only valid index.
         return
     if backend == "genesis" and _genesis_device_pinned:
         # A successful pin places every rank on its own physical GPU; the
@@ -511,6 +538,7 @@ __all__ = [
     "bind_genesis_process_device",
     "configure_backend_process_device",
     "pin_genesis_device_before_cuda_init",
+    "rank_local_visible_cuda_entries",
     "resolve_backend_env_device_id",
     "resolve_backend_process_device",
     "warn_if_backend_device_collision",

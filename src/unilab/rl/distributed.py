@@ -172,6 +172,12 @@ def resolve_rsl_rl_device(
             raise ValueError(
                 f"training.devices has {len(devices)} entries but WORLD_SIZE={world_size}"
             )
+        from unilab.base.process_device import rank_local_visible_cuda_entries
+
+        if len(rank_local_visible_cuda_entries()) == 1:
+            # Every torchrun child owns exactly one visible GPU. Local rank is
+            # a distributed-process label, not a CUDA index in that namespace.
+            return "cuda:0"
         return f"cuda:{local_rank}"
     if devices is not None:
         return f"cuda:{devices[0]}"

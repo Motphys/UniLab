@@ -352,6 +352,35 @@ def test_offpolicy_gpu_backend_env_follows_dp_rank(
         ("isaacgym", "isaacgym_device_id"),
         ("isaacsim", "isaacsim_device_id"),
         ("genesis", "genesis_device_id"),
+        ("newton", "newton_device"),
+    ],
+)
+def test_offpolicy_backend_env_follows_rank_local_cuda_visibility(
+    monkeypatch: pytest.MonkeyPatch, backend: str, field: str
+) -> None:
+    """Single-entry CVD owns the rank namespace without training.devices."""
+
+    mod = _offpolicy()
+    cfg = _offpolicy_cfg([f"task=g1_walk_flat/{backend}"])
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-rank-local")
+    monkeypatch.delenv("UNILAB_DP_RANK", raising=False)
+    monkeypatch.delenv("UNILAB_DP_WORLD_SIZE", raising=False)
+
+    override = mod.build_offpolicy_env_cfg_override("sac", cfg)
+
+    assert override is not None
+    if field == "newton_device":
+        assert override[field] == "cuda:0"
+    else:
+        assert override[field] == 0
+
+
+@pytest.mark.parametrize(
+    ("backend", "field"),
+    [
+        ("isaacgym", "isaacgym_device_id"),
+        ("isaacsim", "isaacsim_device_id"),
+        ("genesis", "genesis_device_id"),
     ],
 )
 def test_ppo_gpu_backend_env_uses_torchrun_local_rank(

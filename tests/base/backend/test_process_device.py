@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
+from uni_rl.ipc.dp_launcher import visible_cuda_entries
 from unisim.backend.mjwarp import runtime as mjwarp_runtime
 
 import unilab.base.process_device as process_device
@@ -15,6 +16,7 @@ from unilab.base.process_device import (
     apply_backend_env_device_override,
     bind_genesis_process_device,
     configure_backend_process_device,
+    rank_local_visible_cuda_entries,
     resolve_backend_env_device_id,
     resolve_backend_process_device,
     warn_if_backend_device_collision,
@@ -128,6 +130,30 @@ def test_torchrun_rank_routes_local_backend_device(backend_type: str) -> None:
         )
         == 1
     )
+
+
+@pytest.mark.parametrize("backend_type", ["isaacgym", "isaacsim", "genesis", "newton"])
+def test_single_visible_gpu_routes_backend_payload_to_local_zero(
+    backend_type: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-rank-local")
+
+    assert (
+        resolve_backend_env_device_id(
+            backend_type,
+            devices=(4, 5),
+            rank=1,
+            world_size=1,
+            learner_device="cuda:5",
+        )
+        == 0
+    )
+
+
+def test_rank_local_visibility_entries_are_opaque() -> None:
+    assert rank_local_visible_cuda_entries(None) == ()
+    assert visible_cuda_entries("GPU-a,MIG-b") == ("GPU-a", "MIG-b")
 
 
 def test_backend_env_device_override_does_not_mutate_owner_mapping() -> None:
