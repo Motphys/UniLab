@@ -568,7 +568,8 @@ def _run_active_window_case(
         obs_dim=case.obs_dim,
         action_dim=case.action_dim,
         critic_dim=case.critic_dim,
-        device="cpu",
+        device=env.device,
+        ingress_device=env.device,
         ingress_slot_rows=case.num_envs,
     )
 

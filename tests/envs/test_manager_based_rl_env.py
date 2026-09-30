@@ -438,6 +438,8 @@ class _DeviceResidentScenePlanBackend(_ScenePlanBackend):
         super().__init__(num_envs)
         self.tensor_reset_calls: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
         self.tensor_steps = 0
+        self.topology = TensorProcessTopology.EXTERNAL_WORKER
+        self.data_plane = TensorDataPlane.CUDA_IPC
         self.sensors = {name: value.cuda() for name, value in self.sensors.items()}
 
     def get_state_views(self, fields, device=None) -> dict[str, torch.Tensor]:
@@ -458,8 +460,8 @@ class _DeviceResidentScenePlanBackend(_ScenePlanBackend):
             sensor_views=True,
             stepping=True,
             selected_reset=True,
-            process_topology=TensorProcessTopology.EXTERNAL_WORKER,
-            data_plane=TensorDataPlane.CUDA_IPC,
+            process_topology=self.topology,
+            data_plane=self.data_plane,
             stream_event_ownership="test",
             torch_devices=("cuda",),
         )
@@ -1945,7 +1947,14 @@ def test_scene_read_plan_pairs_reset_with_selected_packed_transfer() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a local CUDA device")
-def test_device_resident_reset_dispatches_selected_tensor_commit() -> None:
+@pytest.mark.parametrize(
+    ("topology", "data_plane"),
+    [
+        (TensorProcessTopology.IN_PROCESS, TensorDataPlane.DIRECT),
+        (TensorProcessTopology.EXTERNAL_WORKER, TensorDataPlane.CUDA_IPC),
+    ],
+)
+def test_device_resident_reset_dispatches_selected_tensor_commit(topology, data_plane) -> None:
     cfg = _make_cfg(include_optional_managers=False)
     cfg.tensor_runtime = True
     cfg.tensor_runtime_device = "cuda"
@@ -1972,6 +1981,8 @@ def test_device_resident_reset_dispatches_selected_tensor_commit() -> None:
     )
     cfg.events = {"joint_state": EventTermCfg(func=_write_reset_joint_state, mode="reset")}
     backend = _DeviceResidentScenePlanBackend(2)
+    backend.topology = topology
+    backend.data_plane = data_plane
     env = _TestEnv(cfg, cast(SimBackend, backend), 2)
     try:
         plan = env.scene._tensor_read_plan

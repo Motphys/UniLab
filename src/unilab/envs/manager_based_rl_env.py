@@ -603,12 +603,11 @@ class ManagerBasedRlEnv(TorchEnv):
     def _uses_device_resident_reset(
         read_plan: SceneTensorReadPlan | None, capabilities: TensorLifecycleCapabilities
     ) -> bool:
+        """Dispatch by negotiated capability, not worker topology."""
         return (
             read_plan is not None
             and capabilities.execution is TensorExecution.DEVICE_RESIDENT
             and capabilities.selected_reset
-            and capabilities.process_topology is TensorProcessTopology.EXTERNAL_WORKER
-            and capabilities.data_plane is TensorDataPlane.CUDA_IPC
         )
 
     @staticmethod
