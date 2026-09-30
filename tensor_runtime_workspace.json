@@ -15,7 +15,7 @@
       "name": "unilab-rl",
       "repository": "https://github.com/unilabsim/unilab_rl.git",
       "ref": "develop/tensor-runtime",
-      "commit": "eeeceb79d812276904ddc5d0d687720e4f47715e",
+      "commit": "8a04567ca6cbef2cb22b20410ae60e0f59fb60fd",
       "path": "../unilab_rl"
     },
     {
