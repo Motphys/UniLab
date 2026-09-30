@@ -1,0 +1,22 @@
+# Deployment contract for G1SonicMimicDR model_140000.pt.
+# policy.onnx is exported from that checkpoint by `uv run eval`.
+obs_dim: 1570
+action_dim: 29
+ctrl_dt: 0.02
+action_scale: 2.0
+ema_alpha: 1.0
+simulate_action_latency: false
+anchor_body_name: torso_link
+anchor_body_idx_in_motion: 16
+future_steps: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45]
+use_gym_history: false
+obs_layout:
+  - {name: command_multi_future, dim: 640}
+  - {name: projected_gravity, dim: 3, history_length: 10}
+  - {name: base_ang_vel, dim: 3, history_length: 10}
+  - {name: joint_pos, dim: 29, history_length: 10}
+  - {name: joint_vel, dim: 29, history_length: 10}
+  - {name: actions, dim: 29, history_length: 10}
+default_angles: [-0.312, 0.0, 0.0, 0.669, -0.363, 0.0, -0.312, 0.0, 0.0, 0.669, -0.363, 0.0, 0.0, 0.0, 0.0, 0.2, 0.2, 0.0, 0.6, 0.0, 0.0, 0.0, 0.2, -0.2, 0.0, 0.6, 0.0, 0.0, 0.0]
+joint_lower: [-2.5307, -0.5236, -2.7576, -0.087267, -0.87267, -0.2618, -2.5307, -2.9671, -2.7576, -0.087267, -0.87267, -0.2618, -2.618, -0.52, -0.52, -3.0892, -1.5882, -2.618, -1.0472, -1.97222, -1.61443, -1.61443, -3.0892, -2.2515, -2.618, -1.0472, -1.97222, -1.61443, -1.61443]
+joint_upper: [2.8798, 2.9671, 2.7576, 2.8798, 0.5236, 0.2618, 2.8798, 0.5236, 2.7576, 2.8798, 0.5236, 0.2618, 2.618, 0.52, 0.52, 2.6704, 2.2515, 2.618, 2.0944, 1.97222, 1.61443, 1.61443, 2.6704, 1.5882, 2.618, 2.0944, 1.97222, 1.61443, 1.61443]
