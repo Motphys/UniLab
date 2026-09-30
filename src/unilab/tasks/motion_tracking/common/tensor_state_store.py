@@ -355,14 +355,15 @@ class TensorDeviceStateStore:
         control is published through the negotiated tensor plane, and the task
         performs no host/device fallback.
         """
+        if self._host_bridge_plan is not None:
+            # HOST_BRIDGE owns a paired selected-row reset/read boundary. Its
+            # packet publication is authoritative immediately after
+            # ``apply_reset`` and must not be advanced by another physics step.
+            return None
         if self._execution is not TensorExecution.DEVICE_RESIDENT:
             raise RuntimeError(
                 "selected-reset readiness requires DEVICE_RESIDENT tensor execution; "
                 f"received {self._execution}"
-            )
-        if self._host_bridge_plan is not None:
-            raise RuntimeError(
-                "HOST_BRIDGE selected reset owns its paired post-reset read boundary"
             )
         if not self._views_require_readiness_barrier:
             return None

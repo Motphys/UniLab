@@ -111,6 +111,7 @@ class _HostBridgeBackend:
 
     def __init__(self):
         self.selected_read_calls = 0
+        self.steps = 0
 
     def get_tensor_capabilities(self):
         return TensorLifecycleCapabilities(
@@ -146,6 +147,7 @@ class _HostBridgeBackend:
                 return None
 
             def step(self, nsteps=1):
+                backend.steps += 1
                 return None
 
             def apply_reset(self, env_indices, qpos, qvel, randomization=None):
@@ -407,6 +409,30 @@ def test_tensor_state_store_row_validation_uses_one_bounded_sync(
 
     assert store._validate_rows(rows) is rows
     assert _SyncCountingTensor.synchronization_count == 1
+
+
+def test_host_bridge_selected_reset_has_no_device_resident_readiness_step() -> None:
+    backend = _HostBridgeBackend()
+    store = TensorDeviceStateStore(
+        backend=backend,  # pyright: ignore[reportArgumentType]
+        device=torch.device("cpu"),
+        num_envs=1,
+        joint_qpos_ids=np.array([7], dtype=np.int64),
+        joint_qvel_ids=np.array([6], dtype=np.int64),
+        body_names=("pelvis",),
+        body_ids=np.array([0], dtype=np.intp),
+    )
+    ctrl = torch.zeros((1, 1), dtype=torch.float32)
+    qpos = torch.tensor([[0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.25]])
+    qvel = torch.zeros((1, 7), dtype=torch.float32)
+
+    store.apply_reset(torch.tensor([0], dtype=torch.int64), qpos, qvel)
+    result = store.refresh_after_selected_reset(ctrl, nsteps=3)
+    store.read(torch.tensor([0], dtype=torch.int64))
+
+    assert result is None
+    assert backend.steps == 0
+    assert backend.selected_read_calls == 1
 
 
 def test_tensor_state_store_empty_rows_validate_and_read_without_sync_or_backend_read(
