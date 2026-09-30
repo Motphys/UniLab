@@ -155,6 +155,8 @@ def main() -> None:
     parser.add_argument("--no-onnx", action="store_true")
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--max-steps", type=int, default=0)
+    parser.add_argument("--start-frame", type=int, default=0,
+                        help="Initial motion frame (deployment default: 0).")
     parser.add_argument("--init-mode", choices=("rsi", "stand"), default="rsi")
     args = parser.parse_args()
 
@@ -200,15 +202,20 @@ def main() -> None:
     anchor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, cfg["anchor_body_name"])
     if pelvis_id < 0 or anchor_id < 0:
         raise SystemExit("pelvis/anchor body not found")
+    start_frame = int(args.start_frame) % int(motion["num_frames"])
     if args.init_mode == "rsi":
-        # The training motion is pelvis-rooted (pelvis position is zero). Keep
-        # stand xyz while applying its reference orientation and joint pose.
-        data.qpos[3:7] = np.asarray(motion["body_quat_w"])[0, 0]
-        data.qpos[7:] = np.asarray(motion["joint_pos"])[0]
-        data.qvel[3:6] = np.asarray(motion["body_ang_vel_w"])[0, 0]
-        data.qvel[6:] = np.asarray(motion["joint_vel"])[0]
+        # Apply the exact motion root state and reference joint pose. The raw
+        # NPZ includes the world body at column 0; pelvis is column 1.
+        root_idx = int(cfg["root_body_idx_in_motion"])
+        data.qpos[0:3] = np.asarray(motion["body_pos_w"])[start_frame, root_idx]
+        data.qpos[3:7] = np.asarray(motion["body_quat_w"])[start_frame, root_idx]
+        data.qpos[7:] = np.asarray(motion["joint_pos"])[start_frame]
+        data.qvel[0:3] = np.asarray(motion["body_lin_vel_w"])[start_frame, root_idx]
+        data.qvel[3:6] = np.asarray(motion["body_ang_vel_w"])[start_frame, root_idx]
+        data.qvel[6:] = np.asarray(motion["joint_vel"])[start_frame]
     mujoco.mj_forward(model, data)
-    print(f"sim_dt={sim_dt:.6f}, ctrl_dt={ctrl_dt:.3f}, substeps={substeps}, init={args.init_mode}")
+    print(f"sim_dt={sim_dt:.6f}, ctrl_dt={ctrl_dt:.3f}, substeps={substeps}, "
+          f"init={args.init_mode}, start_frame={start_frame}")
 
     sensor_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SENSOR, "pelvis_gyro")
     if sensor_id < 0:
@@ -218,7 +225,6 @@ def main() -> None:
         raise SystemExit(f"pelvis_gyro dimension is {sensor_dim}, expected 3")
 
     default = np.asarray(cfg["default_angles"], dtype=np.float32)
-    lower, upper = np.asarray(cfg["joint_lower"], dtype=np.float32), np.asarray(cfg["joint_upper"], dtype=np.float32)
     scale, ema = float(cfg["action_scale"]), float(cfg.get("ema_alpha", 1.0))
     last_action = np.zeros(action_dim, dtype=np.float32)
     q_target, nframes = default.copy(), int(motion["num_frames"])
@@ -231,7 +237,7 @@ def main() -> None:
     wall_start = time.time()
 
     for step in range(total):
-        frame = step % nframes
+        frame = (start_frame + step) % nframes
         root_quat = np.asarray(data.xquat[pelvis_id], dtype=np.float32)
         anchor_quat = np.asarray(data.xquat[anchor_id], dtype=np.float32)
         segments = compute_segments(
@@ -247,7 +253,11 @@ def main() -> None:
             if not np.all(np.isfinite(action)):
                 raise SystemExit(f"non-finite action at step {step}")
             last_action = action
-            target = np.clip(action * scale + default, lower, upper)
+            # MotionJointPositionAction has no policy-space clip in the owner
+            # YAML: it applies scale+default offset directly, then the MuJoCo
+            # position actuator enforces its own force limits.  Clipping to
+            # joint limits here would be a deployment-semantic mismatch.
+            target = action * scale + default
             q_target = ema * target + (1.0 - ema) * q_target
         else:
             q_target = default.copy()
