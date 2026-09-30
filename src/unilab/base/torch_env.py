@@ -238,7 +238,9 @@ class TorchEnv(ABEnv):
     def step(self, actions: torch.Tensor) -> TorchEnvState:
         started = time.perf_counter()
         cpu_started = _cpu_time()
+        phase = time.perf_counter()
         self._validate_action(actions)
+        action_validate_ms = (time.perf_counter() - phase) * 1000.0
         self._bind_tensor_runtime()
         if self._state is None:
             self.init_state()
@@ -305,6 +307,7 @@ class TorchEnv(ABEnv):
         if not did_reset:
             self._clear_reset_done_detail_timing(timing)
         timing["env_step_total_ms"] = (time.perf_counter() - started) * 1000.0
+        timing["action_validate_ms"] = action_validate_ms
         timing["apply_action_ms"] = apply_action_ms
         timing["apply_action_cpu_ms"] = apply_action_cpu_ms
         timing["step_core_ms"] = step_core_ms

@@ -12,6 +12,7 @@ from numbers import Real
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+import torch
 
 from unilab.dtype_config import get_global_dtype
 from unilab.managers.command_manager import CommandTerm, CommandTermCfg
@@ -72,8 +73,8 @@ class UniformVelocityCommand(CommandTerm):
         self.is_standing_env = np.zeros(self.num_envs, dtype=np.bool_)
         self.is_world_env = np.zeros(self.num_envs, dtype=np.bool_)
         self.is_forward_env = np.zeros(self.num_envs, dtype=np.bool_)
-        self.metrics["error_vel_xy"] = np.zeros(self.num_envs, dtype=dtype)
-        self.metrics["error_vel_yaw"] = np.zeros(self.num_envs, dtype=dtype)
+        self.metrics["error_vel_xy"] = torch.zeros(self.num_envs, device=self._device)
+        self.metrics["error_vel_yaw"] = torch.zeros(self.num_envs, device=self._device)
 
     @staticmethod
     def _validate_cfg(cfg: UniformVelocityCommandCfg) -> None:
@@ -117,19 +118,38 @@ class UniformVelocityCommand(CommandTerm):
     def command(self) -> np.ndarray:
         return self.vel_command_b
 
+    @property
+    def tensor_sensor_names(self) -> tuple[str, ...]:
+        """IMU sensors used by per-step command tracking metrics."""
+        return ("pelvis_local_linvel", "torso_gyro")
+
+    def _metric_velocities(self) -> tuple[torch.Tensor, torch.Tensor]:
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
+        names = self.tensor_sensor_names
+        if read_plan is not None and set(names).issubset(
+            read_plan.sensor_names.get(self.cfg.entity_name, ())
+        ):
+            entity = self._env.scene[self.cfg.entity_name]
+            views = read_plan.sensor_tensor_views(entity, names).values
+            return views[names[0]], views[names[1]]
+        # HOST_BRIDGE owners use their public entity facade. This is an
+        # explicit carrier choice, not a hidden device transfer.
+        device = getattr(self._env, "device", torch.device("cpu"))
+        return (
+            torch.as_tensor(self.robot.data.root_link_lin_vel_b, device=device),
+            torch.as_tensor(self.robot.data.root_link_ang_vel_b, device=device),
+        )
+
     def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
         del env_ids  # Metrics accumulate over all rows on every compute.
         max_command_steps = self.cfg.resampling_time_range[1] / self._env.step_dt
+        lin_vel, ang_vel = self._metric_velocities()
+        command = torch.as_tensor(self.vel_command_b, device=lin_vel.device)
         self.metrics["error_vel_xy"] += (
-            np.linalg.norm(
-                self.vel_command_b[:, :2] - self.robot.data.root_link_lin_vel_b[:, :2],
-                axis=-1,
-            )
-            / max_command_steps
+            torch.linalg.vector_norm(command[:, :2] - lin_vel[:, :2], dim=-1) / max_command_steps
         )
         self.metrics["error_vel_yaw"] += (
-            np.abs(self.vel_command_b[:, 2] - self.robot.data.root_link_ang_vel_b[:, 2])
-            / max_command_steps
+            torch.abs(command[:, 2] - ang_vel[:, 2]) / max_command_steps
         )
 
     def _resample_command(self, env_ids: np.ndarray) -> None:

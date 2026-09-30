@@ -72,6 +72,19 @@ from unilab.managers.scene_entity_config import SceneEntityCfg
 
 _DEVICE_RESIDENT_TENSOR_SENSORS: dict[str, frozenset[str]] = {
     "isaacgym": frozenset({"pelvis_local_linvel", "torso_gyro"}),
+    "mjwarp": frozenset(
+        {
+            "pelvis_local_linvel",
+            "torso_gyro",
+            "torso_upvector",
+            "left_foot_pos",
+            "right_foot_pos",
+            "left_foot_quat",
+            "right_foot_quat",
+            *(f"left_foot_contact_{index}" for index in range(4)),
+            *(f"right_foot_contact_{index}" for index in range(4)),
+        }
+    ),
 }
 
 
@@ -414,6 +427,7 @@ class ManagerBasedRlEnv(TorchEnv):
         specs.extend(self._action_tensor_read_specs())
         specs.extend(self._observation_tensor_read_specs())
         specs.extend(self._manager_term_tensor_read_specs())
+        specs.extend(self._command_tensor_read_specs())
         self.scene._tensor_read_plan = (
             self.scene.compile_tensor_reads(self.device, specs) if specs else None
         )
@@ -530,6 +544,67 @@ class ManagerBasedRlEnv(TorchEnv):
                         backend_type=backend_type,
                     )
                 )
+                if manager_name == "termination":
+                    term = manager.get_term_cfg(name).func
+                    specs.extend(self._manager_term_body_read_specs(manager_name, name, term))
+        return specs
+
+    @staticmethod
+    def _manager_term_body_read_specs(
+        manager_name: str, term_name: str, term: Any
+    ) -> list[SceneTensorReadSpec]:
+        body_names = getattr(term, "tensor_body_names", None)
+        if body_names is None:
+            return []
+        if (
+            not isinstance(body_names, (tuple, list))
+            or any(not isinstance(body_name, str) or not body_name for body_name in body_names)
+            or len(set(body_names)) != len(body_names)
+        ):
+            raise TypeError(
+                f"ManagerBasedRlEnv tensor body declaration for {manager_name} term "
+                f"'{term_name}' must be a unique sequence of body names; got {body_names!r}"
+            )
+        params = getattr(getattr(term, "cfg", None), "params", {})
+        entity_name = params.get("entity_name") if isinstance(params, dict) else None
+        if not isinstance(entity_name, str) or not entity_name:
+            entity_name = "robot"
+        return [SceneTensorReadSpec(entity=entity_name, body_names=tuple(body_names))]
+
+    def _command_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
+        """Collect optional command-term reads for the packed phase."""
+        specs: list[SceneTensorReadSpec] = []
+        narrow = (
+            self._backend.get_tensor_capabilities().execution is TensorExecution.DEVICE_RESIDENT
+        )
+        allowed = _DEVICE_RESIDENT_TENSOR_SENSORS.get(
+            self._backend.backend_type,
+            {"pelvis_local_linvel", "torso_gyro", "torso_upvector"},
+        )
+        for name in self.command_manager.active_terms:
+            sensor_names = getattr(self.command_manager.get_term(name), "tensor_sensor_names", None)
+            if sensor_names is None:
+                continue
+            if not isinstance(sensor_names, (tuple, list)) or any(
+                not isinstance(sensor_name, str) or not sensor_name for sensor_name in sensor_names
+            ):
+                raise TypeError(
+                    "ManagerBasedRlEnv tensor read declaration for command term "
+                    f"'{name}' must be a sequence of sensor names; got {sensor_names!r}"
+                )
+            names = tuple(sensor_names)
+            if narrow:
+                names = tuple(sensor_name for sensor_name in names if sensor_name in allowed)
+            if not names:
+                continue
+            command_cfg = self._cfg.commands.get(name) if self._cfg.commands else None
+            entity_name = getattr(command_cfg, "entity_name", "robot") if command_cfg else "robot"
+            specs.append(
+                SceneTensorReadSpec(
+                    entity=entity_name if isinstance(entity_name, str) and entity_name else "robot",
+                    sensor_names=names,
+                )
+            )
         return specs
 
     @staticmethod

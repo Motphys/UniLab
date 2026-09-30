@@ -206,7 +206,7 @@ env:
       params:
         max_tilt_deg: 65.0
     base_height:
-      func: unilab.envs.mdp.root_height_below_minimum
+      func: unilab.tasks.locomotion.g1.manager_terms.g1_base_height_below_minimum
       params:
         minimum_height: 0.3
   curriculum:

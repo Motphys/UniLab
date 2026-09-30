@@ -47,6 +47,14 @@ if TYPE_CHECKING:
 
         def get_term_cfg(self, term_name: str) -> _RewardTermCfgView: ...
 
+    class _EntityDataView(Protocol):
+        @property
+        def root_link_pos_w(self) -> np.ndarray: ...
+
+    class _EntityView(Protocol):
+        @property
+        def data(self) -> _EntityDataView: ...
+
     class _G1Env(ManagerBasedRlEnv, Protocol):
         @property
         def common_step_counter(self) -> int: ...
@@ -56,6 +64,12 @@ if TYPE_CHECKING:
 
         @property
         def reward_manager(self) -> _RewardManagerView: ...
+
+        @property
+        def cfg(self) -> Any: ...
+
+        @property
+        def scene(self) -> Any: ...
 
 
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
@@ -672,6 +686,43 @@ class g1_tilt_exceeded(_UpvectorTerm):
             return torch.acos(z) > self._max_tilt_rad
         tilt = np.arccos(np.clip(upvector[:, 2], -1.0, 1.0))
         return np.asarray(tilt > self._max_tilt_rad, dtype=np.bool_)
+
+
+class g1_base_height_below_minimum(ManagerTermBase):
+    """Terminate when root height drops below the task threshold.
+
+    Declaring the root body lets the packed device-resident read phase serve
+    this term without the legacy NumPy body-state facade or a full host cache
+    refresh.
+    """
+
+    _allowed_params = frozenset({"minimum_height"})
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: _G1Env):
+        super().__init__(env)
+        self._minimum_height = _real(self.name, "minimum_height", cfg.params.get("minimum_height"))
+        asset_cfg = cfg.params.get("asset_cfg", _DEFAULT_ASSET_CFG)
+        if not isinstance(asset_cfg, SceneEntityCfg):
+            raise TypeError(f"{self.name} asset_cfg must be a SceneEntityCfg")
+        self._entity_name = asset_cfg.name
+        entity_cfg = env.cfg.scene.entities.get(self._entity_name) if env.cfg.scene else None
+        root = getattr(entity_cfg, "root_body_name", None) if entity_cfg is not None else None
+        if not isinstance(root, str) or not root:
+            raise ValueError(f"{self.name} requires an entity root_body_name")
+        self._root_body_name = root
+
+    @property
+    def tensor_body_names(self) -> tuple[str, ...]:
+        return (self._root_body_name,)
+
+    def __call__(self, env: _G1Env, **params: Any) -> np.ndarray | torch.Tensor:
+        del params
+        read_plan = getattr(env.scene, "_tensor_read_plan", None)
+        if read_plan is not None:
+            body = read_plan.body_tensor_view(self._entity_name, (self._root_body_name,))
+            return body.pos_w[:, 0, 2] < self._minimum_height
+        robot = env.scene[self._entity_name]
+        return np.asarray(robot.data.root_link_pos_w[:, 2] < self._minimum_height, dtype=np.bool_)
 
 
 class penalty_feet_ori(_SensorTerm):
