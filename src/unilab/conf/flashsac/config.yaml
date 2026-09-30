@@ -56,6 +56,17 @@ training:
   # list[list[int]] | null; one CPU-id segment per rank for the collector's
   # MuJoCo pool; null = auto partition of cpu_count // world_size per rank.
   dp_collector_cpu_ids: null
+  # Advisory role scheduling resolved by uni_rl. Nice values are additive and
+  # non-negative (0 keeps normal priority); cpu_ids are optional Linux affinity.
+  learner_scheduling:
+    nice: null
+    cpu_ids: null
+  buffer_scheduling:
+    nice: null
+    cpu_ids: null
+  collector_scheduling:
+    nice: null
+    cpu_ids: null
   logger: tensorboard
   # Backend (TensorBoard/wandb) scalar reporting interval in iterations; the
   # terminal display is unaffected. Each report is one batched event record.

@@ -27,6 +27,7 @@ from uni_rl.ipc.dp_launcher import (
     resolve_dp_topology,
     validate_dp_launchable,
 )
+from uni_rl.offpolicy.scheduling import resolve_role_scheduling_settings
 from unisim.backend.base import log_playback_plan
 
 from unilab.base.config_adapter import create_env
@@ -226,6 +227,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         None,
         explicit=explicit_cpu_ids,
     )
+    role_scheduling_settings = resolve_role_scheduling_settings(cfg)
 
     # Cold-path DP process-group assembly. world_size == 1 keeps dp_sync=None
     # (bit-identical single-rank path); multi-rank learners attach the group's
@@ -271,6 +273,7 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
         "nan_guard_cfg": _nan_guard_cfg,
         "torch_thread_runtime": torch_thread_runtime,
         "collector_cpu_ids": collector_cpu_ids,
+        "role_scheduling_settings": role_scheduling_settings,
         "dp_sync": dp_sync,
         # Keep the injected collector hook top-level/pickleable while selecting
         # the backend lazily inside the spawned process.  The historical

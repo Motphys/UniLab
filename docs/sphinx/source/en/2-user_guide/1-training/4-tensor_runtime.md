@@ -24,6 +24,29 @@ numbers, zero, and negative values fail closed. The G1 Motion Tracking / MJWarp
 owner intentionally overrides only `collector_metrics_interval` to `100`; all
 other tensor-runtime defaults remain as listed above.
 
+## Role scheduling
+
+The off-policy owners also expose advisory CPU-scheduling requests for the
+learner, device-replay buffer worker, and collector:
+
+```yaml
+training:
+  learner_scheduling: {nice: null, cpu_ids: null}
+  buffer_scheduling: {nice: null, cpu_ids: null}
+  collector_scheduling: {nice: null, cpu_ids: null}
+```
+
+`nice` is an additive, non-negative request (`0` keeps normal priority; only a
+privileged process can lower it later). `cpu_ids` is an optional Linux affinity
+request. Both fields are advisory: a container or host policy may reject the
+request, in which case training continues and the runtime manifest records the
+failed application. Platform support differs (notably for per-thread buffer
+affinity), so benchmark on the target host rather than assuming portability.
+
+Use `training.dp_collector_cpu_ids` for the existing multi-rank collector
+partition because that contract also sizes backend worker pools. The
+`*_scheduling.cpu_ids` fields are for explicit role-priority experiments.
+
 ## Replay ingress tradeoffs
 
 The default `replay_ingress_slot_rows: null` resolves to `algo.num_envs` and

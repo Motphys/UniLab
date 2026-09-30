@@ -24,6 +24,28 @@ closed。G1 Motion Tracking / MJWarp owner 仅有意将
 `collector_metrics_interval` 覆盖为 `100`；其他 tensor-runtime 默认值仍保持
 上表所示。
 
+## Role scheduling
+
+Off-policy owner 还暴露 learner、device-replay buffer worker 与 collector 的
+advisory CPU 调度请求：
+
+```yaml
+training:
+  learner_scheduling: {nice: null, cpu_ids: null}
+  buffer_scheduling: {nice: null, cpu_ids: null}
+  collector_scheduling: {nice: null, cpu_ids: null}
+```
+
+`nice` 是 additive、非负的请求（`0` 保持普通优先级；之后只有特权进程才能
+调低）。`cpu_ids` 是可选的 Linux affinity 请求。两者都是 advisory：容器或
+主机策略可能拒绝请求，此时训练继续执行，runtime manifest 记录应用失败。
+平台支持不同（尤其是 buffer 的 per-thread affinity），请在目标主机上
+benchmark，不要假设可移植。
+
+多 rank collector 分区继续使用 `training.dp_collector_cpu_ids`；该契约还会
+决定 backend worker pool 数量。`*_scheduling.cpu_ids` 用于显式的角色优先级
+实验。
+
 ## Replay ingress 权衡
 
 默认 `replay_ingress_slot_rows: null` 会解析为 `algo.num_envs`，并为每个

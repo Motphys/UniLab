@@ -93,6 +93,14 @@ def test_offpolicy_config_has_one_replay_path():
     assert cfg.training.replay_ingress_slot_rows is None
 
 
+def test_offpolicy_config_declares_disabled_role_scheduling_defaults():
+    cfg = _offpolicy_cfg()
+
+    assert cfg.training.learner_scheduling == {"nice": None, "cpu_ids": None}
+    assert cfg.training.buffer_scheduling == {"nice": None, "cpu_ids": None}
+    assert cfg.training.collector_scheduling == {"nice": None, "cpu_ids": None}
+
+
 def test_flashsac_scoped_tensor_benchmark_reduces_metric_flush_frequency():
     cfg = _offpolicy_cfg(
         ["task=g1_motion_tracking/mjwarp"],
@@ -527,6 +535,29 @@ def test_build_runner_single_rank_keeps_collector_cpus_unset(monkeypatch: pytest
     assert runner.kwargs["torch_thread_runtime"]["cpu_count"] == 128
     override = runner.kwargs["env_cfg_override"] or {}
     assert "cpu_ids" not in override
+    for call in probe_env_calls:
+        assert "cpu_ids" not in (call.get("env_cfg_override") or {})
+
+
+def test_build_runner_resolves_role_scheduling_without_probe_affinity(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    runner, probe_env_calls = _build_sac_runner_with_fakes(
+        monkeypatch,
+        [
+            "training.learner_scheduling.nice=0",
+            "training.buffer_scheduling.nice=4",
+            "training.collector_scheduling.nice=6",
+        ],
+    )
+    scheduling = runner.kwargs["role_scheduling_settings"]
+    assert scheduling.learner.nice == 0
+    assert scheduling.buffer.nice == 4
+    assert scheduling.collector.nice == 6
+    assert scheduling.learner.cpu_ids is None
+    assert scheduling.buffer.cpu_ids is None
+    assert scheduling.collector.cpu_ids is None
+    assert runner.kwargs["collector_cpu_ids"] is None
     for call in probe_env_calls:
         assert "cpu_ids" not in (call.get("env_cfg_override") or {})
 
