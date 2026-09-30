@@ -84,14 +84,36 @@ class CommandTerm(ManagerTermBase):
     def reset(self, env_ids: np.ndarray | slice | None) -> dict[str, float]:
         assert isinstance(env_ids, np.ndarray)
         extras = {}
-        for metric_name, metric_value in self.metrics.items():
-            metric_slice = metric_value[env_ids]
-            if not _finite(metric_slice):
-                raise ValueError(
-                    f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
-                )
-            extras[metric_name] = float(_mean(metric_slice))
-            metric_value[env_ids] = 0.0
+        metric_values = list(self.metrics.items())
+        tensor_metrics = [
+            (name, value) for name, value in metric_values if isinstance(value, torch.Tensor)
+        ]
+        if tensor_metrics and len(tensor_metrics) == len(metric_values):
+            # Publish reset means and the finite diagnostic through one device
+            # boundary instead of synchronizing twice per metric.
+            selected = torch.stack([value[env_ids] for _, value in tensor_metrics], dim=0)
+            means = selected.mean(dim=1).detach().cpu().tolist()
+            finite = bool(torch.isfinite(selected).all())
+            if not finite:
+                for metric_name, metric_slice in zip(
+                    (name for name, _ in tensor_metrics), selected, strict=True
+                ):
+                    if not _finite(metric_slice):
+                        raise ValueError(
+                            f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
+                        )
+            for (metric_name, metric_value), mean in zip(tensor_metrics, means, strict=True):
+                extras[metric_name] = float(mean)
+                metric_value[env_ids] = 0.0
+        else:
+            for metric_name, metric_value in metric_values:
+                metric_slice = metric_value[env_ids]
+                if not _finite(metric_slice):
+                    raise ValueError(
+                        f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
+                    )
+                extras[metric_name] = float(_mean(metric_slice))
+                metric_value[env_ids] = 0.0
         self.command_counter[env_ids] = 0
         self._resample(env_ids)
         return extras

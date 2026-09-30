@@ -382,6 +382,7 @@ class TorchEnv(ABEnv):
             raise ValueError("TorchEnv control contains NaN or Inf")
 
     def _validate_state(self, state: TorchEnvState) -> None:
+        finite_checks: list[tuple[torch.Tensor, str]] = []
         expected_keys = set(self.obs_groups_spec)
         if not isinstance(state.obs, dict) or set(state.obs) != expected_keys:
             raise ValueError("TorchEnvState.obs keys do not match obs_groups_spec")
@@ -397,14 +398,19 @@ class TorchEnv(ABEnv):
                 raise ValueError(f"TorchEnvState.obs[{name!r}] device must be {self.device}")
             if value.shape != (self._num_envs, dim):
                 raise ValueError(f"TorchEnvState.obs[{name!r}] has shape {tuple(value.shape)}")
-            self._validate_finite_float(value, f"obs[{name!r}]")
+            finite_checks.append((value, f"obs[{name!r}]"))
         self._validate_vector(state.reward, "reward", self._dtype)
-        self._validate_finite_float(state.reward, "reward")
+        finite_checks.append((state.reward, "reward"))
         self._validate_vector(state.terminated, "terminated", torch.bool)
         self._validate_vector(state.truncated, "truncated", torch.bool)
         steps = state.info.get("steps")
         self._validate_vector(steps, "info['steps']", torch.int64)
         self._validate_final_observation(state.final_observation)
+        if finite_checks:
+            finite = torch.stack([torch.isfinite(value).all() for value, _ in finite_checks])
+            if not bool(finite.all()):
+                for value, label in finite_checks:
+                    self._validate_finite_float(value, label)
 
     def _validate_vector(self, value: Any, label: str, dtype: torch.dtype) -> None:
         if not isinstance(value, torch.Tensor):

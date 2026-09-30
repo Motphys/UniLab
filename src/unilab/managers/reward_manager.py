@@ -117,10 +117,16 @@ class RewardManager(ManagerBase):
             if term_cfg.weight == 0.0:
                 self._step_reward[:, term_idx] = 0.0
                 continue
-            value = self._compute_term(name, term_cfg)
+            value = self._compute_term(name, term_cfg, validate=False)
             weighted = value * float(term_cfg.weight) * scale
             self._reward_buf += weighted
             self._step_reward[:, term_idx] = weighted / scale
+        if not bool(torch.isfinite(self._reward_buf).all()):
+            finite = torch.isfinite(self._step_reward)
+            for term_idx, name in enumerate(self._term_names):
+                if not bool(finite[:, term_idx].all()):
+                    raise ValueError(f"RewardManager term '{name}' returned a non-finite reward.")
+            raise ValueError("RewardManager returned a non-finite reward.")
         return self._reward_buf
 
     def step_reward_extras(self) -> dict[str, float]:
@@ -161,7 +167,9 @@ class RewardManager(ManagerBase):
             if hasattr(term_cfg.func, "reset") and callable(term_cfg.func.reset):
                 self._class_term_cfgs.append(term_cfg)
 
-    def _compute_term(self, name: str, term_cfg: RewardTermCfg) -> torch.Tensor:
+    def _compute_term(
+        self, name: str, term_cfg: RewardTermCfg, *, validate: bool = True
+    ) -> torch.Tensor:
         value = term_cfg.func(self._env, **term_cfg.params)
         if isinstance(value, torch.Tensor):
             if value.dtype != torch.float32:
@@ -182,7 +190,7 @@ class RewardManager(ManagerBase):
                 f"RewardManager term '{name}' returned shape {tuple(result.shape)}; "
                 f"expected ({self.num_envs},)."
             )
-        if not bool(torch.isfinite(result).all()):
+        if validate and not bool(torch.isfinite(result).all()):
             has_nan = bool(torch.isnan(result).any())
             has_inf = bool(torch.isinf(result).any())
             invalid_kind = "NaN/Inf" if has_nan and has_inf else "NaN" if has_nan else "Inf"
