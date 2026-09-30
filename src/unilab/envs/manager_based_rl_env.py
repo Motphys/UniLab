@@ -16,7 +16,15 @@ from typing import Any
 import gymnasium as gym
 import numpy as np
 import torch
-from unisim.backend.base import DebugOverlayGetter, DebugPrimitive, SimBackend, TensorExecution
+from unisim.backend.base import (
+    DebugOverlayGetter,
+    DebugPrimitive,
+    SimBackend,
+    TensorDataPlane,
+    TensorExecution,
+    TensorLifecycleCapabilities,
+    TensorProcessTopology,
+)
 
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
@@ -592,6 +600,18 @@ class ManagerBasedRlEnv(TorchEnv):
             return torch.zeros_like(self._control)
 
     @staticmethod
+    def _uses_device_resident_reset(
+        read_plan: SceneTensorReadPlan | None, capabilities: TensorLifecycleCapabilities
+    ) -> bool:
+        return (
+            read_plan is not None
+            and capabilities.execution is TensorExecution.DEVICE_RESIDENT
+            and capabilities.selected_reset
+            and capabilities.process_topology is TensorProcessTopology.EXTERNAL_WORKER
+            and capabilities.data_plane is TensorDataPlane.CUDA_IPC
+        )
+
+    @staticmethod
     def _observation_tensor_entity(term_cfg: ObservationTermCfg) -> str:
         asset_cfg = term_cfg.params.get("asset_cfg")
         if isinstance(asset_cfg, SceneEntityCfg):
@@ -885,7 +905,15 @@ class ManagerBasedRlEnv(TorchEnv):
 
         self._command_dt.fill(self.step_dt)
         self._command_dt[self.reset_buf] = 0.0
-        with self._reset_state.scoped(self._all_env_ids):
+        step_read_plan = self.scene._tensor_read_plan
+        step_reset_capabilities = self._backend.get_tensor_capabilities()
+        if self._uses_device_resident_reset(step_read_plan, step_reset_capabilities):
+            assert step_read_plan is not None
+            self._reset_state.declare_packed_reset_device(step_read_plan.device)
+            step_reset_context = self._reset_state.scoped_device_tensor(self._all_env_ids)
+        else:
+            step_reset_context = self._reset_state.scoped(self._all_env_ids)
+        with step_reset_context:
             self.command_manager.compute(dt=self._command_dt)
         if self._reset_state.last_commit_had_writes:
             self.scene._invalidate_state_reads()
@@ -969,6 +997,8 @@ class ManagerBasedRlEnv(TorchEnv):
         log: dict[str, Any] = {}
         self.curriculum_manager.compute(env_ids=ids)
         read_plan = self.scene._tensor_read_plan
+        reset_capabilities = self._backend.get_tensor_capabilities()
+        device_resident_reset = self._uses_device_resident_reset(read_plan, reset_capabilities)
         use_packed_reset = (
             read_plan is not None
             and read_plan.host_plan is not None
@@ -981,6 +1011,10 @@ class ManagerBasedRlEnv(TorchEnv):
             assert read_plan.host_plan is not None
             self._reset_state.declare_packed_reset_device(read_plan.device)
             reset_context = self._reset_state.scoped_tensor(ids, read_plan.host_plan)
+        elif device_resident_reset:
+            assert read_plan is not None
+            self._reset_state.declare_packed_reset_device(read_plan.device)
+            reset_context = self._reset_state.scoped_device_tensor(ids)
         else:
             reset_context = self._reset_state.scoped(ids)
         with reset_context:
@@ -1019,8 +1053,10 @@ class ManagerBasedRlEnv(TorchEnv):
             read_plan = self.scene._tensor_read_plan
             if read_plan is not None:
                 # A host-bridge plan owns the paired selected-row boundary from
-                # ``apply_reset``. Device-resident plans have no selected packet
-                # and refresh their stable public views normally.
+                # ``apply_reset``. IsaacGym's external CUDA IPC worker marks
+                # body/sensor views stale after a selected reset, so one public
+                # zero-control tensor step materializes the post-reset packet
+                # before Manager terms read those stable views.
                 if use_packed_reset:
                     read_plan.refresh_selected()
                 else:

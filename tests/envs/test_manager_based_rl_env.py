@@ -16,6 +16,7 @@ from unisim.backend.base import (
     TensorExecution,
     TensorIOSpec,
     TensorLifecycleCapabilities,
+    TensorProcessTopology,
 )
 
 import unilab.envs.manager_based_rl_env as manager_env_module
@@ -428,6 +429,59 @@ class _ScenePlanBackend(_StateBackend):
                 backend.plan_closes += 1
 
         return _Plan(spec)
+
+
+class _DeviceResidentScenePlanBackend(_ScenePlanBackend):
+    """A CUDA-only device-resident scene plan with selected tensor reset."""
+
+    def __init__(self, num_envs: int) -> None:
+        super().__init__(num_envs)
+        self.tensor_reset_calls: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+        self.tensor_steps = 0
+        self.sensors = {name: value.cuda() for name, value in self.sensors.items()}
+
+    def get_state_views(self, fields, device=None) -> dict[str, torch.Tensor]:
+        views = super().get_state_views(fields, device=device)
+        target = torch.device(device) if device is not None else torch.device("cpu")
+        return {name: value.to(device=target) for name, value in views.items()}
+
+    def get_sensor_view(self, name: str, device=None) -> torch.Tensor:
+        return self.sensors[name].to(
+            device=torch.device(device) if device else torch.device("cuda")
+        )
+
+    def get_tensor_capabilities(self) -> TensorLifecycleCapabilities:
+        return TensorLifecycleCapabilities(
+            execution=TensorExecution.DEVICE_RESIDENT,
+            state_views=True,
+            state_fields=frozenset({"qpos", "qvel"}),
+            sensor_views=True,
+            stepping=True,
+            selected_reset=True,
+            process_topology=TensorProcessTopology.EXTERNAL_WORKER,
+            data_plane=TensorDataPlane.CUDA_IPC,
+            stream_event_ownership="test",
+            torch_devices=("cuda",),
+        )
+
+    def tensor_execution(self) -> TensorExecution:
+        return TensorExecution.DEVICE_RESIDENT
+
+    def compile_host_bridge_io(self, spec: TensorIOSpec):
+        raise AssertionError("DEVICE_RESIDENT reset must not compile a host bridge plan")
+
+    def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> None:
+        assert randomization is None
+        self.tensor_reset_calls.append(
+            (
+                env_indices.detach().clone(),
+                qpos.detach().clone(),
+                qvel.detach().clone(),
+            )
+        )
+
+    def step_tensor(self, ctrl: torch.Tensor, nsteps: int = 1) -> None:
+        self.tensor_steps += 1
 
 
 @dataclass(kw_only=True)
@@ -1831,7 +1885,10 @@ def test_scene_read_plan_pairs_reset_with_selected_packed_transfer() -> None:
             torch.tensor([[0.0, 0.0, 0.5, 0.25], [0.0, 0.0, 0.5, 0.25]], dtype=torch.float32),
         )
         torch.testing.assert_close(
-            qvel, torch.tensor([[0.0, 0.0, -0.5], [0.0, 0.0, -0.5]], dtype=torch.float32)
+            qvel,
+            torch.tensor(
+                [[0.0, 0.0, -0.5], [0.0, 0.0, -0.5]], dtype=torch.float32, device=env.device
+            ),
         )
         assert backend.full_reads == 0
         assert backend.selected_reads == 1
@@ -1842,6 +1899,78 @@ def test_scene_read_plan_pairs_reset_with_selected_packed_transfer() -> None:
         torch.testing.assert_close(backend.reset_calls[1][0], torch.tensor([1], dtype=torch.int64))
         assert backend.full_reads == 0
         assert backend.selected_reads == 2
+    finally:
+        if env.scene._tensor_read_plan is not None:
+            env.scene._tensor_read_plan.close()
+            env.scene._tensor_read_plan = None
+        env.close()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a local CUDA device")
+def test_device_resident_reset_dispatches_selected_tensor_commit() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.tensor_runtime = True
+    cfg.tensor_runtime_device = "cuda"
+    cfg.observations = {
+        "actor": ObservationGroupCfg(
+            terms={"policy": ObservationTermCfg(func=_tensor_runtime_policy_obs)}
+        ),
+        "value": ObservationGroupCfg(
+            terms={"critic": ObservationTermCfg(func=_tensor_runtime_critic_obs)}
+        ),
+    }
+    cfg.actions = {
+        "tilt": _TensorBodyActionCfg(
+            entity_name="robot",
+            top_body_name="platform",
+            ball_body_name="ball",
+        )
+    }
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
+    )
+    cfg.events = {"joint_state": EventTermCfg(func=_write_reset_joint_state, mode="reset")}
+    backend = _DeviceResidentScenePlanBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        plan = env.scene._tensor_read_plan
+        assert plan is not None
+        assert plan.host_plan is None
+
+        env.reset()
+
+        assert backend.set_state_calls == []
+        assert backend.reset_calls == []
+        assert len(backend.tensor_reset_calls) == 1
+        rows, qpos, qvel = backend.tensor_reset_calls[0]
+        torch.testing.assert_close(rows, torch.tensor([0, 1], dtype=torch.int64, device=env.device))
+        torch.testing.assert_close(
+            qpos,
+            torch.tensor(
+                [[0.0, 0.0, 0.5, 0.25], [0.0, 0.0, 0.5, 0.25]],
+                dtype=torch.float32,
+                device=env.device,
+            ),
+        )
+        torch.testing.assert_close(
+            qvel,
+            torch.tensor(
+                [[0.0, 0.0, -0.5], [0.0, 0.0, -0.5]], dtype=torch.float32, device=env.device
+            ),
+        )
+
+        env.step(torch.zeros((2, 1), dtype=torch.float32, device=env.device))
+        env.reset(env_indices=torch.tensor([1], dtype=torch.int64, device=env.device))
+        assert len(backend.tensor_reset_calls) == 2
+        torch.testing.assert_close(
+            backend.tensor_reset_calls[1][0],
+            torch.tensor([1], dtype=torch.int64, device=env.device),
+        )
+        assert backend.set_state_calls == []
+        assert backend.reset_calls == []
     finally:
         if env.scene._tensor_read_plan is not None:
             env.scene._tensor_read_plan.close()

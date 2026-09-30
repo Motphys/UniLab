@@ -19,6 +19,7 @@ from unisim.backend.base import (
     BackendRootStateLayout,
     HostBridgeTransferPlan,
     SimBackend,
+    TensorExecution,
 )
 from unisim.dr.types import (
     RESET_TERM_BODY_INERTIA,
@@ -190,6 +191,18 @@ class ResetStateTransaction:
         if resolved.type == "cuda" and resolved.index is None:
             resolved = torch.device("cuda", index=torch.cuda.current_device())
         self._packed_reset_device = resolved
+
+    @contextmanager
+    def scoped_device_tensor(self, env_ids: np.ndarray) -> Iterator[ResetStateTransaction]:
+        """Begin a device-resident reset and commit it only after terms succeed."""
+        self.begin(env_ids)
+        try:
+            yield self
+        except BaseException:
+            self.abort()
+            raise
+        else:
+            self.commit_device_tensor()
 
     def can_commit_packed(self, *, term_name: str = "reset") -> bool:
         """Report whether staged widths can use the public packed reset API.
@@ -1286,6 +1299,90 @@ class ResetStateTransaction:
                     "EventManager reset-state capability "
                     "'HostBridgeTransferPlan.apply_reset' is unavailable for term(s) "
                     f"[{terms}] on backend '{self._backend.backend_type}': {exc}"
+                ) from exc
+        finally:
+            self._finish()
+
+    def commit_device_tensor(self) -> dict | None:
+        """Commit staged rows through the public device-resident reset boundary.
+
+        The composer remains NumPy because Manager event terms own their public
+        scalar layouts.  The commit is the explicit selected-row device boundary:
+        rows and the two validated contiguous state arrays move once through
+        ``SimBackend.set_state_tensor``.  This is not a hidden hot-path copy or
+        transport switch; randomization, mapped entities, and mocap writes remain
+        unsupported migration boundaries and fail closed.
+        """
+        self._require_active()
+        capabilities = self._backend.get_tensor_capabilities()
+        if capabilities.execution is not TensorExecution.DEVICE_RESIDENT:
+            raise NotImplementedError(
+                "device-resident reset commit requires DEVICE_RESIDENT tensor execution; "
+                f"backend '{self._backend.backend_type}' declares {capabilities.execution}"
+            )
+        if not capabilities.selected_reset:
+            raise NotImplementedError(
+                "device-resident reset commit requires the backend's declared "
+                "selected_reset tensor capability"
+            )
+        dirty_ids = np.flatnonzero(self._dirty_mask).astype(np.int32, copy=False)
+        mocap_dirty = any(np.any(mask) for mask in self._mocap_masks.values())
+        self._last_commit_had_writes = bool(dirty_ids.size) or mocap_dirty
+        randomization = None
+        try:
+            if self.scene_layout is not None or mocap_dirty:
+                raise NotImplementedError(
+                    "device-resident reset commit supports scalar qpos/qvel rows only; "
+                    "mapped entity and mocap writes remain explicit migration boundaries"
+                )
+            if dirty_ids.size == 0:
+                return None
+            if self._randomization_dirty_masks:
+                if not capabilities.reset_randomization:
+                    raise NotImplementedError(
+                        "device-resident reset commit does not support reset "
+                        "randomization on this backend"
+                    )
+                randomization = self._build_randomization_payload(dirty_ids)
+            assert self._qpos is not None
+            assert self._qvel is not None
+            rows = torch.from_numpy(dirty_ids.astype(np.int64, copy=True))
+            qpos = torch.from_numpy(np.ascontiguousarray(self._qpos[dirty_ids], dtype=np.float32))
+            qvel = torch.from_numpy(np.ascontiguousarray(self._qvel[dirty_ids], dtype=np.float32))
+            device = self._packed_reset_device
+            if device is None:
+                raise RuntimeError(
+                    "device-resident reset commit requires its selected device to be declared"
+                )
+            rows = rows.to(device=device, non_blocking=False)
+            qpos = qpos.to(device=device, non_blocking=False)
+            qvel = qvel.to(device=device, non_blocking=False)
+            try:
+                set_state_t0 = time.perf_counter()
+                result = self._backend.set_state_tensor(
+                    rows, qpos, qvel, randomization=randomization
+                )
+                timing: dict[str, float] = {
+                    "dr_reset_set_state_ms": (time.perf_counter() - set_state_t0) * 1000.0
+                }
+                if isinstance(result, dict):
+                    backend_timing = result.get("timing")
+                    if isinstance(backend_timing, dict):
+                        timing.update(backend_timing)
+                self._last_set_state_timing_ms = timing
+                return cast(dict | None, result)
+            except (
+                AttributeError,
+                NotImplementedError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+            ) as exc:
+                terms = ", ".join(sorted(self._requesting_terms))
+                raise NotImplementedError(
+                    "EventManager reset-state capability 'SimBackend.set_state_tensor' is "
+                    f"unavailable for term(s) [{terms}] on backend "
+                    f"'{self._backend.backend_type}': {exc}"
                 ) from exc
         finally:
             self._finish()
