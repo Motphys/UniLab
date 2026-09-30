@@ -64,6 +64,9 @@ class ActionTerm(ManagerTermBase):
     runtime input type.
     """
 
+    uses_tensor_state_packet: ClassVar[bool] = False
+    """Whether ``apply_actions`` consumes the current packed tensor state packet."""
+
     def __init__(self, cfg: ActionTermCfg, env: ManagerBasedRlEnv):
         self.cfg = cfg
         super().__init__(env)
@@ -157,6 +160,11 @@ class ActionManager(ManagerBase):
     def requires_substep_state_feedback(self) -> bool:
         """Return whether any active action term needs per-substep state feedback."""
         return any(term.requires_substep_state_feedback for term in self._terms.values())
+
+    @property
+    def uses_tensor_state_packet(self) -> bool:
+        """Return whether any action term consumes the packed state packet."""
+        return any(term.uses_tensor_state_packet for term in self._terms.values())
 
     # Methods.
 

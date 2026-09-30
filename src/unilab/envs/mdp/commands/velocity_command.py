@@ -145,12 +145,16 @@ class UniformVelocityCommand(CommandTerm):
         max_command_steps = self.cfg.resampling_time_range[1] / self._env.step_dt
         lin_vel, ang_vel = self._metric_velocities()
         command = torch.as_tensor(self.vel_command_b, device=lin_vel.device)
-        self.metrics["error_vel_xy"] += (
-            torch.linalg.vector_norm(command[:, :2] - lin_vel[:, :2], dim=-1) / max_command_steps
+        errors = torch.stack(
+            (
+                torch.linalg.vector_norm(command[:, :2] - lin_vel[:, :2], dim=-1),
+                torch.abs(command[:, 2] - ang_vel[:, 2]),
+            ),
+            dim=1,
         )
-        self.metrics["error_vel_yaw"] += (
-            torch.abs(command[:, 2] - ang_vel[:, 2]) / max_command_steps
-        )
+        errors.div_(max_command_steps)
+        self.metrics["error_vel_xy"] += errors[:, 0]
+        self.metrics["error_vel_yaw"] += errors[:, 1]
 
     def _resample_command(self, env_ids: np.ndarray) -> None:
         count = len(env_ids)

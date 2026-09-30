@@ -167,12 +167,23 @@ class CommandTerm(ManagerTermBase):
         self._update_command(env_ids)
 
     def _validate_metrics(self) -> None:
-        for metric_name, metric_value in self.metrics.items():
+        metric_values = list(self.metrics.items())
+        for metric_name, metric_value in metric_values:
             if metric_value.ndim == 0 or metric_value.shape[0] != self.num_envs:
                 raise ValueError(
                     f"CommandTerm '{self.name}' metric '{metric_name}' returned shape "
                     f"{metric_value.shape}, expected leading dimension {self.num_envs}."
                 )
+        if not metric_values:
+            return
+        tensor_metrics = [
+            (name, value) for name, value in metric_values if isinstance(value, torch.Tensor)
+        ]
+        if len(tensor_metrics) == len(metric_values):
+            finite = torch.stack([torch.isfinite(value) for _, value in tensor_metrics]).all()
+            if bool(finite):
+                return
+        for metric_name, metric_value in metric_values:
             if not _finite(metric_value):
                 raise ValueError(
                     f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."

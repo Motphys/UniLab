@@ -93,8 +93,13 @@ class TerminationManager(ManagerBase):
             env_ids = slice(None)
         extras = {}
         mask = self._reset_mask(env_ids)
-        for key in self._term_dones.keys():
-            extras["Episode_Termination/" + key] = int(self._term_dones[key][mask].sum().item())
+        keys = list(self._term_dones)
+        counts = [self._term_dones[key][mask].sum() for key in keys]
+        # Publish every episodic count through one device boundary instead of
+        # synchronizing once per termination term.
+        host_counts = torch.stack(counts).detach().cpu().tolist() if counts else []
+        for key, count in zip(keys, host_counts, strict=True):
+            extras["Episode_Termination/" + key] = int(count)
         for term_cfg in self._class_term_cfgs:
             term_cfg.func.reset(env_ids=env_ids)
         return extras

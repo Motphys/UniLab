@@ -184,6 +184,18 @@ class TorchEnv(ABEnv):
 
     def init_state(self) -> TorchEnvState:
         self._bind_tensor_runtime()
+        action_shape = self.action_space.shape
+        if action_shape is not None:
+            # The public action carrier contract is fixed. Validate it once at
+            # this cold boundary; ActionTerm.process_actions owns the per-step
+            # value check on the authoritative control tensor.
+            self._validate_action(
+                torch.zeros(
+                    (self._num_envs, *action_shape),
+                    dtype=self._dtype,
+                    device=self._device,
+                )
+            )
         initial_steps = self._initial_episode_steps()
         # Preserve the initial draw across the bootstrap reset; a subclass may
         # need it to restore randomized initial offsets after reset clears the
@@ -239,7 +251,7 @@ class TorchEnv(ABEnv):
         started = time.perf_counter()
         cpu_started = _cpu_time()
         phase = time.perf_counter()
-        self._validate_action(actions)
+        self._validate_action_contract(actions)
         action_validate_ms = (time.perf_counter() - phase) * 1000.0
         self._bind_tensor_runtime()
         if self._state is None:
@@ -330,6 +342,11 @@ class TorchEnv(ABEnv):
         return self._state
 
     def _validate_action(self, actions: torch.Tensor) -> None:
+        self._validate_action_contract(actions)
+        if not bool(torch.isfinite(actions).all()):
+            raise ValueError("TorchEnv action contains NaN or Inf")
+
+    def _validate_action_contract(self, actions: torch.Tensor) -> None:
         if not isinstance(actions, torch.Tensor):
             raise TypeError(f"TorchEnv action must be a torch.Tensor, got {type(actions).__name__}")
         action_shape = self.action_space.shape
@@ -346,8 +363,6 @@ class TorchEnv(ABEnv):
             raise ValueError("TorchEnv action must be contiguous")
         if actions.device != self.device:
             raise ValueError(f"TorchEnv action device must be {self.device}, got {actions.device}")
-        if not bool(torch.isfinite(actions).all()):
-            raise ValueError("TorchEnv action contains NaN or Inf")
 
     def _validate_control(self, ctrl: torch.Tensor) -> None:
         if not isinstance(ctrl, torch.Tensor):

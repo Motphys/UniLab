@@ -519,6 +519,7 @@ class _DriveAction(ActionTerm):
 
 class _FeedbackDriveAction(_DriveAction):
     requires_substep_state_feedback = True
+    uses_tensor_state_packet = True
 
 
 @dataclass(kw_only=True)
@@ -538,6 +539,7 @@ class _TensorBodyActionCfg(ActionTermCfg):
 
 class _TensorBodyAction(ActionTerm):
     uses_tensor_actions = True
+    uses_tensor_state_packet = True
 
     def __init__(self, cfg: _TensorBodyActionCfg, env) -> None:
         super().__init__(cfg, env)
@@ -1804,9 +1806,9 @@ def test_scene_read_plan_refreshes_once_per_phase_and_after_mutations() -> None:
         assert obs["obs"].shape == (2, 2)
 
         state = env.step(torch.zeros((2, 1), dtype=torch.float32))
-        # The action phase packs body reads once, then ``step_tensor`` mutates
-        # backend state. update_state drops that stale packet and republishes
-        # one post-physics packet shared by all Manager terms.
+        # This action term declares state feedback, so the action phase packs
+        # body reads once. update_state then drops that stale packet and
+        # republishes one post-physics packet shared by all Manager terms.
         assert backend.full_reads == 2
         assert state.obs["obs"].shape == (2, 2)
 

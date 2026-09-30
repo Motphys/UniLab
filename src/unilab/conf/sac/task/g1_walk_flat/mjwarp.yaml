@@ -22,6 +22,10 @@ algo:
     alpha_init: 0.001
     target_entropy_ratio: 0.0
 env:
+  # MJWarp is DEVICE_RESIDENT/DIRECT. The owner, not the caller, selects the
+  # tensor runtime; collector and learner share the rank-local CUDA device.
+  tensor_runtime: true
+  tensor_runtime_device: null
   mjwarp_nconmax: 128
   mjwarp_njmax: 256
   render_spacing: 2.0

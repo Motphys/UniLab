@@ -83,6 +83,7 @@ COLLECTOR_PHASES = (
 )
 ENV_STEP_TIMING_KEYS = (
     "env_step_total_ms",
+    "action_validate_ms",
     "apply_action_ms",
     "step_core_ms",
     "update_state_ms",
@@ -635,6 +636,7 @@ def _run_active_window_case(
                 if key != "env_step_internal_gap_ms"
             }
             internal_children = (
+                env_step_timing_values["action_validate_ms"],
                 env_step_timing_values["apply_action_ms"],
                 env_step_timing_values["step_core_ms"],
                 env_step_timing_values["update_state_ms"],
@@ -1424,6 +1426,7 @@ def _format_env_step_timing_table(results: list[CollectorResult]) -> str:
         "Backend",
         "Env step ms (% env, % active)",
         "Env total ms (% env, % active)",
+        "Action validate ms (% env, % active)",
         "Apply action ms (% env, % active)",
         "Backend step ms (% env, % active)",
         "Update state ms (% env, % active)",
@@ -1446,6 +1449,7 @@ def _format_env_step_timing_table(results: list[CollectorResult]) -> str:
                     _phase_pct(result, "env_step_ms"),
                 ),
                 _format_env_step_timing(result, "env_step_total_ms"),
+                _format_env_step_timing(result, "action_validate_ms"),
                 _format_env_step_timing(result, "apply_action_ms"),
                 _format_env_step_timing(result, "step_core_ms"),
                 _format_env_step_timing(result, "update_state_ms"),
