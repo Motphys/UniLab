@@ -712,6 +712,7 @@ class EntityData:
         self._default_joint_vel = default_joint_vel
         self._default_joint_pos_tensor: torch.Tensor | None = None
         self._default_joint_vel_tensor: torch.Tensor | None = None
+        self._encoder_bias_tensor: torch.Tensor | None = None
         self._soft_joint_pos_limits = soft_joint_pos_limits
         self._gravity_vec_w = gravity_vec_w
         self._encoder_bias = (
@@ -900,6 +901,27 @@ class EntityData:
     def encoder_bias(self) -> np.ndarray:
         """Mutable per-environment joint encoder bias used by position actions."""
         return self._require(self._encoder_bias, "joint encoder bias")
+
+    @property
+    def encoder_bias_tensor(self) -> torch.Tensor:
+        """Return the mutable encoder bias on the authoritative control device."""
+        bias = self._require(self._encoder_bias, "joint encoder bias")
+        control = self._control_buffer
+        if not isinstance(control, torch.Tensor) or control.device.type == "cpu":
+            return torch.from_numpy(bias)
+        cached = self._encoder_bias_tensor
+        if cached is None or cached.device != control.device or cached.shape != bias.shape:
+            cached = torch.empty(
+                bias.shape, dtype=torch.float32, device=control.device, requires_grad=False
+            )
+            self._encoder_bias_tensor = cached
+        cached.copy_(torch.from_numpy(bias))
+        return cached
+
+    @property
+    def control_buffer(self) -> np.ndarray | torch.Tensor | None:
+        """Return the authoritative actuator control buffer without copying."""
+        return self._control_buffer
 
     @property
     def body_link_pos_w(self) -> np.ndarray:
