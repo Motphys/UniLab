@@ -717,15 +717,16 @@ def test_g1_penalty_curriculum_scales_negative_weights_from_start() -> None:
     try:
         for built in (env, env_repeat):
             assert built.curriculum_manager.active_terms == ["penalty_scaling"]
-            # initial_scale=0.125 scales every negative weight from construction,
-            # matching the tuned legacy effective schedule (1/8 initial, 1/4 cap).
+            # initial_scale=0.0625 scales every negative weight from
+            # construction, matching the legacy collector's effective schedule
+            # (two probe constructions + collector => 1/16 initial, 1/8 cap).
             assert built.reward_manager.get_term_cfg("penalty_orientation").weight == pytest.approx(
-                -1.25
+                -0.625
             )
             assert built.reward_manager.get_term_cfg("penalty_action_rate").weight == pytest.approx(
-                -0.5
+                -0.25
             )
-            assert built.reward_manager.get_term_cfg("pose").weight == pytest.approx(-0.0625)
+            assert built.reward_manager.get_term_cfg("pose").weight == pytest.approx(-0.03125)
             # Positive weights stay untouched.
             assert built.reward_manager.get_term_cfg("alive").weight == pytest.approx(10.0)
             assert built.reward_manager.get_term_cfg("feet_phase").weight == pytest.approx(5.0)
@@ -746,8 +747,8 @@ def test_g1_penalty_curriculum_scales_negative_weights_from_start() -> None:
 # reproduces its tuned legacy baseline. Legacy offpolicy runners built three
 # envs per training run (two probe envs + the spawned collector) and the
 # legacy PenaltyCurriculum halved the shared override dict in place on each
-# construction, so collectors effectively trained at 1/8 initial / 1/4 cap of
-# the YAML weights. The on-policy runners built a single env, so their
+# construction, so collectors effectively trained at 1/16 initial / 1/8 cap
+# of the YAML weights. The on-policy runners built a single env, so their
 # effective schedule was the declared 0.5 -> 1.0. The manager runtime isolates
 # each env, so these params are now the single source of truth.
 _PENALTY_CURRICULUM_CASES = (
@@ -765,7 +766,11 @@ _PENALTY_CURRICULUM_CASES = (
     ),
 )
 
-_OFFPOLICY_ALIGNED_SCHEDULE = {"initial_scale": 0.125, "min_scale": 0.125, "max_scale": 0.25}
+_OFFPOLICY_ALIGNED_SCHEDULE = {
+    "initial_scale": 0.0625,
+    "min_scale": 0.0625,
+    "max_scale": 0.125,
+}
 
 
 @pytest.mark.parametrize(

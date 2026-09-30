@@ -212,16 +212,16 @@ env:
   curriculum:
     penalty_scaling:
       func: unilab.tasks.locomotion.g1.manager_terms.G1PenaltyCurriculum
-      # Effective schedule matches the tuned legacy baseline: the legacy env
-      # halved the shared override dict once per env construction (two probe
-      # envs + the collector in every off-policy runner), so collectors actually
-      # trained at 1/8 initial / 1/4 cap of these YAML weights. The manager
-      # runtime isolates each env, so the tuned effective range is declared
-      # explicitly here.
+      # Effective schedule matches the tuned legacy baseline. The legacy env
+      # halved the shared override dict once per env construction; off-policy
+      # built two probe envs plus the spawned collector, so collectors actually
+      # trained at 1/16 initial / 1/8 cap of these YAML weights. The manager
+      # runtime isolates each env, so that collector-effective schedule is
+      # declared explicitly here.
       params:
-        initial_scale: 0.125
-        min_scale: 0.125
-        max_scale: 0.25
+        initial_scale: 0.0625
+        min_scale: 0.0625
+        max_scale: 0.125
         level_down_threshold: 150.0
         level_up_threshold: 750.0
         degree: 0.001
