@@ -2000,6 +2000,12 @@ def test_device_resident_reset_dispatches_selected_tensor_commit() -> None:
             ),
         )
 
+        # Production initial counters are staggered; this deterministic
+        # device-resident reset sequence intentionally starts both rows at the
+        # beginning of an episode so exactly one autoreset precedes the partial
+        # reset below.
+        env.set_episode_length_buf(torch.zeros(2, dtype=torch.int64, device=env.device))
+
         env.step(torch.zeros((2, 1), dtype=torch.float32, device=env.device))
         env.reset(env_indices=torch.tensor([1], dtype=torch.int64, device=env.device))
         assert len(backend.tensor_reset_calls) == 2
