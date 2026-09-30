@@ -64,6 +64,8 @@ temp/
 agent/
 memory/
 tmp/
+# Deployment is maintained as an independent sibling repository/branch.
+deploy_ws/
 issues/
 issue2/
 docs/superpowers/
