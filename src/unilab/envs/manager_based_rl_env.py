@@ -1183,6 +1183,7 @@ class ManagerBasedRlEnv(TorchEnv):
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
         del options
         reset_timing: dict[str, float] = {}
+        publish_reset_metrics = bool(self._autoreset_reset_active)
         rows = self._normalize_reset_indices(env_indices)
         if seed is not None:
             self.seed(seed)
@@ -1245,7 +1246,8 @@ class ManagerBasedRlEnv(TorchEnv):
                     env_ids=rows,
                     global_env_step_count=self.step_counter,
                 )
-            log.update(self.command_manager.reset(rows))
+            command_result = self.command_manager.reset(rows, publish_metrics=publish_reset_metrics)
+            log.update(command_result)
             reset_timing.update(getattr(self.command_manager, "last_reset_timing_ms", {}))
             reset_commit_started = time.perf_counter()
         reset_timing["reset_done_reset_commit_ms"] = (
@@ -1265,7 +1267,9 @@ class ManagerBasedRlEnv(TorchEnv):
             self.event_manager,
             self.termination_manager,
         ):
-            log.update(manager.reset(rows))
+            extras = manager.reset(rows)
+            if publish_reset_metrics:
+                log.update(extras)
         reset_timing["reset_done_manager_state_ms"] = (
             time.perf_counter() - manager_state_started
         ) * 1000.0

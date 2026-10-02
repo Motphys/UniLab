@@ -304,3 +304,18 @@ def test_public_exports_and_repository_import_boundary() -> None:
             for name in imports
             for prefix in forbidden_unilab
         ), path
+
+
+def test_command_autoreset_reset_skips_episode_metric_publication(
+    fake_env: FakeEnv,
+) -> None:
+    manager = CommandManager({"goal": DummyCommandCfg(resampling_time_range=(1.0, 1.0))}, fake_env)
+    term = manager.get_term("goal")
+    term.metrics["error"].fill(2.0)
+    rows = torch.tensor([1, 3], dtype=torch.int64)
+
+    extras = manager.reset(rows, publish_metrics=False)
+
+    assert extras == {}
+    np.testing.assert_array_equal(term.metrics["error"], [2.0, 0.0, 2.0, 0.0])
+    assert term.last_reset_timing_ms["reset_done_command_metrics_ms"] < 1.0

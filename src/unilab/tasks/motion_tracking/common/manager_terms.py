@@ -720,7 +720,12 @@ class MotionCommand(CommandTerm):
     def anchor_ang_vel_w(self) -> np.ndarray:
         return self._motion_data.body_ang_vel_w[:, self.anchor_body_idx]
 
-    def reset(self, env_ids: torch.Tensor | slice | None) -> dict[str, float]:
+    def reset(
+        self,
+        env_ids: torch.Tensor | slice | None,
+        *,
+        publish_metrics: bool = True,
+    ) -> dict[str, float]:
         if isinstance(env_ids, torch.Tensor):
             ids = env_ids.detach().cpu().numpy().astype(np.int32, copy=False)
         else:
@@ -737,7 +742,8 @@ class MotionCommand(CommandTerm):
             lower, upper, size=(len(ids), self.motion.num_joints)
         )
         return super().reset(
-            env_ids if isinstance(env_ids, torch.Tensor) else torch.from_numpy(ids)
+            env_ids if isinstance(env_ids, torch.Tensor) else torch.from_numpy(ids),
+            publish_metrics=publish_metrics,
         )
 
     def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:
@@ -1020,7 +1026,12 @@ class TensorMotionCommand(MotionCommand):
             self._robot_joint_vel = read_plan.joint_tensor_view(self.robot).joint_vel
         return self._robot_joint_vel
 
-    def reset(self, env_ids: torch.Tensor | slice | None) -> dict[str, float]:
+    def reset(
+        self,
+        env_ids: torch.Tensor | slice | None,
+        *,
+        publish_metrics: bool = True,
+    ) -> dict[str, float]:
         rows = (
             env_ids.to(dtype=torch.int64)
             if isinstance(env_ids, torch.Tensor)
@@ -1040,7 +1051,7 @@ class TensorMotionCommand(MotionCommand):
             (rows.numel(), self.motion.num_joints),
             dtype=torch.float32,
         )
-        return CommandTerm.reset(self, rows)
+        return CommandTerm.reset(self, rows, publish_metrics=publish_metrics)
 
     def _refresh_motion(self, env_ids: np.ndarray | None = None) -> None:
         del env_ids

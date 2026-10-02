@@ -85,45 +85,57 @@ class CommandTerm(ManagerTermBase):
     def command(self):
         raise NotImplementedError
 
-    def reset(self, env_ids: torch.Tensor | slice | None) -> dict[str, float]:
+    def reset(
+        self,
+        env_ids: torch.Tensor | slice | None,
+        *,
+        publish_metrics: bool = True,
+    ) -> dict[str, float]:
         assert isinstance(env_ids, torch.Tensor)
         extras = {}
         metrics_started = time.perf_counter()
-        metric_values = list(self.metrics.items())
-        tensor_metrics = [
-            (name, value) for name, value in metric_values if isinstance(value, torch.Tensor)
-        ]
-        if tensor_metrics and len(tensor_metrics) == len(metric_values):
-            # Publish reset means and the finite diagnostic through one device
-            # boundary instead of synchronizing twice per metric.
-            selected = torch.stack([value[env_ids] for _, value in tensor_metrics], dim=0)
-            reduced = torch.stack(
-                (selected.mean(dim=1), torch.isfinite(selected).all(dim=1).to(torch.float32)),
-                dim=0,
-            ).detach()
-            host_reduced = reduced.cpu()
-            means = host_reduced[0].tolist()
-            finite = bool(host_reduced[1].min().item() == 1.0)
-            if not finite:
-                for metric_name, metric_slice in zip(
-                    (name for name, _ in tensor_metrics), selected, strict=True
-                ):
+        if publish_metrics:
+            metric_values = list(self.metrics.items())
+            tensor_metrics = [
+                (name, value) for name, value in metric_values if isinstance(value, torch.Tensor)
+            ]
+            if tensor_metrics and len(tensor_metrics) == len(metric_values):
+                # Publish reset means and the finite diagnostic through one
+                # device boundary instead of synchronizing twice per metric.
+                selected = torch.stack([value[env_ids] for _, value in tensor_metrics], dim=0)
+                reduced = torch.stack(
+                    (
+                        selected.mean(dim=1),
+                        torch.isfinite(selected).all(dim=1).to(torch.float32),
+                    ),
+                    dim=0,
+                ).detach()
+                host_reduced = reduced.cpu()
+                means = host_reduced[0].tolist()
+                finite = bool(host_reduced[1].min().item() == 1.0)
+                if not finite:
+                    for metric_name, metric_slice in zip(
+                        (name for name, _ in tensor_metrics), selected, strict=True
+                    ):
+                        if not _finite(metric_slice):
+                            raise ValueError(
+                                f"CommandTerm '{self.name}' metric '{metric_name}' contains "
+                                "NaN or Inf."
+                            )
+                for (metric_name, metric_value), mean in zip(tensor_metrics, means, strict=True):
+                    extras[metric_name] = float(mean)
+                    metric_value[env_ids] = 0.0
+            else:
+                for metric_name, metric_value in metric_values:
+                    metric_slice = metric_value[env_ids]
                     if not _finite(metric_slice):
                         raise ValueError(
                             f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
                         )
-            for (metric_name, metric_value), mean in zip(tensor_metrics, means, strict=True):
-                extras[metric_name] = float(mean)
-                metric_value[env_ids] = 0.0
+                    extras[metric_name] = float(_mean(metric_slice))
+                    metric_value[env_ids] = 0.0
         else:
-            for metric_name, metric_value in metric_values:
-                metric_slice = metric_value[env_ids]
-                if not _finite(metric_slice):
-                    raise ValueError(
-                        f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
-                    )
-                extras[metric_name] = float(_mean(metric_slice))
-                metric_value[env_ids] = 0.0
+            self.reset_last_episode_metrics(env_ids)
         metrics_ms = (time.perf_counter() - metrics_started) * 1000.0
         self.command_counter[env_ids] = 0
         self.last_reset_timing_ms.clear()
@@ -134,6 +146,20 @@ class CommandTerm(ManagerTermBase):
             time.perf_counter() - resample_started
         ) * 1000.0
         return extras
+
+    def reset_last_episode_metrics(self, env_ids: torch.Tensor) -> None:
+        """Clear episode metric state without publishing reset means.
+
+        Autoreset consumes per-transition episode logs on every vector step.
+        Explicit reset is a control-plane boundary and may publish those logs;
+        this method gives the caller that policy choice while retaining the
+        same reset-state mutation.
+        """
+        for metric_value in self.metrics.values():
+            if isinstance(metric_value, torch.Tensor):
+                metric_value[env_ids] = 0.0
+            else:
+                metric_value[env_ids] = 0.0
 
     def compute(
         self, dt: float | np.ndarray | torch.Tensor, env_ids: torch.Tensor | None = None
@@ -342,7 +368,12 @@ class CommandManager(ManagerBase):
             terms.append((name, command[env_idx].tolist()))
         return terms
 
-    def reset(self, env_ids: torch.Tensor | slice | None) -> dict[str, float]:
+    def reset(
+        self,
+        env_ids: torch.Tensor | slice | None,
+        *,
+        publish_metrics: bool = True,
+    ) -> dict[str, float]:
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self._device)
         elif isinstance(env_ids, slice):
@@ -351,7 +382,7 @@ class CommandManager(ManagerBase):
         reset_commands: list[tuple[str, torch.Tensor]] = []
         self._last_term_reset_timing_ms.clear()
         for name, term in self._terms.items():
-            metrics = term.reset(env_ids=env_ids)
+            metrics = term.reset(env_ids=env_ids, publish_metrics=publish_metrics)
             reset_commands.append((name, term.command))
             self._last_term_reset_timing_ms.update(term.last_reset_timing_ms)
             for metric_name, metric_value in metrics.items():
@@ -379,6 +410,11 @@ class CommandManager(ManagerBase):
             time.perf_counter() - validation_started
         ) * 1000.0
         return extras
+
+    def reset_last_episode_metrics(self, env_ids: torch.Tensor) -> None:
+        """Clear each term's episode metrics without host metric reduction."""
+        for term in self._terms.values():
+            term.reset_last_episode_metrics(env_ids)
 
     def compute(
         self, dt: float | np.ndarray | torch.Tensor, env_ids: torch.Tensor | None = None
@@ -474,7 +510,13 @@ class NullCommandManager:
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         return []
 
-    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, np.ndarray]:
+    def reset(
+        self,
+        env_ids: torch.Tensor | None = None,
+        *,
+        publish_metrics: bool = True,
+    ) -> dict[str, np.ndarray]:
+        del publish_metrics
         return {}
 
     def compute(
