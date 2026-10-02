@@ -2547,6 +2547,49 @@ class Entity:
                 term_name=f"{self.name}.write_root_state_to_sim",
             )
 
+    def write_articulation_state_tensor_to_sim(
+        self,
+        root_state: torch.Tensor,
+        joint_position: torch.Tensor,
+        joint_velocity: torch.Tensor,
+        *,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: torch.Tensor,
+    ) -> None:
+        """Stage one device-resident floating-root and scalar-joint reset patch."""
+        if self._reset_state is None:
+            raise self._capability_error(
+                "tensor reset articulation-state write",
+                "EntityScene was materialized without an env-owned reset transaction",
+            )
+        if self._joint_names is None:
+            raise self._capability_error(
+                "tensor reset articulation-state write",
+                "joint_names were not declared in EntityCfg",
+            )
+        if self._physical_entity is not None:
+            raise NotImplementedError(
+                "mapped entity tensor articulation-state reset requires a public entity transaction"
+            )
+        local_joint_ids = self._normalize_local_joint_ids(
+            joint_ids,
+            capability="tensor reset articulation-state write",
+        )
+        reset_state, layout = self._require_root_state_write()
+        self._materialize_reset_joint_indices()
+        assert self._reset_joint_qpos_ids is not None
+        assert self._reset_joint_qvel_ids is not None
+        reset_state.write_root_and_joint_state_tensor(
+            env_ids,
+            layout,
+            self._reset_joint_qpos_ids[local_joint_ids],
+            self._reset_joint_qvel_ids[local_joint_ids],
+            root_state,
+            joint_position,
+            joint_velocity,
+            term_name=f"{self.name}.write_articulation_state_tensor_to_sim",
+        )
+
     def write_joint_state_tensor_to_sim(
         self,
         position: torch.Tensor,

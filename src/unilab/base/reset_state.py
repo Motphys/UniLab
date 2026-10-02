@@ -1182,6 +1182,101 @@ class ResetStateTransaction:
         qvel[rows[:, None], qvel_columns_t[None, :]] = root_state[:, 7:13]
         self._tensor_has_writes = True
 
+    def write_root_and_joint_state_tensor(
+        self,
+        env_ids: torch.Tensor,
+        layout: BackendRootStateLayout,
+        qpos_indices: np.ndarray,
+        qvel_indices: np.ndarray,
+        root_state: torch.Tensor,
+        joint_position: torch.Tensor,
+        joint_velocity: torch.Tensor,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage one owner-owned floating-root and scalar-joint tensor patch."""
+        rows = self._prepare_tensor_state_write(
+            env_ids, capability="write_root_and_joint_state_tensor", term_name=term_name
+        )
+        root_qpos_columns_t, root_qvel_columns_t = self._tensor_root_columns_for_layout(
+            layout, term_name=term_name
+        )
+        joint_qpos_columns_t, joint_qvel_columns_t = self._tensor_joint_columns_for_indices(
+            qpos_indices, qvel_indices, term_name=term_name
+        )
+        joint_width = joint_qpos_columns_t.numel()
+        if joint_qvel_columns_t.numel() != joint_width:
+            raise ValueError(
+                f"EventManager term '{term_name}' fused tensor joint-state qpos/qvel index "
+                f"counts differ: {joint_width} != {joint_qvel_columns_t.numel()}"
+            )
+        expected_joint_shape = (rows.numel(), joint_width)
+        expected_root_shape = (rows.numel(), 13)
+        if root_state.ndim != 2 or tuple(root_state.shape) != expected_root_shape:
+            raise ValueError(
+                f"EventManager term '{term_name}' fused tensor root state must have shape "
+                f"{expected_root_shape}; got {tuple(root_state.shape)}"
+            )
+        for name, values, expected_shape in (
+            ("root state", root_state, expected_root_shape),
+            ("joint position", joint_position, expected_joint_shape),
+            ("joint velocity", joint_velocity, expected_joint_shape),
+        ):
+            if values.ndim != 2 or tuple(values.shape) != expected_shape:
+                raise ValueError(
+                    f"EventManager term '{term_name}' fused tensor {name} must have shape "
+                    f"{expected_shape}; got {tuple(values.shape)}"
+                )
+            if values.dtype != torch.float32 or not values.is_contiguous():
+                raise TypeError(
+                    f"EventManager term '{term_name}' fused tensor {name} must be contiguous "
+                    "float32"
+                )
+            if values.device != rows.device:
+                raise ValueError(
+                    f"EventManager term '{term_name}' fused tensor {name} must live on "
+                    f"{rows.device}; got {values.device}"
+                )
+        overlapping_qpos = set(map(int, layout.qpos_indices)) & set(
+            map(int, np.asarray(qpos_indices, dtype=np.intp).tolist())
+        )
+        overlapping_qvel = set(map(int, layout.qvel_indices)) & set(
+            map(int, np.asarray(qvel_indices, dtype=np.intp).tolist())
+        )
+        if overlapping_qpos or overlapping_qvel:
+            raise ValueError(
+                f"EventManager term '{term_name}' fused tensor root and joint columns overlap: "
+                f"qpos={sorted(overlapping_qpos)}, qvel={sorted(overlapping_qvel)}"
+            )
+
+        finite = (
+            torch.isfinite(root_state).all()
+            & torch.isfinite(joint_position).all()
+            & torch.isfinite(joint_velocity).all()
+        )
+        norms = torch.linalg.vector_norm(root_state[:, 3:7], dim=-1)
+        valid_quaternions = torch.isclose(norms, torch.ones_like(norms), rtol=1e-5, atol=1e-6).all()
+        if not bool(finite & valid_quaternions):
+            for name, values in (
+                ("root state", root_state),
+                ("joint position", joint_position),
+                ("joint velocity", joint_velocity),
+            ):
+                if not bool(torch.isfinite(values).all()):
+                    raise ValueError(
+                        f"EventManager term '{term_name}' fused tensor {name} contains NaN or Inf"
+                    )
+            self._validate_tensor_root_quaternions(root_state[:, 3:7], term_name=term_name)
+
+        qpos = self._tensor_qpos
+        qvel = self._tensor_qvel
+        assert qpos is not None and qvel is not None
+        qpos[rows[:, None], root_qpos_columns_t[None, :]] = root_state[:, :7]
+        qpos[rows[:, None], joint_qpos_columns_t[None, :]] = joint_position
+        qvel[rows[:, None], root_qvel_columns_t[None, :]] = root_state[:, 7:13]
+        qvel[rows[:, None], joint_qvel_columns_t[None, :]] = joint_velocity
+        self._tensor_has_writes = True
+
     def write_joint_state_tensor(
         self,
         env_ids: torch.Tensor,

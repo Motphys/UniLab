@@ -692,6 +692,28 @@ class _TensorStateWritingCommand(_Command):
         return None
 
 
+class _TensorArticulationStateWritingCommandCfg(CommandTermCfg):
+    def build(self, env) -> CommandTerm:
+        return _TensorArticulationStateWritingCommand(self, env)
+
+
+class _TensorArticulationStateWritingCommand(_TensorStateWritingCommand):
+    def _resample_command(self, env_ids: torch.Tensor) -> None:
+        count = env_ids.numel()
+        self._command[env_ids, 0] = 0.75
+        root_state = torch.tensor(
+            [[0.1, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0]] * count,
+            dtype=torch.float32,
+            device=self._device,
+        )
+        self._env.scene["robot"].write_articulation_state_tensor_to_sim(
+            root_state,
+            torch.full((count, 1), 0.75, dtype=torch.float32, device=self._device),
+            torch.full((count, 1), -0.75, dtype=torch.float32, device=self._device),
+            env_ids=env_ids,
+        )
+
+
 class _AliasedSensorCommandCfg(CommandTermCfg):
     def build(self, env) -> CommandTerm:
         return _AliasedSensorCommand(self, env)
@@ -2500,6 +2522,91 @@ def test_device_resident_tensor_command_reset_commits_selected_rows_once() -> No
         )
         command = env.command_manager.get_command("target")
         torch.testing.assert_close(command, torch.full((2, 1), 0.75, device=env.device))
+    finally:
+        if env.scene._tensor_read_plan is not None:
+            env.scene._tensor_read_plan.close()
+            env.scene._tensor_read_plan = None
+        env.close()
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA device reset test")
+def test_device_resident_tensor_articulation_reset_commits_selected_rows_once() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.observations = {
+        "actor": ObservationGroupCfg(
+            terms={"policy": ObservationTermCfg(func=_tensor_runtime_policy_obs)}
+        ),
+        "value": ObservationGroupCfg(
+            terms={"critic": ObservationTermCfg(func=_tensor_runtime_critic_obs)}
+        ),
+    }
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
+    )
+    cfg.actions = {
+        "tilt": _TensorBodyActionCfg(
+            entity_name="robot",
+            top_body_name="platform",
+            ball_body_name="ball",
+        )
+    }
+    cfg.commands = {
+        "target": _TensorArticulationStateWritingCommandCfg(resampling_time_range=(1.0, 1.0))
+    }
+
+    class _TensorArticulationBackend(_DeviceResidentScenePlanBackend):
+        nq = 8
+        nv = 7
+
+        def get_default_qpos(self) -> np.ndarray:
+            return np.array([0.0, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0, 0.25], dtype=np.float32)
+
+        def get_init_qvel(self) -> np.ndarray:
+            return np.zeros(7, dtype=np.float32)
+
+        def get_root_state_layout(self, root_body_name: str) -> Any:
+            from unisim.backend.base import BackendRootStateLayout
+
+            assert root_body_name == "base"
+            return BackendRootStateLayout(
+                qpos_indices=(0, 1, 2, 3, 4, 5, 6), qvel_indices=(0, 1, 2, 3, 4, 5)
+            )
+
+        def get_joint_state_qpos_indices(self, joint_names):
+            assert joint_names == ("joint",)
+            return np.array([7], dtype=np.int32)
+
+        def get_joint_state_qvel_indices(self, joint_names):
+            assert joint_names == ("joint",)
+            return np.array([6], dtype=np.int32)
+
+        def get_state_views(self, fields, device=None) -> dict[str, torch.Tensor]:
+            target = torch.device(device) if device is not None else torch.device("cuda")
+            return {
+                "qpos": torch.zeros((self.num_envs, self.nq), dtype=torch.float32, device=target),
+                "qvel": torch.zeros((self.num_envs, self.nv), dtype=torch.float32, device=target),
+            }
+
+    backend = _TensorArticulationBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        assert env.scene._tensor_read_plan is not None
+        assert env.command_manager.uses_tensor_reset_rows()
+        env.reset()
+        assert len(backend.tensor_reset_calls) == 1
+        rows, qpos, qvel = backend.tensor_reset_calls[0]
+        torch.testing.assert_close(rows, torch.tensor([0, 1], device=env.device))
+        torch.testing.assert_close(
+            qpos[:, :7],
+            torch.tensor([[0.1, 0.0, 0.5, 1.0, 0.0, 0.0, 0.0]] * 2, device=env.device),
+        )
+        torch.testing.assert_close(qvel[:, 0], torch.full((2,), 0.2, device=env.device))
+        torch.testing.assert_close(qvel[:, 1:3], torch.zeros((2, 2), device=env.device))
+        torch.testing.assert_close(qpos[:, 7], torch.full((2,), 0.75, device=env.device))
+        torch.testing.assert_close(qvel[:, 6], torch.full((2,), -0.75, device=env.device))
     finally:
         if env.scene._tensor_read_plan is not None:
             env.scene._tensor_read_plan.close()

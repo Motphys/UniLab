@@ -147,6 +147,16 @@ class ManagerEntity(Protocol):
         env_ids: torch.Tensor | np.ndarray | slice | None = None,
     ) -> None: ...
 
+    def write_articulation_state_tensor_to_sim(
+        self,
+        root_state: torch.Tensor,
+        joint_position: torch.Tensor,
+        joint_velocity: torch.Tensor,
+        *,
+        joint_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: torch.Tensor,
+    ) -> None: ...
+
 
 class ManagerSensorView(Protocol):
     """Backend-owned named-sensor view retained by a manager term."""
