@@ -1012,6 +1012,20 @@ def test_tensor_command_publishes_sampler_advance_exactly_once() -> None:
     torch.testing.assert_close(command.time_steps, torch.tensor([5, 1, 10], dtype=torch.int32))
 
 
+def test_tensor_command_compares_ingested_rows_on_device() -> None:
+    command = mt.TensorMotionCommand.__new__(mt.TensorMotionCommand)
+    rows = torch.tensor([2, 0, 3], dtype=torch.int64)
+
+    assert command._same_reset_rows(None, rows) is False
+    assert command._same_reset_rows(torch.tensor([2, 0]), rows) is False
+    assert command._same_reset_rows(rows.clone(), rows) is True
+    assert command._same_reset_rows(torch.tensor([2, 0, 4]), rows) is False
+
+    # The NumPy carrier remains supported for the legacy MotionCommand owner.
+    assert command._same_reset_rows(np.asarray([2, 0, 3]), rows) is True
+    assert command._same_reset_rows(np.asarray([2, 0, 4]), rows) is False
+
+
 def test_motion_reward_pack_matches_individual_tensor_rewards(
     monkeypatch: pytest.MonkeyPatch, body_setup
 ) -> None:

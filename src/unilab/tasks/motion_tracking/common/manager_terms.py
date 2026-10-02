@@ -485,8 +485,9 @@ class MotionCommand(CommandTerm):
         # Reset rows whose motion-reference buffers were already ingested by
         # `_resample_command` during the in-flight reset; consumed by the
         # reset-path `_update_command` to skip the redundant `_refresh_motion`
-        # gather (issue #1355).
-        self._resample_ingested_ids: np.ndarray | None = None
+        # gather (issue #1355). The NumPy spell is retained by the legacy
+        # MotionCommand; TensorMotionCommand stores the device row selector.
+        self._resample_ingested_ids: np.ndarray | torch.Tensor | None = None
         # Motion rows gathered by the in-flight `_resample_command`, exposed so
         # subclasses (e.g. BoxMotionCommand) reuse the same gather instead of
         # re-reading the same frames.
@@ -1142,7 +1143,7 @@ class TensorMotionCommand(MotionCommand):
         publish_started = time.perf_counter()
         self._ingest_motion_packet(rows, packet)
         publish_ms = (time.perf_counter() - publish_started) * 1000.0
-        self._resample_ingested_ids = host_rows
+        self._resample_ingested_ids = rows
         self._resample_motion = None
         self.last_reset_timing_ms.update(
             {
@@ -1162,11 +1163,7 @@ class TensorMotionCommand(MotionCommand):
         if env_ids is not None:
             ingested = self._resample_ingested_ids
             self._resample_ingested_ids = None
-            if (
-                ingested is None
-                or ingested.shape != env_ids.shape
-                or bool((torch.as_tensor(ingested, device=env_ids.device) != env_ids).any())
-            ):
+            if not self._same_reset_rows(ingested, env_ids):
                 self._refresh_motion_torch(env_ids)
             return
         self._resample_ingested_ids = None
@@ -1176,6 +1173,17 @@ class TensorMotionCommand(MotionCommand):
         if wrap_rows.numel() and not self.cfg.params.truncate_on_clip_end:
             self._resample_command(wrap_rows)
         self._refresh_motion_torch()
+
+    @staticmethod
+    def _same_reset_rows(ingested: np.ndarray | torch.Tensor | None, rows: torch.Tensor) -> bool:
+        """Return whether an in-flight reset already published exactly these rows."""
+        if ingested is None or ingested.shape != rows.shape:
+            return False
+        if isinstance(ingested, torch.Tensor):
+            if ingested.device != rows.device:
+                return False
+            return bool(torch.equal(ingested, rows))
+        return bool(torch.equal(torch.as_tensor(ingested, device=rows.device), rows))
 
     def _step_tensor_sampler(self) -> torch.Tensor:
         """Advance the device frame carrier once without a host row transfer."""
