@@ -302,3 +302,53 @@ def test_tensor_command_joint_observation_uses_cached_default() -> None:
 
     assert isinstance(value, torch.Tensor)
     torch.testing.assert_close(value, torch.full((2, 29), 0.625))
+
+
+def test_anchor_observation_pack_reset_rows_match_full_batch_slice() -> None:
+    body_pos_w, body_quat_w = _reference_state()
+    command = _command(body_pos_w=body_pos_w.copy(), body_quat_w=body_quat_w.copy())
+    env = _env(command, _view())
+    cfg = mt.MotionAnchorObservationPackCfg(func=mt.MotionAnchorObservationPack)
+    term = mt.MotionAnchorObservationPack(cfg, cast(ManagerBasedRlEnv, env))
+    ids = torch.tensor([1], dtype=torch.int64)
+
+    full = term(cast(ManagerBasedRlEnv, env), command_name="motion")
+    rows = term.compute_reset_rows(cast(ManagerBasedRlEnv, env), ids, command_name="motion")
+
+    assert rows.shape == (1, 9)
+    torch.testing.assert_close(rows, full.index_select(0, ids))
+    np.testing.assert_array_equal(command._body_pos_w, body_pos_w)
+    np.testing.assert_array_equal(command._motion_data.body_quat_w, body_quat_w)
+
+
+def test_anchor_observation_pack_reset_rows_reject_wrong_command() -> None:
+    body_pos_w, body_quat_w = _reference_state()
+    command = _command(body_pos_w=body_pos_w, body_quat_w=body_quat_w)
+    env = _env(command, _view())
+    cfg = mt.MotionAnchorObservationPackCfg(func=mt.MotionAnchorObservationPack)
+    term = mt.MotionAnchorObservationPack(cfg, cast(ManagerBasedRlEnv, env))
+
+    with pytest.raises(ValueError, match="bound to 'motion'"):
+        term.compute_reset_rows(
+            cast(ManagerBasedRlEnv, env),
+            torch.tensor([0], dtype=torch.int64),
+            command_name="other",
+        )
+
+
+def test_anchor_observation_pack_reset_rows_cold_probe_has_selected_shape() -> None:
+    command = _command(
+        body_pos_w=np.zeros((2, 2, 3), dtype=np.float32),
+        body_quat_w=np.zeros((2, 2, 4), dtype=np.float32),
+    )
+    env = _env(command, _view())
+    env.scene._tensor_read_plan = None
+    cfg = mt.MotionAnchorObservationPackCfg(func=mt.MotionAnchorObservationPack)
+    term = mt.MotionAnchorObservationPack(cfg, cast(ManagerBasedRlEnv, env))
+
+    value = term.compute_reset_rows(
+        cast(ManagerBasedRlEnv, env),
+        torch.tensor([1], dtype=torch.int64),
+        command_name="motion",
+    )
+    assert value.shape == (1, 9)

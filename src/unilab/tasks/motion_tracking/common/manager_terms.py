@@ -2317,6 +2317,45 @@ class MotionAnchorObservationPack(MotionAnchorObservation):
             dim=-1,
         )
 
+    def compute_reset_rows(
+        self,
+        env: ManagerBasedRlEnv,
+        env_ids: torch.Tensor,
+        command_name: str = "motion",
+    ) -> torch.Tensor:
+        """Evaluate only selected reset rows from authoritative body views."""
+        if command_name != self._command_name:
+            raise ValueError(
+                f"Motion anchor observation pack was bound to {self._command_name!r}, "
+                f"received {command_name!r}"
+            )
+        read_plan = getattr(env.scene, "_tensor_read_plan", None)
+        command = _command(env, self._command_name)
+        if read_plan is None:
+            return self._cold_observation(command).index_select(0, env_ids)
+        view = read_plan.body_tensor_view(self._entity_name, self._body_names)
+        rows = env_ids.to(view.pos_w.device, dtype=torch.int64)
+        anchor_idx = self._anchor_body_idx
+        motion_anchor_pos = torch.as_tensor(
+            command.body_pos_w[:, anchor_idx],
+            dtype=torch.float32,
+            device=view.pos_w.device,
+        ).index_select(0, rows)
+        motion_anchor_quat = torch.as_tensor(
+            command.body_quat_w[:, anchor_idx],
+            dtype=torch.float32,
+            device=view.quat_w.device,
+        ).index_select(0, rows)
+        robot_anchor_pos = view.pos_w.index_select(0, rows)[:, anchor_idx]
+        robot_anchor_quat = view.quat_w.index_select(0, rows)[:, anchor_idx]
+        return torch.cat(
+            (
+                quat_apply_inverse(robot_anchor_quat, motion_anchor_pos - robot_anchor_pos),
+                quat_to_rot6(quat_mul(quat_conjugate(robot_anchor_quat), motion_anchor_quat)),
+            ),
+            dim=-1,
+        )
+
 
 __all__ = [
     "MotionCommand",
