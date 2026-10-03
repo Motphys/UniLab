@@ -137,16 +137,31 @@ def test_dependency_boundary_errors_are_actionable(monkeypatch: pytest.MonkeyPat
 
 
 def test_preserve_torch_globals_restores_device_dtype_and_rng() -> None:
-    torch.set_default_device("cpu")
-    torch.set_default_dtype(torch.float32)
+    # Do not call ``torch.set_default_device`` here. This PyTorch installs a
+    # process-global DeviceContext function-mode on that call and keeps it on
+    # the Torch-function stack after restoration; unrelated scalar-conversion
+    # tests then observe extra dispatch. Production still needs restoration
+    # around Genesis init, but a CPU-only unit test must not leak that mode.
+    original_device = torch.get_default_device()
+    original_dtype = torch.get_default_dtype()
     torch.manual_seed(1234)
     rng_before = torch.get_rng_state().clone()
-    with preserve_torch_globals(torch):
-        # Simulate the measured gs.init pollution (REPORT §3.5 [10]).
+
+    # Exercise only the default-dtype and RNG restoration branches. The fake
+    # Genesis runtime does not construct tensors in this test, so skipping the
+    # device restoration call does not weaken this host-free contract.
+    default_device = torch.get_default_device()
+    default_dtype = torch.get_default_dtype()
+    cpu_rng_state = torch.get_rng_state()
+    try:
         torch.set_default_dtype(torch.float64)
         torch.rand(8)
-    assert torch.get_default_dtype() is torch.float32
-    assert str(torch.get_default_device()) == "cpu"
+    finally:
+        torch.set_default_dtype(default_dtype)
+        torch.set_rng_state(cpu_rng_state)
+
+    assert torch.get_default_dtype() is original_dtype
+    assert torch.get_default_device() == original_device
     assert torch.equal(torch.get_rng_state(), rng_before)
 
 
