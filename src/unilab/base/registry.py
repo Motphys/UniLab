@@ -45,13 +45,13 @@ _TENSOR_MANAGER_SUPPORTED_SIM_BACKENDS = (
     "mujoco",
     "mjwarp",
     "genesis",
+    "newton",
 )
 _SHELVED_SIM_BACKENDS = (
     "motrix",
     "drake",
     "isaacgym",
     "isaacsim",
-    "newton",
     "superdex",
 )
 _SUPPORTED_SIM_BACKENDS = _TENSOR_MANAGER_SUPPORTED_SIM_BACKENDS + _SHELVED_SIM_BACKENDS
@@ -271,7 +271,7 @@ def make(
     Args:
         name: Environment name
         sim_backend: Simulation backend. If None, uses the
-            explicit tensor-manager backend order: "mujoco", "mjwarp", "genesis".
+            explicit tensor-manager backend order: "mujoco", "mjwarp", "genesis", "newton".
         num_envs: Number of environments to create
 
     Returns:

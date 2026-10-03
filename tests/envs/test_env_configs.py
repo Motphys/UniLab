@@ -49,6 +49,14 @@ def _require_genesis_runtime() -> None:
         pytest.skip("genesis runtime tests require a CUDA device")
 
 
+def _require_newton_runtime() -> None:
+    from unisim.backend.newton.dependencies import load_newton_dependencies
+
+    dependencies = load_newton_dependencies()
+    if not bool(dependencies.warp.get_device().is_cuda):
+        pytest.skip("newton runtime tests require an active CUDA Warp device")
+
+
 def _allegro_manager_override(
     backend: str = "mujoco",
     *,
@@ -1076,7 +1084,47 @@ def test_flashsac_g1_motion_genesis_manager_tensor_command_roll_out() -> None:
         env._backend.close()
 
 
-@pytest.mark.parametrize(("task", "backend"), [("g1_motion_tracking", "mjwarp")])
+def test_flashsac_g1_motion_newton_manager_tensor_command_roll_out() -> None:
+    """The canonical FlashSAC Newton owner exercises the Manager tensor path."""
+    ensure_registries()
+    _require_newton_runtime()
+    from unilab.base import registry
+    from unilab.envs import ManagerBasedRlEnv
+
+    _, override = _motion_manager_override(
+        "g1_motion_tracking",
+        "newton",
+        config_root="flashsac",
+    )
+    env = registry.make(
+        "G1MotionTrackingSAC",
+        num_envs=2,
+        sim_backend="newton",
+        env_cfg_override=override,
+    )
+    assert isinstance(env, ManagerBasedRlEnv)
+    try:
+        assert env.obs_groups_spec == {"obs": 160, "critic": 289}
+        command = env.command_manager.get_term("motion")
+        assert command.tensor_carrier is True
+        assert env.command_manager.uses_tensor_reset_rows()
+
+        state = env.init_state()
+        for _ in range(3):
+            state = env.step(torch.zeros((2, 29), dtype=torch.float32, device=env.device))
+
+        assert state.obs["obs"].shape == (2, 160)
+        assert state.obs["critic"].shape == (2, 289)
+        assert all(torch.isfinite(values).all() for values in state.obs.values())
+        assert torch.isfinite(state.reward).all()
+    finally:
+        env.close()
+        env._backend.close()
+
+
+@pytest.mark.parametrize(
+    ("task", "backend"), [("g1_motion_tracking", "mjwarp"), ("g1_motion_tracking", "newton")]
+)
 def test_selected_reset_publication_requires_no_manager_readiness_step(
     task: str, backend: str
 ) -> None:
@@ -1084,6 +1132,8 @@ def test_selected_reset_publication_requires_no_manager_readiness_step(
     ensure_registries()
     if backend == "mjwarp":
         _require_mjwarp_runtime()
+    elif backend == "newton":
+        _require_newton_runtime()
     else:
         _require_genesis_runtime()
     from unisim.backend.base import SelectedResetPublication

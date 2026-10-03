@@ -258,9 +258,7 @@ def test_register_env_invalid_backend_raises():
         registry_mod.register_env(_name, _TestEnvA, "not_a_backend")
 
 
-@pytest.mark.parametrize(
-    "backend", ["motrix", "drake", "isaacgym", "isaacsim", "newton", "superdex"]
-)
+@pytest.mark.parametrize("backend", ["motrix", "drake", "isaacgym", "isaacsim", "superdex"])
 def test_register_env_rejects_shelved_backend(backend):
     """Shelved adapters fail closed instead of registering a runtime path."""
     _name = "_TestShelvedBackendEnv"
@@ -274,7 +272,7 @@ def test_register_env_rejects_shelved_backend(backend):
 
 
 def test_default_backend_order_is_tensor_manager_scope():
-    assert registry_mod._DEFAULT_SIM_BACKEND_ORDER == ("mujoco", "mjwarp", "genesis")
+    assert registry_mod._DEFAULT_SIM_BACKEND_ORDER == ("mujoco", "mjwarp", "genesis", "newton")
 
 
 def test_register_env_without_config_raises():

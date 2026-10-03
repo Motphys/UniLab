@@ -1,7 +1,7 @@
 # HISTORICAL SHELVED-BACKEND BENCHMARK (#1811)
 # This adapter-specific probe is retained for migration context only.
 # It is not part of the scoped tensor Manager benchmark surface
-# (mujoco/mjwarp/genesis), is not discovered by default benchmark
+# (mujoco/mjwarp/genesis/newton), is not discovered by default benchmark
 # selection, and must not be used as a production support claim.
 
 #!/usr/bin/env python3
@@ -69,7 +69,7 @@ _RUNTIME_ENV_KEYS = (
 )
 _AFTER_RUN_GPU_QUIESCE_TIMEOUT_S = 10.0
 _AFTER_RUN_GPU_QUIESCE_POLL_S = 0.25
-_SCOPED_BACKENDS = ("mujoco", "mjwarp")
+_SCOPED_BACKENDS = ("mujoco", "mjwarp", "newton")
 _EXTERNAL_WORKER_PACKAGES = {
     "isaacgym": ("isaacgym", "isaacgym-preview.4", "torch"),
     "isaacsim": ("isaacsim", "isaacsim-core", "isaaclab", "omniverse-kit", "torch"),

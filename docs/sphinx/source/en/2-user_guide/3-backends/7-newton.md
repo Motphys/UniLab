@@ -1,47 +1,34 @@
 # Newton Backend
 
-> **Newton is temporarily shelved.** This adapter is outside the tensor-only Manager runtime during #1811 and is not a production support claim. The train/eval CLI rejects it until new capability, parity, and support-matrix evidence is provided.
-
 
 [Newton](https://github.com/newton-physics/newton) (PyPI distribution
 `newton`, pinned to 1.5.1) is a GPU physics simulator built on Warp that
 UniLab runs **in-process**: `unisim.backend.newton.NewtonBackend` serves the
-standard `SimBackend` NumPy contract on top of it, so physics shares the
-training process with the learner — no worker subprocess, no IPC.
+tensor lane of the public `SimBackend` contract on top of it, so physics
+shares the training process with the learner — no worker subprocess, no IPC.
 
-Current status: Newton is wired at the owner/config boundary (UniLab PR
-[#1511](https://github.com/unilabsim/UniLab/pull/1511); the adapter lives in
-the unisim repository as `unisim.backend.newton`). `g1_walk_flat` ships PPO
-and SAC owner configs
-(`src/unilab/conf/{ppo,sac}/task/g1_walk_flat/newton.yaml`, with `G1WalkFlat`
-registered for the `newton` backend), and the cross-backend contract audit
-(`scripts/audit_sim2sim_contracts.py`) covers the mujoco/newton pair in both
-algo trees (verdict TRANSFERABLE). Support levels: SAC is **Tested** — a
-full 5000-iteration training completed on 2026-09-06 on an RTX 4090 /
-torch 2.8.0+cu128 / newton 1.5.1 / mujoco-warp 3.11 (reward/mean 6.68 →
-242.3, episode length → 983, ~43k steps/s, 4m25s wall), with playback
-validated on `model_5000.pt`: native ViewerGL offscreen record (800-frame
-1280x720 mp4) and an interactive ViewerGL window smoke on a live X
-display; PPO remains **Configured**
-(evidence limited to the owner configs, compose/contract checks, and
-fail-closed runtime/import boundaries; no training or playback claim yet).
+Current status: issue #2048 restores Newton to the tensor-only Manager runtime
+for exactly two canonical workloads:
 
-Multi-GPU data parallelism (issue
-[#1512](https://github.com/unilabsim/UniLab/issues/1512)): verified on
-2026-09-06 on 2x NVIDIA RTX 6000D (Blackwell) / torch 2.8.0+cu128 /
-newton 1.5.1 / mujoco-warp 3.11 — PPO torchrun DP=2 and SAC
-DpRankSupervisor DP=2 (`CUDA_VISIBLE_DEVICES=<gpu-a>,<gpu-b>`) training smokes both
-complete, and `nvidia-smi` sampling confirms each rank's learner and
-collector sim processes land on their own physical GPU with no cross-GPU
-leakage; single-GPU PPO/SAC regressions pass alongside. Newton/Warp follows
-standard CUDA device semantics, so no `CUDA_VISIBLE_DEVICES` pinning (the
-Genesis quirk) is needed; the rank-local device reaches spawn collectors as
-a `newton_device="cuda:N"` env override, and uni_rl's collector-side
-process binding is injection-based — UniLab injects
-`bind_backend_process_device_for_backend`, which covers both mjwarp and
-newton — while SAC handles learner-owned warmup before collector startup and
-cold materialization through the collector-ready handshake instead of using a
-collector tick timeout.
+```bash
+uv run train --algo sac --task g1_walk_flat --sim newton
+uv run train --algo flashsac --task g1_motion_tracking --sim newton
+```
+
+The owner configurations are
+`src/unilab/conf/sac/task/g1_walk_flat/newton.yaml` and
+`src/unilab/conf/flashsac/task/g1_motion_tracking/newton.yaml`. Other Newton
+owners remain out of scope and do not constitute production support claims.
+The public tensor lane exposes device-resident state views, frame/contact
+sensors, state widths, tensor stepping, and authoritative selected-reset
+publication. Reset randomization that Newton does not support stays explicitly
+disabled in the owners; it never falls back to a host composer.
+
+Newton/Warp follows standard CUDA device semantics, so single-GPU runs do not
+need `CUDA_VISIBLE_DEVICES` pinning. In multi-GPU topology, the rank-local
+device reaches spawn collectors as a `newton_device="cuda:N"` override, and
+uni_rl's collector process binding is injection-based; UniLab injects
+`bind_backend_process_device_for_backend`, which covers MJWarp and Newton.
 
 ## Installation
 
@@ -78,59 +65,45 @@ Prerequisites:
 After installation, the unisim repository provides
 `scripts/check_newton_runtime.py` as a metadata-only probe (pass `--import`
 to import the native runtime explicitly). On the UniLab side a missing Newton
-runtime is not silent: the top-level CLI checks the `newton`, `mujoco_warp`,
-`mujoco`, and `warp` modules before training and fails closed with an
-install hint (`_check_runtime_requirements` in `src/unilab/cli.py`).
+runtime is not silent: the top-level CLI checks the `newton` module before
+training and fails closed with an install hint
+(`_check_runtime_requirements` in `src/unilab/cli.py`).
 
 ## Training and Evaluation
 
-Training selects the newton owner through the canonical CLI:
-
-```bash
-# PPO
-uv run train --algo ppo --task g1_walk_flat --sim newton
-
-# SAC
-uv run train --algo sac --task g1_walk_flat --sim newton
-```
+The canonical tensor-runtime commands above select the Newton owner. Other
+historical owner paths remain out of scope until separately enabled.
 
 Newton/MuJoCo-Warp 3.11 owns explicit device and storage capacities, exposed
 as `env.*` fields in the owner YAML:
 
-- `newton_device`: the owner's `null` default is intentional — the process
-  device binder (`src/unilab/base/process_device.py`) injects the rank-local
-  CUDA device before materialization. An explicit value must be a non-empty
-  CUDA device string.
+- `newton_device`: explicit backend CUDA placement. The single-device owners
+  use `cuda:0`; multi-GPU training overrides this cold-path field from rank
+  topology.
 - `newton_nconmax` / `newton_njmax`: explicit capacity bounds (320 / 512 in
-  the g1 owner). The adapter calibrates solver counts on the cold path and
-  raises an explicit capacity error when a bound is too small; it never
-  silently truncates constraints.
+  the canonical G1 owners). The adapter calibrates solver counts on the cold
+  path and raises an explicit capacity error when a bound is too small; it
+  never silently truncates constraints.
 - `newton_capacity_check_steps`: how often capacity is checked (default 1).
 - `newton_use_cuda_graph`: CUDA graph replay (default `true`). A graph-capable
   UniSim runtime captures both Newton state parities after cold capacity
   calibration; ineligible CUDA drivers or capture failures warn and fall back
   to eager execution.
+  Runtime evidence must report the diagnostic's actual `enabled` state rather
+  than infer it from the request.
 
 ## Playback and Rendering
 
-The Newton backend renders natively through the upstream
-`newton.viewer.ViewerGL` (included in the `newton` extra,
-`pyglet>=2.1.6,<3` + `imgui-bundle>=1.92.0`). The owner inherits the base config's
-`training.play_render_mode: auto`: with a display, `auto` resolves to
-`interactive` (the ViewerGL window); without one it resolves to `record`
-(`ViewerGL(headless=True)` offscreen rendering to mp4). If an installation is
-incomplete, `record` falls back to the MuJoCo offline snapshot renderer while
-`interactive` fails closed; a normal `newton` install always selects the
-native renderer. Headless offscreen rendering still needs an OpenGL
-context: set `PYOPENGL_PLATFORM=egl` on display-less Linux hosts and
+The canonical owners select `training.play_render_mode: record`. Newton renders
+through the upstream `newton.viewer.ViewerGL` included in the `newton` extra;
+if that installation is incomplete, record falls back to the MuJoCo snapshot
+renderer. Headless offscreen rendering still needs an OpenGL context: set
+`PYOPENGL_PLATFORM=egl` on display-less Linux hosts and
 `PYOPENGL_PLATFORM=glx` under Wayland.
 
 ```bash
-uv run eval --algo ppo --task g1_walk_flat --sim newton \
-    --load-run <run_dir_name> --render-mode record
-
 uv run eval --algo sac --task g1_walk_flat --sim newton \
-    --load-run <run_dir_name> --render-mode record
+  --load-run <run_dir_name> --render-mode record
 ```
 
 ## Unsupported Boundaries

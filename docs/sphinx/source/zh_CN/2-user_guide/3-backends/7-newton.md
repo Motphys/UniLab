@@ -1,43 +1,32 @@
 # Newton 后端
 
-> **Newton 暂时搁置。** 该适配器在 #1811 期间不属于 tensor-only Manager runtime，也不构成生产支持声明。在提供新的 capability、parity 与支持矩阵证据之前，train/eval CLI 会直接拒绝该后端。
-
 
 [Newton](https://github.com/newton-physics/newton)（PyPI 分发名 `newton`，
 仓库钉在 1.5.1）是基于 Warp 的 GPU 物理仿真器，UniLab 以**进程内**方式
-使用它：`unisim.backend.newton.NewtonBackend` 在其上提供标准的
-`SimBackend` NumPy contract，物理与 learner 同进程运行——没有 worker
-子进程，也没有 IPC。
+使用它：`unisim.backend.newton.NewtonBackend` 在其上提供 public
+`SimBackend` contract 的 tensor lane，物理与 learner 同进程运行——没有
+worker 子进程，也没有 IPC。
 
-当前状态：Newton 已在 owner/config 边界完成接线（UniLab PR
-[#1511](https://github.com/unilabsim/UniLab/pull/1511)，适配器由 unisim
-仓库的 `unisim.backend.newton` 提供）。`g1_walk_flat` 提供 PPO 与 SAC
-owner 配置（`src/unilab/conf/{ppo,sac}/task/g1_walk_flat/newton.yaml`，
-registry 注册 `G1WalkFlat` 的 `newton` 后端），跨后端契约审计
-（`scripts/audit_sim2sim_contracts.py`）在两棵 algo 树上覆盖
-mujoco↔newton（结论 TRANSFERABLE）。支持等级：SAC 为 **Tested**——
-2026-09-06 在 RTX 4090 / torch 2.8.0+cu128 / newton 1.5.1 / mujoco-warp
-3.11 上完成完整 5000-iteration 训练（reward/mean 6.68 → 242.3，
-episode length → 983，约 43k steps/s，wall 4m25s），并对
-`model_5000.pt` 完成回放验证：原生 ViewerGL 离屏 record（800 帧
-1280x720 mp4）与交互式 ViewerGL 窗口冒烟（真实 X display）；PPO 保持
-**Configured**（现有
-证据限于 owner 配置、compose/contract 检查和 fail-closed 的
-runtime/import 边界，尚无训练或回放验证结论）。
+当前状态：issue #2048 将 Newton 恢复进 tensor-only Manager runtime，但范围
+仅限两个 canonical workload：
 
-多 GPU 数据并行（issue
-[#1512](https://github.com/unilabsim/UniLab/issues/1512)）：2026-09-06
-在 2× NVIDIA RTX 6000D（Blackwell）/ torch 2.8.0+cu128 / newton 1.5.1 /
-mujoco-warp 3.11 上完成实测——PPO torchrun DP=2 与 SAC
-DpRankSupervisor DP=2（`CUDA_VISIBLE_DEVICES=<gpu-a>,<gpu-b>`）训练冒烟均正常完成，
-`nvidia-smi` 采样确认每个 rank 的 learner 与 collector sim 进程物理落位
-在各自 GPU、无对端泄漏；单卡 PPO/SAC 回归同步通过。Newton/Warp 遵循标准
-CUDA 设备语义，无需 Genesis 那样的 `CUDA_VISIBLE_DEVICES` 钉卡；rank
-本地设备通过 env override 以 `newton_device="cuda:N"` 传入 spawn
-collector，且 uni_rl 的 collector 进程绑定为注入式——UniLab 注入的
-`bind_backend_process_device_for_backend` 同时覆盖 mjwarp 与
-newton；SAC 会在 collector 启动前执行 learner 侧预热，并通过
-collector-ready 握手覆盖冷物化，不再使用 collector tick 超时。
+```bash
+uv run train --algo sac --task g1_walk_flat --sim newton
+uv run train --algo flashsac --task g1_motion_tracking --sim newton
+```
+
+owner 配置为 `src/unilab/conf/sac/task/g1_walk_flat/newton.yaml` 与
+`src/unilab/conf/flashsac/task/g1_motion_tracking/newton.yaml`。其他
+Newton owner 仍不在支持范围内，也不构成生产支持声明。public tensor lane
+提供 device-resident state views、frame/contact sensors、state widths、
+tensor stepping 与 authoritative selected-reset publication。Newton 不支持
+的 reset randomization 在 owner 中显式禁用，绝不回退到 host composer。
+
+Newton/Warp 遵循标准 CUDA 设备语义，单卡运行无需 `CUDA_VISIBLE_DEVICES`
+钉卡。在多 GPU topology 中，rank 本地设备以 `newton_device="cuda:N"`
+覆盖传入 spawn collector；uni_rl 的 collector 进程绑定为注入式，UniLab
+注入的 `bind_backend_process_device_for_backend` 同时覆盖 MJWarp 与
+Newton。
 
 ## 安装
 
@@ -74,53 +63,39 @@ uv sync --extra mujoco --extra mjwarp --extra newton
 安装后可运行 unisim 仓库的 `scripts/check_newton_runtime.py` 做
 metadata 级探针（加 `--import` 显式导入原生运行时）。在 UniLab 侧，缺少
 Newton 运行时不是静默失败：顶层 CLI 在训练前检查 `newton` /
-`mujoco_warp` / `mujoco` / `warp` 模块，缺失时 fail-closed 并给出安装
-提示（`src/unilab/cli.py` 的 `_check_runtime_requirements`）。
+`newton` 模块，缺失时 fail-closed 并给出安装提示（`src/unilab/cli.py`
+的 `_check_runtime_requirements`）。
 
 ## 训练与评估
 
-训练通过标准 CLI 选择 newton owner：
-
-```bash
-# PPO
-uv run train --algo ppo --task g1_walk_flat --sim newton
-
-# SAC
-uv run train --algo sac --task g1_walk_flat --sim newton
-```
+上方 canonical tensor-runtime 命令选择 Newton owner。其他历史 owner 路径
+在单独启用前仍不在支持范围内。
 
 Newton/MuJoCo-Warp 3.11 要求显式的设备与存储容量，对应 owner YAML 中的
 `env.*` 字段：
 
-- `newton_device`：owner 默认 `null` 是有意设计——进程设备绑定器
-  （`src/unilab/base/process_device.py`）在 materialization 前注入
-  rank 本地的 CUDA 设备。显式设置时必须是非空 CUDA 设备字符串。
-- `newton_nconmax` / `newton_njmax`：显式容量上界（g1 owner 为
-  320 / 512）。适配器在冷路径标定 solver 计数，容量不足时抛出明确的
+- `newton_device`：显式 backend CUDA placement。单设备 owner 使用
+  `cuda:0`；多 GPU 训练会按 rank topology 覆盖该冷路径字段。
+- `newton_nconmax` / `newton_njmax`：显式容量上界（canonical G1 owner
+  为 320 / 512）。适配器在冷路径标定 solver 计数，容量不足时抛出明确的
   capacity 错误，绝不静默截断约束。
 - `newton_capacity_check_steps`：容量检查步数（默认 1）。
 - `newton_use_cuda_graph`：CUDA graph replay（默认 `true`）。支持 graph 的
   UniSim runtime 会在冷路径容量校准后捕获两个 Newton state 奇偶；CUDA
   驱动不满足条件或捕获失败时发出警告并回退 eager 执行。
+  Runtime 证据必须报告 diagnostic 的实际 `enabled` 状态，不能根据请求推断。
 
 ## Playback 与渲染
 
-Newton 后端通过上游 `newton.viewer.ViewerGL` 提供**原生渲染**（依赖已包含
-在 `newton` extra：`pyglet>=2.1.6,<3` + `imgui-bundle>=1.92.0`）。
-owner 继承 base 配置的 `training.play_render_mode: auto`：有显示时
-`auto` 解析为 `interactive`（ViewerGL 交互窗口），无显示时解析为
-`record`（`ViewerGL(headless=True)` 离屏渲染写 mp4）。若安装不完整，
-`record` 才会回退到 MuJoCo 离线快照渲染，`interactive` 会 fail-closed；
-正常安装 `newton` 时始终选择原生渲染。headless 离屏渲染仍需 OpenGL context：
-无显示服务器的 Linux 主机设 `PYOPENGL_PLATFORM=egl`，Wayland 设
+canonical owner 选择 `training.play_render_mode: record`。Newton 通过
+`newton` extra 内置的上游 `newton.viewer.ViewerGL` 渲染；若该安装不完整，
+record 会回退 MuJoCo snapshot renderer。headless 离屏渲染仍需 OpenGL
+context：无显示服务器的 Linux 主机设 `PYOPENGL_PLATFORM=egl`，Wayland 设
 `PYOPENGL_PLATFORM=glx`。
 
 ```bash
-uv run eval --algo ppo --task g1_walk_flat --sim newton \
-    --load-run <run_dir_name> --render-mode record
-
 uv run eval --algo sac --task g1_walk_flat --sim newton \
-    --load-run <run_dir_name> --render-mode record
+  --load-run <run_dir_name> --render-mode record
 ```
 
 ## 未支持边界

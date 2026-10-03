@@ -119,6 +119,19 @@ _DEVICE_RESIDENT_TENSOR_SENSORS: dict[str, frozenset[str]] = {
             *(f"right_foot_contact_{index}" for index in range(4)),
         }
     ),
+    "newton": frozenset(
+        {
+            "pelvis_local_linvel",
+            "torso_gyro",
+            "torso_upvector",
+            "left_foot_pos",
+            "right_foot_pos",
+            "left_foot_quat",
+            "right_foot_quat",
+            *(f"left_foot_contact_{index}" for index in range(4)),
+            *(f"right_foot_contact_{index}" for index in range(4)),
+        }
+    ),
 }
 
 

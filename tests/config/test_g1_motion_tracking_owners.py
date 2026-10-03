@@ -124,6 +124,37 @@ def test_flashsac_g1_motion_tracking_uses_comparable_dr_free_owner() -> None:
     assert mjwarp_reward == mujoco_reward
 
 
+def test_flashsac_g1_motion_tracking_newton_keeps_mujoco_parity() -> None:
+    mujoco_cfg = _compose_flashsac("g1_motion_tracking/mujoco")
+    cfg = _compose_flashsac("g1_motion_tracking/newton")
+
+    assert cfg.training.task_name == "G1MotionTrackingSAC"
+    assert cfg.training.sim_backend == "newton"
+    assert cfg.training.play_render_mode == "record"
+    assert cfg.env.commands.motion._target_ == (
+        "unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg"
+    )
+    assert cfg.env.newton_device == "cuda:0"
+    assert cfg.env.newton_nconmax == 320
+    assert cfg.env.newton_njmax == 512
+    assert cfg.env.newton_capacity_check_steps == 1
+    assert cfg.env.newton_use_cuda_graph is True
+    # The Newton owner changes only backend identity/placement and the tensor
+    # command implementation; it does not add reset DR or task semantics.
+    newton_env = OmegaConf.to_container(cfg.env)
+    mujoco_env = OmegaConf.to_container(mujoco_cfg.env)
+    assert isinstance(newton_env, dict) and isinstance(mujoco_env, dict)
+    del newton_env["newton_device"]
+    del newton_env["newton_nconmax"]
+    del newton_env["newton_njmax"]
+    del newton_env["newton_capacity_check_steps"]
+    del newton_env["newton_use_cuda_graph"]
+    del newton_env["commands"]
+    del mujoco_env["commands"]
+    assert newton_env == mujoco_env
+    assert cfg.algo == mujoco_cfg.algo
+
+
 def test_flashsac_g1_motion_tracking_contact_policy_is_reward_only() -> None:
     cfg = _compose_flashsac("g1_motion_tracking/mujoco")
 

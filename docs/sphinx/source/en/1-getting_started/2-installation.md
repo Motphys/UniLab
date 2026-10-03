@@ -120,12 +120,13 @@ is unreachable.
 
 ## Backend Extras
 
-The tensor-only Manager runtime currently exposes three production backends:
-`mujoco`, `mjwarp`, and `genesis`. Their simulator dependencies are optional.
+The tensor-only Manager runtime currently exposes four production backends:
+`mujoco`, `mjwarp`, `genesis`, and `newton`. Their simulator dependencies are
+optional.
 
 ```bash
 # All scoped backends together.
-uv sync --extra mujoco --extra mjwarp --extra genesis
+uv sync --extra mujoco --extra mjwarp --extra genesis --extra newton
 ```
 
 | Backend | Install path | Important prerequisites |
@@ -133,12 +134,13 @@ uv sync --extra mujoco --extra mjwarp --extra genesis
 | MuJoCo | `make setup` or `uv sync --extra mujoco` | Builds the pinned `mjbatch` fork (bound to `mujoco==3.11.0`) from source; a C++17 toolchain and Python development headers are required until prebuilt wheels exist (roadmap open item) |
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | NVIDIA CUDA; on a single-GPU host the current CUDA device is used by default, while multi-GPU topology remains explicit |
 | Genesis | `uv sync --extra genesis` | The validated path uses Linux x86_64, an NVIDIA GPU, and the pinned torch/Genesis versions |
+| Newton | `uv sync --extra newton` | Linux CUDA with the pinned newton / MuJoCo-Warp / Warp versions |
 
-The `motrix`, `newton`, `drake`, `isaacgym`, `isaacsim`, and `superdex`
-adapters remain temporarily shelved by `unisim-core` during issue #1811. Their
-extras and historical backend pages are not production support claims and the
-UniLab train/eval CLI rejects them until new capability, parity, and
-support-matrix evidence is provided.
+The `motrix`, `drake`, `isaacgym`, `isaacsim`, and `superdex` adapters remain
+temporarily shelved by `unisim-core` during issue #1811. Their extras and
+historical backend pages are not production support claims and the UniLab
+train/eval CLI rejects them until new capability, parity, and support-matrix
+evidence is provided.
 
 Read the scoped backend pages for runtime variables, renderer requirements, and
 verification commands:
@@ -146,6 +148,7 @@ verification commands:
 - {doc}`MuJoCo <../2-user_guide/3-backends/1-mujoco>`
 - {doc}`MJWarp <../2-user_guide/3-backends/0-index>`
 - {doc}`Genesis <../2-user_guide/3-backends/5-genesis>`
+- {doc}`Newton <../2-user_guide/3-backends/7-newton>`
 
 ## Algorithm Extras
 

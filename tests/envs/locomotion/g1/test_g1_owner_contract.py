@@ -67,6 +67,7 @@ _OFFPOLICY_REWARDS = (
     "feet_phase",
     "alive",
 )
+_TENSOR_RESET_EVENT_BACKENDS = {"mjwarp", "newton"}
 
 _OBSERVATION_TERMS = (
     "base_ang_vel",
@@ -170,11 +171,22 @@ _OWNER_CASES = (
         1.0,
         "scene_flat.xml",
         _OFFPOLICY_REWARDS,
-        # kp/kd reset randomization stays enabled: the backend declares the
-        # measured RESET_TERM_KP/KD DR terms (REPORT #1372 §5.7).
-        (*_RESET_EVENTS, "pd_gains"),
+        _RESET_EVENTS,
         True,
         id="sac-genesis",
+    ),
+    pytest.param(
+        "sac",
+        ("task=g1_walk_flat/newton",),
+        "G1WalkFlat",
+        "newton",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-newton",
     ),
     pytest.param(
         "flashsac",
@@ -195,6 +207,7 @@ _WALK_PROFILE_IDS = {
     "sac-mujoco",
     "sac-mjwarp",
     "sac-genesis",
+    "sac-newton",
     "sac-rough-mujoco",
     "flashsac-mujoco",
 }
@@ -325,15 +338,26 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
     assert env_cfg.actions["joint_pos"].scale == pytest.approx(action_scale)
     assert env_cfg.actions["joint_pos"].use_default_offset is True
 
-    assert list(env_cfg.terminations) == ["time_out", "tilt", "base_height"]
+    uses_fused_termination = case_id in {"sac-mjwarp", "sac-genesis", "sac-newton"}
+    expected_terminations = (
+        ["time_out", "tilt", "base_height", "g1_walk_termination_pack"]
+        if uses_fused_termination
+        else ["time_out", "tilt", "base_height"]
+    )
+    assert list(env_cfg.terminations) == expected_terminations
     assert env_cfg.terminations["time_out"].time_out is True
-    assert env_cfg.terminations["tilt"].func is g1_terms.g1_tilt_exceeded
-    assert env_cfg.terminations["base_height"].func is g1_terms.g1_base_height_below_minimum
+    if uses_fused_termination:
+        assert env_cfg.terminations["g1_walk_termination_pack"].func is (
+            g1_terms.G1WalkTerminationPack
+        )
+    else:
+        assert env_cfg.terminations["tilt"].func is g1_terms.g1_tilt_exceeded
+        assert env_cfg.terminations["base_height"].func is g1_terms.g1_base_height_below_minimum
 
     assert tuple(name for name, term in env_cfg.events.items() if term is not None) == (
         expected_events
     )
-    if backend == "mjwarp":
+    if backend in _TENSOR_RESET_EVENT_BACKENDS:
         assert env_cfg.events["reset_scene_to_default"].func is mdp.reset_scene_to_default_tensor
         assert (
             env_cfg.events["reset_root_state_uniform"].func is mdp.reset_root_state_uniform_tensor
@@ -371,6 +395,16 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert env_cfg.genesis_friction_cone is None
         assert env_cfg.genesis_solver_iterations is None
         assert hydra_cfg.training.play_render_mode == "auto"
+    if backend == "newton":
+        assert env_cfg.newton_device == "cuda:0"
+        assert env_cfg.newton_nconmax == 320
+        assert env_cfg.newton_njmax == 512
+        assert env_cfg.newton_capacity_check_steps == 1
+        assert env_cfg.newton_use_cuda_graph is True
+        assert env_cfg.scene.fragment_files == []
+        assert env_cfg.scene.terrain is None
+        assert env_cfg.events["pd_gains"] is None
+        assert hydra_cfg.training.play_render_mode == "record"
 
     pose = env_cfg.rewards["pose"]
     expected_weights = _POSE_WEIGHTS_29
@@ -394,6 +428,7 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
                         ".mujoco",
                         ".mjwarp",
                         ".genesis",
+                        ".newton",
                     )
                 )
 
@@ -410,6 +445,7 @@ def test_g1_walk_registries_are_manager_only() -> None:
             "mujoco",
             "mjwarp",
             "genesis",
+            "newton",
         ],
     }
 
@@ -436,6 +472,16 @@ def test_g1_walk_registries_are_manager_only() -> None:
             98,
             101,
             id="sac-mujoco",
+        ),
+        pytest.param(
+            "sac",
+            ("task=g1_walk_flat/newton",),
+            "G1WalkFlat",
+            "newton",
+            29,
+            98,
+            101,
+            id="sac-newton",
         ),
     ),
 )
@@ -474,15 +520,19 @@ def test_g1_registry_executes_real_manager_runtime(
         }
         assert isinstance(info, dict)
         for _ in range(5):
-            state = env.step(torch.zeros((2, num_dof), dtype=torch.float32))
+            state = env.step(torch.zeros((2, num_dof), dtype=torch.float32, device=env.device))
         for value in (*state.obs.values(), state.reward):
             assert isinstance(value, torch.Tensor)
             assert torch.isfinite(value).all()
 
         # The command and gait-phase segments pin the legacy obs layout tail.
         command = env.command_manager.get_command("twist")
-        np.testing.assert_allclose(
-            state.obs["obs"][:, obs_dim - 5 : obs_dim - 2], command, rtol=0.0, atol=1.0e-6
+        torch.testing.assert_close(
+            state.obs["obs"][:, obs_dim - 5 : obs_dim - 2],
+            command.to(device=state.obs["obs"].device),
+            rtol=0.0,
+            atol=1.0e-6,
+            check_device=False,
         )
     finally:
         env.close()

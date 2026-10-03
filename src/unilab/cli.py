@@ -20,6 +20,7 @@ SUPPORTED_SIMS = (
     "mujoco",
     "mjwarp",
     "genesis",
+    "newton",
 )
 # Adapters retained by UniSim but temporarily outside the tensor-only Manager
 # runtime during issue #1811. They must remain unroutable through public CLI.
@@ -28,7 +29,6 @@ _SHELVED_SIMS = (
     "drake",
     "isaacgym",
     "isaacsim",
-    "newton",
     "superdex",
 )
 SUPPORTED_RENDER_MODES = ("auto", "interactive", "record", "viser", "none")
@@ -147,6 +147,12 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
                 "Install it with `pip install unilab[genesis]` (or `uv sync --extra genesis` "
                 "in a source checkout; see the Genesis backend docs page)."
             )
+    if sim == "newton" and find_spec("newton") is None:
+        raise SystemExit(
+            "sim=newton requires the newton extra (pinned 1.5.1). Install it with "
+            "`pip install unilab[newton]` (or `uv sync --extra newton` in a source "
+            "checkout)."
+        )
 
 
 def _override_bool(overrides: Sequence[str], key: str) -> bool | None:

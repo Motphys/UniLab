@@ -97,7 +97,7 @@ jobs:
       - name: Materialize pinned sibling workspace
         run: uv run --no-project python scripts/tools/sync_tensor_workspace.py --sync
       - name: Install tensor runtime
-        run: uv sync --extra mujoco --extra mjwarp --extra uni_rl
+        run: uv sync --extra mujoco --extra mjwarp --extra newton --extra uni_rl
       - name: CUDA task contract tests
         run: >
           uv run --no-sync pytest -q

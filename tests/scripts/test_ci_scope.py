@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
-SHELVED_BACKENDS = ("motrix", "isaacgym", "isaacsim", "newton", "superdex", "drake")
+SHELVED_BACKENDS = ("motrix", "isaacgym", "isaacsim", "superdex", "drake")
 # Some optional packages and identifiers contain these words without routing a
 # UniLab backend (for example CUDA nccl/cusparselt). The production gate is the
 # explicit ``--extra <backend>`` install pattern.

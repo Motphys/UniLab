@@ -108,12 +108,12 @@ Hugging Face endpoint 无法访问时，可设置 `HF_ENDPOINT=https://hf-mirror
 
 ## 后端 Extras
 
-当前 tensor-only Manager runtime 仅暴露三个生产后端：`mujoco`、`mjwarp` 与
-`genesis`。各自的仿真依赖均为可选。
+当前 tensor-only Manager runtime 暴露四个生产后端：`mujoco`、`mjwarp`、
+`genesis`、`newton`。各自的仿真依赖均为可选。
 
 ```bash
 # 一次安装全部 scoped 后端。
-uv sync --extra mujoco --extra mjwarp --extra genesis
+uv sync --extra mujoco --extra mjwarp --extra genesis --extra newton
 ```
 
 | 后端 | 安装路径 | 重要前置条件 |
@@ -121,17 +121,19 @@ uv sync --extra mujoco --extra mjwarp --extra genesis
 | MuJoCo | `make setup` 或 `uv sync --extra mujoco` | 从源码构建钉住的 `mjbatch` fork（绑定 `mujoco==3.11.0`）；在预编译 wheel 可用之前（roadmap 待定事项）需要 C++17 工具链和 Python 开发头文件 |
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | NVIDIA CUDA；单 GPU 主机默认使用当前 CUDA 设备，多卡拓扑仍需显式配置 |
 | Genesis | `uv sync --extra genesis` | 已验证路径使用 Linux x86_64、NVIDIA GPU 及固定版本 torch/Genesis |
+| Newton | `uv sync --extra newton` | Linux CUDA，并钉定 newton / MuJoCo-Warp / Warp 版本 |
 
-`motrix`、`newton`、`drake`、`isaacgym`、`isaacsim` 与 `superdex` 适配器在
-issue #1811 期间由 `unisim-core` 暂时搁置。它们的 extras 和历史后端页面不构
-成生产支持声明；在提供新的 capability、parity 与支持矩阵证据之前，UniLab
-train/eval CLI 会直接拒绝这些后端。
+`motrix`、`drake`、`isaacgym`、`isaacsim` 与 `superdex` 适配器在 issue #1811
+期间由 `unisim-core` 暂时搁置。它们的 extras 和历史后端页面不构成生产支持
+声明；在提供新的 capability、parity 与支持矩阵证据之前，UniLab train/eval
+CLI 会直接拒绝这些后端。
 
 runtime 变量、渲染器要求和验证命令见 scoped 后端页面：
 
 - {doc}`MuJoCo <../2-user_guide/3-backends/1-mujoco>`
 - {doc}`MJWarp <../2-user_guide/3-backends/0-index>`
 - {doc}`Genesis <../2-user_guide/3-backends/5-genesis>`
+- {doc}`Newton <../2-user_guide/3-backends/7-newton>`
 
 ## 算法 Extras
 

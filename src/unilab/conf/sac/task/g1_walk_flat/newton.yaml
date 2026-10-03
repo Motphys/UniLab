@@ -1,0 +1,80 @@
+# @package _global_
+# Newton SAC owner for the in-process MuJoCo-family CUDA backend (newton 1.5.1,
+# mujoco-warp 3.11, warp 1.16). Keeps DENYLIST parity with the MuJoCo SAC
+# owner. The owner declares explicit backend CUDA placement; multi-GPU training
+# overrides it from rank topology. The public Newton tensor selected reset does
+# not support randomization, so unsupported host reset terms are explicitly
+# disabled rather than falling back. Record selects the native Newton renderer
+# and falls back to the MuJoCo snapshot only for an incomplete installation.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: newton
+  play_render_mode: record
+algo:
+  num_envs: 2048
+  learning_starts: 10
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+  g1_walk_pack:
+    _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkRewardPackCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.G1WalkRewardPack
+    weight: 0.0
+    command_name: twist
+    entity_name: robot
+    tracking_lin_sigma: 0.25
+    tracking_ang_sigma: 0.25
+    gait_frequency: 1.5
+    gait_init_mode: offset_phase
+    swing_height: 0.09
+    feet_phase_sigma: 0.04
+    min_forward_speed: 0.0
+    pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+    reward_pack_names:
+      - tracking_lin_vel
+      - tracking_ang_vel
+      - penalty_ang_vel_xy
+      - penalty_orientation
+      - penalty_action_rate
+      - pose
+      - penalty_feet_ori
+      - feet_phase
+      - alive
+env:
+  newton_device: cuda:0
+  # The G1 flat scene needs 258 contacts and nefc 269 at 2048 envs; leave the
+  # same headroom as the historical Newton owner so capacity checks never
+  # truncate constraints.
+  newton_nconmax: 320
+  newton_njmax: 512
+  newton_capacity_check_steps: 1
+  newton_use_cuda_graph: true
+  reset_owners:
+    walk:
+      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwnerCfg
+      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwner
+      command_name: twist
+  events:
+    reset_scene_to_default:
+      func: unilab.envs.mdp.reset_scene_to_default_tensor
+    reset_root_state_uniform:
+      func: unilab.envs.mdp.reset_root_state_uniform_tensor
+    # Newton's public tensor selected reset does not support randomization.
+    pd_gains: null
+  terminations:
+    tilt: null
+    base_height: null
+    g1_walk_termination_pack:
+      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkTerminationPackCfg
+      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkTerminationPack
+      entity_name: robot
+      root_body_name: pelvis
+      max_tilt_deg: 65.0
+      minimum_height: 0.3

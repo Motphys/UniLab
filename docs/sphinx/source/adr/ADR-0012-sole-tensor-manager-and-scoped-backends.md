@@ -99,7 +99,7 @@ capability dispatch in UniLab task/runtime code.
 
 ### Temporary backend scope gate
 
-This migration's active runtime scope is `mujoco`, `mjwarp`, and `genesis`. Other adapters remain
+This migration's active runtime scope is `mujoco`, `mjwarp`, `genesis`, and `newton`. Other adapters remain
 present in UniSim but are gated out of this runtime with actionable errors. Re-enabling a backend
 requires its own capability, parity, and support-matrix evidence. Permanent adapter deletion is a
 separate maintainer decision; this ADR does not delete those adapters.
@@ -118,7 +118,7 @@ useful for launcher/debug/MPS isolation.
 | Tensor-only Manager execution | `src/unilab/envs/manager_based_rl_env.py`, Manager suites, no-NumPy-carrier gate |
 | Removal of `env.tensor_runtime` | `ManagerBasedRlEnvCfg`, owner YAMLs, run-config schema, config tests |
 | Manager-owned Torch RNG | Manager RNG owner, seed/reset and selected-row reproducibility tests |
-| Selected-reset publication postcondition | UniSim tensor capability + MuJoCo/MJWarp/Genesis contract tests |
+| Selected-reset publication postcondition | UniSim tensor capability + MuJoCo/MJWarp/Genesis/Newton contract tests |
 | Public sensor namespace | UniSim `SimBackend.get_sensor_names()`/inventory contract and adapter tests |
 | Public state widths | UniSim state-width API and reset-plan tests |
 | No backend private/name probing | architecture gate in UniLab tests |
@@ -149,7 +149,7 @@ useful for launcher/debug/MPS isolation.
 - Fused owner kernels are valid only as Manager-owned implementation strategies, not as direct
   modes.
 - MuJoCo continues to carry the production host-bridge contract.
-- MJWarp and Genesis must make public views authoritative after selected reset without an extra control step.
+- MJWarp, Genesis, and Newton must make public views authoritative after selected reset without an extra control step.
 - Backend support claims narrow during migration and are restored only with new evidence.
 - Owner configurations lose `env.tensor_runtime`; migration documentation must state the breaking
   boundary without offering a compatibility alias.
@@ -165,7 +165,7 @@ useful for launcher/debug/MPS isolation.
 - Tensor state store/readiness consumer:
   `src/unilab/tasks/motion_tracking/common/tensor_state_store.py`
 - Public backend contract: `unisim.backend.base.SimBackend`
-- Scoped adapters: `unisim.backend.mujoco`, `unisim.backend.mjwarp`, `unisim.backend.genesis`
+- Scoped adapters: `unisim.backend.mujoco`, `unisim.backend.mjwarp`, `unisim.backend.genesis`, `unisim.backend.newton`
 - Backend-name readiness issue: #1790
 - Current Manager tensor migration: #1703
 - Delivery roadmap and performance budget: #1811

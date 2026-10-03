@@ -23,9 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_shelved_adapters_have_no_support_cells() -> None:
     """During #1811, shelved adapters are not production support claims."""
-    assert SHELVED_BACKENDS == frozenset(
-        {"motrix", "drake", "isaacgym", "isaacsim", "newton", "superdex"}
-    )
+    assert SHELVED_BACKENDS == frozenset({"motrix", "drake", "isaacgym", "isaacsim", "superdex"})
     for row in build_support_rows(ROOT):
         assert set(row.cells) == set(BACKENDS)
         assert set(row.cells).isdisjoint(SHELVED_BACKENDS)
@@ -284,6 +282,21 @@ def test_support_matrix_does_not_promote_unvalidated_genesis_entries():
     assert go2_row.cells["genesis"].level == EvidenceLevel.MISSING
 
 
+def test_support_matrix_keeps_newton_canonical_cells_at_configured_until_validated():
+    rows = build_support_rows(Path(__file__).resolve().parents[2])
+
+    tested = {
+        (row.entrypoint_label, row.task_slug)
+        for row in rows
+        if row.cells["newton"].level >= EvidenceLevel.TESTED
+    }
+    assert tested == {("SAC (torch)", "g1_walk_flat")}
+    assert _row("SAC (torch)", "g1_walk_flat").cells["newton"].level == EvidenceLevel.TESTED
+    assert _row("FlashSAC (torch)", "g1_motion_tracking").cells["newton"].level == (
+        EvidenceLevel.CONFIGURED
+    )
+
+
 def test_support_matrix_does_not_promote_unvalidated_mjwarp_entries():
     rows = build_support_rows(Path(__file__).resolve().parents[2])
 
@@ -312,4 +325,4 @@ def test_support_matrix_marks_allegro_appo_backends_as_tested():
 def test_generated_support_matrix_exposes_only_tensor_manager_backends() -> None:
     from scripts.tools import support_matrix
 
-    assert support_matrix.BACKENDS == ("mujoco", "mjwarp", "genesis")
+    assert support_matrix.BACKENDS == ("mujoco", "mjwarp", "newton", "genesis")

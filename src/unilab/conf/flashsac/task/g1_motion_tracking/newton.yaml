@@ -1,0 +1,30 @@
+# @package _global_
+# FlashSAC Newton owner for G1 WBT (in-process MuJoCo-family CUDA backend,
+# newton 1.5.1, mujoco-warp 3.11, warp 1.16). Keeps DENYLIST parity with the
+# MuJoCo owner so cross-backend play transfers 1:1. Newton consumes the
+# MuJoCo-family scene directly: the timestep flows through the existing
+# base.yaml sim_dt -> ctrl_dt chain. Requires unisim-core>=1.5.1 for the motion
+# body id capability (unilabsim/unisim#137). Record selects the native Newton
+# renderer and falls back to MuJoCo snapshots only for an incomplete install.
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1MotionTrackingSAC
+  sim_backend: newton
+  play_render_mode: record
+  # First tick includes collector env construction and Newton warmup.
+env:
+  commands:
+    motion:
+      _target_: unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg
+  # Explicit backend CUDA placement. Multi-GPU training overrides this
+  # cold-path field from the rank topology.
+  newton_device: cuda:0
+  # Leave measured headroom over the G1 contact/constraint demand so cold
+  # capacity calibration never truncates the solver.
+  newton_nconmax: 320
+  newton_njmax: 512
+  newton_capacity_check_steps: 1
+  newton_use_cuda_graph: true

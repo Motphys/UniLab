@@ -29,5 +29,14 @@ def test_shelved_sims_fail_closed_before_dependency_detection(sim: str) -> None:
         cli._check_runtime_requirements("ppo", sim)
 
 
+def test_check_runtime_requirements_requires_newton_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "find_spec", lambda name: None if name == "newton" else object())
+
+    with pytest.raises(SystemExit, match="sim=newton requires the newton extra"):
+        cli._check_runtime_requirements("sac", "newton")
+
+
 def test_cli_backend_choices_are_tensor_manager_scope() -> None:
-    assert cli.SUPPORTED_SIMS == ("mujoco", "mjwarp", "genesis")
+    assert cli.SUPPORTED_SIMS == ("mujoco", "mjwarp", "genesis", "newton")
