@@ -538,6 +538,76 @@ def test_g1_registry_executes_real_manager_runtime(
         env.close()
 
 
+def test_g1_walk_newton_selected_reset_preserves_rows_and_rng() -> None:
+    """The canonical Newton walk owner keeps selected reset row-scoped."""
+    registry.ensure_registries()
+    _, _, env_override = _materialize("sac", ("task=g1_walk_flat/newton",), "G1WalkFlat")
+    try:
+        env = registry.make(
+            "G1WalkFlat",
+            sim_backend="newton",
+            env_cfg_override=env_override,
+            num_envs=4,
+        )
+    except ImportError as exc:
+        pytest.skip(f"newton runtime unavailable: {exc}")
+
+    try:
+        env.init_state()
+        device = env.device
+        obs_before = {name: value.clone() for name, value in env.state.obs.items()}
+        views = env.backend.get_state_views(("qpos", "qvel"), device=device)
+        qpos_before = views["qpos"].clone()
+        qvel_before = views["qvel"].clone()
+        command = env.command_manager.get_command("twist").clone()
+        rng_state = env.torch_rng.get_state().clone() if env.torch_rng is not None else None
+        assert rng_state is not None
+
+        rows = torch.tensor([1, 3], dtype=torch.int64, device=device)
+        keep = torch.tensor([0, 2], dtype=torch.int64, device=device)
+        reset_obs, _ = env.reset(env_indices=rows)
+
+        refreshed = env.backend.get_state_views(("qpos", "qvel"), device=device)
+        # The public reset event publishes default-derived rows; it is not a
+        # direct set_state harness. The decisive identity contract is that the
+        # selected rows move while untouched rows remain bit-identical.
+        changed_qpos = torch.count_nonzero(torch.ne(refreshed["qpos"][rows], qpos_before[rows])) > 0
+        assert changed_qpos
+        torch.testing.assert_close(refreshed["qpos"][keep], qpos_before[keep])
+        torch.testing.assert_close(refreshed["qvel"][keep], qvel_before[keep])
+        for group, values in reset_obs.items():
+            assert values.shape[0] == rows.numel()
+            assert torch.isfinite(values).all()
+            torch.testing.assert_close(env.state.obs[group][rows], values)
+            torch.testing.assert_close(
+                env.state.obs[group][keep],
+                obs_before[group][keep],
+                msg=lambda message: f"untouched observation rows changed: {message}",
+            )
+        new_command = env.command_manager.get_command("twist")
+        torch.testing.assert_close(
+            new_command[keep], command[keep], msg="untouched command rows changed"
+        )
+
+        env.torch_rng.set_state(rng_state)
+        reference_obs, _ = env.reset(env_indices=rows)
+        reference_command = env.command_manager.get_command("twist")
+        torch.testing.assert_close(
+            reference_command[rows],
+            new_command[rows],
+            msg="selected-row Torch RNG replay is not deterministic",
+        )
+        # The first replay starts from a different post-reset physical state;
+        # row-shaped rebuild identity, not equality of every state column, is
+        # the reset-observation contract.
+        for group, values in reference_obs.items():
+            assert values.shape == reset_obs[group].shape
+            assert torch.isfinite(values).all()
+    finally:
+        env.close()
+        env._backend.close()
+
+
 def test_g1_walk_profile_runtime_obs_scaling_matches_legacy_layout() -> None:
     """Walk-profile owners scale gyro x0.25, dof_vel x0.05, critic linvel x2.0."""
     registry.ensure_registries()

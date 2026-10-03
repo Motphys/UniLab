@@ -1181,6 +1181,38 @@ def test_selected_reset_publication_requires_no_manager_readiness_step(
         env._backend.close()
 
 
+def test_newton_backend_close_disables_graphs_and_fails_closed() -> None:
+    """Newton teardown publishes disabled graph diagnostics before rejecting use."""
+    ensure_registries()
+    _require_newton_runtime()
+    from unilab.base import registry
+
+    _, override = _motion_manager_override(
+        "g1_motion_tracking",
+        "newton",
+        config_root="flashsac",
+    )
+    env = registry.make(
+        "G1MotionTrackingSAC",
+        num_envs=2,
+        sim_backend="newton",
+        env_cfg_override=override,
+    )
+    try:
+        env.init_state()
+        before = env.backend.get_tensor_runtime_diagnostics()["cuda_graph"]
+        assert before.requested is True
+    finally:
+        env.close()
+        env.backend.close()
+
+    after = env.backend.get_tensor_runtime_diagnostics()["cuda_graph"]
+    assert after.enabled is False
+    assert after.disable_reason is not None
+    with pytest.raises(RuntimeError, match="newton backend is closed"):
+        env.backend.get_state_views(("qpos", "qvel"), device=env.device)
+
+
 @pytest.mark.parametrize(
     ("config_root", "task", "identity", "actor_dim", "critic_dim", "action_dim", "truncate"),
     _MOTION_CORE_RUNTIME_CASES,
