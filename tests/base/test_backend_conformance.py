@@ -472,7 +472,7 @@ def test_terrain_spawn_consumers_do_not_probe_private_backend_capabilities() -> 
 def test_legacy_contract_step_set_state_and_state_reads(backend_type: str) -> None:
     _require_backend(backend_type)
 
-    backend = create_backend(
+    backend = _create_backend_for_test(
         backend_type,
         SceneCfg(model_file=_G1_SCENE),
         NUM_ENVS,
