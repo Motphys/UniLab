@@ -68,7 +68,7 @@ _OFFPOLICY_REWARDS = (
     "alive",
 )
 _TENSOR_RESET_EVENT_BACKENDS = {"mjwarp", "newton"}
-_PACKED_HOST_BRIDGE_BACKENDS = {"mujoco", "motrix"}
+_MOTRIX_PACKED_HOST_BRIDGE_BACKENDS = {"motrix"}
 
 _OBSERVATION_TERMS = (
     "base_ang_vel",
@@ -372,7 +372,7 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
     assert tuple(name for name, term in env_cfg.events.items() if term is not None) == (
         expected_events
     )
-    if backend in _TENSOR_RESET_EVENT_BACKENDS or backend in _PACKED_HOST_BRIDGE_BACKENDS:
+    if backend in _TENSOR_RESET_EVENT_BACKENDS or backend in _MOTRIX_PACKED_HOST_BRIDGE_BACKENDS:
         assert env_cfg.events["reset_scene_to_default"].func is mdp.reset_scene_to_default_tensor
         assert (
             env_cfg.events["reset_root_state_uniform"].func is mdp.reset_root_state_uniform_tensor
