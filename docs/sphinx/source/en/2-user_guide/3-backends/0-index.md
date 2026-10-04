@@ -1,15 +1,15 @@
 # Simulation Backends
 
-The tensor-only Manager runtime currently exposes `mujoco`, `mjwarp`,
-`genesis`, and `newton`. User commands select one with `--sim`, which routes to
+The tensor-only Manager runtime currently exposes `mujoco`, `mjwarp`, `genesis`,
+`newton`, and `motrix`. User commands select one with `--sim`, which routes to
 the matching task owner YAML; do not switch a run by overriding
 `training.sim_backend` alone.
 
-The `motrix`, `drake`, `isaacgym`, `isaacsim`, and `superdex` adapters remain
-temporarily shelved by `unisim-core` during issue #1811. Their historical pages
-are retained for adapter context only and are not production support claims.
-The train/eval CLI rejects these names until new capability, parity, and
-support-matrix evidence is provided.
+The `drake`, `isaacgym`, `isaacsim`, and `superdex` adapters remain temporarily
+shelved by `unisim-core` during issue #1811. Their historical pages are retained
+for adapter context only and are not production support claims. The train/eval
+CLI rejects these names until new capability, parity, and support-matrix
+evidence is provided.
 
 ## Runtime Prerequisites
 
@@ -21,6 +21,9 @@ support-matrix evidence is provided.
 - Newton requires the `newton` extra and an NVIDIA CUDA device; the current
   tensor-native support scope is SAC `g1_walk_flat` and FlashSAC
   `g1_motion_tracking`.
+- Motrix requires the `motrix` extra and provides a CPU-authoritative packed
+  HOST_BRIDGE; the current canonical support scope is SAC `g1_walk_flat` and
+  FlashSAC `g1_motion_tracking`.
 
 ## OS and GPU Support
 
@@ -30,6 +33,7 @@ support-matrix evidence is provided.
 | MJWarp | Linux (validated path) | Required: NVIDIA CUDA; a single-GPU host uses the current CUDA device by default |
 | Genesis | Linux x86_64 | Required: NVIDIA GPU and driver; only the `gs.gpu` channel is validated |
 | Newton | Linux | Required: NVIDIA CUDA; the selected-reset lane is device-resident |
+| Motrix | Linux / macOS / Windows | CPU-authoritative physics; Torch CUDA buffers are optional |
 
 Backend device requirements are independent of the learner device: MuJoCo can
 still train with its learner on CUDA, ROCm, MPS, or XPU. See the platform
@@ -48,6 +52,7 @@ the algorithm in `--algo`, not in `--task`.
 | Default path or broadest owner coverage | MuJoCo |
 | MuJoCo-only tools such as `scripts/play_viser.py` | MuJoCo |
 | Device-resident tensor owner | MJWarp, Genesis, or Newton, when the task support matrix marks the combination supported |
+| CPU-authoritative packed HOST_BRIDGE | Motrix |
 
 The support matrix is generated from registry, owner YAML, and tests; use it as
 the current evidence source: {doc}`../../5-reference/5-support_matrix`.
@@ -100,10 +105,10 @@ uv run python -c "import unisim; print(unisim.ADAPTER_SPECS)"
 ```
 
 `unisim` has no dependency on UniLab, Hydra, or training components. The scoped
-MuJoCo, MJWarp, Genesis, and Newton adapters and the temporarily shelved
-adapters use one public contract. Missing proprietary SDKs or GPU workers
-produce an explicit cold-path diagnostic; no backend silently falls back to
-another engine.
+MuJoCo, MJWarp, Genesis, Newton, and Motrix adapters and the temporarily
+shelved adapters use one public contract. Missing proprietary SDKs or GPU
+workers produce an explicit cold-path diagnostic; no backend silently falls
+back to another engine.
 
 ```{toctree}
 :hidden:
@@ -111,4 +116,5 @@ another engine.
 1-mujoco
 5-genesis
 7-newton
+2-motrix
 ```

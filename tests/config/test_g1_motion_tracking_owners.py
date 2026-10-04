@@ -155,6 +155,35 @@ def test_flashsac_g1_motion_tracking_newton_keeps_mujoco_parity() -> None:
     assert cfg.algo == mujoco_cfg.algo
 
 
+def test_flashsac_g1_motion_tracking_motrix_uses_packed_tensor_owner() -> None:
+    mujoco_cfg = _compose_flashsac("g1_motion_tracking/mujoco")
+    cfg = _compose_flashsac("g1_motion_tracking/motrix")
+
+    assert cfg.training.task_name == "G1MotionTrackingSAC"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.training.play_render_mode == "record"
+    assert cfg.env.commands.motion._target_ == (
+        "unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg"
+    )
+    assert cfg.env.reset_owners.motion._target_ == (
+        "unilab.tasks.motion_tracking.common.manager_terms.MotionResetOwnerCfg"
+    )
+    assert cfg.env.reset_owners.motion.command_name == "motion"
+    assert cfg.env.reset_owners.motion.action_name == "joint_pos"
+    assert cfg.env.reset_owners.motion.owns_command_reset is True
+    assert cfg.env.reset_owners.motion.owns_action_reset is True
+    assert cfg.env.reset_owners.motion.owns_observation_reset is True
+    assert cfg.env.reset_owners.motion.owns_metric_reset is True
+
+    motrix_env = OmegaConf.to_container(cfg.env)
+    mujoco_env = OmegaConf.to_container(mujoco_cfg.env)
+    assert isinstance(motrix_env, dict) and isinstance(mujoco_env, dict)
+    del motrix_env["reset_owners"]
+    mujoco_env.pop("reset_owners", None)
+    assert motrix_env == mujoco_env
+    assert cfg.algo == mujoco_cfg.algo
+
+
 def test_flashsac_g1_motion_tracking_contact_policy_is_reward_only() -> None:
     cfg = _compose_flashsac("g1_motion_tracking/mujoco")
 

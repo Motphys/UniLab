@@ -69,7 +69,7 @@ _RUNTIME_ENV_KEYS = (
 )
 _AFTER_RUN_GPU_QUIESCE_TIMEOUT_S = 10.0
 _AFTER_RUN_GPU_QUIESCE_POLL_S = 0.25
-_SCOPED_BACKENDS = ("mujoco", "mjwarp", "newton")
+_SCOPED_BACKENDS = ("mujoco", "motrix", "mjwarp", "newton")
 _EXTERNAL_WORKER_PACKAGES = {
     "isaacgym": ("isaacgym", "isaacgym-preview.4", "torch"),
     "isaacsim": ("isaacsim", "isaacsim-core", "isaaclab", "omniverse-kit", "torch"),
@@ -253,6 +253,11 @@ def _build_backend(backend: str, num_envs: int, *, isaacsim_test_fixture: bool =
     kwargs["base_name"] = _backend_base_name(backend, robot, cfg.scene)
     if backend == "mujoco":
         kwargs["tracked_body_names"] = tuple(robot.body_names)
+    if backend == "motrix":
+        # The generic factory already translates body-state requirements into
+        # Motrix's add_body_sensors flag; preserve the benchmark's explicit
+        # tracked-body parity with MuJoCo.
+        kwargs.pop("tracked_body_names", None)
     return create_backend(
         backend,
         cfg.scene,

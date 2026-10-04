@@ -21,11 +21,11 @@ SUPPORTED_SIMS = (
     "mjwarp",
     "genesis",
     "newton",
+    "motrix",
 )
 # Adapters retained by UniSim but temporarily outside the tensor-only Manager
 # runtime during issue #1811. They must remain unroutable through public CLI.
 _SHELVED_SIMS = (
-    "motrix",
     "drake",
     "isaacgym",
     "isaacsim",
@@ -151,6 +151,12 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
         raise SystemExit(
             "sim=newton requires the newton extra (pinned 1.5.1). Install it with "
             "`pip install unilab[newton]` (or `uv sync --extra newton` in a source "
+            "checkout)."
+        )
+    if sim == "motrix" and find_spec("motrixsim") is None:
+        raise SystemExit(
+            "sim=motrix requires the motrix extra (pinned motrixsim-core). Install it with "
+            "`pip install unilab[motrix]` (or `uv sync --extra motrix` in a source "
             "checkout)."
         )
 

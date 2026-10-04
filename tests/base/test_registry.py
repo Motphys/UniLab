@@ -258,7 +258,7 @@ def test_register_env_invalid_backend_raises():
         registry_mod.register_env(_name, _TestEnvA, "not_a_backend")
 
 
-@pytest.mark.parametrize("backend", ["motrix", "drake", "isaacgym", "isaacsim", "superdex"])
+@pytest.mark.parametrize("backend", ["drake", "isaacgym", "isaacsim", "superdex"])
 def test_register_env_rejects_shelved_backend(backend):
     """Shelved adapters fail closed instead of registering a runtime path."""
     _name = "_TestShelvedBackendEnv"
@@ -272,7 +272,13 @@ def test_register_env_rejects_shelved_backend(backend):
 
 
 def test_default_backend_order_is_tensor_manager_scope():
-    assert registry_mod._DEFAULT_SIM_BACKEND_ORDER == ("mujoco", "mjwarp", "genesis", "newton")
+    assert registry_mod._DEFAULT_SIM_BACKEND_ORDER == (
+        "mujoco",
+        "mjwarp",
+        "genesis",
+        "newton",
+        "motrix",
+    )
 
 
 def test_register_env_without_config_raises():
@@ -368,12 +374,12 @@ def test_make_rejects_invalid_factory_output_at_registry_boundary():
 def test_make_unsupported_backend_raises():
     """make() with an unsupported backend name raises ValueError."""
     with pytest.raises(ValueError, match="does not support simulation backend"):
-        registry_mod.make(_TEST_ENV_A, sim_backend="newton")
+        registry_mod.make(_TEST_ENV_A, sim_backend="not_a_backend")
 
 
 def test_make_rejects_shelved_backend_registration():
     with pytest.raises(ValueError, match="temporarily out of the tensor-only"):
-        registry_mod.register_env(_TEST_ENV_A, lambda *args, **kwargs: None, "motrix")
+        registry_mod.register_env(_TEST_ENV_A, lambda *args, **kwargs: None, "drake")
 
 
 def test_make_no_env_factory_raises():

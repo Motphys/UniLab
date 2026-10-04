@@ -1,11 +1,29 @@
 # Motrix 后端
 
-> **Motrix 暂时搁置。** 该适配器在 #1811 期间不属于 tensor-only Manager runtime，也不构成生产支持声明。在提供新的 capability、parity 与支持矩阵证据之前，train/eval CLI 会直接拒绝该后端。
-
-
 Motrix 是一个可选后端，通过 `motrix` extra 安装。该 extra 委托给
 `unisim-core[motrix]`，runtime 版本固定在 UniSim 的 `pyproject.toml`
 中，适配层位于 `unisim.backend.motrix` 下。
+
+Motrix 是 CPU-authoritative packed HOST_BRIDGE 后端。issue #2054 将其恢复
+进 tensor-only Manager runtime，但范围仅限两个 canonical workload：
+
+```bash
+uv run --extra motrix train --algo sac --task g1_walk_flat --sim motrix
+uv run --extra motrix train --algo flashsac --task g1_motion_tracking --sim motrix
+```
+
+其他 Motrix owner 仍不在支持范围内，也不构成生产支持声明。
+
+public tensor lifecycle 提供：
+
+- persistent packed control D2H；
+- persistent packed selected-reset D2H；
+- persistent packed full state/sensor H2D；
+- persistent packed selected-row reset publication H2D。
+
+每个 phase 都可通过 transfer plan 的 diagnostic counter 计数。没有隐藏的
+task-side NumPy reset composer；unsupported reset randomization 和 fixed
+variants 一律 fail closed。
 
 ## 安装
 
@@ -17,19 +35,21 @@ uv sync --extra motrix
 
 ## 何时使用
 
-- task owner 以 `src/unilab/conf/.../<task>/motrix.yaml` 形式存在。
-- 你想要 Motrix 原生交互式回放；该后端提供原生交互式渲染器和视频录制能力。
+- workload 是上述两个 canonical owner 之一。
+- 需要 CPU-authoritative packed HOST_BRIDGE 对比/参考路径。
 - 所生成的支持矩阵将你的 entrypoint/task/backend 组合标记为 configured 或 tested。
 
 ## 命令
 
-```bash
-uv run train --algo ppo --task go2_joystick_flat --sim motrix training.no_play=true
-uv run eval --algo ppo --task go2_joystick_flat --sim motrix --load-run -1 --render-mode record
-```
-
 使用 `--render-mode record` 进行无头的仅视频回放。后端选择请保留在
 `--sim motrix` 中，而不要单独 override `training.sim_backend`。
+
+## 性能边界
+
+MotrixSim native CPU physics 比 mjbatch 慢，也不要求完全对标。issue #2054
+在 canonical control cycle 的实测中，Motrix 约为 MuJoCo/mjbatch 的 53%；
+显式 D2H/H2D 总计约 0.1 ms，剩余差距几乎全部来自 native `step_n`。unisim
+#340 已移除 selected read 中可避免的 full-batch 计算。
 
 ## CPU 亲和性
 

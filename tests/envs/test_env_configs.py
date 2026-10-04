@@ -57,6 +57,10 @@ def _require_newton_runtime() -> None:
         pytest.skip("newton runtime tests require an active CUDA Warp device")
 
 
+def _require_motrix_runtime() -> None:
+    pytest.importorskip("motrixsim", reason="motrixsim not installed")
+
+
 def _allegro_manager_override(
     backend: str = "mujoco",
     *,
@@ -1100,6 +1104,44 @@ def test_flashsac_g1_motion_newton_manager_tensor_command_roll_out() -> None:
         "G1MotionTrackingSAC",
         num_envs=2,
         sim_backend="newton",
+        env_cfg_override=override,
+    )
+    assert isinstance(env, ManagerBasedRlEnv)
+    try:
+        assert env.obs_groups_spec == {"obs": 160, "critic": 289}
+        command = env.command_manager.get_term("motion")
+        assert command.tensor_carrier is True
+        assert env.command_manager.uses_tensor_reset_rows()
+
+        state = env.init_state()
+        for _ in range(3):
+            state = env.step(torch.zeros((2, 29), dtype=torch.float32, device=env.device))
+
+        assert state.obs["obs"].shape == (2, 160)
+        assert state.obs["critic"].shape == (2, 289)
+        assert all(torch.isfinite(values).all() for values in state.obs.values())
+        assert torch.isfinite(state.reward).all()
+    finally:
+        env.close()
+        env._backend.close()
+
+
+def test_flashsac_g1_motion_motrix_manager_tensor_command_roll_out() -> None:
+    """The canonical FlashSAC Motrix owner exercises the packed host bridge."""
+    ensure_registries()
+    _require_motrix_runtime()
+    from unilab.base import registry
+    from unilab.envs import ManagerBasedRlEnv
+
+    _, override = _motion_manager_override(
+        "g1_motion_tracking",
+        "motrix",
+        config_root="flashsac",
+    )
+    env = registry.make(
+        "G1MotionTrackingSAC",
+        num_envs=2,
+        sim_backend="motrix",
         env_cfg_override=override,
     )
     assert isinstance(env, ManagerBasedRlEnv)

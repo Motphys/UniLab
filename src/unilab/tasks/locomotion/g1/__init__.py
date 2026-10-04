@@ -10,6 +10,7 @@ registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="mujoco")
 registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="mjwarp")
 registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="genesis")
 registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="newton")
+registry.register_env("G1WalkFlat", make_g1_walk_env, sim_backend="motrix")
 
 __all__ = [
     "G1WalkManagerBasedEnv",

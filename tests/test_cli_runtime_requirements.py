@@ -38,5 +38,14 @@ def test_check_runtime_requirements_requires_newton_extra(
         cli._check_runtime_requirements("sac", "newton")
 
 
+def test_check_runtime_requirements_requires_motrix_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "find_spec", lambda name: None if name == "motrixsim" else object())
+
+    with pytest.raises(SystemExit, match="sim=motrix requires the motrix extra"):
+        cli._check_runtime_requirements("sac", "motrix")
+
+
 def test_cli_backend_choices_are_tensor_manager_scope() -> None:
-    assert cli.SUPPORTED_SIMS == ("mujoco", "mjwarp", "genesis", "newton")
+    assert cli.SUPPORTED_SIMS == ("mujoco", "mjwarp", "genesis", "newton", "motrix")

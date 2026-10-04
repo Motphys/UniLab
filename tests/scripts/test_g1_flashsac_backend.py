@@ -370,7 +370,7 @@ def test_tensor_benchmark_closes_backend_when_lifecycle_setup_fails(
     assert backend.closed is True
 
 
-@pytest.mark.parametrize("backend", ("motrix", "drake", "isaacgym", "isaacsim", "superdex"))
+@pytest.mark.parametrize("backend", ("drake", "isaacgym", "isaacsim", "superdex"))
 def test_shelved_benchmark_backends_fail_closed(
     backend: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

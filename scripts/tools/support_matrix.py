@@ -21,7 +21,9 @@ END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
 # matrix until capability/parity evidence re-enables them.
 _ALL_BACKENDS: tuple[str, ...] = tuple(get_tensor_platform_profiles())
 BACKENDS: tuple[str, ...] = tuple(
-    backend for backend in _ALL_BACKENDS if backend in {"mujoco", "mjwarp", "genesis", "newton"}
+    backend
+    for backend in _ALL_BACKENDS
+    if backend in {"mujoco", "mjwarp", "genesis", "newton", "motrix"}
 )
 SHELVED_BACKENDS = frozenset(_ALL_BACKENDS) - frozenset(BACKENDS)
 

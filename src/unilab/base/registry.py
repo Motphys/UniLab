@@ -46,9 +46,9 @@ _TENSOR_MANAGER_SUPPORTED_SIM_BACKENDS = (
     "mjwarp",
     "genesis",
     "newton",
+    "motrix",
 )
 _SHELVED_SIM_BACKENDS = (
-    "motrix",
     "drake",
     "isaacgym",
     "isaacsim",

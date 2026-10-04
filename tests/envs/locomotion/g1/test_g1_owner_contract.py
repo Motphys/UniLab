@@ -68,6 +68,7 @@ _OFFPOLICY_REWARDS = (
     "alive",
 )
 _TENSOR_RESET_EVENT_BACKENDS = {"mjwarp", "newton"}
+_PACKED_HOST_BRIDGE_BACKENDS = {"mujoco", "motrix"}
 
 _OBSERVATION_TERMS = (
     "base_ang_vel",
@@ -189,6 +190,19 @@ _OWNER_CASES = (
         id="sac-newton",
     ),
     pytest.param(
+        "sac",
+        ("task=g1_walk_flat/motrix",),
+        "G1WalkFlat",
+        "motrix",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        _RESET_EVENTS,
+        True,
+        id="sac-motrix",
+    ),
+    pytest.param(
         "flashsac",
         ("task=g1_walk_flat/mujoco",),
         "G1WalkFlat",
@@ -208,6 +222,7 @@ _WALK_PROFILE_IDS = {
     "sac-mjwarp",
     "sac-genesis",
     "sac-newton",
+    "sac-motrix",
     "sac-rough-mujoco",
     "flashsac-mujoco",
 }
@@ -338,7 +353,7 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
     assert env_cfg.actions["joint_pos"].scale == pytest.approx(action_scale)
     assert env_cfg.actions["joint_pos"].use_default_offset is True
 
-    uses_fused_termination = case_id in {"sac-mjwarp", "sac-genesis", "sac-newton"}
+    uses_fused_termination = case_id in {"sac-mjwarp", "sac-genesis", "sac-newton", "sac-motrix"}
     expected_terminations = (
         ["time_out", "tilt", "base_height", "g1_walk_termination_pack"]
         if uses_fused_termination
@@ -357,7 +372,7 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
     assert tuple(name for name, term in env_cfg.events.items() if term is not None) == (
         expected_events
     )
-    if backend in _TENSOR_RESET_EVENT_BACKENDS:
+    if backend in _TENSOR_RESET_EVENT_BACKENDS or backend in _PACKED_HOST_BRIDGE_BACKENDS:
         assert env_cfg.events["reset_scene_to_default"].func is mdp.reset_scene_to_default_tensor
         assert (
             env_cfg.events["reset_root_state_uniform"].func is mdp.reset_root_state_uniform_tensor
@@ -405,6 +420,11 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert env_cfg.scene.terrain is None
         assert env_cfg.events["pd_gains"] is None
         assert hydra_cfg.training.play_render_mode == "record"
+    if backend == "motrix":
+        assert env_cfg.scene.fragment_files == []
+        assert env_cfg.scene.terrain is None
+        assert env_cfg.events["pd_gains"] is None
+        assert hydra_cfg.training.play_render_mode == "record"
 
     pose = env_cfg.rewards["pose"]
     expected_weights = _POSE_WEIGHTS_29
@@ -429,6 +449,7 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
                         ".mjwarp",
                         ".genesis",
                         ".newton",
+                        ".motrix",
                     )
                 )
 
@@ -446,6 +467,7 @@ def test_g1_walk_registries_are_manager_only() -> None:
             "mjwarp",
             "genesis",
             "newton",
+            "motrix",
         ],
     }
 
@@ -482,6 +504,16 @@ def test_g1_walk_registries_are_manager_only() -> None:
             98,
             101,
             id="sac-newton",
+        ),
+        pytest.param(
+            "sac",
+            ("task=g1_walk_flat/motrix",),
+            "G1WalkFlat",
+            "motrix",
+            29,
+            98,
+            101,
+            id="sac-motrix",
         ),
     ),
 )

@@ -1,0 +1,29 @@
+# @package _global_
+# FlashSAC Motrix owner for G1 WBT. MotrixSim is CPU-authoritative; the Manager
+# read/write lifecycle crosses the public packed HOST_BRIDGE boundary only.
+# Keep DENYLIST parity with the MuJoCo owner so cross-backend checkpoints
+# transfer 1:1. Motrix tensor reset does not support randomization or fixed
+# variants; this owner enables neither. The tensor command carrier and reset
+# owner mirror the MuJoCo packed HOST_BRIDGE path.
+defaults:
+  - /task/g1_motion_tracking/mujoco
+  - _self_
+
+training:
+  task_name: G1MotionTrackingSAC
+  sim_backend: motrix
+  play_render_mode: record
+env:
+  commands:
+    motion:
+      _target_: unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg
+  reset_owners:
+    motion:
+      _target_: unilab.tasks.motion_tracking.common.manager_terms.MotionResetOwnerCfg
+      func: unilab.tasks.motion_tracking.common.manager_terms.MotionResetOwner
+      command_name: motion
+      action_name: joint_pos
+      owns_command_reset: true
+      owns_action_reset: true
+      owns_observation_reset: true
+      owns_metric_reset: true
