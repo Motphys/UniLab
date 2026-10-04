@@ -86,7 +86,7 @@ def test_support_matrix_marks_go2_ppo_backends_as_tested():
 
     assert row.cells["mujoco"].level == EvidenceLevel.TESTED
     assert row.cells["mjwarp"].level == EvidenceLevel.MISSING
-    assert "motrix" not in row.cells
+    assert row.cells["motrix"].level is EvidenceLevel.MISSING
 
 
 def test_support_matrix_marks_validated_g1_mjwarp_entrypoints_as_tested():
@@ -319,7 +319,7 @@ def test_support_matrix_marks_allegro_appo_backends_as_tested():
     allegro_appo_row = _row("APPO (torch)", "allegro_inhand")
 
     assert allegro_appo_row.cells["mujoco"].level == EvidenceLevel.TESTED
-    assert "motrix" not in allegro_appo_row.cells
+    assert allegro_appo_row.cells["motrix"].level is EvidenceLevel.MISSING
 
 
 def test_generated_support_matrix_exposes_only_tensor_manager_backends() -> None:
