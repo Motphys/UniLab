@@ -42,9 +42,9 @@ def test_flashsac_owner_fingerprint_accepts_canonical_backends() -> None:
     )
 
 
-def test_flashsac_motrix_owner_is_out_of_tensor_manager_scope() -> None:
+def test_flashsac_motrix_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
-    assert "motrix" not in registry._envs["G1MotionTrackingSAC"].env_factory_dict
+    assert "motrix" in registry._envs["G1MotionTrackingSAC"].env_factory_dict
 
 
 def test_reusable_tensor_runtime_accepts_second_g1_manager_owner() -> None:
