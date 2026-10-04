@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import onnx
+import pytest
 import torch
 
 from unilab.training.onnx_export import export_policy_onnx, verify_policy_onnx
@@ -61,6 +62,34 @@ def test_export_policy_onnx_supports_nan_guarded_actor(tmp_path):
     export_policy_onnx(module, onnx_path, (torch.randn(1, 4),), input_names=["obs"])
 
     max_diff, _ = verify_policy_onnx(module, onnx_path, (torch.randn(1, 4),), input_names=["obs"])
+    assert max_diff <= 1e-4
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+def test_export_policy_onnx_moves_examples_to_host_bridge_module_device(tmp_path):
+    """Regression: HOST_BRIDGE playback actor stays on CPU despite a CUDA learner."""
+    torch.manual_seed(0)
+    module = _NanGuardedActor().to("cuda")
+    module_cpu = _NanGuardedActor().cpu()
+    module_cpu.load_state_dict(module.state_dict())
+    module_cpu.eval()
+    onnx_path = str(tmp_path / "policy.onnx")
+
+    # Before the fix this reached torch.export with CPU parameters and a CUDA
+    # example, causing FakeTensorDeviceMismatchError.
+    export_policy_onnx(
+        module_cpu,
+        onnx_path,
+        (torch.randn(1, 4, device="cuda"),),
+        input_names=["obs"],
+    )
+
+    max_diff, _ = verify_policy_onnx(
+        module_cpu,
+        onnx_path,
+        (torch.randn(1, 4, device="cuda"),),
+        input_names=["obs"],
+    )
     assert max_diff <= 1e-4
 
 

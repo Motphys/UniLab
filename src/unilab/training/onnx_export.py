@@ -6,6 +6,31 @@ import numpy as np
 import torch
 
 
+def _module_device(export_module: torch.nn.Module) -> torch.device:
+    """Resolve the module's example-input device without changing placement."""
+
+    for tensor in (*export_module.parameters(), *export_module.buffers()):
+        return tensor.device
+    return torch.device("cpu")
+
+
+def _inputs_on_module_device(
+    export_module: torch.nn.Module, inputs: tuple[torch.Tensor, ...]
+) -> tuple[torch.Tensor, ...]:
+    """Align example inputs with module parameters/buffers.
+
+    MuJoCo playback actors intentionally follow the HOST_BRIDGE environment
+    device (CPU) even when the learner used CUDA. The post-training ONNX step
+    otherwise feeds CUDA examples into a CPU module and ``torch.export`` fails
+    while tracing mixed FakeTensor devices.
+    """
+
+    device = _module_device(export_module)
+    return tuple(
+        value if value.device == device else value.to(device=device, copy=True) for value in inputs
+    )
+
+
 def export_policy_onnx(
     export_module: torch.nn.Module,
     onnx_path: str,
@@ -31,6 +56,7 @@ def export_policy_onnx(
     """
     if output_names is None:
         output_names = ["action"]
+    export_inputs = _inputs_on_module_device(export_module, export_inputs)
     with torch.inference_mode():
         torch.onnx.export(
             export_module,
@@ -70,6 +96,7 @@ def verify_policy_onnx(
     """
     import onnxruntime as ort
 
+    verify_inputs = _inputs_on_module_device(export_module, verify_inputs)
     sess = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
     with torch.inference_mode():
         pt_output = export_module(*verify_inputs)
