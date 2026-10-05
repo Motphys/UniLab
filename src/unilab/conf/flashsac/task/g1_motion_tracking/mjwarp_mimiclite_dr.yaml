@@ -1,0 +1,233 @@
+# @package _global_
+# Deployment-oriented DR + uniform-noise variant of the MimicLite observation
+# G1 WBT FlashSAC owner (mjwarp_mimiclite), ported to the tensor runtime.
+#
+# Observation layout, reward/env semantics, backend and sim2sim DENYLIST parity
+# are inherited verbatim from mjwarp_mimiclite; this owner changes only:
+#
+# 1. Observation noise model: MimicLite applies Gaussian noise clamped at
+#    3 sigma (`randn.clamp(-3, 3) * std`). This variant uses uniform noise with
+#    equal variance, i.e. n_min/n_max = +/- sqrt(3) * std, so each term keeps
+#    the MimicLite noise power while switching the distribution family:
+#      std 0.005 -> +/-0.0087   std 0.05 -> +/-0.087   std 0.01 -> +/-0.017
+#      std 0.2   -> +/-0.35     std 0.02 -> +/-0.035   std 0.5  -> +/-0.87
+#    Hydra merges term dicts, so the Gaussian-noised terms are nulled first and
+#    re-added under _u-suffixed names. The critic sets enable_corruption=false:
+#    the ObservationManager strips noise from every critic term before
+#    instantiation, so the critic consumes clean shared terms plus the clean
+#    privileged ref/diff terms; only the actor observes noise.
+#
+# 2. Domain randomization (mode=reset model-field terms negotiated through the
+#    mjwarp SimBackend DR capability set, plus one interval term). Magnitudes
+#    follow mimic-lite cfg/task/tracking-base.yaml `randomization`:
+#      - body_mass:   pelvis/torso_link scale [0.9, 1.1]
+#      - body_com:    pelvis/torso_link +/-0.03 m per axis
+#      - foot_friction: foot collision geoms [0.3, 1.2] (mimic-lite dynamic
+#        friction range; geom-level abs write like the SAC mujoco owner)
+#      - pd_gains_lower/upper: kp/kd scale [0.8, 1.2] for waist/hip/knee/ankle,
+#        [0.9, 1.1] for shoulder/elbow/wrist (mimic-lite motor_params_implicit
+#        stiffness/damping ranges)
+#      - push_robot:  interval 4-6 s, linear velocity x/y +/-0.2, z +/-0.1;
+#        angular kicks are zeroed because mjwarp exposes no interval angular
+#        root-velocity capability (same narrowing as the SAC mjwarp owner).
+#    mimic-lite terms without a UniLab event-term counterpart are intentionally
+#    absent: geom solref/solimp, dof armature, dof frictionloss [0.05, 0.25].
+#    Reset pose/velocity/joint perturbation is already covered by the inherited
+#    command sampling ranges (pose_range/velocity_range/joint_position_range).
+#
+# 3. Action latency: simulate_action_latency=true applies a one-control-step
+#    (20 ms) action delay. mimic-lite randomizes 1-3 step delays with an EMA
+#    alpha in [0.8, 1.0]; UniLab's action term exposes only the boolean
+#    one-step latency, so this is a partial match.
+#
+# 4. Training budget: 140000 iterations.
+defaults:
+  - /task/g1_motion_tracking/mjwarp_mimiclite
+  - _self_
+
+algo:
+  max_iterations: 140000
+
+env:
+  scene:
+    entities:
+      robot:
+        # Foot geom metadata is required by backend friction DR bindings.
+        geom_names:
+          - left_foot1_collision
+          - left_foot2_collision
+          - left_foot3_collision
+          - left_foot4_collision
+          - left_foot5_collision
+          - left_foot6_collision
+          - left_foot7_collision
+          - right_foot1_collision
+          - right_foot2_collision
+          - right_foot3_collision
+          - right_foot4_collision
+          - right_foot5_collision
+          - right_foot6_collision
+          - right_foot7_collision
+  actions:
+    joint_pos:
+      # One-control-step action latency (partial mimic-lite delay match).
+      simulate_action_latency: true
+  observations:
+    actor:
+      terms:
+        # Gaussian-noised MimicLite terms (disabled; null terms are skipped).
+        ref_root_pos_future_local: null
+        ref_root_ori_future_b: null
+        ref_joint_pos_future: null
+        base_ang_vel_g: null
+        projected_gravity: null
+        joint_pos_g: null
+        joint_vel_g: null
+        # Uniform equal-variance redefinitions.
+        ref_root_pos_future_local_u: &ref_root_pos_future_local_u_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_pos_future_local
+          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.0087
+            n_max: 0.0087
+        ref_root_ori_future_b_u: &ref_root_ori_future_b_u_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.ref_root_ori_future_b
+          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.087
+            n_max: 0.087
+        ref_joint_pos_future_u: &ref_joint_pos_future_u_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.ref_joint_pos_future
+          params: {command_name: motion, future_steps: [-8, -4, -2, 0, 1, 2, 3, 4]}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.017
+            n_max: 0.017
+        base_ang_vel_u: &base_ang_vel_u_obs
+          func: unilab.envs.mdp.builtin_sensor
+          params: {sensor_name: torso_gyro}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.35
+            n_max: 0.35
+        projected_gravity_u: &projected_gravity_u_obs
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params: {sensor_name: torso_upvector}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.017
+            n_max: 0.017
+        joint_pos_u: &joint_pos_u_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.motion_joint_pos
+          params: {command_name: motion}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.035
+            n_max: 0.035
+        joint_vel_u: &joint_vel_u_obs
+          func: unilab.tasks.motion_tracking.common.obs_terms.motion_joint_vel
+          params: {command_name: motion}
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.87
+            n_max: 0.87
+        # last_action carries no noise and is inherited unchanged.
+    critic:
+      # No corruption: the manager strips noise from every term in this group,
+      # so the shared actor-term configs below are observed clean.
+      enable_corruption: false
+      terms:
+        # Gaussian-noised shared terms (disabled; null terms are skipped).
+        ref_root_pos_future_local: null
+        ref_root_ori_future_b: null
+        ref_joint_pos_future: null
+        base_ang_vel_g: null
+        projected_gravity: null
+        joint_pos_g: null
+        joint_vel_g: null
+        # Shared actor terms, observed clean (corruption disabled above).
+        ref_root_pos_future_local_u: *ref_root_pos_future_local_u_obs
+        ref_root_ori_future_b_u: *ref_root_ori_future_b_u_obs
+        ref_joint_pos_future_u: *ref_joint_pos_future_u_obs
+        base_ang_vel_u: *base_ang_vel_u_obs
+        projected_gravity_u: *projected_gravity_u_obs
+        joint_pos_u: *joint_pos_u_obs
+        joint_vel_u: *joint_vel_u_obs
+        # Privileged ref/diff terms are inherited unchanged (no noise).
+  events:
+    body_mass:
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names:
+            - pelvis
+            - torso_link
+        mass_distribution_params: [0.9, 1.1]
+        operation: scale
+        recompute_inertia: false
+    body_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names:
+            - pelvis
+            - torso_link
+        com_range:
+          x: [-0.03, 0.03]
+          y: [-0.03, 0.03]
+          z: [-0.03, 0.03]
+    foot_friction:
+      func: unilab.envs.mdp.geom_friction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: "^(left|right)_foot[1-7]_collision$"
+        ranges: [0.3, 1.2]
+        operation: abs
+        shared_random: true
+    pd_gains_lower:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          actuator_names: ".*(waist|hip|knee|ankle).*"
+        kp_range: [0.8, 1.2]
+        kd_range: [0.8, 1.2]
+        operation: scale
+    pd_gains_upper:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          actuator_names: ".*(shoulder|elbow|wrist).*"
+        kp_range: [0.9, 1.1]
+        kd_range: [0.9, 1.1]
+        operation: scale
+    push_robot:
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [4.0, 6.0]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-0.2, 0.2]
+          y: [-0.2, 0.2]
+          z: [-0.1, 0.1]
+          # mjwarp exposes no interval angular root-velocity capability.
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]

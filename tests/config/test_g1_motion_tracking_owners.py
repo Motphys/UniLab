@@ -128,6 +128,63 @@ def test_flashsac_g1_mimiclite_owner_selects_tensor_cuda_contract() -> None:
     )
 
 
+def test_flashsac_g1_mimiclite_dr_owner_keeps_tensor_contract_with_dr() -> None:
+    cfg = _compose_flashsac("g1_motion_tracking/mjwarp_mimiclite_dr")
+
+    assert cfg.training.task_name == "G1MotionTrackingSAC"
+    assert cfg.training.sim_backend == "mjwarp"
+    assert cfg.training.inference_transport == "cuda"
+    assert cfg.env.scene.model_file == ("src/unilab/assets/robots/g1/scene_flat_mimiclite.xml")
+    assert cfg.env.actions.joint_pos.simulate_action_latency is True
+    assert len(cfg.env.scene.entities.robot.geom_names) == 14
+
+    actor_terms = cfg.env.observations.actor.terms
+    for name in (
+        "ref_root_pos_future_local",
+        "ref_root_ori_future_b",
+        "ref_joint_pos_future",
+        "base_ang_vel_g",
+        "projected_gravity",
+        "joint_pos_g",
+        "joint_vel_g",
+    ):
+        assert actor_terms[name] is None
+    uniform_terms = {
+        "ref_root_pos_future_local_u": (-0.0087, 0.0087),
+        "ref_root_ori_future_b_u": (-0.087, 0.087),
+        "ref_joint_pos_future_u": (-0.017, 0.017),
+        "base_ang_vel_u": (-0.35, 0.35),
+        "projected_gravity_u": (-0.017, 0.017),
+        "joint_pos_u": (-0.035, 0.035),
+        "joint_vel_u": (-0.87, 0.87),
+    }
+    for name, (n_min, n_max) in uniform_terms.items():
+        noise = actor_terms[name].noise
+        assert noise._target_ == "unilab.managers._noise.UniformNoiseCfg"
+        assert noise.n_min == pytest.approx(n_min)
+        assert noise.n_max == pytest.approx(n_max)
+    assert actor_terms.projected_gravity_u.func == ("unilab.envs.mdp.projected_gravity_from_sensor")
+
+    assert cfg.env.observations.critic.enable_corruption is False
+    assert cfg.env.observations.critic.terms.joint_pos_u.noise.n_min == pytest.approx(-0.035)
+
+    events = cfg.env.events
+    assert set(events) == {
+        "body_mass",
+        "body_com",
+        "foot_friction",
+        "pd_gains_lower",
+        "pd_gains_upper",
+        "push_robot",
+    }
+    assert events.body_mass.params.operation == "scale"
+    assert events.body_mass.params.recompute_inertia is False
+    assert events.foot_friction.params.ranges == [0.3, 1.2]
+    assert events.push_robot.mode == "interval"
+    assert events.push_robot.interval_range_s == [4.0, 6.0]
+    assert events.push_robot.params.velocity_range.roll == [0.0, 0.0]
+
+
 def test_flashsac_g1_motion_tracking_newton_keeps_mujoco_parity() -> None:
     mujoco_cfg = _compose_flashsac("g1_motion_tracking/mujoco")
     cfg = _compose_flashsac("g1_motion_tracking/newton")
