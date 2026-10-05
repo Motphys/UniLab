@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -23,6 +24,7 @@ class MotionData:
     body_quat_w: np.ndarray  # (N, num_bodies, 4)
     body_lin_vel_w: np.ndarray  # (N, num_bodies, 3)
     body_ang_vel_w: np.ndarray  # (N, num_bodies, 3)
+    joint_torque: np.ndarray | None = None  # (N, num_joints), None when the NPZ has no torque
 
 
 def quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
@@ -166,6 +168,8 @@ class MotionLoader:
         body_quat_list: list[np.ndarray] = []
         body_lin_vel_list: list[np.ndarray] = []
         body_ang_vel_list: list[np.ndarray] = []
+        joint_torque_list: list[np.ndarray] = []
+        joint_torque_limit_list: list[np.ndarray] = []
         clip_lengths: list[int] = []
 
         self.fps = 0
@@ -181,6 +185,14 @@ class MotionLoader:
                 body_quat_w = data["body_quat_w"].astype(np.float32)
                 body_lin_vel_w = data["body_lin_vel_w"].astype(np.float32)
                 body_ang_vel_w = data["body_ang_vel_w"].astype(np.float32)
+                joint_torque = (
+                    data["joint_torque"].astype(np.float32) if "joint_torque" in data else None
+                )
+                joint_torque_limit = (
+                    data["joint_torque_limit"].astype(np.float32).reshape(-1)
+                    if "joint_torque_limit" in data
+                    else None
+                )
 
             if body_indices is not None:
                 body_pos_w = body_pos_w[:, body_indices]
@@ -206,6 +218,22 @@ class MotionLoader:
                     raise ValueError(
                         f"Motion file '{motion_path}' has inconsistent frame counts for '{name}'"
                     )
+            if joint_torque is not None and (
+                joint_torque.shape[0] != num_frames or joint_torque.shape[1] != joint_pos.shape[1]
+            ):
+                raise ValueError(
+                    f"Motion file '{motion_path}' has 'joint_torque' shape "
+                    f"{joint_torque.shape}, expected ({num_frames}, {joint_pos.shape[1]})"
+                )
+            if joint_torque_limit is not None and (
+                joint_torque_limit.shape != (joint_pos.shape[1],)
+                or not np.isfinite(joint_torque_limit).all()
+                or np.any(joint_torque_limit <= 0.0)
+            ):
+                raise ValueError(
+                    f"Motion file '{motion_path}' has invalid 'joint_torque_limit'; expected "
+                    f"{joint_pos.shape[1]} finite positive entries, got {joint_torque_limit}"
+                )
 
             if clip_idx == 0:
                 self.fps = fps
@@ -237,6 +265,14 @@ class MotionLoader:
             body_quat_list.append(body_quat_w)
             body_lin_vel_list.append(body_lin_vel_w)
             body_ang_vel_list.append(body_ang_vel_w)
+            if (joint_torque is None) != (joint_torque_limit is None):
+                raise ValueError(
+                    f"Motion file '{motion_path}' has incomplete torque data; 'joint_torque' "
+                    "and 'joint_torque_limit' must be provided together"
+                )
+            if joint_torque is not None and joint_torque_limit is not None:
+                joint_torque_list.append(joint_torque)
+                joint_torque_limit_list.append(joint_torque_limit)
 
         self.clip_lengths = np.asarray(clip_lengths, dtype=np.int32)
         self.num_clips = int(self.clip_lengths.shape[0])
@@ -251,6 +287,26 @@ class MotionLoader:
         self.body_quat_w = np.concatenate(body_quat_list, axis=0)
         self.body_lin_vel_w = np.concatenate(body_lin_vel_list, axis=0)
         self.body_ang_vel_w = np.concatenate(body_ang_vel_list, axis=0)
+
+        self.joint_torque: np.ndarray | None = None
+        self.joint_torque_limit: np.ndarray | None = None
+        if len(joint_torque_list) == self.num_clips:
+            torque_limit = joint_torque_limit_list[0]
+            for clip_limit in joint_torque_limit_list[1:]:
+                if not np.allclose(clip_limit, torque_limit):
+                    raise ValueError(
+                        "Motion clips have inconsistent 'joint_torque_limit' values; "
+                        "all clips must share the same per-joint torque limits"
+                    )
+            self.joint_torque = np.concatenate(joint_torque_list, axis=0)
+            self.joint_torque_limit = torque_limit
+        elif joint_torque_list:
+            warnings.warn(
+                "Motion files have inconsistent torque data presence "
+                f"({len(joint_torque_list)} of {self.num_clips} clips provide 'joint_torque'); "
+                "treating the whole motion as torque-free",
+                stacklevel=2,
+            )
 
         self.num_frames = int(self.joint_pos.shape[0])
 
@@ -275,6 +331,11 @@ class MotionLoader:
         clip_indices = np.searchsorted(self.clip_offsets, frame_idx, side="right") - 1
         return np.asarray(clip_indices, dtype=np.int32)
 
+    @property
+    def has_joint_torque(self) -> bool:
+        """Whether every clip provided joint torque references."""
+        return self.joint_torque is not None
+
     def make_motion_data_buffer(self, num_frames: int) -> MotionData:
         """Allocate a reusable ``MotionData`` buffer for frame-index gathers."""
         return MotionData(
@@ -287,6 +348,11 @@ class MotionLoader:
             ),
             body_ang_vel_w=np.empty(
                 (num_frames, self.num_bodies, 3), dtype=self.body_ang_vel_w.dtype
+            ),
+            joint_torque=(
+                np.empty((num_frames, self.num_joints), dtype=self.joint_torque.dtype)
+                if self.joint_torque is not None
+                else None
             ),
         )
 
@@ -309,6 +375,8 @@ class MotionLoader:
             np.take(self.body_quat_w, frame_idx, axis=0, out=out.body_quat_w)
             np.take(self.body_lin_vel_w, frame_idx, axis=0, out=out.body_lin_vel_w)
             np.take(self.body_ang_vel_w, frame_idx, axis=0, out=out.body_ang_vel_w)
+            if self.joint_torque is not None and out.joint_torque is not None:
+                np.take(self.joint_torque, frame_idx, axis=0, out=out.joint_torque)
             return out
 
         return MotionData(
@@ -318,6 +386,7 @@ class MotionLoader:
             body_quat_w=self.body_quat_w[frame_idx],
             body_lin_vel_w=self.body_lin_vel_w[frame_idx],
             body_ang_vel_w=self.body_ang_vel_w[frame_idx],
+            joint_torque=(self.joint_torque[frame_idx] if self.joint_torque is not None else None),
         )
 
 

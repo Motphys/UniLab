@@ -125,7 +125,25 @@ class ObservationGroupCfg:
     nan_check_per_term: bool = True
     """If True, check each observation term individually to identify NaN source.
   If False, check only the final concatenated output (faster but less informative).
-  Only applies when nan_policy != 'disabled'."""
+    Only applies when nan_policy != 'disabled'."""
+
+
+def _freeze_param_value(value):
+    """Recursively convert param containers into hashable equivalents.
+
+    Cross-group term sharing keys on ``(func, params)``; params such as
+    ``future_steps: [0, 1]`` arrive as lists and would otherwise disable sharing
+    for exactly the wide future-window terms that benefit most.
+    """
+    if isinstance(value, dict):
+        return tuple(sorted((key, _freeze_param_value(item)) for key, item in value.items()))
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_param_value(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze_param_value(item) for item in value)
+    if isinstance(value, np.ndarray):
+        return ("__ndarray__", value.shape, str(value.dtype), value.tobytes())
+    return value
 
 
 class ObservationManager(ManagerBase):
@@ -1001,7 +1019,7 @@ class ObservationManager(ManagerBase):
                 if hasattr(func, "reset") and callable(func.reset):
                     continue
                 try:
-                    share_key = (func, tuple(sorted(share_cfg.params.items())))
+                    share_key = (func, _freeze_param_value(dict(share_cfg.params)))
                     hash(share_key)
                 except TypeError:
                     continue

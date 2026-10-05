@@ -100,6 +100,34 @@ def test_flashsac_motion_rewards_publish_canonical_component_names() -> None:
         assert cfg.reward[name].weight == pytest.approx(weight)
 
 
+def test_flashsac_g1_mimiclite_owner_selects_tensor_cuda_contract() -> None:
+    cfg = _compose_flashsac("g1_motion_tracking/mjwarp_mimiclite")
+
+    assert cfg.training.task_name == "G1MotionTrackingSAC"
+    assert cfg.training.sim_backend == "mjwarp"
+    assert cfg.training.inference_transport == "cuda"
+    assert cfg.env.scene.model_file == ("src/unilab/assets/robots/g1/scene_flat_mimiclite.xml")
+    assert cfg.env.commands.motion._target_ == (
+        "unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg"
+    )
+    assert cfg.env.commands.motion.params.obs_root_body_name == "pelvis"
+    assert len(cfg.env.commands.motion.params.obs_body_names) == 9
+    assert cfg.env.observations.actor.terms.ref_root_pos_future_local.params.future_steps == [
+        -8,
+        -4,
+        -2,
+        0,
+        1,
+        2,
+        3,
+        4,
+    ]
+    assert (
+        cfg.env.observations.critic.terms.applied_torque.func
+        == "unilab.tasks.motion_tracking.common.manager_terms.MimicLiteAppliedTorqueObservation"
+    )
+
+
 def test_flashsac_g1_motion_tracking_newton_keeps_mujoco_parity() -> None:
     mujoco_cfg = _compose_flashsac("g1_motion_tracking/mujoco")
     cfg = _compose_flashsac("g1_motion_tracking/newton")
