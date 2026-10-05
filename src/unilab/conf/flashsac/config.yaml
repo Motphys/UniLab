@@ -6,6 +6,10 @@ algo:
   algo: flashsac
   algo_log_name: flash_sac
   load_run: "-1"
+  # Opt-in training resume: resolve the algo.load_run/algo.checkpoint
+  # selection and continue from that learner checkpoint. Replay is not
+  # checkpointed, so a resumed run re-warms from an empty buffer.
+  resume: false
   seed: 1
   num_envs: 1024
   batch_size: 2048

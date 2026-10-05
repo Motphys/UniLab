@@ -8,6 +8,10 @@ algo:
   runtime_impl: null
   runtime_resolver: null
   load_run: "-1"
+  # Opt-in training resume: resolve the algo.load_run/algo.checkpoint
+  # selection and continue from that learner checkpoint. Replay is not
+  # checkpointed, so a resumed run re-warms from an empty buffer.
+  resume: false
   seed: 1
   num_envs: 4096
   # Learner batch size for one SAC update.

@@ -48,6 +48,11 @@ defaults:
 algo:
   max_iterations: 140000
 
+training:
+  task_name: G1MotionTrackingSAC
+  sim_backend: mjwarp
+  inference_transport: cuda
+
 env:
   scene:
     entities:

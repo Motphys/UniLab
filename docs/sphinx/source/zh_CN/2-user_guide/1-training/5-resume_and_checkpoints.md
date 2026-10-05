@@ -5,17 +5,31 @@
 
 ## 续训
 
-使用 run id，或用 `-1` 表示相关日志目录中最新的一次运行：
+PPO/APPO 直接通过 `algo.load_run` 续训。使用 run id，或用 `-1` 表示相关日志目录中最新的一次运行：
 
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
   algo.load_run=-1 \
   training.no_play=true
+```
 
-uv run train --algo sac --task g1_walk_flat --sim mujoco \
-  algo.load_run=2026-03-16_01-35-12_mujoco \
+off-policy 算法（SAC/FlashSAC/WarpSAC）的续训是显式开启的，以避免
+`algo.load_run=-1` 的默认值把全新启动意外变成续训。设置 `algo.resume=true`，并用
+`algo.load_run`（run id 或 `-1` 表示最新 run）与可选的 `algo.checkpoint`
+（迭代号或文件名；`-1` 表示最新 checkpoint）选择检查点：
+
+```bash
+uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp \
+  --profile mimiclite_dr \
+  algo.resume=true \
+  algo.load_run=2026-10-05_14-28-04_mjwarp \
   training.no_play=true
 ```
+
+off-policy checkpoint 恢复完整的 learner 状态（网络、优化器、调度器、normalizer
+与 update count），训练以绝对迭代编号继续（`model_32000.pt` 从第 32001 次迭代继续，
+因此 `algo.max_iterations` 仍是总预算而不是增量）。replay buffer 不落盘：续训的 run
+会从空 buffer 重新经过 train-start 阈值热身，且 RNG 状态不恢复。
 
 ## 回放检查点
 

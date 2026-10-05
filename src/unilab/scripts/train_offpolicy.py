@@ -49,6 +49,7 @@ from unilab.training import (
     get_log_root,
     is_viser_play_render_mode,
     nonfatal_play_step,
+    parse_checkpoint_path,
     resolve_nan_guard_cfg,
     should_run_playback,
 )
@@ -447,6 +448,27 @@ def _attach_cuda_process_sharing_manifest(
     runner.runtime_manifest = {"cuda_process_sharing": evidence.manifest()}
 
 
+def resolve_train_resume_checkpoint(cfg: DictConfig) -> str | None:
+    """Resolve the opt-in training-resume checkpoint selected by ``algo.resume``.
+
+    Resume is explicit: the ``algo.load_run`` default of ``-1`` (latest run)
+    must not silently turn a fresh training launch into a resume. When
+    ``algo.resume`` is true, ``algo.load_run``/``algo.checkpoint`` select the
+    checkpoint exactly like play mode does.
+    """
+    if not bool(OmegaConf.select(cfg, "algo.resume", default=False)):
+        return None
+    load_path, _ = parse_checkpoint_path(cfg, root_dir=Path.cwd())
+    if load_path is None or not load_path.is_file():
+        raise RuntimeError(
+            "algo.resume=true but no checkpoint could be resolved: "
+            f"algo.load_run={cfg.algo.load_run!r} "
+            f"task={cfg.training.task_name}. Use algo.load_run=<run-dir> "
+            "and optionally algo.checkpoint=<iteration-or-filename>."
+        )
+    return str(load_path)
+
+
 def play_offpolicy(
     algo_name: str,
     cfg: DictConfig,
@@ -655,6 +677,7 @@ def main(cfg: DictConfig) -> None:
                         save_interval=cfg.algo.save_interval,
                         log_dir=log_dir,
                         logger_type=cfg.training.logger,
+                        resume_checkpoint=resolve_train_resume_checkpoint(cfg),
                     )
                     run_summary = getattr(runner, "last_run_summary", None)
                     if isinstance(run_summary, dict) and run_summary.get("status") not in (
