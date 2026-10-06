@@ -40,13 +40,26 @@
 #    alpha in [0.8, 1.0]; UniLab's action term exposes only the boolean
 #    one-step latency, so this is a partial match.
 #
-# 4. Training budget: 140000 iterations.
+# 4. Training budget: 100000 iterations. The optimizer/reward overrides below
+#    are the confirmed C07 schedule: more learner/actor updates per sample and
+#    stronger gradients for the two late-stage body-tracking bottlenecks.
 defaults:
   - /task/g1_motion_tracking/mjwarp_mimiclite
   - _self_
 
 algo:
-  max_iterations: 140000
+  # C07 confirmed schedule (the inherited defaults are updates=2/frequency=2).
+  max_iterations: 100000
+  updates_per_step: 6
+  policy_frequency: 1
+
+# Explicit C07 reward overrides on the fused motion pack. All other inherited
+# reward terms remain unchanged, including the full DR-facing penalties and
+# zero joint-pos/vel terms.
+reward:
+  motion_reward_pack:
+    body_ori_weight: 2.0
+    body_ang_vel_weight: 2.0
 
 training:
   task_name: G1MotionTrackingSAC
@@ -119,7 +132,7 @@ env:
             n_max: 0.35
         projected_gravity_u: &projected_gravity_u_obs
           func: unilab.envs.mdp.projected_gravity_from_sensor
-          params: {sensor_name: torso_upvector}
+          params: {sensor_name: pelvis_upvector}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.017

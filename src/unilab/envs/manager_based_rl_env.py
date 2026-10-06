@@ -127,6 +127,7 @@ _DEVICE_RESIDENT_TENSOR_SENSORS: dict[str, frozenset[str]] = {
     "mjwarp": frozenset(
         {
             "pelvis_local_linvel",
+            "pelvis_upvector",
             "torso_gyro",
             "torso_upvector",
             *_G1_JOINT_TORQUE_SENSORS,
