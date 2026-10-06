@@ -52,6 +52,8 @@ algo:
   max_iterations: 100000
   updates_per_step: 6
   policy_frequency: 1
+  # Match the C07 WarpSAC update order: actor(+temperature) before critic.
+  policy_before_critic: true
 
 # Explicit C07 reward overrides on the fused motion pack. All other inherited
 # reward terms remain unchanged, including the full DR-facing penalties and
