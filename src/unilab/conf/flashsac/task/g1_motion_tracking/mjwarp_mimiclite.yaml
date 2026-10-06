@@ -74,7 +74,7 @@ env:
             clamp: 3.0
         projected_gravity: &projected_gravity_obs
           func: unilab.envs.mdp.projected_gravity_from_sensor
-          params: {sensor_name: torso_upvector}
+          params: {sensor_name: pelvis_upvector}
           noise:
             _target_: unilab.managers._noise.GaussianNoiseCfg
             std: 0.01

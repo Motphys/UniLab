@@ -1215,16 +1215,21 @@ class TensorMotionCommand(MotionCommand):
     @staticmethod
     def _make_obs_motion_features(motion: MotionLoader, device: torch.device) -> torch.Tensor:
         """Cache the observation body-sliced motion table on the device."""
-        arrays = (
+        blocks = (
             motion.body_pos_w,
             motion.body_quat_w,
             motion.body_lin_vel_w,
             motion.body_ang_vel_w,
         )
+        # Interleave each body's state blocks so a row reshapes directly to
+        # ``(bodies, pos_w | quat_w | lin_vel_w | ang_vel_w)`` in obs_future.
         host = np.concatenate(
-            [np.asarray(value, dtype=np.float32).reshape(value.shape[0], -1) for value in arrays],
-            axis=1,
-        )
+            [
+                np.asarray(value, dtype=np.float32).reshape(value.shape[0], motion.num_bodies, -1)
+                for value in blocks
+            ],
+            axis=2,
+        ).reshape(motion.num_frames, -1)
         return torch.from_numpy(np.ascontiguousarray(host)).to(device=device)
 
     def _make_motion_features(self, device: torch.device) -> torch.Tensor:
@@ -1791,6 +1796,11 @@ class TensorMotionCommand(MotionCommand):
         origins: torch.Tensor | None = None,
     ) -> None:
         """Scatter one device motion packet into the command carriers."""
+        # Selected reset can ingest newly sampled motion packets within the
+        # same common-step counter. Explicitly invalidate the future cache;
+        # otherwise reset observations reuse the pre-reset references.
+        self._obs_future_cache_step = -1
+        self._obs_future_cache.clear()
         count = rows.numel()
         selected_origins = (
             self._env_origins if count == self.num_envs else self._env_origins.index_select(0, rows)
@@ -1901,7 +1911,10 @@ class MotionJointPositionAction(JointPositionAction):
         super().__init__(cfg, env)
         self._motion_command = _command(env, cfg.command_name)
         self._previous_raw_actions = torch.zeros_like(self._raw_actions)
-        self._tensor_motion_target = torch.empty_like(self._processed_actions)
+        # MimicLite critic observations can read this target before the first
+        # action application. Initialize deterministically rather than exposing
+        # uninitialized device memory in initial/reset observations.
+        self._tensor_motion_target = torch.zeros_like(self._processed_actions)
 
     @property
     def target(self) -> np.ndarray:

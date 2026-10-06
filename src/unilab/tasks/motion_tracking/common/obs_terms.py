@@ -93,6 +93,19 @@ def _diff_body_frames(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     if 0 not in future.future_steps:
         raise ValueError("diff body observations require step 0 in future_steps")
+    frames = _future_aux(
+        command,
+        future,
+        "diff_body_frames",
+        lambda: _compute_diff_body_frames(command, future),
+    )
+    return cast(tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], frames)
+
+
+def _compute_diff_body_frames(
+    command: TensorMotionCommand, future: TensorMotionObsFuture
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Compute the shared projected-yaw local frames on the device."""
     idx0 = future.future_steps.index(0)
     root_idx = command.obs_root_body_idx
     ref_anchor_pos_w = _z0ed(future.ref_body_pos_w[:, idx0, root_idx])

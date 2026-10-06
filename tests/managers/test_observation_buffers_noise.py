@@ -227,6 +227,12 @@ def test_gaussian_noise_clamps_standard_normal_draw() -> None:
     assert float((tensor_result - tensor_data).abs().max()) <= 0.3 + 1e-8
 
 
+@pytest.mark.parametrize("clamp", [0.0, -3.0, float("inf"), True])
+def test_gaussian_noise_rejects_invalid_clamp(clamp) -> None:
+    with pytest.raises((TypeError, ValueError), match="clamp"):
+        GaussianNoiseCfg(std=0.1, clamp=clamp)
+
+
 def test_additive_bias_noise_supports_scalar_terms() -> None:
     from unilab.managers._noise import NoiseModelWithAdditiveBias
 
