@@ -160,13 +160,25 @@ def resolve_offpolicy_checkpoint_path(
     algo_log_name: str,
     task: str,
     load_run: str | int | PathLike[str],
+    *,
+    checkpoint: str | int | None = None,
 ) -> tuple[str | None, str | None]:
     """Resolve an off-policy checkpoint from the repo-rooted log tree."""
-    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(
-        Path(root_dir) / "logs" / algo_log_name / task,
-        load_run,
-        suffix=".pt",
-    )
+    if checkpoint in (None, "", -1, "-1"):
+        checkpoint_path, checkpoint_dir = resolve_checkpoint_path(
+            Path(root_dir) / "logs" / algo_log_name / task,
+            load_run,
+            suffix=".pt",
+        )
+    else:
+        checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+            root_dir,
+            task_name=task,
+            load_run=load_run,
+            algo_log_name=algo_log_name,
+            checkpoint=str(checkpoint),
+            suffix=".pt",
+        )
     return (
         str(checkpoint_path) if checkpoint_path is not None else None,
         str(checkpoint_dir) if checkpoint_dir is not None else None,

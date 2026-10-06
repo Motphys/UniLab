@@ -484,6 +484,7 @@ def play_offpolicy(
         cfg.algo.algo_log_name,
         cfg.training.task_name,
         selected_load_run,
+        checkpoint=OmegaConf.select(cfg, "algo.checkpoint", default=None),
     )
     if not load_path or not os.path.exists(load_path):
         print(f"Could not find checkpoint. load_path={load_path}")
@@ -507,7 +508,12 @@ def play_offpolicy(
     playback_cfg = RslRlPlaybackConfig(
         task=str(cfg.training.task_name),
         load_run=selected_load_run,
-        checkpoint=None,
+        checkpoint=(
+            str(selected_checkpoint)
+            if (selected_checkpoint := OmegaConf.select(cfg, "algo.checkpoint", default=None))
+            not in (None, "", -1, "-1")
+            else None
+        ),
         action_mode="policy",
         policy_obs_mode="actor",
         algo_log_name=str(cfg.algo.algo_log_name),

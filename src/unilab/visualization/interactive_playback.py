@@ -993,6 +993,7 @@ def create_sac_playback_session(
             cfg.algo.algo_log_name,
             cfg.training.task_name,
             playback_cfg.load_run,
+            checkpoint=playback_cfg.checkpoint,
         )
         if checkpoint_path is None or not os.path.exists(checkpoint_path):
             log(

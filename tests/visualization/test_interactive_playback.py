@@ -415,12 +415,13 @@ def test_sac_playback_session_runs_sim2sim_preflight(
         "resolve_play_actor_spec",
         lambda algo_name, cfg, *, obs_dim, critic_obs_dim: ("sac", {}),
     )
+    resolved_checkpoint = (str(checkpoint), str(tmp_path))
     monkeypatch.setattr(
         checkpoint_utils,
         "resolve_offpolicy_checkpoint_path",
-        lambda root, algo_log_name, task_name, selected_run: (
+        lambda root, algo_log_name, task_name, selected_run, checkpoint=None: (
             resolved_runs.append(selected_run),
-            (str(checkpoint), str(tmp_path)),
+            resolved_checkpoint,
         )[1],
     )
     monkeypatch.setattr(actor_factory, "build_actor", lambda *args, **kwargs: FakeActor())
