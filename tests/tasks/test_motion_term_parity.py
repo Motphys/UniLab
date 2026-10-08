@@ -225,6 +225,40 @@ def test_tensor_scalar_error_rewards_match_numpy_and_do_not_mutate(
     )
 
 
+def test_tensor_joint_rewards_use_device_resident_actual_state(
+    monkeypatch: pytest.MonkeyPatch, body_setup
+) -> None:
+    command, env, snapshots = body_setup
+    motion_joint_pos = torch.from_numpy(snapshots["joint_pos"].copy())
+    device_joint_pos = motion_joint_pos + 0.125
+    motion_joint_vel = torch.from_numpy(snapshots["joint_vel"].copy())
+    device_joint_vel = motion_joint_vel - 0.25
+    tensor_command = SimpleNamespace(
+        tensor_carrier=True,
+        joint_pos=motion_joint_pos,
+        device_robot_joint_pos=device_joint_pos,
+        joint_vel=motion_joint_vel,
+        device_robot_joint_vel=device_joint_vel,
+    )
+    monkeypatch.setattr(mt, "_command", lambda env, name: tensor_command)
+
+    position_reward = mt.motion_joint_position_error_exp(env, "motion", std=0.5)
+    velocity_reward = mt.motion_joint_velocity_error_exp(env, "motion", std=2.0)
+
+    torch.testing.assert_close(
+        position_reward,
+        torch.exp(-(motion_joint_pos - device_joint_pos).square().mean(dim=-1) / 0.5**2),
+        rtol=2e-6,
+        atol=2e-7,
+    )
+    torch.testing.assert_close(
+        velocity_reward,
+        torch.exp(-(motion_joint_vel - device_joint_vel).square().mean(dim=-1) / 2.0**2),
+        rtol=2e-6,
+        atol=2e-7,
+    )
+
+
 def test_tensor_anchor_orientation_reward_matches_numpy(
     monkeypatch: pytest.MonkeyPatch, body_setup
 ) -> None:

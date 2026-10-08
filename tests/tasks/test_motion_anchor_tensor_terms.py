@@ -13,9 +13,10 @@ from unilab.base.entity import EntityTensorBodyStateView
 from unilab.managers import ManagerTermBaseCfg
 from unilab.managers._types import ManagerBasedRlEnv
 from unilab.tasks.motion_tracking.common import manager_terms as mt
+from unilab.tasks.motion_tracking.common import obs_terms
 from unilab.tasks.motion_tracking.common.manager_terms import MotionCommand
 from unilab.tasks.motion_tracking.common.tensor_rotation import quat_to_rot6
-from unilab.utils.rotation import np_matrix_from_quat
+from unilab.utils.rotation import np_matrix_first_two_cols_from_quat, np_matrix_from_quat
 
 
 class _MotionCommand(MotionCommand):
@@ -102,22 +103,22 @@ def _view() -> EntityTensorBodyStateView:
     )
 
 
-def test_quat_to_rot6_matches_numpy_first_two_rows() -> None:
-    rng = np.random.default_rng(1819)
+def test_quat_to_rot6_matches_numpy_first_two_columns() -> None:
+    rng = np.random.default_rng(1818)
     quat = _unit_quat(rng.standard_normal((17, 4), dtype=np.float32))
-    expected = np_matrix_from_quat(quat)[:, :2, :].reshape(17, 6)
+    expected = np_matrix_first_two_cols_from_quat(quat)
 
     actual = quat_to_rot6(torch.as_tensor(quat))
 
     torch.testing.assert_close(actual, torch.as_tensor(expected))
 
 
-def test_quat_to_rot6_matches_motionlite_orientation_order() -> None:
+def test_mimiclite_rot6_helper_matches_orientation_rows() -> None:
     rng = np.random.default_rng(1820)
     quat = _unit_quat(rng.standard_normal((32, 4), dtype=np.float32))
     matrix = np_matrix_from_quat(quat)
 
-    actual = quat_to_rot6(torch.as_tensor(quat)).numpy()
+    actual = obs_terms._quat_to_rot6_rows(torch.as_tensor(quat)).numpy()
 
     np.testing.assert_allclose(actual[:, :3], matrix[:, 0, :], atol=1e-6)
     np.testing.assert_allclose(actual[:, 3:], matrix[:, 1, :], atol=1e-6)

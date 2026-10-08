@@ -103,7 +103,7 @@ def test_flashsac_motion_rewards_publish_canonical_component_names() -> None:
 def test_flashsac_g1_mimiclite_owner_selects_tensor_cuda_contract() -> None:
     cfg = _compose_flashsac("g1_motion_tracking/mjwarp_mimiclite")
 
-    assert cfg.training.task_name == "G1MotionTrackingSAC"
+    assert cfg.training.task_name == "G1MotionTracking"
     assert cfg.training.sim_backend == "mjwarp"
     assert cfg.training.inference_transport == "cuda"
     assert cfg.env.scene.model_file == ("src/unilab/assets/robots/g1/scene_flat_mimiclite.xml")
@@ -131,12 +131,30 @@ def test_flashsac_g1_mimiclite_owner_selects_tensor_cuda_contract() -> None:
 def test_flashsac_g1_mimiclite_dr_owner_keeps_tensor_contract_with_dr() -> None:
     cfg = _compose_flashsac("g1_motion_tracking/mjwarp_mimiclite_dr")
 
-    assert cfg.training.task_name == "G1MotionTrackingSAC"
+    assert cfg.training.task_name == "G1MotionTracking"
     assert cfg.training.sim_backend == "mjwarp"
     assert cfg.training.inference_transport == "cuda"
     assert cfg.env.scene.model_file == ("src/unilab/assets/robots/g1/scene_flat_mimiclite.xml")
     assert cfg.env.actions.joint_pos.simulate_action_latency is True
     assert len(cfg.env.scene.entities.robot.geom_names) == 14
+    assert cfg.algo.max_iterations == 60000
+    assert cfg.algo.save_interval == 5000
+
+    reward = cfg.reward
+    assert reward.motion_global_root_pos.weight == pytest.approx(1.0)
+    assert reward.motion_global_root_pos.params.std == pytest.approx(0.3)
+    assert reward.motion_global_root_ori.weight == pytest.approx(0.5)
+    assert reward.motion_global_root_ori.params.std == pytest.approx(0.4)
+    assert reward.motion_body_lin_vel.weight == pytest.approx(1.0)
+    assert reward.motion_joint_pos.weight == pytest.approx(1.50)
+    assert reward.motion_joint_pos.params.std == pytest.approx(0.50)
+    assert reward.motion_joint_vel.weight == pytest.approx(0.15)
+    assert reward.motion_joint_vel.params.std == pytest.approx(2.0)
+    assert reward.motion_body_pos.weight == pytest.approx(2.0)
+    assert reward.motion_body_ori.weight == pytest.approx(2.0)
+    assert reward.motion_body_ori.params.std == pytest.approx(0.60)
+    assert reward.motion_body_ang_vel.weight == pytest.approx(2.0)
+    assert reward.motion_body_ang_vel.params.std == pytest.approx(3.14)
 
     actor_terms = cfg.env.observations.actor.terms
     for name in (

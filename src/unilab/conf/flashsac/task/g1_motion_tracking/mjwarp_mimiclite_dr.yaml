@@ -40,31 +40,59 @@
 #    alpha in [0.8, 1.0]; UniLab's action term exposes only the boolean
 #    one-step latency, so this is a partial match.
 #
-# 4. Training budget: 100000 iterations. The optimizer/reward overrides below
-#    are the confirmed C07 schedule: more learner/actor updates per sample and
-#    stronger gradients for the two late-stage body-tracking bottlenecks.
+# 4. Training budget: 60000 iterations, with 5000-iteration checkpoints. The
+#    optimizer overrides keep the confirmed C07 learner/actor schedule while
+#    avoiding the redundant 100k tail observed on the six-action sweep.
+#
+# 5. Reward diagnostics and joint tracking: the eight canonical tracking terms
+#    remain independent Manager rewards so every contribution keeps its own
+#    logged curve. The two joint terms add a broad, modest trajectory objective
+#    without weakening the deployment-oriented DR path.
 defaults:
   - /task/g1_motion_tracking/mjwarp_mimiclite
   - _self_
 
 algo:
   # C07 confirmed schedule (the inherited defaults are updates=2/frequency=2).
-  max_iterations: 100000
+  max_iterations: 60000
+  save_interval: 5000
   updates_per_step: 6
   policy_frequency: 1
   # Match the C07 WarpSAC update order: actor(+temperature) before critic.
   policy_before_critic: true
 
-# Explicit C07 reward overrides on the fused motion pack. All other inherited
-# reward terms remain unchanged, including the full DR-facing penalties and
-# zero joint-pos/vel terms.
+# Keep main's per-term reward ownership while applying the tuned combo weights.
 reward:
-  motion_reward_pack:
-    body_ori_weight: 2.0
-    body_ang_vel_weight: 2.0
+  motion_global_root_pos:
+    weight: 1.0
+    params: {command_name: motion, std: 0.3}
+  motion_global_root_ori:
+    weight: 0.5
+    params: {command_name: motion, std: 0.4}
+  motion_body_pos:
+    func: unilab.tasks.motion_tracking.common.manager_terms.motion_relative_body_position_error_exp
+    weight: 2.0
+    params: {command_name: motion, std: 0.3}
+  motion_body_ori:
+    func: unilab.tasks.motion_tracking.common.manager_terms.motion_relative_body_orientation_error_exp
+    weight: 2.0
+    params: {command_name: motion, std: 0.60}
+  motion_body_lin_vel:
+    func: unilab.tasks.motion_tracking.common.manager_terms.motion_global_body_linear_velocity_error_exp
+    weight: 1.0
+    params: {command_name: motion, std: 1.0}
+  motion_body_ang_vel:
+    weight: 2.0
+    params: {command_name: motion, std: 3.14}
+  motion_joint_pos:
+    weight: 1.50
+    params: {command_name: motion, std: 0.50}
+  motion_joint_vel:
+    weight: 0.15
+    params: {command_name: motion, std: 2.0}
 
 training:
-  task_name: G1MotionTrackingSAC
+  task_name: G1MotionTracking
   sim_backend: mjwarp
   inference_transport: cuda
 

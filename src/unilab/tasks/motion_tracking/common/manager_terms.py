@@ -2378,7 +2378,10 @@ def motion_joint_position_error_exp(
     command = _command(env, command_name)
     scale = _positive_std(std, term_name="motion joint position")
     if getattr(command, "tensor_carrier", False):
-        joint_delta = command.joint_pos - command.robot_joint_pos
+        robot_joint_pos = getattr(command, "device_robot_joint_pos", None)
+        if robot_joint_pos is None:
+            robot_joint_pos = command.robot_joint_pos
+        joint_delta = command.joint_pos - robot_joint_pos
         error = cast(torch.Tensor, joint_delta).square().mean(dim=-1)
         return torch.exp(-error / (scale * scale))
     diff = command.joint_pos - command.robot_joint_pos
@@ -2394,7 +2397,10 @@ def motion_joint_velocity_error_exp(
     command = _command(env, command_name)
     scale = _positive_std(std, term_name="motion joint velocity")
     if getattr(command, "tensor_carrier", False):
-        joint_delta = command.joint_vel - command.robot_joint_vel
+        robot_joint_vel = getattr(command, "device_robot_joint_vel", None)
+        if robot_joint_vel is None:
+            robot_joint_vel = command.robot_joint_vel
+        joint_delta = command.joint_vel - robot_joint_vel
         error = cast(torch.Tensor, joint_delta).square().mean(dim=-1)
         return torch.exp(-error / (scale * scale))
     diff = command.joint_vel - command.robot_joint_vel
@@ -2439,7 +2445,7 @@ class undesired_body_contacts(_BodyTerm):
                 (robot_body_pos[:, self._body_ids, 2] < threshold)
                 .sum(dim=-1)
                 .to(dtype=torch.float32)
-        )
+            )
         return np.sum(command.robot_body_pos_w[:, self._body_ids, 2] < threshold, axis=-1)
 
 

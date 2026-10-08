@@ -55,21 +55,21 @@ def quat_apply_inverse(quat_wxyz: torch.Tensor, vector: torch.Tensor) -> torch.T
 
 
 def quat_to_rot6(quat_wxyz: torch.Tensor) -> torch.Tensor:
-    """Flatten the first two rotation-matrix rows of wxyz quaternions."""
+    """Flatten the first two rotation-matrix columns of wxyz quaternions."""
     if quat_wxyz.shape[-1] != 4:
         raise ValueError(f"quaternion must have final dimension 4; got {quat_wxyz.shape}")
     w, x, y, z = quat_wxyz.unbind(dim=-1)
-    row_0 = (
-        1.0 - 2.0 * (y * y + z * z),
-        2.0 * (x * y - w * z),
-        2.0 * (x * z + w * y),
+    return torch.stack(
+        (
+            1.0 - 2.0 * (y * y + z * z),
+            2.0 * (x * y - w * z),
+            2.0 * (x * y + w * z),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (x * z - w * y),
+            2.0 * (y * z + w * x),
+        ),
+        dim=-1,
     )
-    row_1 = (
-        2.0 * (x * y + w * z),
-        1.0 - 2.0 * (x * x + z * z),
-        2.0 * (y * z - w * x),
-    )
-    return torch.stack((*row_0, *row_1), dim=-1)
 
 
 def quat_from_euler_xyz(roll: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:

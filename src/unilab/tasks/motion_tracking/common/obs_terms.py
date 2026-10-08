@@ -15,7 +15,6 @@ from unilab.tasks.motion_tracking.common.tensor_rotation import (
     quat_apply_inverse,
     quat_conjugate,
     quat_mul,
-    quat_to_rot6,
 )
 
 if TYPE_CHECKING:
@@ -36,6 +35,21 @@ def _command(env: ManagerBasedRlEnv, command_name: str) -> TensorMotionCommand:
             "TensorMotionCommand"
         )
     return command
+
+
+def _quat_to_rot6_rows(quat_wxyz: torch.Tensor) -> torch.Tensor:
+    w, x, y, z = quat_wxyz.unbind(dim=-1)
+    row_0 = (
+        1.0 - 2.0 * (y * y + z * z),
+        2.0 * (x * y - w * z),
+        2.0 * (x * z + w * y),
+    )
+    row_1 = (
+        2.0 * (x * y + w * z),
+        1.0 - 2.0 * (x * x + z * z),
+        2.0 * (y * z - w * x),
+    )
+    return torch.stack((*row_0, *row_1), dim=-1)
 
 
 def _future_aux(command: TensorMotionCommand, future: TensorMotionObsFuture, key: str, compute):
@@ -158,7 +172,7 @@ def ref_root_ori_future_b(
     future = command.obs_future(future_steps)
     ref_root_quat_w = future.ref_body_quat_w[:, :, command.obs_root_body_idx]
     rel_quat = quat_mul(quat_conjugate(command.obs_robot_root_quat_w[:, None, :]), ref_root_quat_w)
-    return quat_to_rot6(rel_quat).reshape(env.num_envs, -1)
+    return _quat_to_rot6_rows(rel_quat).reshape(env.num_envs, -1)
 
 
 def ref_joint_pos_future(
@@ -198,7 +212,7 @@ def diff_body_ori_future_local(
     future = command.obs_future(future_steps)
     _, ref_quat_local, _, robot_quat_local = _diff_body_frames(command, future)
     diff = quat_mul(quat_conjugate(robot_quat_local[:, None, :, :]), ref_quat_local)
-    return quat_to_rot6(diff).reshape(env.num_envs, -1)
+    return _quat_to_rot6_rows(diff).reshape(env.num_envs, -1)
 
 
 def diff_body_lin_vel_future(

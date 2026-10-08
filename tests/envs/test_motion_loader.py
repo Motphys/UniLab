@@ -182,6 +182,7 @@ def test_motion_sampler_adaptive_zero_floor_cold_starts_uniform(tmp_path):
     np.testing.assert_allclose(sampler.sampling_entropy, 1.0)
     np.testing.assert_allclose(sampler.sampling_top1_prob, 1.0 / sampler.bin_count)
 
+
 def test_motion_loader_reads_optional_joint_torque(tmp_path):
     motion = tmp_path / "motion_torque.npz"
     _write_motion_npz(motion, base_value=0.0, num_frames=4, num_joints=2, with_torque=True)
