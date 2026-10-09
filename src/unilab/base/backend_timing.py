@@ -81,6 +81,15 @@ RESET_DONE_DETAIL_TIMING_KEYS = (
     "set_state_reset_forward_ms",
     "set_state_host_cache_refresh_ms",
     "set_state_internal_gap_ms",
+    # mjwarp set_state_tensor (device-resident tensor reset) sub-timings. These
+    # live only in this env-facing whitelist, not in
+    # BACKEND_SET_STATE_DETAIL_TIMING_KEYS: that tuple is the host set_state
+    # contract every backend must emit (0.0 when N/A), while these keys are
+    # reported only by the mjwarp tensor path.
+    "set_state_tensor_model_update_ms",
+    "set_state_tensor_mask_ms",
+    "set_state_tensor_commit_forward_ms",
+    "set_state_tensor_host_cache_refresh_ms",
 )
 
 UPDATE_STATE_DETAIL_TIMING_KEYS = (

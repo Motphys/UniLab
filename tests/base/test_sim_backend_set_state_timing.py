@@ -194,3 +194,24 @@ def test_motrix_set_state_without_randomization_leaves_reset_rand_zero() -> None
     # No payload → the fast-return branch in _apply_reset_randomization keeps
     # this sub-step at essentially zero.
     assert timing["set_state_reset_rand_ms"] < 1.0
+
+
+def test_set_state_tensor_keys_stay_out_of_host_set_state_schema() -> None:
+    """The mjwarp set_state_tensor sub-timings are tensor-path-only keys: they
+    are whitelisted for the env-facing reset-done timing dict but must not join
+    BACKEND_SET_STATE_DETAIL_TIMING_KEYS, which every backend's host set_state
+    must emit in full (0.0 when N/A)."""
+    from unilab.base.backend_timing import RESET_DONE_DETAIL_TIMING_KEYS
+
+    tensor_keys = (
+        "set_state_tensor_model_update_ms",
+        "set_state_tensor_mask_ms",
+        "set_state_tensor_commit_forward_ms",
+        "set_state_tensor_host_cache_refresh_ms",
+    )
+    for key in tensor_keys:
+        assert key in RESET_DONE_DETAIL_TIMING_KEYS
+        assert key not in BACKEND_SET_STATE_DETAIL_TIMING_KEYS
+    # The host set_state schema stays a subset of the env-facing whitelist.
+    for key in BACKEND_SET_STATE_DETAIL_TIMING_KEYS:
+        assert key in RESET_DONE_DETAIL_TIMING_KEYS

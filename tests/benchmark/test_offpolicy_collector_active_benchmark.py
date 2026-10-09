@@ -64,10 +64,45 @@ def _make_result(
 
 
 def test_parse_case_requires_algo_task_sim() -> None:
-    assert bench._parse_case("sac/g1_walk_flat/mujoco") == ("sac", "g1_walk_flat", "mujoco")
+    assert bench._parse_case("sac/g1_walk_flat/mujoco") == ("sac", "g1_walk_flat", "mujoco", None)
 
     with pytest.raises(ValueError, match="<algo>/<task>/<sim>"):
         bench._parse_case("g1_walk_flat/mujoco")
+
+
+def test_parse_case_accepts_optional_owner_profile() -> None:
+    assert bench._parse_case("flashsac/g1_motion_tracking/mjwarp/mimiclite_dr") == (
+        "flashsac",
+        "g1_motion_tracking",
+        "mjwarp",
+        "mimiclite_dr",
+    )
+
+    with pytest.raises(ValueError, match=r"<algo>/<task>/<sim>\[/<profile>\]"):
+        bench._parse_case("flashsac/g1_motion_tracking/mjwarp/mimiclite_dr/extra")
+
+
+def test_owner_config_path_resolves_profile_owner() -> None:
+    plain = bench._owner_config_path("flashsac", "g1_motion_tracking", "mjwarp")
+    profiled = bench._owner_config_path("flashsac", "g1_motion_tracking", "mjwarp", "mimiclite_dr")
+
+    assert plain.name == "mjwarp.yaml"
+    assert profiled.name == "mjwarp_mimiclite_dr.yaml"
+    assert profiled.is_file()
+
+
+def test_profile_case_composes_profile_owner_with_sim_backend() -> None:
+    cfg = bench._compose_offpolicy_cfg(
+        "flashsac",
+        "g1_motion_tracking",
+        "mjwarp",
+        "mimiclite_dr",
+    )
+
+    # The profile selects the owner YAML; the sim segment still selects the
+    # runtime backend.
+    assert cfg.training.sim_backend == "mjwarp"
+    assert cfg.training.task_name == "G1MotionTracking"
 
 
 def test_default_cases_cover_scoped_host_bridge() -> None:
@@ -269,6 +304,10 @@ def test_write_csv_includes_backend_set_state_sub_timing_columns(tmp_path) -> No
         "set_state_reset_forward_ms",
         "set_state_host_cache_refresh_ms",
         "set_state_internal_gap_ms",
+        "set_state_tensor_model_update_ms",
+        "set_state_tensor_mask_ms",
+        "set_state_tensor_commit_forward_ms",
+        "set_state_tensor_host_cache_refresh_ms",
     )
     for key in expected_keys:
         assert key in header, f"CSV header missing {key!r}"
@@ -347,6 +386,34 @@ def test_format_set_state_mjwarp_table_covers_mjwarp_only_keys() -> None:
     assert "Reset upload" in table
     assert "Reset forward" in table
     assert "Host cache refresh" in table
+    assert "4.000 (50.0%)" in table
+    assert "2.000 (25.0%)" in table
+
+
+def test_format_set_state_mjwarp_tensor_table_covers_tensor_only_keys() -> None:
+    """The mjwarp tensor keyset table exposes the set_state_tensor sub-timings."""
+    result = _make_result(
+        runtime_sim_backend="mjwarp",
+        num_envs=2,
+        throughput=2000.0,
+        include_env_step_breakdown=True,
+    )
+    result.env_step_timing_ms_per_vector_step["dr_reset_set_state_ms"] = bench.TimingStats(
+        [8.0], 8.0, 8.0, 0.0, 8.0, 8.0
+    )
+    result.env_step_timing_ms_per_vector_step["set_state_tensor_commit_forward_ms"] = (
+        bench.TimingStats([4.0], 4.0, 4.0, 0.0, 4.0, 4.0)
+    )
+    result.env_step_timing_ms_per_vector_step["set_state_tensor_model_update_ms"] = (
+        bench.TimingStats([2.0], 2.0, 2.0, 0.0, 2.0, 2.0)
+    )
+
+    table = bench._format_set_state_mjwarp_tensor_table([result])
+
+    assert "Model update" in table
+    assert "Tensor mask" in table
+    assert "Commit forward" in table
+    assert "Tensor host cache" in table
     assert "4.000 (50.0%)" in table
     assert "2.000 (25.0%)" in table
 
