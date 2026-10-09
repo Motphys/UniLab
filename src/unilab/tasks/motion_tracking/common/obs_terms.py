@@ -52,21 +52,6 @@ def _quat_to_rot6_rows(quat_wxyz: torch.Tensor) -> torch.Tensor:
     return torch.stack((*row_0, *row_1), dim=-1)
 
 
-def _future_aux(command: TensorMotionCommand, future: TensorMotionObsFuture, key: str, compute):
-    memo = getattr(command, "_obs_terms_aux_memo", None)
-    if memo is None or len(memo) >= 8:
-        memo = {}
-        command._obs_terms_aux_memo = memo
-    entry = memo.get(id(future))
-    if entry is None or entry[0] is not future:
-        entry = (future, {})
-        memo[id(future)] = entry
-    values: dict = entry[1]
-    if key not in values:
-        values[key] = compute()
-    return values[key]
-
-
 def _projected_yaw_quat(quat: torch.Tensor, x_axis_xy_threshold: float = 0.1) -> torch.Tensor:
     if quat.shape[-1] != 4:
         raise ValueError(f"Expected quaternion last dimension 4, got {tuple(quat.shape)}")
@@ -107,8 +92,7 @@ def _diff_body_frames(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     if 0 not in future.future_steps:
         raise ValueError("diff body observations require step 0 in future_steps")
-    frames = _future_aux(
-        command,
+    frames = command.memoize_aux(
         future,
         "diff_body_frames",
         lambda: _compute_diff_body_frames(command, future),
@@ -125,8 +109,7 @@ def _compute_diff_body_frames(
     ref_anchor_pos_w = _z0ed(future.ref_body_pos_w[:, idx0, root_idx])
     ref_anchor_yaw = _projected_yaw_quat(future.ref_body_quat_w[:, idx0, root_idx])
     robot_anchor_pos_w = _z0ed(command.obs_robot_root_pos_w)
-    robot_anchor_yaw = _future_aux(
-        command,
+    robot_anchor_yaw = command.memoize_aux(
         future,
         "robot_anchor_yaw",
         lambda: _projected_yaw_quat(command.obs_robot_root_quat_w),
@@ -153,8 +136,7 @@ def ref_root_pos_future_local(
     command = _command(env, command_name)
     future = command.obs_future(future_steps)
     ref_root_pos_w = future.ref_body_pos_w[:, :, command.obs_root_body_idx]
-    robot_yaw = _future_aux(
-        command,
+    robot_yaw = command.memoize_aux(
         future,
         "robot_anchor_yaw",
         lambda: _projected_yaw_quat(command.obs_robot_root_quat_w),
@@ -235,7 +217,7 @@ def diff_body_ang_vel_future(
     )
 
 
-def motion_applied_action(env: ManagerBasedRlEnv, action_name: str = "joint_pos") -> torch.Tensor:
+def motion_applied_action(env: ManagerBasedRlEnv, action_name: str) -> torch.Tensor:
     try:
         term = env.action_manager.get_term(action_name)
     except KeyError as exc:

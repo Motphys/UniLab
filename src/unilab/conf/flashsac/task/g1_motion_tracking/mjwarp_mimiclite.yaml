@@ -136,6 +136,7 @@ env:
           params: {command_name: motion, future_steps: [0, 1]}
         applied_action:
           func: unilab.tasks.motion_tracking.common.obs_terms.motion_applied_action
+          params: {action_name: joint_pos}
         applied_torque:
           _target_: unilab.tasks.motion_tracking.common.manager_terms.MimicLiteAppliedTorqueObservationCfg
           func: unilab.tasks.motion_tracking.common.manager_terms.MimicLiteAppliedTorqueObservation
