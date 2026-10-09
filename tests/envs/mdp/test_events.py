@@ -9,7 +9,14 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import torch
-from unisim.backend.base import BackendRootStateLayout, SimBackend
+from unisim.backend.base import (
+    BackendRootStateLayout,
+    SimBackend,
+    TensorDataPlane,
+    TensorExecution,
+    TensorLifecycleCapabilities,
+    TensorProcessTopology,
+)
 from unisim.dr.types import (
     RESET_TERM_BODY_INERTIA,
     RESET_TERM_BODY_IPOS,
@@ -29,6 +36,22 @@ from unilab.base.reset_state import ResetStateTransaction
 from unilab.envs import mdp
 from unilab.managers import EventManager, EventTermCfg, SceneEntityCfg
 from unilab.managers._types import ManagerBasedRlEnv
+from unilab.managers.torch_rng import TorchManagerRng
+
+_HAS_DEVICE_DR_CAP = "device_reset_randomization" in (
+    TensorLifecycleCapabilities.__dataclass_fields__
+)
+try:
+    from unisim.dr.types import TensorResetRandomizationPayload
+except ImportError:  # unisim-core <= 1.7.12 predates the device DR payload
+    TensorResetRandomizationPayload = None  # type: ignore[assignment]
+_HAS_TENSOR_PAYLOAD = TensorResetRandomizationPayload is not None
+
+requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
+requires_device_dr = pytest.mark.skipif(
+    not (_HAS_DEVICE_DR_CAP and _HAS_TENSOR_PAYLOAD),
+    reason="unisim-core predates the device reset-randomization contract",
+)
 
 
 class _CaptureEntity:
@@ -395,6 +418,7 @@ def _transaction_env(
             rng=np.random.default_rng(rng_seed),
             scene=scene,
             step_dt=step_dt,
+            backend=backend,
         ),
     )
     return env, backend, transaction
@@ -1627,3 +1651,209 @@ def test_randomize_body_mass_inertia_rejects_invalid_scale_range(scale_range) ->
             env,
         )
     assert backend.set_state_calls == []
+
+
+class _TensorBackend(_Backend):
+    """Fake backend exposing the public selected tensor-reset boundary."""
+
+    def __init__(self, *, device_reset_randomization: bool = False, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.device_reset_randomization = device_reset_randomization
+        self.tensor_reset_calls: list[tuple[Any, Any, Any, Any]] = []
+
+    def get_tensor_capabilities(self) -> TensorLifecycleCapabilities:
+        extra: dict[str, Any] = {}
+        if _HAS_DEVICE_DR_CAP:
+            extra["device_reset_randomization"] = self.device_reset_randomization
+        return TensorLifecycleCapabilities(
+            execution=TensorExecution.DEVICE_RESIDENT,
+            state_views=True,
+            state_fields=frozenset({"qpos", "qvel"}),
+            sensor_views=False,
+            stepping=True,
+            selected_reset=True,
+            reset_randomization=True,
+            process_topology=TensorProcessTopology.IN_PROCESS,
+            data_plane=TensorDataPlane.DIRECT,
+            stream_event_ownership="fake synchronous stream",
+            torch_devices=("cpu",),
+            **extra,
+        )
+
+    def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> dict:
+        self.tensor_reset_calls.append((env_indices, qpos, qvel, randomization))
+        return {"ok": True}
+
+
+def _tensor_dr_env(
+    *,
+    device_reset_randomization: bool,
+    device: torch.device,
+) -> tuple[ManagerBasedRlEnv, _TensorBackend, ResetStateTransaction]:
+    backend = _TensorBackend(device_reset_randomization=device_reset_randomization)
+    transaction = ResetStateTransaction(cast(SimBackend, backend))
+    scene = EntityScene(
+        {
+            "robot": EntityCfg(
+                root_body_name="base",
+                joint_names=("j0", "j1", "j2"),
+                body_names=("base",),
+                geom_names=("floor", "foot", "base_geom"),
+                actuator_names=("a0", "a1", "a2"),
+            )
+        },
+        cast(SimBackend, backend),
+        reset_state=transaction,
+    )
+    env = cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=backend.num_envs,
+            device=device,
+            rng=np.random.default_rng(5),
+            torch_rng=(TorchManagerRng.seeded(5, device=device) if device.type == "cuda" else None),
+            scene=scene,
+            step_dt=0.02,
+            backend=backend,
+        ),
+    )
+    transaction.declare_packed_reset_device(device)
+    return env, backend, transaction
+
+
+def _dr_event_cfg() -> dict[str, EventTermCfg]:
+    return {
+        "mass": EventTermCfg(
+            func=mdp.randomize_rigid_body_mass,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "mass_distribution_params": (0.8, 1.2),
+                "operation": "scale",
+                "recompute_inertia": False,
+            },
+        ),
+        "com": EventTermCfg(
+            func=mdp.randomize_rigid_body_com,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "com_range": {"x": (-0.05, 0.05)},
+            },
+        ),
+        "friction": EventTermCfg(
+            func=mdp.geom_friction,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "ranges": {0: (0.3, 1.2)},
+                "operation": "abs",
+                "shared_random": True,
+            },
+        ),
+        "pd_lower": EventTermCfg(
+            func=mdp.pd_gains,
+            mode="reset",
+            params={
+                "kp_range": (2.0, 2.0),
+                "kd_range": (2.0, 2.0),
+                "asset_cfg": SceneEntityCfg("robot", actuator_names=["a0"]),
+            },
+        ),
+        "pd_upper": EventTermCfg(
+            func=mdp.pd_gains,
+            mode="reset",
+            params={
+                "kp_range": (0.5, 1.5),
+                "kd_range": (0.5, 1.5),
+                "asset_cfg": SceneEntityCfg("robot", actuator_names=["a1", "a2"]),
+            },
+        ),
+    }
+
+
+@pytest.mark.parametrize("device_capable", [False, True])
+def test_tensor_reset_terms_fall_back_to_host_payload_without_cuda_rows(
+    device_capable: bool,
+) -> None:
+    if device_capable and not _HAS_DEVICE_DR_CAP:
+        pytest.skip("unisim-core predates the device reset-randomization capability")
+    # CPU rows (or a missing capability flag) keep the NumPy staging path even
+    # inside a device tensor reset: the commit carries a host payload.
+    env, backend, transaction = _tensor_dr_env(
+        device_reset_randomization=device_capable,
+        device=torch.device("cpu"),
+    )
+    manager = EventManager(_dr_event_cfg(), env)
+    rows = torch.tensor([0, 2], dtype=torch.int64)
+
+    with transaction.scoped_device_event_tensor(rows):
+        manager.apply(mode="reset", env_ids=rows, global_env_step_count=0)
+
+    assert len(backend.tensor_reset_calls) == 1
+    randomization = backend.tensor_reset_calls[0][3]
+    assert isinstance(randomization, ResetRandomizationPayload)
+    if _HAS_TENSOR_PAYLOAD:
+        assert not isinstance(randomization, TensorResetRandomizationPayload)
+    assert randomization.body_mass is not None
+    assert randomization.body_ipos is not None
+    assert randomization.geom_friction is not None
+    assert randomization.kp is not None and randomization.kd is not None
+    assert np.all((randomization.body_mass[:, 0] >= 8.0) & (randomization.body_mass[:, 0] <= 12.0))
+    np.testing.assert_allclose(randomization.kp[:, 0], 20.0)
+    np.testing.assert_allclose(randomization.kd[:, 0], 2.0)
+
+
+@requires_cuda
+@requires_device_dr
+def test_tensor_reset_terms_stage_device_randomization_payload() -> None:
+    device = torch.device("cuda")
+    env, backend, transaction = _tensor_dr_env(
+        device_reset_randomization=True,
+        device=device,
+    )
+    manager = EventManager(_dr_event_cfg(), env)
+    rows = torch.tensor([0, 2], dtype=torch.int64, device=device)
+
+    with transaction.scoped_device_event_tensor(rows):
+        manager.apply(mode="reset", env_ids=rows, global_env_step_count=0)
+
+    assert len(backend.tensor_reset_calls) == 1
+    committed_rows, _qpos, _qvel, randomization = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_rows, rows)
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+
+    body_mass = randomization.body_mass
+    assert isinstance(body_mass, torch.Tensor) and body_mass.is_cuda
+    assert body_mass.shape == (2, 1)
+    assert bool(((body_mass >= 8.0) & (body_mass <= 12.0)).all())
+
+    body_ipos = randomization.body_ipos
+    assert isinstance(body_ipos, torch.Tensor) and body_ipos.is_cuda
+    assert body_ipos.shape == (2, 1, 3)
+    assert bool(((body_ipos[..., 0] >= -0.05) & (body_ipos[..., 0] <= 0.05)).all())
+    torch.testing.assert_close(body_ipos[..., 1:], torch.zeros_like(body_ipos[..., 1:]))
+
+    geom_friction = randomization.geom_friction
+    assert isinstance(geom_friction, torch.Tensor) and geom_friction.is_cuda
+    assert geom_friction.shape == (2, 3, 3)
+    tangent = geom_friction[..., 0]
+    assert bool(((tangent >= 0.3) & (tangent <= 1.2)).all())
+    # shared_random: one grouped sample per row across all selected geoms.
+    torch.testing.assert_close(tangent, tangent[:, :1].expand_as(tangent))
+    # Untouched axes keep the backend defaults.
+    default_rest = torch.tensor([[0.01, 0.001], [0.02, 0.002], [0.03, 0.003]], device=device)
+    torch.testing.assert_close(geom_friction[..., 1:], default_rest.expand(2, 3, 2))
+
+    kp = randomization.kp
+    kd = randomization.kd
+    assert isinstance(kp, torch.Tensor) and isinstance(kd, torch.Tensor)
+    assert kp.is_cuda and kd.is_cuda
+    assert kp.shape == (2, 3) and kd.shape == (2, 3)
+    # Disjoint actuator columns from two terms merge in one dense commit.
+    torch.testing.assert_close(kp[:, 0], torch.full((2,), 20.0, device=device))
+    torch.testing.assert_close(kd[:, 0], torch.full((2,), 2.0, device=device))
+    assert bool(((kp[:, 1] >= 10.0) & (kp[:, 1] <= 30.0)).all())
+    assert bool(((kp[:, 2] >= 15.0) & (kp[:, 2] <= 45.0)).all())
+    assert bool(((kd[:, 1] >= 1.0) & (kd[:, 1] <= 3.0)).all())
+    assert bool(((kd[:, 2] >= 1.5) & (kd[:, 2] <= 4.5)).all())

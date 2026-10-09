@@ -37,6 +37,13 @@ from unisim.dr.types import (
     RESET_TERM_KP,
     ResetRandomizationPayload,
 )
+
+try:  # unisim-core > 1.7.12 declares the device-resident reset DR payload
+    from unisim.dr.types import (
+        TensorResetRandomizationPayload,  # pyright: ignore[reportAttributeAccessIssue]
+    )
+except ImportError:
+    TensorResetRandomizationPayload = None  # type: ignore[assignment]
 from unisim.entities import EntityStatePatch, SceneResetRequest
 from unisim.scene_layout import CompiledSceneLayout
 
@@ -144,6 +151,9 @@ class ResetStateTransaction:
         self._mocap_masks: dict[str, np.ndarray] = {}
         self._packed_reset_device: torch.device | None = None
         self._tensor_rows: torch.Tensor | None = None
+        self._tensor_dr_dense: dict[str, torch.Tensor] = {}
+        self._tensor_dr_columns: dict[tuple[str, tuple[int, ...]], torch.Tensor] = {}
+        self._tensor_dr_committed: dict[str, torch.Tensor] = {}
         self._tensor_root_columns: (
             tuple[tuple[int, ...], tuple[int, ...], torch.Tensor, torch.Tensor] | None
         ) = None
@@ -155,6 +165,11 @@ class ResetStateTransaction:
     def active(self) -> bool:
         """Whether a reset lifecycle currently owns the transaction."""
         return self._active or self._tensor_active
+
+    @property
+    def tensor_active(self) -> bool:
+        """Whether the active reset composes device tensor rows without host staging."""
+        return self._tensor_active
 
     @property
     def last_commit_had_writes(self) -> bool:
@@ -336,6 +351,7 @@ class ResetStateTransaction:
         self._reset_tensor_staging_rows(rows)
         self._tensor_rows = rows
         self._tensor_has_writes = False
+        self._tensor_dr_dense.clear()
         self._requesting_terms.clear()
         self._tensor_active = True
 
@@ -1019,6 +1035,112 @@ class ResetStateTransaction:
             self._kd[ids[:, None], columns[None, :]] = kd_values
         self._gain_dirty_mask[ids] = True
         self._dirty_mask[ids] = True
+
+    def write_randomization_tensor(
+        self,
+        field: str,
+        env_ids: torch.Tensor,
+        columns: np.ndarray,
+        values: torch.Tensor,
+        *,
+        term_name: str,
+    ) -> None:
+        """Stage device-resident final DR values in the active tensor reset.
+
+        ``values`` is a contiguous float32 ``(num_rows, len(columns), *tail)``
+        device table of final absolute values for the selected rows; the first
+        write of a field in one reset clones a dense base from the last
+        committed (or default) per-env table, and later writes merge into it so
+        column-disjoint terms (e.g. lower/upper PD gains) compose. The commit
+        hands the dense rows to ``SimBackend.set_state_tensor`` as a
+        ``TensorResetRandomizationPayload``; backends without the declared
+        ``device_reset_randomization`` capability fail closed at commit.
+        """
+        rows = self._prepare_tensor_state_write(
+            env_ids, capability=f"{field} randomization", term_name=term_name
+        )
+        tail = _randomization_term_tail(field)
+        base = self._tensor_dr_base(field, term_name=term_name)
+        resolved = self._validate_columns(
+            columns,
+            width=int(base.shape[1]),
+            capability=f"{field} column IDs",
+            term_name=term_name,
+        )
+        expected_shape = (rows.numel(), resolved.size, *tail)
+        if not isinstance(values, torch.Tensor):
+            raise TypeError(
+                f"EventManager term '{term_name}' tensor {field} must be torch.Tensor, "
+                f"got {type(values).__name__}"
+            )
+        if tuple(values.shape) != expected_shape:
+            raise ValueError(
+                f"EventManager term '{term_name}' tensor {field} must have shape "
+                f"{expected_shape}; got {tuple(values.shape)}"
+            )
+        if values.dtype != torch.float32 or not values.is_contiguous():
+            raise TypeError(
+                f"EventManager term '{term_name}' tensor {field} must be contiguous float32"
+            )
+        device = self._packed_reset_device
+        assert device is not None
+        if values.device != device:
+            raise ValueError(
+                f"EventManager term '{term_name}' tensor {field} must live on "
+                f"{device}; got {values.device}"
+            )
+        dense = self._tensor_dr_dense.get(field)
+        if dense is None:
+            # index_select already returns a fresh contiguous table to mutate.
+            dense = base.index_select(0, rows)
+            self._tensor_dr_dense[field] = dense
+        column_tensor = self._tensor_randomization_columns(field, resolved, device)
+        dense[:, column_tensor] = values
+        self._tensor_has_writes = True
+
+    def _tensor_dr_base(self, field: str, *, term_name: str) -> torch.Tensor:
+        """Return the last-committed per-env device table for one DR field."""
+        base = self._tensor_dr_committed.get(field)
+        if base is None:
+            base = self._materialize_tensor_randomization_default(field, term_name)
+            self._tensor_dr_committed[field] = base
+        return base
+
+    def _materialize_tensor_randomization_default(self, field: str, term_name: str) -> torch.Tensor:
+        """Build the immutable per-env device base for one DR field on the cold path."""
+        device = self._packed_reset_device
+        if device is None:
+            raise RuntimeError("device tensor reset requires its selected device to be declared")
+        if field == RESET_TERM_KP:
+            self._materialize_default_actuator_gains(term_name)
+            default = self._default_kp
+        elif field == RESET_TERM_KD:
+            self._materialize_default_actuator_gains(term_name)
+            default = self._default_kd
+        else:
+            default = self._require_randomization_default(field, term_name)
+        assert default is not None
+        table = torch.as_tensor(np.array(default, dtype=np.float32, copy=True), device=device)
+        if self._default_is_per_env(default, field=field):
+            return table
+        return table.unsqueeze(0).expand(self._num_envs, *table.shape).contiguous()
+
+    def _tensor_randomization_columns(
+        self, field: str, columns: np.ndarray, device: torch.device
+    ) -> torch.Tensor:
+        """Cache validated DR column selectors as device index tensors."""
+        key = (field, tuple(int(column) for column in columns))
+        cached = self._tensor_dr_columns.get(key)
+        if cached is None:
+            cached = torch.as_tensor(columns, dtype=torch.int64, device=device)
+            self._tensor_dr_columns[key] = cached
+        return cached
+
+    def _host_randomization_staged(self) -> bool:
+        """Whether any term staged reset randomization through the NumPy path."""
+        return bool(np.any(self._gain_dirty_mask)) or any(
+            bool(np.any(mask)) for mask in self._randomization_dirty_masks.values()
+        )
 
     def reset_to_default(self, env_ids: torch.Tensor | np.ndarray, *, term_name: str) -> None:
         """Stage backend default qpos/qvel for a subset of the active reset."""
@@ -1724,8 +1846,29 @@ class ResetStateTransaction:
                     "device-resident reset commit requires the backend's declared "
                     "selected_reset tensor capability"
                 )
-            randomization: ResetRandomizationPayload | None = None
-            if self._randomization_dirty_masks:
+            randomization: ResetRandomizationPayload | Any | None = None
+            device_randomization = self._tensor_dr_dense
+            if device_randomization:
+                terms = ", ".join(sorted(self._requesting_terms))
+                if TensorResetRandomizationPayload is None or not getattr(
+                    capabilities, "device_reset_randomization", False
+                ):
+                    raise NotImplementedError(
+                        "device-staged reset randomization requires a backend declaring the "
+                        "'device_reset_randomization' tensor capability (unisim-core > 1.7.12); "
+                        f"term(s) [{terms}] on backend '{self._backend.backend_type}' "
+                        "cannot commit"
+                    )
+                if self._host_randomization_staged():
+                    raise NotImplementedError(
+                        "tensor reset commit does not support mixing host-staged and "
+                        "device-staged reset randomization in one reset for term(s) "
+                        f"[{terms}] on backend '{self._backend.backend_type}'"
+                    )
+                randomization = TensorResetRandomizationPayload(
+                    **{field: dense for field, dense in device_randomization.items()}
+                )
+            elif self._host_randomization_staged():
                 if not capabilities.reset_randomization:
                     raise NotImplementedError(
                         "device-resident reset commit does not support reset "
@@ -1743,6 +1886,9 @@ class ResetStateTransaction:
                 result = self._backend.set_state_tensor(
                     rows, qpos, qvel, randomization=randomization
                 )
+                if device_randomization:
+                    for field, dense in device_randomization.items():
+                        self._tensor_dr_committed[field].index_copy_(0, rows, dense)
                 timing: dict[str, float] = {
                     "dr_reset_set_state_ms": (time.perf_counter() - set_state_t0) * 1000.0
                 }
@@ -2250,6 +2396,10 @@ class ResetStateTransaction:
                 )
             cache[dirty_ids] = values
             self._committed_randomization_masks[field][dirty_ids] = True
+            # A host commit is newer than the device-committed baseline; force
+            # the next device-staged reset of this field to rebuild from the
+            # materialized defaults rather than stale device rows.
+            self._tensor_dr_committed.pop(field, None)
         if payload.kp is not None and payload.kd is not None:
             if self._committed_kp is None or self._committed_kd is None:
                 self._committed_kp = np.empty(
@@ -2261,6 +2411,8 @@ class ResetStateTransaction:
             self._committed_kp[dirty_ids] = payload.kp
             self._committed_kd[dirty_ids] = payload.kd
             self._committed_gain_mask[dirty_ids] = True
+            self._tensor_dr_committed.pop(RESET_TERM_KP, None)
+            self._tensor_dr_committed.pop(RESET_TERM_KD, None)
 
     def _prepare_state_write(
         self,
@@ -2624,6 +2776,7 @@ class ResetStateTransaction:
         self._tensor_active = False
         self._tensor_has_writes = False
         self._tensor_rows = None
+        self._tensor_dr_dense.clear()
 
 
 __all__ = ["ResetStateTransaction"]

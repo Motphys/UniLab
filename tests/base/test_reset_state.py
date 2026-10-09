@@ -27,6 +27,20 @@ from unisim.dr.types import (
 
 from unilab.base.reset_state import ResetStateTransaction
 
+_HAS_DEVICE_DR_CAP = "device_reset_randomization" in (
+    TensorLifecycleCapabilities.__dataclass_fields__
+)
+try:
+    from unisim.dr.types import TensorResetRandomizationPayload
+except ImportError:  # unisim-core <= 1.7.12 predates the device DR payload
+    TensorResetRandomizationPayload = None  # type: ignore[assignment]
+_HAS_TENSOR_PAYLOAD = TensorResetRandomizationPayload is not None
+
+requires_tensor_payload = pytest.mark.skipif(
+    not _HAS_TENSOR_PAYLOAD,
+    reason="unisim-core predates TensorResetRandomizationPayload",
+)
+
 
 class _Backend:
     backend_type = "fake"
@@ -97,12 +111,28 @@ class _TensorResetBackend(_Backend):
             qpos=np.array([0.0, 0.0, 0.3, 1.0, 0.0, 0.0, 0.0, 0.1, -0.2]),
             qvel=np.zeros(8),
         )
+        self.default_body_mass = np.array([2.0, 4.0])
         self.tensor_reset_calls: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
 
     def tensor_execution(self):
         return TensorExecution.DEVICE_RESIDENT
 
+    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset(
+                (RESET_TERM_KP, RESET_TERM_KD, RESET_TERM_BODY_MASS, "gravity")
+            )
+        )
+
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        if term == RESET_TERM_BODY_MASS:
+            return self.default_body_mass.copy()
+        return super().get_reset_term_default(term)
+
     def get_tensor_capabilities(self):
+        kwargs: dict[str, Any] = {}
+        if _HAS_DEVICE_DR_CAP:
+            kwargs["device_reset_randomization"] = True
         return TensorLifecycleCapabilities(
             execution=TensorExecution.DEVICE_RESIDENT,
             state_views=True,
@@ -115,6 +145,7 @@ class _TensorResetBackend(_Backend):
             data_plane=TensorDataPlane.DIRECT,
             stream_event_ownership="fake synchronous stream",
             torch_devices=("cpu",),
+            **kwargs,
         )
 
     def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> dict:
@@ -950,7 +981,11 @@ def test_tensor_reset_commit_rejects_randomization_without_capability() -> None:
     class NoRandomizationBackend(_TensorResetBackend):
         def get_tensor_capabilities(self):
             capabilities = super().get_tensor_capabilities()
-            return replace(capabilities, reset_randomization=False)
+            updates: dict[str, Any] = {"reset_randomization": False}
+            if _HAS_DEVICE_DR_CAP:
+                # New unisim-core validates device DR implies reset_randomization.
+                updates["device_reset_randomization"] = False
+            return replace(capabilities, **updates)
 
     transaction = _transaction(NoRandomizationBackend())
     transaction.declare_packed_reset_device(torch.device("cpu"))
@@ -964,3 +999,245 @@ def test_tensor_reset_commit_rejects_randomization_without_capability() -> None:
                 np.array([[0.0, 0.0, -9.8]], dtype=np.float64),
                 term_name="gravity_owner",
             )
+
+
+def _bind_device_mass(transaction: ResetStateTransaction) -> None:
+    transaction.bind_body_mass_write(np.array([0, 1], dtype=np.int32), term_name="mass")
+
+
+@requires_tensor_payload
+def test_tensor_reset_commit_stages_device_body_mass_payload() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    _bind_device_mass(transaction)
+    rows = torch.tensor([1, 3], dtype=torch.int64)
+
+    with transaction.scoped_device_event_tensor(rows):
+        transaction.write_randomization_tensor(
+            RESET_TERM_BODY_MASS,
+            rows,
+            np.array([0], dtype=np.int32),
+            torch.tensor([[7.0], [8.0]]),
+            term_name="randomize_rigid_body_mass",
+        )
+
+    assert len(backend.tensor_reset_calls) == 1
+    _, _, _, randomization = backend.tensor_reset_calls[0]
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+    torch.testing.assert_close(
+        randomization.body_mass,
+        torch.tensor([[7.0, 4.0], [8.0, 4.0]]),
+    )
+    assert randomization.kp is None
+
+
+@requires_tensor_payload
+def test_tensor_reset_randomization_carries_committed_rows_forward() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    _bind_device_mass(transaction)
+
+    with transaction.scoped_device_event_tensor(torch.tensor([0, 1], dtype=torch.int64)):
+        transaction.write_randomization_tensor(
+            RESET_TERM_BODY_MASS,
+            torch.tensor([0, 1], dtype=torch.int64),
+            np.array([0], dtype=np.int32),
+            torch.tensor([[7.0], [8.0]]),
+            term_name="randomize_rigid_body_mass",
+        )
+    with transaction.scoped_device_event_tensor(torch.tensor([1, 2], dtype=torch.int64)):
+        transaction.write_randomization_tensor(
+            RESET_TERM_BODY_MASS,
+            torch.tensor([1, 2], dtype=torch.int64),
+            np.array([1], dtype=np.int32),
+            torch.tensor([[9.0], [10.0]]),
+            term_name="randomize_rigid_body_mass",
+        )
+
+    assert len(backend.tensor_reset_calls) == 2
+    randomization = backend.tensor_reset_calls[1][3]
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+    # Row 1 keeps the first reset's committed column-0 value; untouched
+    # column rows fall back to the backend default table.
+    torch.testing.assert_close(
+        randomization.body_mass,
+        torch.tensor([[8.0, 9.0], [2.0, 10.0]]),
+    )
+
+
+@requires_tensor_payload
+def test_tensor_reset_randomization_merges_column_disjoint_terms() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    rows = torch.tensor([1, 3], dtype=torch.int64)
+
+    with transaction.scoped_device_event_tensor(rows):
+        transaction.write_randomization_tensor(
+            RESET_TERM_KP,
+            rows,
+            np.array([0], dtype=np.int32),
+            torch.tensor([[11.0], [12.0]]),
+            term_name="pd_gains_lower",
+        )
+        transaction.write_randomization_tensor(
+            RESET_TERM_KP,
+            rows,
+            np.array([2], dtype=np.int32),
+            torch.tensor([[31.0], [32.0]]),
+            term_name="pd_gains_upper",
+        )
+
+    randomization = backend.tensor_reset_calls[0][3]
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+    # Untouched middle column keeps the backend default gain.
+    torch.testing.assert_close(
+        randomization.kp,
+        torch.tensor([[11.0, 20.0, 31.0], [12.0, 20.0, 32.0]]),
+    )
+    assert randomization.kd is None
+
+
+def test_tensor_reset_device_randomization_requires_declared_capability() -> None:
+    class NoDeviceRandomizationBackend(_TensorResetBackend):
+        def get_tensor_capabilities(self):
+            capabilities = super().get_tensor_capabilities()
+            if _HAS_DEVICE_DR_CAP:
+                return replace(capabilities, device_reset_randomization=False)
+            return capabilities
+
+    backend = NoDeviceRandomizationBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    _bind_device_mass(transaction)
+    rows = torch.tensor([0], dtype=torch.int64)
+
+    with pytest.raises(NotImplementedError, match="device_reset_randomization"):
+        with transaction.scoped_device_event_tensor(rows):
+            transaction.write_randomization_tensor(
+                RESET_TERM_BODY_MASS,
+                rows,
+                np.array([0], dtype=np.int32),
+                torch.tensor([[7.0]]),
+                term_name="randomize_rigid_body_mass",
+            )
+    assert backend.tensor_reset_calls == []
+
+
+def test_tensor_reset_rejects_mixing_host_and_device_randomization() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    transaction.bind_gravity_write(term_name="gravity_owner")
+    _bind_device_mass(transaction)
+    rows = torch.tensor([0], dtype=torch.int64)
+
+    with pytest.raises(NotImplementedError, match="device-staged"):
+        with transaction.scoped_device_event_tensor(rows):
+            transaction.write_randomization_tensor(
+                RESET_TERM_BODY_MASS,
+                rows,
+                np.array([0], dtype=np.int32),
+                torch.tensor([[7.0]]),
+                term_name="randomize_rigid_body_mass",
+            )
+            transaction.write_gravity(
+                np.array([0], dtype=np.int32),
+                np.array([[0.0, 0.0, -9.5]]),
+                term_name="gravity_owner",
+            )
+    assert backend.tensor_reset_calls == []
+
+
+def test_tensor_reset_device_randomization_requires_new_unisim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    _bind_device_mass(transaction)
+    rows = torch.tensor([0], dtype=torch.int64)
+    monkeypatch.setattr("unilab.base.reset_state.TensorResetRandomizationPayload", None)
+
+    with pytest.raises(NotImplementedError, match="unisim-core > 1.7.12"):
+        with transaction.scoped_device_event_tensor(rows):
+            transaction.write_randomization_tensor(
+                RESET_TERM_BODY_MASS,
+                rows,
+                np.array([0], dtype=np.int32),
+                torch.tensor([[7.0]]),
+                term_name="randomize_rigid_body_mass",
+            )
+    assert backend.tensor_reset_calls == []
+
+
+@requires_tensor_payload
+def test_host_randomization_commit_invalidates_device_committed_baseline() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    _bind_device_mass(transaction)
+    rows = torch.tensor([0, 1], dtype=torch.int64)
+
+    with transaction.scoped_device_event_tensor(rows):
+        transaction.write_randomization_tensor(
+            RESET_TERM_BODY_MASS,
+            rows,
+            np.array([0], dtype=np.int32),
+            torch.tensor([[7.0], [8.0]]),
+            term_name="randomize_rigid_body_mass",
+        )
+    # A host-path commit is newer than the device baseline: the next
+    # device-staged reset must rebuild from backend defaults.
+    with transaction.scoped(torch.tensor([0], dtype=torch.int64)):
+        transaction.write_body_mass(
+            np.array([0], dtype=np.int32),
+            np.array([0], dtype=np.int32),
+            np.array([[99.0]]),
+            term_name="host_mass",
+        )
+    with transaction.scoped_device_event_tensor(rows):
+        transaction.write_randomization_tensor(
+            RESET_TERM_BODY_MASS,
+            rows,
+            np.array([1], dtype=np.int32),
+            torch.tensor([[9.0], [10.0]]),
+            term_name="randomize_rigid_body_mass",
+        )
+
+    randomization = backend.tensor_reset_calls[-1][3]
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+    torch.testing.assert_close(
+        randomization.body_mass,
+        torch.tensor([[2.0, 9.0], [2.0, 10.0]]),
+    )
+
+
+def test_tensor_reset_without_randomization_writes_skips_payload_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    # Binding allocates the host dirty masks; with no host randomization
+    # writes the tensor commit must not build a NumPy payload.
+    transaction.bind_gravity_write(term_name="gravity_owner")
+
+    def _fail_payload_build() -> None:
+        raise AssertionError("host randomization payload build must not run")
+
+    monkeypatch.setattr(transaction, "_tensor_randomization_payload", _fail_payload_build)
+    rows = torch.tensor([1], dtype=torch.int64)
+    layout = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.tensor(
+        [[0.0, 0.0, 0.3, 1.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0]],
+        dtype=torch.float32,
+    )
+
+    with transaction.scoped_device_event_tensor(rows):
+        transaction.write_root_state_tensor(rows, layout, root_state, term_name="root_owner")
+
+    assert len(backend.tensor_reset_calls) == 1
+    assert backend.tensor_reset_calls[0][3] is None

@@ -29,7 +29,14 @@ from unisim.backend.base import (
     TensorProcessTopology,
     tensor_device_matches,
 )
-from unisim.dr.types import IntervalRandomizationPlan
+from unisim.dr.types import (
+    RESET_TERM_BODY_IPOS,
+    RESET_TERM_BODY_MASS,
+    RESET_TERM_GEOM_FRICTION,
+    RESET_TERM_KD,
+    RESET_TERM_KP,
+    IntervalRandomizationPlan,
+)
 
 from unilab.utils.rotation import np_quat_apply, np_quat_apply_inverse, np_yaw_from_quat
 
@@ -2740,6 +2747,16 @@ class Entity:
             term_name=f"{self.name}.write_motion_state_tensor_to_sim",
         )
 
+    @property
+    def reset_state_tensor_active(self) -> bool:
+        """Whether the active env-owned reset transaction composes device tensor rows.
+
+        Manager terms probe this before choosing the device-resident DR staging
+        path: a host-composed reset (including the packed host bridge and the
+        NumPy ``scoped_device_tensor`` commit) must keep the NumPy write path.
+        """
+        return self._reset_state is not None and self._reset_state.tensor_active
+
     def bind_actuator_gain_write(
         self,
         actuator_ids: np.ndarray | Sequence[int] | slice | None = None,
@@ -2798,6 +2815,43 @@ class Entity:
             resolved_env_ids,
             self._actuator_ids[local_ids],
             kp,
+            kd,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def write_actuator_gains_tensor_to_sim(
+        self,
+        kp: torch.Tensor,
+        kd: torch.Tensor,
+        actuator_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: torch.Tensor | None = None,
+        *,
+        term_name: str = "pd_gains",
+    ) -> None:
+        """Stage device-resident entity actuator gains in the tensor transaction."""
+        if self._reset_state is None or self._actuator_ids is None:
+            raise self._capability_error(
+                "reset actuator-gain write",
+                "actuator metadata or the env-owned reset transaction was not materialized",
+            )
+        local_ids = self._normalize_local_actuator_ids(
+            actuator_ids,
+            capability="reset actuator-gain write",
+        )
+        if env_ids is None:
+            raise ValueError("tensor reset actuator-gain write requires device row indices")
+        backend_ids = self._actuator_ids[local_ids]
+        self._reset_state.write_randomization_tensor(
+            RESET_TERM_KP,
+            env_ids,
+            backend_ids,
+            kp,
+            term_name=f"{term_name}:{self.name}",
+        )
+        self._reset_state.write_randomization_tensor(
+            RESET_TERM_KD,
+            env_ids,
+            backend_ids,
             kd,
             term_name=f"{term_name}:{self.name}",
         )
@@ -3155,6 +3209,34 @@ class Entity:
             term_name=f"{term_name}:{self.name}",
         )
 
+    def write_geom_friction_tensor_to_sim(
+        self,
+        values: torch.Tensor,
+        geom_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: torch.Tensor | None = None,
+        *,
+        term_name: str = "geom_friction",
+    ) -> None:
+        """Stage device-resident entity geom friction in the tensor transaction."""
+        if self._reset_state is None or self._geom_ids is None:
+            raise self._capability_error(
+                "reset geom-friction write",
+                "geom metadata or the env-owned reset transaction was not materialized",
+            )
+        local_ids = self._normalize_local_geom_ids(
+            geom_ids,
+            capability="reset geom-friction write",
+        )
+        if env_ids is None:
+            raise ValueError("tensor reset geom-friction write requires device row indices")
+        self._reset_state.write_randomization_tensor(
+            RESET_TERM_GEOM_FRICTION,
+            env_ids,
+            self._geom_ids[local_ids],
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
     def bind_body_mass_write(
         self,
         body_ids: np.ndarray | Sequence[int] | slice | None = None,
@@ -3192,6 +3274,29 @@ class Entity:
             term_name=f"{term_name}:{self.name}",
         )
 
+    def write_body_mass_tensor_to_sim(
+        self,
+        values: torch.Tensor,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: torch.Tensor | None = None,
+        *,
+        term_name: str = "randomize_rigid_body_mass",
+    ) -> None:
+        """Stage device-resident entity body masses in the tensor transaction."""
+        reset_state, _, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-mass write",
+        )
+        if env_ids is None:
+            raise ValueError("tensor reset body-mass write requires device row indices")
+        reset_state.write_randomization_tensor(
+            RESET_TERM_BODY_MASS,
+            env_ids,
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
     def bind_body_ipos_write(
         self,
         body_ids: np.ndarray | Sequence[int] | slice | None = None,
@@ -3224,6 +3329,29 @@ class Entity:
         )
         reset_state.write_body_ipos(
             self._normalize_reset_env_ids(env_ids),
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def write_body_ipos_tensor_to_sim(
+        self,
+        values: torch.Tensor,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: torch.Tensor | None = None,
+        *,
+        term_name: str = "randomize_rigid_body_com",
+    ) -> None:
+        """Stage device-resident entity inertial positions in the tensor transaction."""
+        reset_state, _, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-ipos write",
+        )
+        if env_ids is None:
+            raise ValueError("tensor reset body-ipos write requires device row indices")
+        reset_state.write_randomization_tensor(
+            RESET_TERM_BODY_IPOS,
+            env_ids,
             backend_ids,
             values,
             term_name=f"{term_name}:{self.name}",
