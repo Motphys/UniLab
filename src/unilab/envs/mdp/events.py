@@ -270,11 +270,7 @@ def _selected_reset_defaults(
 
 def _probe_device_reset_randomization(env: ManagerBasedRlEnv) -> bool:
     """Whether the backend declares device-resident reset DR commits."""
-    try:
-        capabilities = env.backend.get_tensor_capabilities()
-    except (AttributeError, NotImplementedError):
-        return False
-    return bool(getattr(capabilities, "device_reset_randomization", False))
+    return bool(env.backend.get_tensor_capabilities().device_reset_randomization)
 
 
 def _device_reset_randomization_active(

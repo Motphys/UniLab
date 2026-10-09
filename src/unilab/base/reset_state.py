@@ -36,14 +36,8 @@ from unisim.dr.types import (
     RESET_TERM_KD,
     RESET_TERM_KP,
     ResetRandomizationPayload,
+    TensorResetRandomizationPayload,
 )
-
-try:  # unisim-core > 1.7.12 declares the device-resident reset DR payload
-    from unisim.dr.types import (
-        TensorResetRandomizationPayload,  # pyright: ignore[reportAttributeAccessIssue]
-    )
-except ImportError:
-    TensorResetRandomizationPayload = None  # type: ignore[assignment]
 from unisim.entities import EntityStatePatch, SceneResetRequest
 from unisim.scene_layout import CompiledSceneLayout
 
@@ -1846,16 +1840,14 @@ class ResetStateTransaction:
                     "device-resident reset commit requires the backend's declared "
                     "selected_reset tensor capability"
                 )
-            randomization: ResetRandomizationPayload | Any | None = None
+            randomization: ResetRandomizationPayload | TensorResetRandomizationPayload | None = None
             device_randomization = self._tensor_dr_dense
             if device_randomization:
                 terms = ", ".join(sorted(self._requesting_terms))
-                if TensorResetRandomizationPayload is None or not getattr(
-                    capabilities, "device_reset_randomization", False
-                ):
+                if not capabilities.device_reset_randomization:
                     raise NotImplementedError(
                         "device-staged reset randomization requires a backend declaring the "
-                        "'device_reset_randomization' tensor capability (unisim-core > 1.7.12); "
+                        "'device_reset_randomization' tensor capability; "
                         f"term(s) [{terms}] on backend '{self._backend.backend_type}' "
                         "cannot commit"
                     )

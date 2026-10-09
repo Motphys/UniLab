@@ -23,23 +23,10 @@ from unisim.dr.types import (
     RESET_TERM_KP,
     DomainRandomizationCapabilities,
     ResetRandomizationPayload,
+    TensorResetRandomizationPayload,
 )
 
 from unilab.base.reset_state import ResetStateTransaction
-
-_HAS_DEVICE_DR_CAP = "device_reset_randomization" in (
-    TensorLifecycleCapabilities.__dataclass_fields__
-)
-try:
-    from unisim.dr.types import TensorResetRandomizationPayload
-except ImportError:  # unisim-core <= 1.7.12 predates the device DR payload
-    TensorResetRandomizationPayload = None  # type: ignore[assignment]
-_HAS_TENSOR_PAYLOAD = TensorResetRandomizationPayload is not None
-
-requires_tensor_payload = pytest.mark.skipif(
-    not _HAS_TENSOR_PAYLOAD,
-    reason="unisim-core predates TensorResetRandomizationPayload",
-)
 
 
 class _Backend:
@@ -130,9 +117,6 @@ class _TensorResetBackend(_Backend):
         return super().get_reset_term_default(term)
 
     def get_tensor_capabilities(self):
-        kwargs: dict[str, Any] = {}
-        if _HAS_DEVICE_DR_CAP:
-            kwargs["device_reset_randomization"] = True
         return TensorLifecycleCapabilities(
             execution=TensorExecution.DEVICE_RESIDENT,
             state_views=True,
@@ -145,7 +129,7 @@ class _TensorResetBackend(_Backend):
             data_plane=TensorDataPlane.DIRECT,
             stream_event_ownership="fake synchronous stream",
             torch_devices=("cpu",),
-            **kwargs,
+            device_reset_randomization=True,
         )
 
     def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> dict:
@@ -981,11 +965,12 @@ def test_tensor_reset_commit_rejects_randomization_without_capability() -> None:
     class NoRandomizationBackend(_TensorResetBackend):
         def get_tensor_capabilities(self):
             capabilities = super().get_tensor_capabilities()
-            updates: dict[str, Any] = {"reset_randomization": False}
-            if _HAS_DEVICE_DR_CAP:
-                # New unisim-core validates device DR implies reset_randomization.
-                updates["device_reset_randomization"] = False
-            return replace(capabilities, **updates)
+            # unisim validates device DR implies reset_randomization.
+            return replace(
+                capabilities,
+                reset_randomization=False,
+                device_reset_randomization=False,
+            )
 
     transaction = _transaction(NoRandomizationBackend())
     transaction.declare_packed_reset_device(torch.device("cpu"))
@@ -1005,7 +990,6 @@ def _bind_device_mass(transaction: ResetStateTransaction) -> None:
     transaction.bind_body_mass_write(np.array([0, 1], dtype=np.int32), term_name="mass")
 
 
-@requires_tensor_payload
 def test_tensor_reset_commit_stages_device_body_mass_payload() -> None:
     backend = _TensorResetBackend()
     transaction = _transaction(backend)
@@ -1032,7 +1016,6 @@ def test_tensor_reset_commit_stages_device_body_mass_payload() -> None:
     assert randomization.kp is None
 
 
-@requires_tensor_payload
 def test_tensor_reset_randomization_carries_committed_rows_forward() -> None:
     backend = _TensorResetBackend()
     transaction = _transaction(backend)
@@ -1067,7 +1050,6 @@ def test_tensor_reset_randomization_carries_committed_rows_forward() -> None:
     )
 
 
-@requires_tensor_payload
 def test_tensor_reset_randomization_merges_column_disjoint_terms() -> None:
     backend = _TensorResetBackend()
     transaction = _transaction(backend)
@@ -1104,9 +1086,7 @@ def test_tensor_reset_device_randomization_requires_declared_capability() -> Non
     class NoDeviceRandomizationBackend(_TensorResetBackend):
         def get_tensor_capabilities(self):
             capabilities = super().get_tensor_capabilities()
-            if _HAS_DEVICE_DR_CAP:
-                return replace(capabilities, device_reset_randomization=False)
-            return capabilities
+            return replace(capabilities, device_reset_randomization=False)
 
     backend = NoDeviceRandomizationBackend()
     transaction = _transaction(backend)
@@ -1151,29 +1131,6 @@ def test_tensor_reset_rejects_mixing_host_and_device_randomization() -> None:
     assert backend.tensor_reset_calls == []
 
 
-def test_tensor_reset_device_randomization_requires_new_unisim(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    backend = _TensorResetBackend()
-    transaction = _transaction(backend)
-    transaction.declare_packed_reset_device(torch.device("cpu"))
-    _bind_device_mass(transaction)
-    rows = torch.tensor([0], dtype=torch.int64)
-    monkeypatch.setattr("unilab.base.reset_state.TensorResetRandomizationPayload", None)
-
-    with pytest.raises(NotImplementedError, match="unisim-core > 1.7.12"):
-        with transaction.scoped_device_event_tensor(rows):
-            transaction.write_randomization_tensor(
-                RESET_TERM_BODY_MASS,
-                rows,
-                np.array([0], dtype=np.int32),
-                torch.tensor([[7.0]]),
-                term_name="randomize_rigid_body_mass",
-            )
-    assert backend.tensor_reset_calls == []
-
-
-@requires_tensor_payload
 def test_host_randomization_commit_invalidates_device_committed_baseline() -> None:
     backend = _TensorResetBackend()
     transaction = _transaction(backend)

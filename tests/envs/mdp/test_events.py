@@ -29,6 +29,7 @@ from unisim.dr.types import (
     DomainRandomizationCapabilities,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
+    TensorResetRandomizationPayload,
 )
 
 from unilab.base.entity import EntityCfg, EntityScene
@@ -38,20 +39,7 @@ from unilab.managers import EventManager, EventTermCfg, SceneEntityCfg
 from unilab.managers._types import ManagerBasedRlEnv
 from unilab.managers.torch_rng import TorchManagerRng
 
-_HAS_DEVICE_DR_CAP = "device_reset_randomization" in (
-    TensorLifecycleCapabilities.__dataclass_fields__
-)
-try:
-    from unisim.dr.types import TensorResetRandomizationPayload
-except ImportError:  # unisim-core <= 1.7.12 predates the device DR payload
-    TensorResetRandomizationPayload = None  # type: ignore[assignment]
-_HAS_TENSOR_PAYLOAD = TensorResetRandomizationPayload is not None
-
 requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
-requires_device_dr = pytest.mark.skipif(
-    not (_HAS_DEVICE_DR_CAP and _HAS_TENSOR_PAYLOAD),
-    reason="unisim-core predates the device reset-randomization contract",
-)
 
 
 class _CaptureEntity:
@@ -323,6 +311,10 @@ class _Backend:
             supports_interval_body_force=self.interval_force_supported,
             supports_interval_body_torque=self.interval_torque_supported,
         )
+
+    def get_tensor_capabilities(self) -> TensorLifecycleCapabilities:
+        # Host-only fake: no tensor lifecycle, no device reset randomization.
+        return TensorLifecycleCapabilities(execution=TensorExecution.UNSUPPORTED)
 
     def get_reset_term_default(self, term: str) -> np.ndarray:
         if not self.get_dr_capabilities().supports_reset_term(term):
@@ -1662,9 +1654,6 @@ class _TensorBackend(_Backend):
         self.tensor_reset_calls: list[tuple[Any, Any, Any, Any]] = []
 
     def get_tensor_capabilities(self) -> TensorLifecycleCapabilities:
-        extra: dict[str, Any] = {}
-        if _HAS_DEVICE_DR_CAP:
-            extra["device_reset_randomization"] = self.device_reset_randomization
         return TensorLifecycleCapabilities(
             execution=TensorExecution.DEVICE_RESIDENT,
             state_views=True,
@@ -1677,7 +1666,7 @@ class _TensorBackend(_Backend):
             data_plane=TensorDataPlane.DIRECT,
             stream_event_ownership="fake synchronous stream",
             torch_devices=("cpu",),
-            **extra,
+            device_reset_randomization=self.device_reset_randomization,
         )
 
     def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> dict:
@@ -1776,8 +1765,6 @@ def _dr_event_cfg() -> dict[str, EventTermCfg]:
 def test_tensor_reset_terms_fall_back_to_host_payload_without_cuda_rows(
     device_capable: bool,
 ) -> None:
-    if device_capable and not _HAS_DEVICE_DR_CAP:
-        pytest.skip("unisim-core predates the device reset-randomization capability")
     # CPU rows (or a missing capability flag) keep the NumPy staging path even
     # inside a device tensor reset: the commit carries a host payload.
     env, backend, transaction = _tensor_dr_env(
@@ -1793,8 +1780,7 @@ def test_tensor_reset_terms_fall_back_to_host_payload_without_cuda_rows(
     assert len(backend.tensor_reset_calls) == 1
     randomization = backend.tensor_reset_calls[0][3]
     assert isinstance(randomization, ResetRandomizationPayload)
-    if _HAS_TENSOR_PAYLOAD:
-        assert not isinstance(randomization, TensorResetRandomizationPayload)
+    assert not isinstance(randomization, TensorResetRandomizationPayload)
     assert randomization.body_mass is not None
     assert randomization.body_ipos is not None
     assert randomization.geom_friction is not None
@@ -1805,7 +1791,6 @@ def test_tensor_reset_terms_fall_back_to_host_payload_without_cuda_rows(
 
 
 @requires_cuda
-@requires_device_dr
 def test_tensor_reset_terms_stage_device_randomization_payload() -> None:
     device = torch.device("cuda")
     env, backend, transaction = _tensor_dr_env(
