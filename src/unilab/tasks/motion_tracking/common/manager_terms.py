@@ -1687,7 +1687,7 @@ class TensorMotionCommand(MotionCommand):
             self._tensor_all_rows if rows is None else rows, self._motion_packet(frames)
         )
         self._obs_future_cache_step = -1
-        self._obs_future_cache.clear()
+        self.__dict__.get("_obs_future_cache", {}).clear()
 
     def _refresh_robot_state_torch(
         self, *, force: bool = False, rows: torch.Tensor | None = None
