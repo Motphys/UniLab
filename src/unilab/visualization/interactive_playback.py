@@ -12,6 +12,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig, OmegaConf
 
+from unilab.utils.checkpoint import normalize_checkpoint_value
 from unilab.utils.sim2sim import policy_load_dim_guard, resolve_sim2sim_config
 
 LogFn = Callable[[str], None]
@@ -574,14 +575,6 @@ def create_rsl_rl_playback_session(
     return session, policy_obs_mode, checkpoint_path
 
 
-def normalize_checkpoint_value(value: object) -> str | None:
-    """Normalize a raw checkpoint selector value; sentinel values map to ``None``."""
-    if value is None:
-        return None
-    text = str(value)
-    return None if text in {"", "-1", "None", "null"} else text
-
-
 _normalize_checkpoint_value = normalize_checkpoint_value
 
 
@@ -988,12 +981,16 @@ def create_sac_playback_session(
             **actor_kwargs,
         )
         actor.eval()
+        log_root_kwarg: dict[str, Any] = (
+            {"log_root": playback_cfg.log_root} if playback_cfg.log_root is not None else {}
+        )
         checkpoint_path, checkpoint_dir = resolve_offpolicy_checkpoint_path(
             Path(root_dir),
             cfg.algo.algo_log_name,
             cfg.training.task_name,
             playback_cfg.load_run,
             checkpoint=playback_cfg.checkpoint,
+            **log_root_kwarg,
         )
         if checkpoint_path is None or not os.path.exists(checkpoint_path):
             log(

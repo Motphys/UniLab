@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import time
+import warnings
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
@@ -440,6 +441,9 @@ SamplingMode = Literal["start", "clip_start", "uniform", "adaptive", "mixed"]
 _RANGE_KEYS = ("x", "y", "z", "roll", "pitch", "yaw")
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 _TORQUE_SENSOR_SUFFIX = "_torque"
+# Per-body observation motion layout: pos_w | quat_w | lin_vel_w | ang_vel_w.
+_OBS_MOTION_BLOCK_WIDTHS = (3, 4, 3, 3)
+_OBS_MOTION_WIDTH_PER_BODY = sum(_OBS_MOTION_BLOCK_WIDTHS)
 
 
 def _range_matrix(value: dict[str, tuple[float, float]], *, name: str) -> np.ndarray:
@@ -732,6 +736,27 @@ class MotionCommand(CommandTerm):
 
     def _prepare_tensor_carrier(self) -> None:
         """Hook for subclasses to replace cold carrier buffers before probing."""
+
+    def memoize_aux(
+        self, future: TensorMotionObsFuture, key: str, compute: Callable[[], Any]
+    ) -> Any:
+        """Cache one future-scoped auxiliary observation value per future object.
+
+        Entries are keyed by future identity and rebound when the future is
+        refreshed; the memo is replaced once it holds eight distinct futures.
+        """
+        memo = getattr(self, "_obs_terms_aux_memo", None)
+        if memo is None or len(memo) >= 8:
+            memo = {}
+            self._obs_terms_aux_memo = memo
+        entry = memo.get(id(future))
+        if entry is None or entry[0] is not future:
+            entry = (future, {})
+            memo[id(future)] = entry
+        values: dict[str, Any] = entry[1]
+        if key not in values:
+            values[key] = compute()
+        return values[key]
 
     def _make_motion_loader(
         self,
@@ -1221,6 +1246,12 @@ class TensorMotionCommand(MotionCommand):
             motion.body_lin_vel_w,
             motion.body_ang_vel_w,
         )
+        widths = tuple(int(np.asarray(value).shape[-1]) for value in blocks)
+        if widths != _OBS_MOTION_BLOCK_WIDTHS:
+            raise ValueError(
+                "Observation motion feature blocks must follow the per-body "
+                f"pos/quat/lin_vel/ang_vel layout {_OBS_MOTION_BLOCK_WIDTHS}, got {widths}"
+            )
         # Interleave each body's state blocks so a row reshapes directly to
         # ``(bodies, pos_w | quat_w | lin_vel_w | ang_vel_w)`` in obs_future.
         host = np.concatenate(
@@ -1283,19 +1314,21 @@ class TensorMotionCommand(MotionCommand):
         packets = self._obs_motion_features.index_select(0, rows).view(
             self.num_envs, len(steps), *self._obs_motion_features.shape[1:]
         )
-        width_per_body = 13
+        width_pos = _OBS_MOTION_BLOCK_WIDTHS[0]
+        width_quat_end = width_pos + _OBS_MOTION_BLOCK_WIDTHS[1]
+        width_lin_vel_end = width_quat_end + _OBS_MOTION_BLOCK_WIDTHS[2]
         body_packets = packets.view(
-            self.num_envs, len(steps), len(self.obs_body_names), width_per_body
+            self.num_envs, len(steps), len(self.obs_body_names), _OBS_MOTION_WIDTH_PER_BODY
         )
         result = TensorMotionObsFuture(
             future_steps=steps,
             ref_joint_pos=self._motion_features[:, : self.motion.num_joints]
             .index_select(0, rows)
             .view(self.num_envs, len(steps), self.motion.num_joints),
-            ref_body_pos_w=body_packets[..., :3] + self._env_origins[:, None, None, :],
-            ref_body_quat_w=body_packets[..., 3:7],
-            ref_body_lin_vel_w=body_packets[..., 7:10],
-            ref_body_ang_vel_w=body_packets[..., 10:13],
+            ref_body_pos_w=body_packets[..., :width_pos] + self._env_origins[:, None, None, :],
+            ref_body_quat_w=body_packets[..., width_pos:width_quat_end],
+            ref_body_lin_vel_w=body_packets[..., width_quat_end:width_lin_vel_end],
+            ref_body_ang_vel_w=body_packets[..., width_lin_vel_end:],
         )
         self._obs_future_cache[steps] = result
         return result
@@ -1313,7 +1346,7 @@ class TensorMotionCommand(MotionCommand):
             return
         self._bind_read_phase = True
         self._refresh_motion()
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         if read_plan is not None:
             read_plan.refresh()
             self._refresh_robot_state(force=True)
@@ -1336,14 +1369,14 @@ class TensorMotionCommand(MotionCommand):
 
     @property
     def device_robot_joint_pos(self) -> torch.Tensor:
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         if read_plan is not None and read_plan.ready:
             self._robot_joint_pos = read_plan.joint_tensor_view(self.robot).joint_pos
         return self._robot_joint_pos
 
     @property
     def device_robot_joint_vel(self) -> torch.Tensor:
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         if read_plan is not None and read_plan.ready:
             self._robot_joint_vel = read_plan.joint_tensor_view(self.robot).joint_vel
         return self._robot_joint_vel
@@ -1592,7 +1625,7 @@ class TensorMotionCommand(MotionCommand):
 
     def post_compute(self) -> None:
         rows = self._tensor_post_compute_env_ids
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         view_started = time.perf_counter()
         if read_plan is None or not read_plan.ready:
             if not self._bind_read_phase:
@@ -1695,7 +1728,7 @@ class TensorMotionCommand(MotionCommand):
         step = self._env.common_step_counter
         if not force and self._robot_cache_step == step:
             return
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         if read_plan is None or not read_plan.ready:
             # Manager term construction probes command carriers before the scene
             # read plan exists. Before `bind_read_phase`, immutable defaults are
@@ -2468,6 +2501,14 @@ class MimicLiteAppliedTorqueObservation(ManagerTermBase):
         self._sensor_names = tuple(
             f"{name}{_TORQUE_SENSOR_SUFFIX}" for name in command.robot.joint_names
         )
+        try:
+            self._host_view = env.scene.bind_sensor_data(self._sensor_names)
+        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                "MimicLite torque observation could not materialize the host sensor "
+                f"view for {self._sensor_names}: {exc}"
+            ) from exc
+        self._warned_host_fallback = False
 
     @property
     def entity_name(self) -> str:
@@ -2480,9 +2521,20 @@ class MimicLiteAppliedTorqueObservation(ManagerTermBase):
     def __call__(self, env: ManagerBasedRlEnv) -> torch.Tensor:
         if env is not self._env:
             raise ValueError("MimicLite torque observation was called with an unbound env")
-        read_plan = env.scene._tensor_read_plan
+        read_plan = getattr(env.scene, "_tensor_read_plan", None)
         if read_plan is None:
-            return torch.zeros((self.num_envs, len(self._sensor_names)), device=env.device)
+            # Manager probing runs before the scene compiles its packed read
+            # phase. Read the validated host view explicitly (same convention
+            # as _NamedSensorObservation._read_tensor) and warn once.
+            if not self._warned_host_fallback:
+                warnings.warn(
+                    "MimicLite torque observation read the host sensor view because "
+                    "the scene tensor read plan is not compiled yet",
+                    stacklevel=2,
+                )
+                self._warned_host_fallback = True
+            device = getattr(env, "device", torch.device("cpu"))
+            return torch.as_tensor(self._host_view.read(), dtype=torch.float32, device=device)
         views = read_plan.sensor_tensor_views(
             env.scene[self._entity_name], self._sensor_names
         ).values
