@@ -225,13 +225,15 @@ def _validate_event_term(
     cfg: EventTermCfg,
     *,
     term_name: str,
-    mode: str,
+    mode: str | tuple[str, ...],
     allowed_params: frozenset[str],
     required_params: tuple[str, ...],
 ) -> None:
-    if cfg.mode != mode:
+    supported_modes = (mode,) if isinstance(mode, str) else mode
+    if cfg.mode not in supported_modes:
         raise NotImplementedError(
-            f"EventManager term '{term_name}' only supports mode='{mode}' on the UniLab runtime"
+            "EventManager term "
+            f"'{term_name}' only supports mode='{'/'.join(supported_modes)}' on the UniLab runtime"
         )
     unknown = sorted(set(cfg.params) - allowed_params)
     if unknown:
@@ -941,7 +943,7 @@ pd_gains = PdGains
 
 
 class RandomizeRigidBodyMass(ManagerTermBase):
-    """Community-compatible body-mass randomization via the reset payload."""
+    """Community-compatible body-mass randomization via reset/startup payloads."""
 
     _PARAMS = frozenset(
         (
@@ -953,6 +955,7 @@ class RandomizeRigidBodyMass(ManagerTermBase):
             "min_mass",
         )
     )
+    uses_startup_rows = True
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
@@ -960,7 +963,7 @@ class RandomizeRigidBodyMass(ManagerTermBase):
         _validate_event_term(
             cfg,
             term_name=term_name,
-            mode="reset",
+            mode=("reset", "startup"),
             allowed_params=self._PARAMS,
             required_params=("asset_cfg", "mass_distribution_params", "operation"),
         )
@@ -1013,6 +1016,52 @@ class RandomizeRigidBodyMass(ManagerTermBase):
         self._device_dr_capable = _probe_device_reset_randomization(env)
         self._device_params: torch.Tensor | None = None
         self._device_default_mass: torch.Tensor | None = None
+        self._startup = cfg.mode == "startup"
+        self._startup_values: np.ndarray | None = None
+
+    def _apply_startup(self, env: ManagerBasedRlEnv, env_ids: torch.Tensor | None) -> None:
+        """Sample every world once and replay the immutable startup table.
+
+        Manager startup always supplies every environment row. The event is
+        full-width so the backend pays its derived-constant refresh once and
+        later selected-row resets can omit this field entirely.
+        """
+        ids = resolve_env_ids(env, env_ids)
+        expected_ids = np.arange(env.num_envs, dtype=np.int32)
+        if not np.array_equal(ids, expected_ids):
+            raise ValueError(
+                "EventManager term 'randomize_rigid_body_mass' startup mode requires all "
+                f"environment rows; got {ids.tolist()} for {env.num_envs} environments"
+            )
+        if self._startup_values is None:
+            samples = _sample_distribution(
+                env.rng,
+                self._distribution_params,
+                (env.num_envs, self._body_ids.size),
+                self._distribution,
+            )
+            default_mass = _selected_reset_defaults(
+                self._default_mass,
+                ids,
+                canonical_ndim=1,
+            )
+            values = np.asarray(
+                _apply_randomization_operation(default_mass, samples, self._operation),
+                dtype=np.float64,
+            )
+            np.maximum(values, self._min_mass, out=values)
+            if not np.isfinite(values).all():
+                raise ValueError(
+                    "EventManager term 'randomize_rigid_body_mass' produced NaN or Inf "
+                    "startup values"
+                )
+            self._startup_values = values
+        self._entity.record_startup_body_mass_to_sim(
+            self._startup_values,
+            body_ids=self._body_ids,
+            env_ids=ids,
+            term_name="randomize_rigid_body_mass",
+        )
 
     def _apply_device(self, env: ManagerBasedRlEnv, env_ids: torch.Tensor) -> None:
         """Stage body-mass DR rows wholly on the reset device.
@@ -1075,6 +1124,9 @@ class RandomizeRigidBodyMass(ManagerTermBase):
             recompute_inertia,
             min_mass,
         )
+        if self._startup:
+            self._apply_startup(env, env_ids)
+            return
         if _device_reset_randomization_active(
             env, env_ids, self._entity, capable=self._device_dr_capable
         ):
@@ -1223,7 +1275,13 @@ class RandomizeRigidBodyCom(ManagerTermBase):
     The ``com_range`` param is re-resolved from the live term params on every
     apply (not cached at construction), so step-staged curricula can widen the
     range by updating the event term config between resets.
+
+    In startup mode the declared range is sampled once for every environment and
+    the resulting full-width table is replayed; later curriculum changes do not
+    retroactively alter the already-fixed per-env values.
     """
+
+    uses_startup_rows = True
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
@@ -1231,7 +1289,7 @@ class RandomizeRigidBodyCom(ManagerTermBase):
         _validate_event_term(
             cfg,
             term_name=term_name,
-            mode="reset",
+            mode=("reset", "startup"),
             allowed_params=frozenset(("com_range", "asset_cfg")),
             required_params=("com_range", "asset_cfg"),
         )
@@ -1256,6 +1314,53 @@ class RandomizeRigidBodyCom(ManagerTermBase):
         )
         self._device_dr_capable = _probe_device_reset_randomization(env)
         self._device_default_ipos: torch.Tensor | None = None
+        self._startup = cfg.mode == "startup"
+        self._startup_values: np.ndarray | None = None
+
+    def _apply_startup(
+        self,
+        env: ManagerBasedRlEnv,
+        env_ids: torch.Tensor | None,
+        com_range: dict[str, tuple[float, float]],
+    ) -> None:
+        """Sample every world once and commit the immutable startup table."""
+        ids = resolve_env_ids(env, env_ids)
+        expected_ids = np.arange(env.num_envs, dtype=np.int32)
+        if not np.array_equal(ids, expected_ids):
+            raise ValueError(
+                "EventManager term 'randomize_rigid_body_com' startup mode requires all "
+                f"environment rows; got {ids.tolist()} for {env.num_envs} environments"
+            )
+        if self._startup_values is None:
+            ranges = _axis_ranges(
+                com_range,
+                term_name="randomize_rigid_body_com",
+                name="com_range",
+                keys=_XYZ_KEYS,
+            )
+            offsets = env.rng.uniform(
+                ranges[:, 0],
+                ranges[:, 1],
+                size=(env.num_envs, 3),
+            )
+            default_ipos = _selected_reset_defaults(
+                self._default_ipos,
+                ids,
+                canonical_ndim=2,
+            )
+            values = np.asarray(default_ipos + offsets[:, None, :], dtype=np.float64)
+            if not np.isfinite(values).all():
+                raise ValueError(
+                    "EventManager term 'randomize_rigid_body_com' produced NaN or Inf "
+                    "startup values"
+                )
+            self._startup_values = values
+        self._entity.record_startup_body_ipos_to_sim(
+            self._startup_values,
+            body_ids=self._body_ids,
+            env_ids=ids,
+            term_name="randomize_rigid_body_com",
+        )
 
     def _apply_device(
         self,
@@ -1306,6 +1411,9 @@ class RandomizeRigidBodyCom(ManagerTermBase):
         asset_cfg: SceneEntityCfg,
     ) -> None:
         del asset_cfg
+        if self._startup:
+            self._apply_startup(env, env_ids, com_range)
+            return
         if _device_reset_randomization_active(
             env, env_ids, self._entity, capable=self._device_dr_capable
         ):

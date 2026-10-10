@@ -898,6 +898,113 @@ def test_min_step_count_gating_reuses_committed_field_values() -> None:
     assert not np.allclose(fourth.body_mass, second.body_mass[:2])
 
 
+def test_startup_mass_and_com_sample_once_and_persist_across_resets() -> None:
+    env, backend, transaction = _transaction_env(rng_seed=61)
+    uniform_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    original_rng = env.rng
+
+    class _CountingRng:
+        def uniform(self, *args: Any, **kwargs: Any) -> np.ndarray:
+            uniform_calls.append((args, kwargs))
+            return original_rng.uniform(*args, **kwargs)
+
+    env.rng = _CountingRng()
+    asset_cfg = SceneEntityCfg("robot", body_names=("base",))
+    manager = EventManager(
+        {
+            "mass": EventTermCfg(
+                func=mdp.randomize_rigid_body_mass,
+                mode="startup",
+                params={
+                    "asset_cfg": asset_cfg,
+                    "mass_distribution_params": (1.5, 1.5),
+                    "operation": "scale",
+                    "recompute_inertia": False,
+                },
+            ),
+            "com": EventTermCfg(
+                func=mdp.randomize_rigid_body_com,
+                mode="startup",
+                params={
+                    "asset_cfg": asset_cfg,
+                    "com_range": {"x": (0.1, 0.1), "z": (-0.2, -0.2)},
+                },
+            ),
+        },
+        env,
+    )
+    all_rows = torch.arange(backend.num_envs, dtype=torch.int64)
+
+    with transaction.scoped(all_rows):
+        manager.apply(mode="startup", env_ids=all_rows)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    startup = backend.randomization_calls[0]
+    assert startup is not None
+    assert startup.body_mass is not None
+    assert startup.body_ipos is not None
+    np.testing.assert_allclose(startup.body_mass, [[15.0]] * backend.num_envs)
+    np.testing.assert_allclose(startup.body_ipos, [[[0.1, 0.0, -0.2]]] * backend.num_envs)
+    assert len(uniform_calls) == 2, "mass and COM must each sample exactly once"
+    assert uniform_calls[0][1]["size"] == (backend.num_envs, 1)
+    assert uniform_calls[1][1]["size"] == (backend.num_envs, 3)
+
+    selected = torch.tensor([1, 2], dtype=torch.int64)
+    with transaction.scoped(selected):
+        # Startup terms are not reset terms. An ordinary selected-row reset must
+        # not resample or recommit their model fields.
+        mdp.reset_scene_to_default(env, selected)
+    assert len(backend.set_state_calls) == 2
+    replay = backend.randomization_calls[-1]
+    assert replay is None or replay.body_mass is None
+    assert replay is None or replay.body_ipos is None
+    assert len(uniform_calls) == 2
+
+
+@pytest.mark.parametrize("mode", ["interval", "step"])
+def test_startup_capable_model_field_terms_reject_other_modes(mode: str) -> None:
+    env, backend, _ = _transaction_env()
+
+    with pytest.raises(
+        NotImplementedError,
+        match="only supports mode='reset/startup'",
+    ):
+        EventManager(
+            {
+                "mass": EventTermCfg(
+                    func=mdp.randomize_rigid_body_mass,
+                    mode=mode,
+                    params={
+                        "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                        "mass_distribution_params": (0.9, 1.1),
+                        "operation": "scale",
+                        "recompute_inertia": False,
+                    },
+                )
+            },
+            env,
+        )
+    with pytest.raises(
+        NotImplementedError,
+        match="only supports mode='reset/startup'",
+    ):
+        EventManager(
+            {
+                "com": EventTermCfg(
+                    func=mdp.randomize_rigid_body_com,
+                    mode=mode,
+                    params={
+                        "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                        "com_range": {"x": (-0.1, 0.1)},
+                    },
+                )
+            },
+            env,
+        )
+    assert backend.set_state_calls == []
+
+
 def test_min_step_count_gating_applies_to_pd_gains_payload_rows() -> None:
     env, backend, transaction = _transaction_env(rng_seed=41)
     manager = EventManager(

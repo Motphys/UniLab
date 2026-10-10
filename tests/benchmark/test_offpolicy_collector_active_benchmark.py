@@ -91,6 +91,18 @@ def test_owner_config_path_resolves_profile_owner() -> None:
     assert profiled.is_file()
 
 
+def test_owner_config_path_resolves_startup_profile_owner() -> None:
+    profiled = bench._owner_config_path(
+        "flashsac",
+        "g1_motion_tracking",
+        "mjwarp",
+        "mimiclite_dr_startup",
+    )
+
+    assert profiled.name == "mjwarp_mimiclite_dr_startup.yaml"
+    assert profiled.is_file()
+
+
 def test_profile_case_composes_profile_owner_with_sim_backend() -> None:
     cfg = bench._compose_offpolicy_cfg(
         "flashsac",
@@ -103,6 +115,19 @@ def test_profile_case_composes_profile_owner_with_sim_backend() -> None:
     # runtime backend.
     assert cfg.training.sim_backend == "mjwarp"
     assert cfg.training.task_name == "G1MotionTracking"
+
+
+def test_startup_profile_case_composes_startup_mass_com_owner() -> None:
+    cfg = bench._compose_offpolicy_cfg(
+        "flashsac",
+        "g1_motion_tracking",
+        "mjwarp",
+        "mimiclite_dr_startup",
+    )
+
+    assert cfg.training.sim_backend == "mjwarp"
+    assert cfg.env.events.body_mass.mode == "startup"
+    assert cfg.env.events.body_com.mode == "startup"
 
 
 def test_default_cases_cover_scoped_host_bridge() -> None:

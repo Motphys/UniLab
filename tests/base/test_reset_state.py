@@ -18,6 +18,7 @@ from unisim.backend.base import (
     TensorProcessTopology,
 )
 from unisim.dr.types import (
+    RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
     RESET_TERM_KD,
     RESET_TERM_KP,
@@ -222,6 +223,20 @@ class _PerWorldBodyMassBackend(_Backend):
         )
 
 
+class _StartupModelFieldBackend(_PerWorldBodyMassBackend):
+    """Expose canonical mass and CoM defaults for startup baseline tests."""
+
+    def get_dr_capabilities(self):
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset((RESET_TERM_BODY_MASS, RESET_TERM_BODY_IPOS))
+        )
+
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        if term == RESET_TERM_BODY_IPOS:
+            return np.asarray([[0.1, 0.0, 0.0], [0.0, 0.2, 0.0], [0.0, 0.0, 0.3]], dtype=np.float64)
+        return super().get_reset_term_default(term)
+
+
 class _InvalidDefaultBackend(_Backend):
     def __init__(self, field: str, value: Any) -> None:
         super().__init__()
@@ -313,6 +328,92 @@ def test_per_world_body_mass_preserves_each_selected_rows_baseline() -> None:
     payload = backend.randomization_calls[-1]
     assert payload is not None and payload.body_mass is not None
     np.testing.assert_allclose(payload.body_mass, [[1.0, 0.5, 100.0], [3.0, 0.5, 300.0]])
+
+
+def test_startup_model_field_commit_becomes_reset_baseline() -> None:
+    backend = _StartupModelFieldBackend()
+    transaction = _transaction(backend)
+    all_rows = np.arange(backend.num_envs, dtype=np.int32)
+    columns = np.arange(3, dtype=np.int32)
+    _, mass_defaults = transaction.bind_body_mass_write(columns, term_name="startup_mass")
+    startup_mass = np.asarray(mass_defaults) * 2.0
+    _, ipos_defaults = transaction.bind_body_ipos_write(columns, term_name="startup_com")
+    startup_ipos = np.broadcast_to(np.asarray(ipos_defaults), (backend.num_envs, 3, 3)) + 0.1
+
+    with transaction.scoped(torch.arange(backend.num_envs)):
+        transaction.write_body_mass(
+            all_rows,
+            columns,
+            startup_mass,
+            term_name="startup_mass",
+        )
+        transaction.record_startup_randomization(
+            RESET_TERM_BODY_MASS,
+            all_rows,
+            columns,
+            startup_mass,
+            term_name="startup_mass",
+        )
+        transaction.write_body_ipos(all_rows, columns, startup_ipos, term_name="startup_com")
+        transaction.record_startup_randomization(
+            RESET_TERM_BODY_IPOS,
+            all_rows,
+            columns,
+            startup_ipos,
+            term_name="startup_com",
+        )
+
+    startup_payload = backend.randomization_calls[-1]
+    assert startup_payload is not None
+    assert startup_payload.body_mass is not None
+    assert startup_payload.body_ipos is not None
+
+    selected = np.asarray([2, 0], dtype=np.int32)
+    with transaction.scoped(torch.from_numpy(selected.astype(np.int64))):
+        transaction.write_body_mass(
+            selected,
+            columns[:1],
+            np.full((selected.size, 1), 0.75),
+            term_name="later_reset_mass",
+        )
+
+    reset_payload = backend.randomization_calls[-1]
+    assert reset_payload is not None and reset_payload.body_mass is not None
+    np.testing.assert_allclose(reset_payload.body_mass[:, 0], [0.75, 0.75])
+    # The transaction commits rows in sorted order.
+    np.testing.assert_allclose(
+        reset_payload.body_mass[:, 1:],
+        startup_mass[np.sort(selected)][:, 1:],
+    )
+
+
+def test_startup_model_field_baseline_promotion_is_deferred_until_commit() -> None:
+    backend = _StartupModelFieldBackend()
+    backend.fail_set_state = True
+    transaction = _transaction(backend)
+    rows = np.arange(backend.num_envs, dtype=np.int32)
+    columns = np.array([1], dtype=np.int32)
+    _, selected_defaults = transaction.bind_body_mass_write(columns, term_name="startup_mass")
+
+    with pytest.raises(NotImplementedError, match="reset upload disabled"):
+        with transaction.scoped(torch.arange(backend.num_envs)):
+            transaction.write_body_mass(
+                rows, columns, selected_defaults.copy(), term_name="startup_mass"
+            )
+            transaction.record_startup_randomization(
+                RESET_TERM_BODY_MASS,
+                rows,
+                columns,
+                selected_defaults.copy(),
+                term_name="startup_mass",
+            )
+
+    # On failure, promotion did not occur: the default remains the backend's
+    # per-environment construction table, not the staged startup rows.
+    np.testing.assert_array_equal(
+        transaction._randomization_defaults[RESET_TERM_BODY_MASS],
+        backend.get_reset_term_default(RESET_TERM_BODY_MASS),
+    )
 
 
 def test_mocap_pose_is_staged_then_committed_after_generalized_state():

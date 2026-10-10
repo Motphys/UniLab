@@ -132,6 +132,7 @@ class ResetStateTransaction:
         self._randomization_defaults: dict[str, np.ndarray] = {}
         self._randomization_values: dict[str, np.ndarray] = {}
         self._randomization_dirty_masks: dict[str, np.ndarray] = {}
+        self._startup_randomization_fields: set[str] = set()
         self._committed_randomization: dict[str, np.ndarray] = {}
         self._committed_randomization_masks: dict[str, np.ndarray] = {}
         self._committed_kp: np.ndarray | None = None
@@ -1616,6 +1617,9 @@ class ResetStateTransaction:
                     randomization=randomization,
                 )
                 self._record_committed_payload(dirty_ids, randomization)
+                if self._startup_randomization_fields:
+                    self._promote_startup_randomization_defaults(dirty_ids)
+                    self._startup_randomization_fields.clear()
                 self._commit_mocap_poses()
                 timing: dict[str, float] = {
                     "dr_reset_set_state_ms": (time.perf_counter() - set_state_t0) * 1000.0
@@ -2216,6 +2220,69 @@ class ResetStateTransaction:
     ) -> np.ndarray:
         return default[env_ids] if self._default_is_per_env(default, field=field) else default
 
+    def record_startup_randomization(
+        self,
+        field: str,
+        env_ids: np.ndarray,
+        column_ids: np.ndarray,
+        values: np.ndarray,
+        *,
+        term_name: str,
+    ) -> None:
+        """Mark staged startup rows to become the reset baseline after commit.
+
+        The backend remains authoritative for committed state. This local cache
+        prevents a later selected-row reset from rebuilding unwritten model
+        columns from immutable construction defaults and clobbering the startup
+        values. The promotion is deferred until the public backend commit
+        succeeds, preserving the reset transaction's all-or-nothing contract.
+        """
+        if field not in self._randomization_defaults:
+            # Validation and immutable-default binding are owned by the
+            # corresponding write performed by the startup event.
+            raise RuntimeError(
+                f"EventManager term '{term_name}' must bind reset field '{field}' "
+                "before recording startup randomization"
+            )
+        ids = self._validate_ids(env_ids, capability="startup randomization")
+        if ids.size != self._num_envs or not np.array_equal(ids, np.arange(self._num_envs)):
+            raise ValueError(
+                f"EventManager term '{term_name}' startup randomization field '{field}' "
+                f"requires all {self._num_envs} environment rows; got {ids.tolist()}"
+            )
+        tail = _randomization_term_tail(field)
+        self._write_selected_randomization(
+            field,
+            env_ids,
+            column_ids,
+            values,
+            value_tail=tail,
+            term_name=term_name,
+        )
+        self._startup_randomization_fields.add(field)
+
+    def _promote_startup_randomization_defaults(self, dirty_ids: np.ndarray) -> None:
+        """Promote successfully committed full-width startup tables to baselines."""
+        if not self._startup_randomization_fields:
+            return
+        if dirty_ids.size != self._num_envs or not np.array_equal(
+            dirty_ids, np.arange(self._num_envs)
+        ):
+            raise RuntimeError(
+                "startup model-field randomization requires one full-width commit; got rows "
+                f"{dirty_ids.tolist()} for {self._num_envs} environments"
+            )
+        for field in tuple(self._startup_randomization_fields):
+            committed = self._committed_randomization.get(field)
+            mask = self._committed_randomization_masks.get(field)
+            if committed is None or mask is None or not bool(mask.all()):
+                raise RuntimeError(
+                    f"startup model-field randomization did not commit a complete '{field}' table"
+                )
+            promoted = np.array(committed, copy=True)
+            promoted.setflags(write=False)
+            self._randomization_defaults[field] = promoted
+
     def _readonly_binding(
         self,
         columns: np.ndarray,
@@ -2762,6 +2829,7 @@ class ResetStateTransaction:
         self._gain_dirty_mask.fill(False)
         for mask in self._randomization_dirty_masks.values():
             mask.fill(False)
+        self._startup_randomization_fields.clear()
         for mask in self._mocap_masks.values():
             mask.fill(False)
         self._requesting_terms.clear()

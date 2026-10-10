@@ -3274,6 +3274,34 @@ class Entity:
             term_name=f"{term_name}:{self.name}",
         )
 
+    def record_startup_body_mass_to_sim(
+        self,
+        values: np.ndarray,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "randomize_rigid_body_mass",
+    ) -> None:
+        """Stage a startup body-mass write and promote its committed baseline."""
+        reset_state, _, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-mass write",
+        )
+        normalized_ids = self._normalize_reset_env_ids(env_ids)
+        reset_state.write_body_mass(
+            normalized_ids,
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+        reset_state.record_startup_randomization(
+            RESET_TERM_BODY_MASS,
+            normalized_ids,
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
     def write_body_mass_tensor_to_sim(
         self,
         values: torch.Tensor,
@@ -3329,6 +3357,34 @@ class Entity:
         )
         reset_state.write_body_ipos(
             self._normalize_reset_env_ids(env_ids),
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def record_startup_body_ipos_to_sim(
+        self,
+        values: np.ndarray,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        env_ids: np.ndarray | slice | None = None,
+        *,
+        term_name: str = "randomize_rigid_body_com",
+    ) -> None:
+        """Stage a startup body-CoM write and promote its committed baseline."""
+        reset_state, _, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-ipos write",
+        )
+        normalized_ids = self._normalize_reset_env_ids(env_ids)
+        reset_state.write_body_ipos(
+            normalized_ids,
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+        reset_state.record_startup_randomization(
+            RESET_TERM_BODY_IPOS,
+            normalized_ids,
             backend_ids,
             values,
             term_name=f"{term_name}:{self.name}",

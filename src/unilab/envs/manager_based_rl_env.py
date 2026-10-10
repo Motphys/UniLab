@@ -399,7 +399,14 @@ class ManagerBasedRlEnv(TorchEnv):
         self.set_autoreset(cfg.auto_reset)
 
         if "startup" in self.event_manager.available_modes:
-            self.event_manager.apply(mode="startup")
+            # Startup model-field DR uses the same public set_state transaction
+            # as reset DR. It is intentionally full-width and executes once on
+            # the cold path, before backend materialization and runtime reads.
+            with self._reset_state.scoped(self._all_env_rows):
+                self.event_manager.apply(
+                    mode="startup",
+                    env_ids=self._all_env_rows if self.event_manager.uses_startup_rows else None,
+                )
         self._materialize_backend()
         self._compile_tensor_read_plan()
         self.command_manager.bind_read_phase()

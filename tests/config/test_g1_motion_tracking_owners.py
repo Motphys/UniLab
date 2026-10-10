@@ -203,6 +203,23 @@ def test_flashsac_g1_mimiclite_dr_owner_keeps_tensor_contract_with_dr() -> None:
     assert events.push_robot.params.velocity_range.roll == [0.0, 0.0]
 
 
+def test_flashsac_g1_mimiclite_dr_startup_owner_changes_only_mass_com_lifecycle() -> None:
+    reset_cfg = _compose_flashsac("g1_motion_tracking/mjwarp_mimiclite_dr")
+    cfg = _compose_flashsac("g1_motion_tracking/mjwarp_mimiclite_dr_startup")
+
+    assert cfg.training.task_name == reset_cfg.training.task_name
+    assert cfg.training.sim_backend == reset_cfg.training.sim_backend
+    assert cfg.env.events.body_mass.mode == "startup"
+    assert cfg.env.events.body_com.mode == "startup"
+    assert cfg.env.events.body_mass.params == reset_cfg.env.events.body_mass.params
+    assert cfg.env.events.body_com.params == reset_cfg.env.events.body_com.params
+    for name in ("foot_friction", "pd_gains_lower", "pd_gains_upper", "push_robot"):
+        assert cfg.env.events[name] == reset_cfg.env.events[name]
+    assert cfg.env.observations == reset_cfg.env.observations
+    assert cfg.reward == reset_cfg.reward
+    assert cfg.algo == reset_cfg.algo
+
+
 def test_flashsac_g1_motion_tracking_newton_keeps_mujoco_parity() -> None:
     mujoco_cfg = _compose_flashsac("g1_motion_tracking/mujoco")
     cfg = _compose_flashsac("g1_motion_tracking/newton")
