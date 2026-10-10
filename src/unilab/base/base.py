@@ -64,10 +64,9 @@ class EnvCfg:
     # ``cpu_ids[i]`` pins MuJoCo BatchEnvPool worker thread ``i`` to one CPU,
     # and likewise pins MotrixSim's shared worker pool to the listed cores
     # (worker ``i`` takes ``cpu_ids[i % len(cpu_ids)]``); env construction
-    # also confines the owning process to the same block and sizes Numba's
-    # parallel pool to ``len(cpu_ids)`` so host-side post-step compute stays
-    # inside the rank's partition. ``None`` keeps the default OS scheduling
-    # behavior.
+    # also confines the owning process and its already-running native threads
+    # to the same block so host-side post-step compute stays inside the rank's
+    # partition. ``None`` keeps the default OS scheduling behavior.
     cpu_ids: Optional[list[int]] = None
     # ``mjwarp`` owns contact/constraint storage independently from MuJoCo.
     # Keep its capacity knobs explicit in the task owner configuration so a

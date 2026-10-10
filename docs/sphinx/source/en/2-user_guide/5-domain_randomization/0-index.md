@@ -22,7 +22,7 @@ These three paths correspond to three lifecycle classes:
 ## Status Conclusions
 
 1. Reset/interval randomization consists of `events:` manager terms in the owner YAML, executed uniformly by the manager lifecycle.
-2. Manager-Based owners declare reset behavior through Hydra command/event terms. G1 motion reset perturbations belong to `MotionCommandCfg`, while task owners add `EventTermCfg` reset and interval terms.
+2. Manager-Based owners declare reset behavior through Hydra command/event terms. G1 motion reset perturbations belong to the device-resident `MotionCommandCfg`, while task owners add `EventTermCfg` reset and interval terms.
 3. `ResetRandomizationPayload` expresses curated reset terms; a backend must advertise every requested term and own its derived-quantity obligation.
 4. `MotrixBackend` currently supports `base_mass_delta`, `base_com_offset`, `kp`, `kd`, and interval push; and it requires all model actuators to be position actuators during initialization.
 5. Fixed mesh/tool identity is declared by `env.fixed_model_variants`; reset-time geometry fields remain behind backend capability declarations and never change that identity.
@@ -33,7 +33,7 @@ These three paths correspond to three lifecycle classes:
 | --- | --- | --- | --- | --- | --- |
 | `Go2JoystickFlat` | Hydra `events:` terms | Yes: owner YAML declares reset events | root-state reset + `pd_gains` kp/kd | none | `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | Hydra `events:` terms | Yes: Hydra `EventTermCfg` + Manager-Based reset terms | root-state reset + kp/kd via `pd_gains` | none | `g1/manager_terms.py` |
-| `G1MotionTracking` | Hydra command term | Yes: Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame, root pose/velocity, and joint-position sampling | none | `motion_tracking/common/manager_terms.py` |
+| `G1MotionTracking` | Hydra command term | Yes: Hydra device-resident `MotionCommandCfg` + Manager-Based command reset | motion frame, root pose/velocity, and joint-position sampling | none | `motion_tracking/common/manager_terms.py` |
 
 ## Per-task Domain Randomization List
 

@@ -1041,6 +1041,166 @@ def test_tensor_motion_state_success_stays_device_resident(monkeypatch: pytest.M
     assert scalar_conversions == 0
 
 
+def test_owner_tensor_transaction_commits_only_written_subset() -> None:
+    transaction = _transaction(_TensorResetBackend())
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    layout = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+    active_rows = torch.arange(4, dtype=torch.int64)
+    written_rows = torch.tensor([2], dtype=torch.int64)
+    root_state = torch.tensor([[0.0, 0.0, 0.3, 1.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0]])
+    position = torch.tensor([[0.1]], dtype=torch.float32)
+    velocity = torch.tensor([[0.2]], dtype=torch.float32)
+
+    with transaction.scoped_device_owner_tensor(active_rows):
+        transaction.write_motion_state_tensor(
+            written_rows,
+            layout,
+            np.array([7], dtype=np.int32),
+            np.array([6], dtype=np.int32),
+            root_state,
+            position,
+            velocity,
+            term_name="motion_owner",
+        )
+
+    backend = transaction._backend  # noqa: SLF001 - scoped test owns the fake
+    assert isinstance(backend, _TensorResetBackend)
+    assert len(backend.tensor_reset_calls) == 1
+    committed_rows, qpos, _qvel, randomization = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_rows, written_rows)
+    torch.testing.assert_close(qpos[:, :7], root_state[:, :7])
+    torch.testing.assert_close(qpos[:, 7:8], position)
+    assert randomization is None
+
+
+def test_owner_tensor_transaction_without_writes_does_not_commit() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+
+    with transaction.scoped_device_owner_tensor(torch.arange(4, dtype=torch.int64)):
+        pass
+
+    assert backend.tensor_reset_calls == []
+    assert transaction.last_commit_had_writes is False
+
+
+def test_owner_tensor_subset_must_stay_inside_active_domain() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    layout = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+    rows = torch.tensor([3], dtype=torch.int64)
+    root_state = torch.tensor([[0.0, 0.0, 0.3, 1.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0]])
+    position = torch.tensor([[0.1]], dtype=torch.float32)
+    velocity = torch.tensor([[0.2]], dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="outside the active owner row domain"):
+        with transaction.scoped_device_owner_tensor(torch.tensor([0, 1], dtype=torch.int64)):
+            transaction.write_motion_state_tensor(
+                rows,
+                layout,
+                np.array([7], dtype=np.int32),
+                np.array([6], dtype=np.int32),
+                root_state,
+                position,
+                velocity,
+                term_name="motion_owner",
+            )
+
+    assert backend.tensor_reset_calls == []
+
+
+def test_owner_tensor_subset_must_keep_one_write_row_set() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    layout = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.tensor([[0.0, 0.0, 0.3, 1.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0]])
+    position = torch.tensor([[0.1]], dtype=torch.float32)
+    velocity = torch.tensor([[0.2]], dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="changed the owner tensor write rows"):
+        with transaction.scoped_device_owner_tensor(torch.arange(4, dtype=torch.int64)):
+            transaction.write_root_state_tensor(
+                torch.tensor([1], dtype=torch.int64),
+                layout,
+                root_state,
+                term_name="root_owner",
+            )
+            transaction.write_motion_state_tensor(
+                torch.tensor([2], dtype=torch.int64),
+                layout,
+                np.array([7], dtype=np.int32),
+                np.array([6], dtype=np.int32),
+                root_state,
+                position,
+                velocity,
+                term_name="motion_owner",
+            )
+
+    assert backend.tensor_reset_calls == []
+
+
+def test_owner_tensor_transaction_rejects_reset_randomization() -> None:
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    transaction.bind_gravity_write(term_name="gravity_owner")
+    rows = torch.tensor([1], dtype=torch.int64)
+
+    with pytest.raises(RuntimeError, match="step-owner tensor transaction"):
+        with transaction.scoped_device_owner_tensor(torch.arange(4, dtype=torch.int64)):
+            transaction.write_gravity(
+                rows.detach().cpu().numpy(),
+                np.array([[0.0, 0.0, -9.5]], dtype=np.float64),
+                term_name="gravity_owner",
+            )
+
+    assert backend.tensor_reset_calls == []
+
+
+def test_owner_tensor_host_bridge_commits_only_written_torch_subset() -> None:
+    class _Plan:
+        def __init__(self) -> None:
+            self.calls: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+
+        def apply_reset(self, env_indices, qpos, qvel, randomization=None):
+            assert isinstance(env_indices, torch.Tensor)
+            assert isinstance(qpos, torch.Tensor)
+            assert isinstance(qvel, torch.Tensor)
+            self.calls.append((env_indices.clone(), qpos.clone(), qvel.clone()))
+            return None
+
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    plan = _Plan()
+    layout = BackendRootStateLayout(tuple(range(7)), tuple(range(6)))
+    written_rows = torch.tensor([2], dtype=torch.int64)
+    root_state = torch.tensor([[0.0, 0.0, 0.3, 1.0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0]])
+
+    with transaction.scoped_device_owner_tensor_with_host_commit(
+        torch.arange(4, dtype=torch.int64), plan
+    ):
+        transaction.write_motion_state_tensor(
+            written_rows,
+            layout,
+            np.array([7], dtype=np.int32),
+            np.array([6], dtype=np.int32),
+            root_state,
+            torch.tensor([[0.1]], dtype=torch.float32),
+            torch.tensor([[0.2]], dtype=torch.float32),
+            term_name="motion_owner",
+        )
+
+    assert len(plan.calls) == 1
+    committed_rows, qpos, _qvel = plan.calls[0]
+    torch.testing.assert_close(committed_rows, written_rows)
+    torch.testing.assert_close(qpos[:, :7], root_state[:, :7])
+    assert backend.tensor_reset_calls == []
+
+
 def test_tensor_reset_commit_carries_randomization_payload() -> None:
     backend = _TensorResetBackend()
     transaction = _transaction(backend)

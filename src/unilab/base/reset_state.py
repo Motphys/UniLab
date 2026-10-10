@@ -114,6 +114,7 @@ class ResetStateTransaction:
         self._active = False
         self._tensor_active = False
         self._tensor_has_writes = False
+        self._tensor_owner_subset = False
         self._active_mask = np.zeros(self._num_envs, dtype=np.bool_)
         self._dirty_mask = np.zeros(self._num_envs, dtype=np.bool_)
         self._default_qpos: np.ndarray | None = None
@@ -146,6 +147,8 @@ class ResetStateTransaction:
         self._mocap_masks: dict[str, np.ndarray] = {}
         self._packed_reset_device: torch.device | None = None
         self._tensor_rows: torch.Tensor | None = None
+        self._tensor_written_rows: torch.Tensor | None = None
+        self._tensor_domain_mask = torch.zeros(self._num_envs, dtype=torch.bool)
         self._tensor_dr_dense: dict[str, torch.Tensor] = {}
         self._tensor_dr_columns: dict[tuple[str, tuple[int, ...]], torch.Tensor] = {}
         self._tensor_dr_committed: dict[str, torch.Tensor] = {}
@@ -240,11 +243,44 @@ class ResetStateTransaction:
             self.commit_device_tensor()
 
     @contextmanager
+    def scoped_device_owner_tensor(self, env_ids: torch.Tensor) -> Iterator[ResetStateTransaction]:
+        """Begin a step-owner tensor transaction that may write an active subset.
+
+        Command terms discover dynamically during ``compute`` which rows require a
+        state mutation (for example motion-clip wrap). The active domain is the
+        full batch, while the commit contains only rows that actually received a
+        tensor state write. This is deliberately distinct from reset-event
+        transactions, whose selected rows must match their writes exactly.
+        """
+        self.begin_tensor(env_ids, owner_subset=True)
+        try:
+            yield self
+        except BaseException:
+            self.abort()
+            raise
+        else:
+            self.commit_device_tensor()
+
+    @contextmanager
     def scoped_device_event_tensor_with_host_commit(
         self, env_ids: torch.Tensor, host_plan: HostBridgeTransferPlan
     ) -> Iterator[ResetStateTransaction]:
         """Commit an owner tensor reset through one packed host-bridge boundary."""
         self.begin_tensor(env_ids)
+        try:
+            yield self
+        except BaseException:
+            self.abort()
+            raise
+        else:
+            self._commit_tensor_event_through_host_bridge(host_plan)
+
+    @contextmanager
+    def scoped_device_owner_tensor_with_host_commit(
+        self, env_ids: torch.Tensor, host_plan: HostBridgeTransferPlan
+    ) -> Iterator[ResetStateTransaction]:
+        """Commit dynamic owner-written subsets through the public packed bridge."""
+        self.begin_tensor(env_ids, owner_subset=True)
         try:
             yield self
         except BaseException:
@@ -279,7 +315,8 @@ class ResetStateTransaction:
                         f"'{self._backend.backend_type}'"
                     )
                 randomization = self._tensor_randomization_payload(record=False)
-            rows = self._tensor_rows
+            rows = self._tensor_written_rows if self._tensor_owner_subset else self._tensor_rows
+            assert rows is not None
             qpos = self._tensor_qpos.index_select(0, rows).detach()
             qvel = self._tensor_qvel.index_select(0, rows).detach()
             packed_reset_device = self._packed_reset_device
@@ -340,7 +377,7 @@ class ResetStateTransaction:
         self._tensor_qvel = None
         self._active = True
 
-    def begin_tensor(self, env_ids: torch.Tensor) -> None:
+    def begin_tensor(self, env_ids: torch.Tensor, *, owner_subset: bool = False) -> None:
         """Open a tensor-native transaction for concrete device row selectors."""
         if self._active or self._tensor_active:
             raise RuntimeError("ManagerBased reset-state transaction is already active")
@@ -361,6 +398,10 @@ class ResetStateTransaction:
         self._reset_tensor_staging_rows(rows)
         self._tensor_rows = rows
         self._tensor_has_writes = False
+        self._tensor_owner_subset = owner_subset
+        self._tensor_written_rows = None
+        self._tensor_domain_mask.fill_(False)
+        self._tensor_domain_mask[rows] = True
         self._tensor_dr_dense.clear()
         self._requesting_terms.clear()
         self._tensor_active = True
@@ -1889,7 +1930,8 @@ class ResetStateTransaction:
             assert self._tensor_rows is not None
             assert self._tensor_qpos is not None
             assert self._tensor_qvel is not None
-            rows = self._tensor_rows
+            rows = self._tensor_written_rows if self._tensor_owner_subset else self._tensor_rows
+            assert rows is not None
             qpos = self._tensor_qpos.index_select(0, rows)
             qvel = self._tensor_qvel.index_select(0, rows)
             try:
@@ -2529,6 +2571,12 @@ class ResetStateTransaction:
         term_name: str,
     ) -> np.ndarray:
         """Validate a public DR write against the active tensor row selector."""
+        if self._tensor_owner_subset:
+            raise RuntimeError(
+                "EventManager term "
+                f"'{term_name}' reset randomization is not part of a dynamic "
+                "step-owner tensor transaction"
+            )
         rows = self._tensor_rows
         assert rows is not None
         ids = self._validate_ids(env_ids, capability=f"write_{capability}")
@@ -2554,11 +2602,48 @@ class ResetStateTransaction:
             raise RuntimeError("ManagerBased tensor reset-state mutation requires an active reset")
         rows = self._tensor_rows
         assert rows is not None
+        if self._tensor_owner_subset:
+            return self._prepare_tensor_owner_subset_write(env_ids, rows, term_name=term_name)
         if env_ids.data_ptr() != rows.data_ptr() and not torch.equal(env_ids, rows):
             raise ValueError(
                 f"EventManager term '{term_name}' attempted {capability} mutation outside "
                 "the active tensor reset"
             )
+        self._requesting_terms.add(term_name)
+        return rows
+
+    def _prepare_tensor_owner_subset_write(
+        self,
+        env_ids: torch.Tensor,
+        active_rows: torch.Tensor,
+        *,
+        term_name: str,
+    ) -> torch.Tensor:
+        """Validate and register one dynamic write inside the active row domain."""
+        if env_ids.ndim != 1 or env_ids.device != active_rows.device:
+            raise ValueError(
+                f"EventManager term '{term_name}' owner tensor rows must be a "
+                "one-dimensional selector on the transaction device"
+            )
+        in_range = (env_ids >= 0) & (env_ids < self._num_envs)
+        if not bool(in_range.all()) or not bool(self._tensor_domain_mask[env_ids].all()):
+            raise ValueError(
+                f"EventManager term '{term_name}' attempted a tensor state mutation "
+                "outside the active owner row domain"
+            )
+        rows = env_ids.to(dtype=torch.int64)
+        if rows.numel() and not bool(torch.equal(torch.unique(rows), rows)):
+            raise ValueError(f"EventManager term '{term_name}' owner tensor rows must be unique")
+        previous = self._tensor_written_rows
+        if previous is None:
+            self._tensor_written_rows = rows
+        elif previous.shape != rows.shape or not bool(torch.equal(previous, rows)):
+            raise ValueError(
+                f"EventManager term '{term_name}' changed the owner tensor write rows; "
+                "one step-owner transaction supports one state-write row set"
+            )
+        else:
+            rows = previous
         self._requesting_terms.add(term_name)
         return rows
 
@@ -2852,7 +2937,10 @@ class ResetStateTransaction:
         self._requesting_terms.clear()
         self._tensor_active = False
         self._tensor_has_writes = False
+        self._tensor_owner_subset = False
         self._tensor_rows = None
+        self._tensor_written_rows = None
+        self._tensor_domain_mask.fill_(False)
         self._tensor_dr_dense.clear()
 
 

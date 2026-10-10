@@ -70,7 +70,7 @@ def test_flashsac_g1_motion_tracking_uses_comparable_dr_free_owner() -> None:
     )
     assert mjwarp_cfg.training.sim_backend == "mjwarp"
     assert mjwarp_cfg.env.commands.motion._target_ == (
-        "unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg"
+        "unilab.tasks.motion_tracking.common.manager_terms.MotionCommandCfg"
     )
     assert mjwarp_cfg.env == mujoco_cfg.env
     assert mjwarp_cfg.reward == mujoco_cfg.reward
@@ -108,7 +108,7 @@ def test_flashsac_g1_motion_tracking_newton_keeps_mujoco_parity() -> None:
     assert cfg.training.sim_backend == "newton"
     assert cfg.training.play_render_mode == "record"
     assert cfg.env.commands.motion._target_ == (
-        "unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg"
+        "unilab.tasks.motion_tracking.common.manager_terms.MotionCommandCfg"
     )
     assert cfg.env.newton_device == "cuda:0"
     assert cfg.env.newton_nconmax == 320
@@ -139,7 +139,7 @@ def test_flashsac_g1_motion_tracking_motrix_uses_tensor_command() -> None:
     assert cfg.training.sim_backend == "motrix"
     assert cfg.training.play_render_mode == "record"
     assert cfg.env.commands.motion._target_ == (
-        "unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg"
+        "unilab.tasks.motion_tracking.common.manager_terms.MotionCommandCfg"
     )
     assert cfg.env == mujoco_cfg.env
     assert cfg.algo == mujoco_cfg.algo
@@ -190,7 +190,7 @@ def test_sac_g1_motion_tracking_mjwarp_uses_tensor_motion_owner() -> None:
     cfg = _compose_sac("g1_motion_tracking/mjwarp")
 
     assert cfg.env.commands.motion._target_ == (
-        "unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg"
+        "unilab.tasks.motion_tracking.common.manager_terms.MotionCommandCfg"
     )
     actor_terms = cfg.env.observations.actor.terms
     critic_terms = cfg.env.observations.critic.terms

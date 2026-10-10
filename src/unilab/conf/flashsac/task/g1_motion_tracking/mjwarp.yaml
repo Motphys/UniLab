@@ -13,7 +13,3 @@ training:
   # Reduce metric D2H frequency for the scoped tensor benchmark; capacity
   # remains CLI-overridable so ring depth can be measured without task forks.
   collector_metrics_interval: 100
-env:
-  commands:
-    motion:
-      _target_: unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg
