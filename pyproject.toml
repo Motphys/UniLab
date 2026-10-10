@@ -33,7 +33,7 @@ classifiers = [
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "unisim-core>=1.7.14",
+    "unisim-core>=1.7.15",
     "numba>=0.67",
     "prettytable>=3.10",
     # A range (not an exact pin) lets ROCm users substitute a ROCm torch
@@ -106,13 +106,13 @@ newton = [
     "pyglet>=2.1.6,<3",
     "imgui-bundle>=1.92.0",
 ]
-motrix = ["unisim-core[motrix]>=1.7.14"]
+motrix = ["unisim-core[motrix]>=1.7.15"]
 genesis = ["genesis-world==1.3.3"]
 uni_rl = ["unilab-rl==1.4.10"]
 # Wheels are CPython 3.12/3.13 Linux x86_64 only; the marker keeps uv lock
 # resolvable for the other required-environments.
 superdex = [
-    "unisim-core[superdex]>=1.7.14 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "unisim-core[superdex]>=1.7.15 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 
 [dependency-groups]
