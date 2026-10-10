@@ -36,7 +36,7 @@ def _noisy_cfg() -> dict[str, ObservationGroupCfg]:
                     scale=2.0,
                 ),
                 "bias": ObservationTermCfg(
-                    func=lambda env: np.ones((env.num_envs, 1), dtype=np.float32)
+                    func=lambda env: torch.ones((env.num_envs, 1), dtype=torch.float32)
                 ),
             },
             enable_corruption=True,

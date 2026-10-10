@@ -846,16 +846,17 @@ class _NamedSensorTensorObservation:
 
 
 def _policy_obs(env: _TestEnv) -> np.ndarray:
-    return np.column_stack(
+    return torch.stack(
         (
-            env.episode_length_buf.to(torch.float32).detach().cpu().numpy(),
-            env.action_manager.action[:, 0].detach().cpu().numpy(),
-        )
+            env.episode_length_buf.to(torch.float32),
+            env.action_manager.action[:, 0],
+        ),
+        dim=1,
     )
 
 
-def _critic_obs(env: _TestEnv) -> np.ndarray:
-    return env.episode_length_buf[:, None].to(torch.float32).detach().cpu().numpy()
+def _critic_obs(env: _TestEnv) -> torch.Tensor:
+    return env.episode_length_buf[:, None].to(torch.float32)
 
 
 def _tensor_runtime_policy_obs(env: _TestEnv) -> torch.Tensor:
@@ -894,7 +895,7 @@ def _reward(env: _TestEnv) -> np.ndarray:
 
 
 def _joint_state_obs(env: _TestEnv) -> np.ndarray:
-    return env.scene["robot"].data.joint_pos
+    return torch.as_tensor(env.scene["robot"].data.joint_pos, dtype=torch.float32)
 
 
 def _joint_state_reward(env: _TestEnv) -> torch.Tensor:

@@ -190,6 +190,18 @@ def test_reward_and_termination_managers_do_not_import_numpy() -> None:
     assert violations == [], f"reward/termination NumPy imports remain: {violations}"
 
 
+def test_observation_manager_has_no_numpy_result_conversion() -> None:
+    path = _REPO_ROOT / "src" / "unilab" / "managers" / "observation_manager.py"
+    text = path.read_text(encoding="utf-8")
+    offenders = [
+        pattern
+        for pattern in ("np.ndarray | torch.Tensor", "torch.from_numpy", "expected np.ndarray")
+        if pattern in text
+    ]
+
+    assert offenders == [], f"observation NumPy result conversion remains: {offenders}"
+
+
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
     assert "motrix" in registry._envs["G1MotionTracking"].env_factory_dict
