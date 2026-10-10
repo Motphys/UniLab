@@ -158,18 +158,18 @@ def test_event_and_command_scheduling_fail_closed_without_torch_rng() -> None:
 class DummyCommand(CommandTerm):
     def __init__(self, cfg: DummyCommandCfg, env: FakeEnv):
         super().__init__(cfg, env)
-        self._command = np.zeros((env.num_envs, 1), dtype=np.float32)
-        self.metrics["error"] = np.arange(env.num_envs, dtype=np.float32)
+        self._command = torch.zeros((env.num_envs, 1), dtype=torch.float32)
+        self.metrics["error"] = torch.arange(env.num_envs, dtype=torch.float32)
 
     @property
-    def command(self) -> np.ndarray:
+    def command(self) -> torch.Tensor:
         return self._command
 
-    def _update_metrics(self, env_ids: np.ndarray | None = None) -> None:
+    def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:
         self.metrics["error"] += 1.0
 
     def _resample_command(self, env_ids: np.ndarray) -> None:
-        self._command[env_ids, 0] = self.command_counter[env_ids]
+        self._command[env_ids, 0] = self.command_counter[env_ids].to(torch.float32)
 
     def _update_command(self, env_ids: np.ndarray | None) -> None:
         pass
@@ -416,7 +416,7 @@ def test_public_exports_and_repository_import_boundary() -> None:
 def test_command_reset_state_boundary_can_skip_metric_publication(fake_env: FakeEnv) -> None:
     manager = CommandManager({"goal": DummyCommandCfg(resampling_time_range=(1.0, 1.0))}, fake_env)
     term = manager.get_term("goal")
-    term.metrics["error"].fill(2.0)
+    term.metrics["error"].fill_(2.0)
     rows = torch.tensor([1, 3], dtype=torch.int64)
 
     extras, commands = manager.reset_command_state(rows, publish_metrics=False)

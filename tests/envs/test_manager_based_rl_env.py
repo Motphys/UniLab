@@ -664,17 +664,19 @@ class _Command(CommandTerm):
 
     def __init__(self, cfg: _CommandCfg, env) -> None:
         super().__init__(cfg, env)
-        self._command = np.zeros((self.num_envs, 1), dtype=np.float32)
+        self._command = torch.zeros((self.num_envs, 1), dtype=torch.float32)
 
     @property
-    def command(self) -> np.ndarray:
+    def command(self) -> torch.Tensor:
         return self._command
 
     def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:
         return None
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
-        self._command[env_ids.cpu().numpy(), 0] = self._env.rng.uniform(size=env_ids.numel())
+        rng = self._env.torch_rng
+        assert rng is not None
+        self._command[env_ids, 0] = rng.uniform(0.0, 1.0, (env_ids.numel(),))
 
     def _update_command(self, env_ids: torch.Tensor | None) -> None:
         ids = None if env_ids is None else env_ids.clone()
@@ -772,10 +774,10 @@ class _AliasedSensorCommand(CommandTerm):
 
     def __init__(self, cfg: CommandTermCfg, env) -> None:
         super().__init__(cfg, env)
-        self._command = np.zeros((self.num_envs, 2), dtype=np.float32)
+        self._command = torch.zeros((self.num_envs, 2), dtype=torch.float32)
 
     @property
-    def command(self) -> np.ndarray:
+    def command(self) -> torch.Tensor:
         return self._command
 
     def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:

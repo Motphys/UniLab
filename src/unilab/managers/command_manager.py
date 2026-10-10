@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import abc
 import inspect
+import math
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
-import numpy as np
 import torch
 from prettytable import PrettyTable
 
@@ -22,16 +22,12 @@ if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
 
 
-def _finite(values: np.ndarray | torch.Tensor) -> bool:
-    if isinstance(values, torch.Tensor):
-        return bool(torch.isfinite(values).all())
-    return bool(np.isfinite(values).all())
+def _finite(values: torch.Tensor) -> bool:
+    return bool(torch.isfinite(values).all())
 
 
-def _mean(values: np.ndarray | torch.Tensor) -> float:
-    if isinstance(values, torch.Tensor):
-        return float(values.mean().item())
-    return float(np.mean(values))
+def _mean(values: torch.Tensor) -> float:
+    return float(values.mean().item())
 
 
 @dataclass(kw_only=True)
@@ -66,7 +62,7 @@ class CommandTerm(ManagerTermBase):
         self.cfg = cfg
         super().__init__(env)
         lower, upper = cfg.resampling_time_range
-        if not np.isfinite((lower, upper)).all() or lower > upper:
+        if not (math.isfinite(lower) and math.isfinite(upper)) or lower > upper:
             raise ValueError(
                 f"CommandTerm '{self.name}' has invalid resampling_time_range "
                 f"{cfg.resampling_time_range}."
@@ -75,7 +71,7 @@ class CommandTerm(ManagerTermBase):
         self._check_update_command_signature()
         self._device = torch.device(getattr(self._env, "device", torch.device("cpu")))
         self._torch_rng = self._require_torch_rng()
-        self.metrics: dict[str, np.ndarray | torch.Tensor] = {}
+        self.metrics: dict[str, torch.Tensor] = {}
         self.time_left = torch.zeros(self.num_envs, dtype=torch.float32, device=self._device)
         self.command_counter = torch.zeros(self.num_envs, dtype=torch.int64, device=self._device)
         self.last_reset_timing_ms: dict[str, float] = {}
@@ -96,14 +92,21 @@ class CommandTerm(ManagerTermBase):
         extras: dict[str, float] = {}
         metrics_started = time.perf_counter()
         metric_values = list(self.metrics.items())
-        tensor_metrics = [
-            (name, value) for name, value in metric_values if isinstance(value, torch.Tensor)
-        ]
         if publish_metrics:
-            if tensor_metrics and len(tensor_metrics) == len(metric_values):
+            tensor_metrics = [
+                (name, value)
+                for name, value in metric_values
+                if not isinstance(value, torch.Tensor)
+            ]
+            if tensor_metrics:
+                metric_name, _ = tensor_metrics[0]
+                raise TypeError(
+                    f"CommandTerm '{self.name}' metric '{metric_name}' must be a torch.Tensor"
+                )
+            if metric_values:
                 # Publish reset means and the finite diagnostic through one
                 # device boundary instead of synchronizing twice per metric.
-                selected = torch.stack([value[env_ids] for _, value in tensor_metrics], dim=0)
+                selected = torch.stack([value[env_ids] for _, value in metric_values], dim=0)
                 reduced = torch.stack(
                     (
                         selected.mean(dim=1),
@@ -116,32 +119,16 @@ class CommandTerm(ManagerTermBase):
                 finite = bool(host_reduced[1].min().item() == 1.0)
                 if not finite:
                     for metric_name, metric_slice in zip(
-                        (name for name, _ in tensor_metrics), selected, strict=True
+                        (name for name, _ in metric_values), selected, strict=True
                     ):
                         if not _finite(metric_slice):
                             raise ValueError(
                                 f"CommandTerm '{self.name}' metric '{metric_name}' contains "
                                 "NaN or Inf."
                             )
-                for (metric_name, metric_value), mean in zip(tensor_metrics, means, strict=True):
+                for (metric_name, metric_value), mean in zip(metric_values, means, strict=True):
                     extras[metric_name] = float(mean)
                     metric_value[env_ids] = 0.0
-            else:
-                for metric_name, metric_value in metric_values:
-                    metric_slice = (
-                        metric_value[env_ids]
-                        if isinstance(metric_value, torch.Tensor)
-                        else metric_value[env_ids.detach().cpu().numpy()]
-                    )
-                    if not _finite(metric_slice):
-                        raise ValueError(
-                            f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
-                        )
-                    extras[metric_name] = float(_mean(metric_slice))
-                    if isinstance(metric_value, torch.Tensor):
-                        metric_value[env_ids] = 0.0
-                    else:
-                        metric_value[env_ids.detach().cpu().numpy()] = 0.0
         else:
             self.clear_episode_metrics(env_ids)
         metrics_ms = (time.perf_counter() - metrics_started) * 1000.0
@@ -157,18 +144,12 @@ class CommandTerm(ManagerTermBase):
 
     def clear_episode_metrics(self, env_ids: torch.Tensor) -> None:
         """Clear selected command metrics without a host metric reduction."""
-        host_rows: list[int] | None = None
         for metric_value in self.metrics.values():
-            if isinstance(metric_value, torch.Tensor):
-                metric_value[env_ids] = 0.0
-            else:
-                if host_rows is None:
-                    host_rows = env_ids.detach().cpu().numpy().tolist()
-                metric_value[host_rows] = 0.0
+            if not isinstance(metric_value, torch.Tensor):
+                raise TypeError("CommandTerm metrics must be torch.Tensor carriers")
+            metric_value[env_ids] = 0.0
 
-    def compute(
-        self, dt: float | np.ndarray | torch.Tensor, env_ids: torch.Tensor | None = None
-    ) -> None:
+    def compute(self, dt: float | torch.Tensor, env_ids: torch.Tensor | None = None) -> None:
         """Advance the command state by dt.
 
         With env_ids=None (the per-step path) all envs are updated; with env_ids
@@ -196,14 +177,10 @@ class CommandTerm(ManagerTermBase):
         dt_scalar: float | None = None
         dt_tensor: torch.Tensor | None
         if not tensor_dt:
-            host_dt = np.asarray(dt)
-            if host_dt.ndim == 1:
-                tensor_dt = True
-                dt_tensor = torch.as_tensor(host_dt, dtype=torch.float32, device=self._device)
-            else:
-                tensor_dt = False
-                dt_tensor = None
-                dt_scalar = float(host_dt.item())
+            if isinstance(dt, bool) or not isinstance(dt, (int, float)):
+                raise TypeError("CommandTerm dt must be a scalar or torch.Tensor")
+            dt_scalar = float(dt)
+            dt_tensor = None
         else:
             dt_tensor = cast(torch.Tensor, dt)
         if dt_tensor is not None:
@@ -218,10 +195,8 @@ class CommandTerm(ManagerTermBase):
             assert dt_tensor is not None
             dt_is_finite = bool(torch.isfinite(dt_tensor).all())
         else:
-            host_dt = np.asarray(dt)
-            assert host_dt.ndim == 0
-            dt_scalar = float(host_dt.item())
-            dt_is_finite = bool(np.isfinite(dt_scalar))
+            assert dt_scalar is not None
+            dt_is_finite = math.isfinite(dt_scalar)
         if not dt_is_finite:
             raise ValueError(f"CommandTerm '{self.name}' received non-finite dt.")
         timing["update_state_command_dt_validation_ms"] = (
@@ -268,11 +243,16 @@ class CommandTerm(ManagerTermBase):
                 )
         if not metric_values:
             return
-        tensor_metrics = [
-            (name, value) for name, value in metric_values if isinstance(value, torch.Tensor)
+        non_tensor = [
+            (name, value) for name, value in metric_values if not isinstance(value, torch.Tensor)
         ]
-        if len(tensor_metrics) == len(metric_values):
-            finite = torch.stack([torch.isfinite(value) for _, value in tensor_metrics]).all()
+        if non_tensor:
+            metric_name, _ = non_tensor[0]
+            raise TypeError(
+                f"CommandTerm '{self.name}' metric '{metric_name}' must be a torch.Tensor"
+            )
+        if metric_values:
+            finite = torch.stack([torch.isfinite(value) for _, value in metric_values]).all()
             if bool(finite):
                 return
         for metric_name, metric_value in metric_values:
@@ -391,8 +371,8 @@ class CommandManager(ManagerBase):
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         terms = []
         for name, term in self._terms.items():
-            command = self._validate_command(name, term.command).detach().cpu().numpy()
-            terms.append((name, command[env_idx].tolist()))
+            command = self._validate_command(name, term.command)
+            terms.append((name, command[env_idx].detach().cpu().tolist()))
         return terms
 
     def reset(self, env_ids: torch.Tensor | slice | None) -> dict[str, float]:
@@ -437,10 +417,6 @@ class CommandManager(ManagerBase):
         commands: list[torch.Tensor] = []
         labels: list[str] = []
         for name, command in reset_commands:
-            if isinstance(command, np.ndarray):
-                command = torch.from_numpy(np.ascontiguousarray(command)).to(
-                    dtype=torch.float32, device=self._device
-                )
             self._validate_command_contract(name, command)
             commands.append(command)
             labels.append(name)
@@ -457,9 +433,7 @@ class CommandManager(ManagerBase):
         ) * 1000.0
         return extras, {name: command for name, command in zip(labels, commands, strict=True)}
 
-    def compute(
-        self, dt: float | np.ndarray | torch.Tensor, env_ids: torch.Tensor | None = None
-    ) -> None:
+    def compute(self, dt: float | torch.Tensor, env_ids: torch.Tensor | None = None) -> None:
         step_timing: dict[str, float] = {}
         dispatch_ms = 0.0
         validation_ms = 0.0
@@ -536,10 +510,6 @@ class CommandManager(ManagerBase):
             self._terms[term_name] = term
 
     def _validate_command(self, name: str, command: torch.Tensor) -> torch.Tensor:
-        if isinstance(command, np.ndarray):
-            command = torch.from_numpy(np.ascontiguousarray(command)).to(
-                dtype=torch.float32, device=self._device
-            )
         self._validate_command_contract(name, command)
         if not bool(torch.isfinite(command).all()):
             raise ValueError(f"CommandManager term '{name}' returned NaN or Inf.")
@@ -575,15 +545,13 @@ class NullCommandManager:
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         return []
 
-    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, np.ndarray]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         return {}
 
     def reset_diagnostics(self) -> dict[str, float]:
         return {}
 
-    def compute(
-        self, dt: float | np.ndarray | torch.Tensor, env_ids: torch.Tensor | None = None
-    ) -> None:
+    def compute(self, dt: float | torch.Tensor, env_ids: torch.Tensor | None = None) -> None:
         pass
 
     def post_compute(self) -> None:
