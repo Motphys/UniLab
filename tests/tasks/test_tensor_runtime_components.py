@@ -210,15 +210,6 @@ class _HostBridgeBackend:
             return torch.zeros((1, 3), device=device)
         return torch.tensor(values[name], device=device).unsqueeze(0)
 
-    def get_body_pos_w(self, body_ids):
-        return np.array([[[0.1, 0.2, 0.3]]], dtype=np.float64)
-
-    def get_body_quat_w(self, body_ids):
-        return np.array([[[1.0, 0.0, 0.0, 0.0]]], dtype=np.float64)
-
-    def get_body_lin_vel_w(self, body_ids):
-        return np.zeros((1, 1, 3), dtype=np.float64)
-
 
 class _SelectedResetReadinessBackend:
     backend_type = "fake-device-reset"
@@ -410,6 +401,35 @@ def test_tensor_state_store_selected_reset_reads_authoritative_selected_rows() -
     torch.testing.assert_close(store.qvel, qvel)
     torch.testing.assert_close(store.joint_pos, qpos[:, 7:])
     torch.testing.assert_close(store.joint_vel, qvel[:, 6:])
+
+
+def test_tensor_state_store_has_no_legacy_host_state_fallback() -> None:
+    backend = _HostBridgeBackend()
+    store = TensorDeviceStateStore(
+        backend=backend,  # pyright: ignore[reportArgumentType]
+        device=torch.device("cpu"),
+        num_envs=1,
+        joint_qpos_ids=np.array([7], dtype=np.int64),
+        joint_qvel_ids=np.array([6], dtype=np.int64),
+        body_names=("pelvis",),
+        body_ids=np.array([0], dtype=np.intp),
+    )
+    legacy_methods = (
+        "get_body_pos_w",
+        "get_body_quat_w",
+        "get_body_lin_vel_w",
+        "get_body_ang_vel_w",
+        "get_body_pose_w_rows",
+        "get_body_lin_vel_w_rows",
+        "get_body_ang_vel_w_rows",
+        "get_sensor_data_rows",
+    )
+
+    for method in legacy_methods:
+        assert not hasattr(backend, method)
+
+    store.read()
+    store.read(torch.tensor([0], dtype=torch.int64))
 
 
 def test_tensor_state_store_row_validation_uses_one_bounded_sync(
