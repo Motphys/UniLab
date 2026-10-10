@@ -11,6 +11,7 @@ import pytest
 import torch
 
 from unilab.managers import ObservationTermCfg, RewardTermCfg
+from unilab.managers.torch_rng import TorchManagerRng
 from unilab.tasks.locomotion.g1 import manager_terms as g1_terms
 from unilab.tasks.locomotion.g1.manager_terms import (
     G1GaitPhase,
@@ -56,6 +57,7 @@ class _FakeEnv:
         self.step_dt = 0.02
         self.device = torch.device("cpu")
         self.rng = np.random.default_rng(0)
+        self.torch_rng = TorchManagerRng.seeded(0)
         self.scene = _fake_scene(sensor_data)
         self.command_manager = SimpleNamespace(get_command=lambda name: commands[name])
 
@@ -107,6 +109,18 @@ def test_gait_phase_independent_mode_samples_feet_independently():
     term.reset(torch.arange(64, dtype=torch.int64))
     phase = term(env)
     assert not np.allclose(phase[:, 1] - phase[:, 0], np.pi)
+
+
+def test_gait_phase_reset_fails_closed_without_torch_rng() -> None:
+    env = _fake_env({}, num_envs=4)
+    env.torch_rng = None
+    term = G1GaitPhase(
+        ObservationTermCfg(func=G1GaitPhase, params={"frequency": 1.5}),
+        cast(Any, env),
+    )
+
+    with pytest.raises(RuntimeError, match="Manager-owned Torch generator"):
+        term.reset(torch.arange(4, dtype=torch.int64))
 
 
 def test_bezier_targets_match_legacy_reference_values():
