@@ -694,7 +694,7 @@ class ManagerBasedRlEnv(TorchEnv):
             unpublished: list[str] = []
             for name in sensor_names:
                 try:
-                    backend.get_sensor_data(name)
+                    backend.bind_sensor_data((name,))
                 except (KeyError, ValueError):
                     unpublished.append(name)
                 except (TypeError, NotImplementedError, AttributeError) as exc:
@@ -759,7 +759,7 @@ class ManagerBasedRlEnv(TorchEnv):
         available: set[str] = set()
         for name in names:
             try:
-                self._backend.get_sensor_data(name)
+                self._backend.bind_sensor_data((name,))
             except KeyError:
                 continue
             except (TypeError, ValueError, NotImplementedError, AttributeError) as exc:
