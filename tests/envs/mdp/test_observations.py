@@ -16,6 +16,7 @@ from unilab.envs import mdp
 from unilab.managers import ObservationGroupCfg, ObservationManager, ObservationTermCfg
 from unilab.managers._types import ManagerBasedRlEnv
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.managers.torch_rng import TorchManagerRng
 
 
 class _Backend:
@@ -160,6 +161,8 @@ def _env() -> tuple[ManagerBasedRlEnv, _Backend]:
             action_manager=_ActionManager(),
             command_manager=_CommandManager(),
             rng=np.random.default_rng(4),
+            device=torch.device("cpu"),
+            torch_rng=TorchManagerRng.seeded(4),
         ),
     )
     return env, backend
@@ -302,6 +305,7 @@ def test_named_sensor_terms_bind_once_and_only_read_cached_views() -> None:
 def test_cuda_manager_names_every_non_tensor_observation_term() -> None:
     env, _ = _env()
     cast(Any, env).device = torch.device("cuda", index=torch.cuda.current_device())
+    cast(Any, env).torch_rng = TorchManagerRng.seeded(4, device=cast(Any, env).device)
     manager = ObservationManager(
         {
             "policy": ObservationGroupCfg(
@@ -562,6 +566,14 @@ def test_imu_misalignment_reproducible_for_same_env_seed() -> None:
     obs_b = _imu_misalignment_manager(env_b).compute_group("policy")
 
     np.testing.assert_array_equal(obs_a, obs_b)
+
+
+def test_imu_misalignment_fails_closed_without_torch_rng() -> None:
+    env, _ = _env()
+    cast(Any, env).torch_rng = None
+
+    with pytest.raises(RuntimeError, match="Manager-owned Torch generator"):
+        _imu_misalignment_manager(env, max_angle_deg=6.0)
 
 
 def test_imu_misalignment_zero_angle_is_identity() -> None:
