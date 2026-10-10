@@ -8,11 +8,12 @@ provider protocol and the environment does not carry a DR manager.
 - **Construction identity:** `env.fixed_model_variants` materializes a final
   read-only assignment and attaches a UniSim `FixedVariantPlan` to `SceneCfg`.
   Backends realize it before their first forward and before CUDA graph capture.
-- **Startup:** event terms sample one full-width per-environment table before
-  backend materialization and commit it through the same public
-  `SimBackend.set_state(..., randomization=...)` boundary as reset DR. The
-  committed rows become the local reset baseline, so later selected-row resets
-  preserve unwritten startup values. Startup is opt-in and exchanges continuous
+- **Startup:** after manager construction, the backend materializes and event
+  terms sample one full-width per-environment table. They commit through the
+  same public `SimBackend.set_state(..., randomization=...)` boundary as reset
+  DR before read-plan binding, the first reset, or a step. The committed rows
+  become the local reset baseline, so later selected-row resets preserve
+  unwritten startup values. Startup is opt-in and exchanges continuous
   distribution coverage for removing full-model derived-constant refreshes from
   the steady-state reset path.
 - **Reset:** event terms write through Entity bindings into

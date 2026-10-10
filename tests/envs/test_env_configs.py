@@ -551,6 +551,110 @@ def test_flashsac_g1_motion_mujoco_tensor_command_roll_out() -> None:
     assert "[mujoco tensor motion rollout] OK" in result.stdout
 
 
+@pytest.mark.parametrize("mode", ["startup", "reset"])
+def test_flashsac_g1_motion_mujoco_tensor_command_model_field_dr_roll_out(
+    mode: str,
+) -> None:
+    """MuJoCo tensor motion commits startup/reset model-field DR in one boundary."""
+    ensure_registries()
+    _require_mujoco_runtime()
+    from unilab.base import registry
+    from unilab.envs import ManagerBasedRlEnv
+
+    _, override = _motion_manager_override("g1_motion_tracking", "mujoco", config_root="flashsac")
+    override["scene"]["entities"]["robot"]["geom_names"] = [
+        f"{side}_foot{index}_collision" for side in ("left", "right") for index in range(1, 8)
+    ]
+    events = {
+        "body_mass": {
+            "_target_": "unilab.managers.event_manager.EventTermCfg",
+            "func": "unilab.envs.mdp.randomize_rigid_body_mass",
+            "mode": mode,
+            "params": {
+                "asset_cfg": {
+                    "_target_": "unilab.managers.SceneEntityCfg",
+                    "name": "robot",
+                    "body_names": ["pelvis", "torso_link"],
+                },
+                "mass_distribution_params": [1.0, 1.0],
+                "operation": "scale",
+                "recompute_inertia": False,
+            },
+        },
+        "body_com": {
+            "_target_": "unilab.managers.event_manager.EventTermCfg",
+            "func": "unilab.envs.mdp.randomize_rigid_body_com",
+            "mode": mode,
+            "params": {
+                "asset_cfg": {
+                    "_target_": "unilab.managers.SceneEntityCfg",
+                    "name": "robot",
+                    "body_names": ["pelvis", "torso_link"],
+                },
+                "com_range": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
+            },
+        },
+    }
+    if mode == "reset":
+        events.update(
+            {
+                "foot_friction": {
+                    "_target_": "unilab.managers.event_manager.EventTermCfg",
+                    "func": "unilab.envs.mdp.geom_friction",
+                    "mode": "reset",
+                    "params": {
+                        "asset_cfg": {
+                            "_target_": "unilab.managers.SceneEntityCfg",
+                            "name": "robot",
+                            "geom_names": "^(left|right)_foot[1-7]_collision$",
+                        },
+                        "ranges": [1.0, 1.0],
+                        "operation": "abs",
+                    },
+                },
+                "pd_gains": {
+                    "_target_": "unilab.managers.event_manager.EventTermCfg",
+                    "func": "unilab.envs.mdp.pd_gains",
+                    "mode": "reset",
+                    "params": {
+                        "asset_cfg": {
+                            "_target_": "unilab.managers.SceneEntityCfg",
+                            "name": "robot",
+                            "actuator_names": ".*",
+                        },
+                        "kp_range": [1.0, 1.0],
+                        "kd_range": [1.0, 1.0],
+                        "operation": "scale",
+                    },
+                },
+            }
+        )
+    override["events"] = events
+
+    env = registry.make(
+        "G1MotionTracking",
+        num_envs=2,
+        sim_backend="mujoco",
+        env_cfg_override=override,
+    )
+    assert isinstance(env, ManagerBasedRlEnv)
+    try:
+        command = env.command_manager.get_term("motion")
+        assert command.tensor_carrier is True
+        obs, _ = env.reset(seed=1812)
+        assert all(torch.isfinite(values).all() for values in obs.values())
+        for _ in range(3):
+            state = env.step(torch.zeros((2, 29), dtype=torch.float32))
+        assert torch.isfinite(state.reward).all()
+        assert all(torch.isfinite(values).all() for values in state.obs.values())
+
+        obs, _ = env.reset(env_indices=torch.tensor([1], dtype=torch.int64))
+        assert all(torch.isfinite(values).all() for values in obs.values())
+    finally:
+        env.close()
+        env._backend.close()
+
+
 def test_flashsac_g1_motion_genesis_manager_tensor_command_roll_out() -> None:
     """The canonical FlashSAC Genesis owner exercises the Manager tensor path."""
     ensure_registries()

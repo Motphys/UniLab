@@ -257,17 +257,28 @@ class ResetStateTransaction:
         self, host_plan: HostBridgeTransferPlan
     ) -> dict | None:
         """Commit owner-staged tensor rows through the packed host bridge."""
-        self._last_commit_had_writes = self._tensor_has_writes
+        host_randomization = self._host_randomization_staged()
+        self._last_commit_had_writes = self._tensor_has_writes or host_randomization
         try:
-            if not self._tensor_has_writes:
+            if not self._tensor_has_writes and not host_randomization:
                 return None
-            if self.scene_layout is not None or self._randomization_dirty_masks:
+            if self.scene_layout is not None:
                 raise NotImplementedError(
                     "packed tensor reset event commit supports scalar qpos/qvel rows only"
                 )
             assert self._tensor_rows is not None
             assert self._tensor_qpos is not None
             assert self._tensor_qvel is not None
+            randomization = None
+            if host_randomization:
+                capabilities = self._backend.get_tensor_capabilities()
+                if not capabilities.reset_randomization:
+                    raise NotImplementedError(
+                        "packed tensor reset event commit does not support host-staged reset "
+                        "randomization on backend "
+                        f"'{self._backend.backend_type}'"
+                    )
+                randomization = self._tensor_randomization_payload(record=False)
             rows = self._tensor_rows
             qpos = self._tensor_qpos.index_select(0, rows).detach()
             qvel = self._tensor_qvel.index_select(0, rows).detach()
@@ -277,7 +288,11 @@ class ResetStateTransaction:
                 qpos = qpos.to(device=packed_reset_device, non_blocking=False)
                 qvel = qvel.to(device=packed_reset_device, non_blocking=False)
             started = time.perf_counter()
-            result = host_plan.apply_reset(rows, qpos, qvel, randomization=None)
+            result = host_plan.apply_reset(rows, qpos, qvel, randomization=randomization)
+            if randomization is not None:
+                self._record_committed_payload(
+                    self._tensor_rows.detach().cpu().numpy(), randomization
+                )
             self._last_set_state_timing_ms = {
                 "dr_reset_set_state_ms": (time.perf_counter() - started) * 1000.0
             }
@@ -1910,12 +1925,14 @@ class ResetStateTransaction:
         finally:
             self._finish()
 
-    def _tensor_randomization_payload(self) -> ResetRandomizationPayload | None:
+    def _tensor_randomization_payload(
+        self, *, record: bool = True
+    ) -> ResetRandomizationPayload | None:
         """Build the selected-row public DR payload from tensor reset rows."""
         assert self._tensor_rows is not None
         rows_host = self._tensor_rows.detach().cpu().numpy()
         payload = self._build_randomization_payload(rows_host)
-        if payload is not None:
+        if payload is not None and record:
             self._record_committed_payload(rows_host, payload)
         return payload
 

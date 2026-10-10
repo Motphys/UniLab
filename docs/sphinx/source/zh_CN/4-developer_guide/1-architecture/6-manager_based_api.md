@@ -23,8 +23,8 @@ Torch，并保留现有 `TorchEnvState`、Hydra owner YAML、`SimBackend`、regi
   `SimBackend` contract，热路径复用缓存 ID/view。
 - named-sensor observation term 在构造时通过 `EntityScene.bind_sensor_data(...)` 绑定
   backend-owned view；热路径只读该 view，不重复解析 sensor 名称或 XML/model metadata。
-- `ManagerBasedRlEnv` 恰好拥有一次 backend 物化：先完成 manager 构造和 startup event，
-  再调用 `SimBackend.materialize()`，任何 reset/step 都不能在物化前执行。
+- `ManagerBasedRlEnv` 恰好拥有一次 backend 物化：先完成 manager 构造，再依次执行
+  `SimBackend.materialize()` 和 startup event；任何 reset/step 都不能在物化前执行。
 - 用户显式空配置可以使用 Null manager；配置请求但 runtime/backend 不支持的能力必须在
   最近边界报错，不能 warning、skip、返回零或回退旧 env。
 - 热路径避免明显的重复解析、逐环境 Python 循环、复制和临时分配；进一步优化需要
