@@ -17,6 +17,7 @@ import torch
 
 from unilab.dtype_config import get_global_dtype
 from unilab.managers.command_manager import CommandTerm, CommandTermCfg
+from unilab.managers.torch_rng import TorchManagerRng
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
@@ -106,9 +107,11 @@ class UniformPoseCommand(CommandTerm):
 
     def _host_uniform(self, lower: float, upper: float, count: int) -> np.ndarray:
         rng_owner = getattr(self._env, "torch_rng", None)
-        if rng_owner is not None:
-            return rng_owner.uniform(lower, upper, (count,), dtype=torch.float32).cpu().numpy()
-        return self._env.rng.uniform(lower, upper, count)
+        if not isinstance(rng_owner, TorchManagerRng):
+            raise RuntimeError(
+                "UniformPoseCommand sampling requires the Manager-owned Torch generator"
+            )
+        return rng_owner.uniform(lower, upper, (count,), dtype=torch.float32).cpu().numpy()
 
     def _update_command(self, env_ids: torch.Tensor | None) -> None:
         del env_ids

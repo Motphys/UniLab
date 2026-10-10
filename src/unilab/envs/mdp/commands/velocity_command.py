@@ -15,6 +15,7 @@ import numpy as np
 import torch
 
 from unilab.managers.command_manager import CommandTerm, CommandTermCfg
+from unilab.managers.torch_rng import TorchManagerRng
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -205,15 +206,11 @@ class UniformVelocityCommand(CommandTerm):
 
     def _sample_uniform(self, lower: float, upper: float, count: int) -> torch.Tensor:
         rng_owner = getattr(self._env, "torch_rng", None)
-        if rng_owner is not None:
-            return rng_owner.uniform(lower, upper, (count,), dtype=torch.float32)
-        # CPU reference owners may still use the legacy NumPy stream. This is
-        # confined to the public HOST_BRIDGE carrier and is uploaded once here.
-        return torch.as_tensor(
-            self._env.rng.uniform(lower, upper, count),
-            dtype=torch.float32,
-            device=self._device,
-        )
+        if not isinstance(rng_owner, TorchManagerRng):
+            raise RuntimeError(
+                "UniformVelocityCommand sampling requires the Manager-owned Torch generator"
+            )
+        return rng_owner.uniform(lower, upper, (count,), dtype=torch.float32)
 
     def _heading(self) -> torch.Tensor:
         heading = self.robot.data.heading_w

@@ -14,6 +14,7 @@ import torch
 
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.managers.torch_rng import TorchManagerRng
 from unilab.utils.rotation import np_quat_apply_batched, np_quat_from_angle_axis
 
 if TYPE_CHECKING:
@@ -174,7 +175,7 @@ def _imu_misalignment_quat(env: ManagerBasedRlEnv, max_angle_rad: float) -> np.n
 
     Models a fixed small mounting/calibration error of the IMU on each robot:
     a rotation about an axis uniform on the sphere with magnitude uniform in
-    [0, max_angle_rad]. Sampled from ``env.rng`` on first use and cached for the
+    [0, max_angle_rad]. Sampled from ``env.torch_rng`` on first use and cached for the
     whole run (a startup-style systematic per-robot bias, not per-step noise and
     not resampled on episode reset), matching the legacy semantics.
 
@@ -187,20 +188,16 @@ def _imu_misalignment_quat(env: ManagerBasedRlEnv, max_angle_rad: float) -> np.n
     quat = per_env.get(max_angle_rad)
     if quat is None:
         rng_owner = getattr(env, "torch_rng", None)
-        if rng_owner is not None:
-            axis = rng_owner.standard_normal((env.num_envs, 3))
-            angle = rng_owner.uniform(0.0, max_angle_rad, (env.num_envs,), dtype=torch.float32)
-            axis = axis / torch.linalg.vector_norm(axis, dim=-1, keepdim=True)
-            half = 0.5 * angle
-            quat_torch = torch.cat(
-                (torch.cos(half)[:, None], axis * torch.sin(half)[:, None]), dim=1
+        if not isinstance(rng_owner, TorchManagerRng):
+            raise RuntimeError(
+                "IMU misalignment sampling requires the Manager-owned Torch generator"
             )
-            quat = quat_torch.detach().cpu().numpy().astype(np.float32, copy=False)
-            per_env[max_angle_rad] = quat
-            return quat
-        axis = env.rng.standard_normal((env.num_envs, 3))
-        angle = env.rng.uniform(0.0, max_angle_rad, size=env.num_envs)
-        quat = np_quat_from_angle_axis(angle, axis).astype(np.float32)
+        axis = rng_owner.standard_normal((env.num_envs, 3))
+        angle = rng_owner.uniform(0.0, max_angle_rad, (env.num_envs,), dtype=torch.float32)
+        axis = axis / torch.linalg.vector_norm(axis, dim=-1, keepdim=True)
+        half = 0.5 * angle
+        quat_torch = torch.cat((torch.cos(half)[:, None], axis * torch.sin(half)[:, None]), dim=1)
+        quat = quat_torch.detach().cpu().numpy().astype(np.float32, copy=False)
         per_env[max_angle_rad] = quat
     return quat
 
