@@ -19,6 +19,7 @@ from unisim.backend.base import (
     TensorLifecycleCapabilities,
     TensorProcessTopology,
 )
+from unisim.dr.types import DomainRandomizationCapabilities
 
 import unilab.envs.manager_based_rl_env as manager_env_module
 from unilab.assets import ASSETS_ROOT_PATH
@@ -53,6 +54,7 @@ from unilab.managers import (
     RewardTermCfg,
     TerminationTermCfg,
 )
+from unilab.managers.scene_entity_config import SceneEntityCfg
 
 
 class _FakeBackend:
@@ -87,6 +89,53 @@ class _FakeBackend:
     def get_actuator_names(self) -> tuple[str, ...]:
         return ("motor",)
 
+    def get_geom_names(self) -> tuple[str, ...]:
+        return ("base_geom",)
+
+    def get_actuator_gains(self) -> tuple[np.ndarray, np.ndarray]:
+        return np.asarray([20.0]), np.asarray([2.0])
+
+    def get_body_ids(self, names) -> np.ndarray:
+        available = ("base",)
+        return np.asarray([available.index(name) for name in names], dtype=np.int32)
+
+    def get_dr_capabilities(self):
+        return DomainRandomizationCapabilities(
+            supported_reset_terms=frozenset(("body_mass", "body_ipos", "geom_friction", "kp", "kd"))
+        )
+
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        defaults = {
+            "body_mass": np.asarray([10.0]),
+            "body_ipos": np.asarray([[0.0, 0.0, 0.0]]),
+            "geom_friction": np.asarray([[0.5, 0.02, 0.002]]),
+            "kp": np.asarray([20.0]),
+            "kd": np.asarray([2.0]),
+        }
+        if term not in defaults:
+            raise NotImplementedError(term)
+        return np.array(defaults[term], copy=True)
+
+    def get_body_pos_w(self, body_ids) -> np.ndarray:
+        return np.zeros((self.num_envs, len(body_ids), 3), dtype=np.float32)
+
+    def get_body_quat_w(self, body_ids) -> np.ndarray:
+        values = np.zeros((self.num_envs, len(body_ids), 4), dtype=np.float32)
+        values[..., 0] = 1.0
+        return values
+
+    def get_body_lin_vel_w(self, body_ids) -> np.ndarray:
+        return np.zeros((self.num_envs, len(body_ids), 3), dtype=np.float32)
+
+    def get_body_ang_vel_w(self, body_ids) -> np.ndarray:
+        return np.zeros((self.num_envs, len(body_ids), 3), dtype=np.float32)
+
+    def get_body_lin_vel_b(self, body_ids) -> np.ndarray:
+        return self.get_body_lin_vel_w(body_ids)
+
+    def get_body_ang_vel_b(self, body_ids) -> np.ndarray:
+        return self.get_body_ang_vel_w(body_ids)
+
     def get_actuator_ctrl_range(self) -> np.ndarray:
         return np.array([[-2.0, 2.0]], dtype=np.float32)
 
@@ -114,6 +163,7 @@ class _FakeBackend:
             data_plane=TensorDataPlane.HOST_BRIDGE,
             stream_event_ownership="test",
             torch_devices=("cpu",),
+            reset_randomization=True,
         )
 
     def get_public_state_widths(self):
@@ -154,6 +204,7 @@ class _ResetBackend(_FakeBackend):
         self.init_qvel_calls = 0
         self.joint_layout_calls = 0
         self.set_state_calls: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        self.randomization_calls: list[Any] = []
 
     def get_default_qpos(self) -> np.ndarray:
         self.default_qpos_calls += 1
@@ -203,9 +254,9 @@ class _ResetBackend(_FakeBackend):
         qvel: np.ndarray,
         randomization=None,
     ) -> None:
-        assert randomization is None
         assert self.materialize_calls == 1
         self.set_state_calls.append((env_ids.copy(), qpos.copy(), qvel.copy()))
+        self.randomization_calls.append(randomization)
 
 
 class _StateBackend(_ResetBackend):
@@ -322,6 +373,7 @@ class _ScenePlanBackend(_StateBackend):
         self.selected_reads = 0
         self.plan_closes = 0
         self.reset_calls: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
+        self.reset_randomization_calls: list[Any] = []
         self.nq = 4
         self.nv = 3
         self.sensors = {
@@ -331,6 +383,12 @@ class _ScenePlanBackend(_StateBackend):
             ),
             "track_linvel_w_platform": torch.zeros((num_envs, 3), dtype=torch.float32),
             "track_angvel_w_platform": torch.zeros((num_envs, 3), dtype=torch.float32),
+            "track_pos_w_base": torch.zeros((num_envs, 3), dtype=torch.float32),
+            "track_quat_w_base": torch.tile(
+                torch.tensor([1.0, 0.0, 0.0, 0.0], dtype=torch.float32), (num_envs, 1)
+            ),
+            "track_linvel_w_base": torch.zeros((num_envs, 3), dtype=torch.float32),
+            "track_angvel_w_base": torch.zeros((num_envs, 3), dtype=torch.float32),
             "track_pos_w_ball": torch.tensor(
                 [[0.1, 0.2, 1.2], [0.3, 0.4, 1.2]], dtype=torch.float32
             ),
@@ -353,6 +411,7 @@ class _ScenePlanBackend(_StateBackend):
             data_plane=TensorDataPlane.HOST_BRIDGE,
             stream_event_ownership="test",
             torch_devices=("cpu",),
+            reset_randomization=True,
         )
 
     def get_state_views(self, fields, device=None) -> dict[str, torch.Tensor]:
@@ -373,6 +432,8 @@ class _ScenePlanBackend(_StateBackend):
             name = ("base", "platform", "ball")[int(body_id)]
             if name == "platform":
                 positions[:, row] = self.sensors["track_pos_w_platform"]
+            elif name == "base":
+                positions[:, row] = 0.1
             elif name == "ball":
                 positions[:, row] = self.sensors["track_pos_w_ball"]
         return positions.numpy()
@@ -442,6 +503,7 @@ class _ScenePlanBackend(_StateBackend):
                         qvel.detach().clone(),
                     )
                 )
+                backend.reset_randomization_calls.append(randomization)
                 return None
 
             def close(self) -> None:
@@ -1461,7 +1523,7 @@ def test_manager_construction_uses_pinned_order(monkeypatch: pytest.MonkeyPatch)
     assert order == list(names)
 
 
-def test_backend_materializes_once_after_startup_and_before_runtime() -> None:
+def test_backend_materializes_once_before_startup_and_runtime() -> None:
     cfg = _make_cfg()
     cfg.events = {
         "startup": EventTermCfg(func=_startup_event, mode="startup"),
@@ -1469,10 +1531,64 @@ def test_backend_materializes_once_after_startup_and_before_runtime() -> None:
     }
     env, backend = _make_env(cfg)
 
-    assert backend.lifecycle == ["startup", "materialize"]
+    assert backend.lifecycle == ["materialize", "startup"]
     assert backend.materialize_calls == 1
 
-    env.reset()
+
+def test_startup_model_field_dr_commits_after_backend_materialization() -> None:
+    cfg = _make_cfg()
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        body_names=("base",),
+        joint_names=("joint",),
+        actuator_names=("motor",),
+    )
+    cfg.observations = {
+        "actor": ObservationGroupCfg(terms={"policy": ObservationTermCfg(func=_policy_obs)}),
+        "value": ObservationGroupCfg(terms={"critic": ObservationTermCfg(func=_critic_obs)}),
+    }
+    cfg.events = {
+        "reset_scene": EventTermCfg(func=mdp.reset_scene_to_default, mode="reset"),
+        "body_mass": EventTermCfg(
+            func=mdp.randomize_rigid_body_mass,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                "mass_distribution_params": (1.5, 1.5),
+                "operation": "scale",
+                "recompute_inertia": False,
+            },
+        ),
+        "body_com": EventTermCfg(
+            func=mdp.randomize_rigid_body_com,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                "com_range": {"x": (0.1, 0.1), "z": (-0.2, -0.2)},
+            },
+        ),
+    }
+    backend = _ResetBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+
+    assert backend.lifecycle == ["materialize"]
+    assert len(backend.set_state_calls) == 1
+    np.testing.assert_array_equal(backend.set_state_calls[0][0], np.arange(2))
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    assert payload.body_mass is not None
+    assert payload.body_ipos is not None
+    np.testing.assert_allclose(payload.body_mass, [[15.0], [15.0]])
+    np.testing.assert_allclose(payload.body_ipos, [[[0.1, 0.0, -0.2]]] * 2)
+
+    env.init_state()
+    assert backend.lifecycle == ["materialize"]
+    assert len(backend.set_state_calls) == 2
+    replay = backend.randomization_calls[-1]
+    assert replay is None or replay.body_mass is None
+    assert replay is None or replay.body_ipos is None
+
+    env.reset(env_indices=torch.tensor([0], dtype=torch.int64))
     env.step(torch.zeros((2, 1), dtype=torch.float32))
     env.reset()
 
@@ -2314,6 +2430,104 @@ def test_scene_read_plan_pairs_reset_with_selected_packed_transfer() -> None:
         torch.testing.assert_close(backend.reset_calls[1][0], torch.tensor([1], dtype=torch.int64))
         assert backend.full_reads == 0
         assert backend.selected_reads == 2
+    finally:
+        if env.scene._tensor_read_plan is not None:
+            env.scene._tensor_read_plan.close()
+            env.scene._tensor_read_plan = None
+        env.close()
+
+
+def test_host_bridge_tensor_command_reset_carries_model_field_randomization() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.observations = {
+        "actor": ObservationGroupCfg(
+            terms={"policy": ObservationTermCfg(func=_tensor_runtime_policy_obs)}
+        ),
+        "value": ObservationGroupCfg(
+            terms={"critic": ObservationTermCfg(func=_tensor_runtime_critic_obs)}
+        ),
+    }
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("base", "platform"),
+        geom_names=("base_geom",),
+        actuator_names=("motor",),
+    )
+    cfg.actions = {
+        "tilt": _TensorBodyActionCfg(
+            entity_name="robot",
+            top_body_name="platform",
+            ball_body_name="base",
+        )
+    }
+    cfg.commands = {"target": _TensorStateWritingCommandCfg(resampling_time_range=(1.0, 1.0))}
+    cfg.events = {
+        "body_mass": EventTermCfg(
+            func=mdp.randomize_rigid_body_mass,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                "mass_distribution_params": (1.5, 1.5),
+                "operation": "scale",
+                "recompute_inertia": False,
+            },
+        ),
+        "body_com": EventTermCfg(
+            func=mdp.randomize_rigid_body_com,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                "com_range": {"x": (0.1, 0.1), "z": (-0.2, -0.2)},
+            },
+        ),
+        "foot_friction": EventTermCfg(
+            func=mdp.geom_friction,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", geom_names=("base_geom",)),
+                "ranges": (0.75, 0.75),
+                "operation": "abs",
+            },
+        ),
+        "pd_gains": EventTermCfg(
+            func=mdp.pd_gains,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", actuator_names=("motor",)),
+                "kp_range": (30.0, 30.0),
+                "kd_range": (3.0, 3.0),
+                "operation": "abs",
+            },
+        ),
+    }
+    backend = _ScenePlanBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        plan = env.scene._tensor_read_plan
+        assert plan is not None and plan.host_plan is not None
+        assert env.command_manager.uses_tensor_reset_rows()
+
+        env.reset()
+
+        assert backend.set_state_calls == []
+        assert len(backend.reset_calls) == 1
+        rows, qpos, qvel = backend.reset_calls[0]
+        torch.testing.assert_close(rows, torch.tensor([0, 1], dtype=torch.int64))
+        torch.testing.assert_close(qpos[:, 3], torch.full((2,), 0.75))
+        torch.testing.assert_close(qvel[:, 2], torch.full((2,), -0.75))
+        payload = backend.reset_randomization_calls[0]
+        assert payload is not None
+        assert payload.body_mass is not None
+        assert payload.body_ipos is not None
+        assert payload.geom_friction is not None
+        assert payload.kp is not None
+        assert payload.kd is not None
+        np.testing.assert_allclose(payload.body_mass, [[15.0], [15.0]])
+        np.testing.assert_allclose(payload.body_ipos, [[[0.1, 0.0, -0.2]]] * 2)
+        np.testing.assert_allclose(payload.geom_friction, [[[0.75, 0.02, 0.002]]] * 2)
+        np.testing.assert_allclose(payload.kp, [[30.0], [30.0]])
+        np.testing.assert_allclose(payload.kd, [[3.0], [3.0]])
     finally:
         if env.scene._tensor_read_plan is not None:
             env.scene._tensor_read_plan.close()
