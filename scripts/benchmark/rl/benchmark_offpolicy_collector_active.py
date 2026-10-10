@@ -19,7 +19,7 @@ Usage:
     # config becomes task/<task>/<sim>_<profile>.yaml while the sim segment keeps
     # selecting the backend (and its dependency check):
     uv run --extra mjwarp scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
-        --cases flashsac/g1_motion_tracking/mjwarp/mimiclite_dr
+        --cases flashsac/g1_motion_tracking/mjwarp/<profile>
     uv run --extra genesis scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
         --cases flashsac/g1_motion_tracking/genesis
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --num-envs 1024 --measure-steps 100

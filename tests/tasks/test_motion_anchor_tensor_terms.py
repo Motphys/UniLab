@@ -13,10 +13,9 @@ from unilab.base.entity import EntityTensorBodyStateView
 from unilab.managers import ManagerTermBaseCfg
 from unilab.managers._types import ManagerBasedRlEnv
 from unilab.tasks.motion_tracking.common import manager_terms as mt
-from unilab.tasks.motion_tracking.common import obs_terms
 from unilab.tasks.motion_tracking.common.manager_terms import MotionCommand
 from unilab.tasks.motion_tracking.common.tensor_rotation import quat_to_rot6
-from unilab.utils.rotation import np_matrix_first_two_cols_from_quat, np_matrix_from_quat
+from unilab.utils.rotation import np_matrix_first_two_cols_from_quat
 
 
 class _MotionCommand(MotionCommand):
@@ -113,42 +112,9 @@ def test_quat_to_rot6_matches_numpy_first_two_columns() -> None:
     torch.testing.assert_close(actual, torch.as_tensor(expected))
 
 
-def test_mimiclite_rot6_helper_matches_orientation_rows() -> None:
-    rng = np.random.default_rng(1820)
-    quat = _unit_quat(rng.standard_normal((32, 4), dtype=np.float32))
-    matrix = np_matrix_from_quat(quat)
-
-    actual = obs_terms._quat_to_rot6_rows(torch.as_tensor(quat)).numpy()
-
-    np.testing.assert_allclose(actual[:, :3], matrix[:, 0, :], atol=1e-6)
-    np.testing.assert_allclose(actual[:, 3:], matrix[:, 1, :], atol=1e-6)
-
-
 def test_quat_to_rot6_rejects_invalid_width() -> None:
     with pytest.raises(ValueError, match="quaternion must have final dimension 4"):
         quat_to_rot6(torch.zeros((2, 3)))
-
-
-def test_obs_motion_feature_layout_interleaves_per_body_state() -> None:
-    frames, bodies = 7, 3
-    rng = np.random.default_rng(1821)
-    loader = SimpleNamespace(
-        num_frames=frames,
-        num_bodies=bodies,
-        body_pos_w=rng.normal(size=(frames, bodies, 3)).astype(np.float32),
-        body_quat_w=_unit_quat(rng.normal(size=(frames, bodies, 4)).astype(np.float32)),
-        body_lin_vel_w=rng.normal(size=(frames, bodies, 3)).astype(np.float32),
-        body_ang_vel_w=rng.normal(size=(frames, bodies, 3)).astype(np.float32),
-    )
-
-    table = mt.TensorMotionCommand._make_obs_motion_features(loader, torch.device("cpu"))
-    row = table[4].view(bodies, 13)
-
-    assert table.shape == (frames, bodies * 13)
-    np.testing.assert_array_equal(row[:, :3].numpy(), loader.body_pos_w[4])
-    np.testing.assert_array_equal(row[:, 3:7].numpy(), loader.body_quat_w[4])
-    np.testing.assert_array_equal(row[:, 7:10].numpy(), loader.body_lin_vel_w[4])
-    np.testing.assert_array_equal(row[:, 10:].numpy(), loader.body_ang_vel_w[4])
 
 
 def _cfg(term_class: type) -> ManagerTermBaseCfg:

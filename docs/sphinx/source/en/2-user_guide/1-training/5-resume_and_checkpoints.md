@@ -22,7 +22,7 @@ resume. Set `algo.resume=true` and select the checkpoint with `algo.load_run`
 
 ```bash
 uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp \
-  --profile mimiclite_dr \
+  --profile <owner-profile> \
   algo.resume=true \
   algo.load_run=2026-10-05_14-28-04_mjwarp \
   training.no_play=true
