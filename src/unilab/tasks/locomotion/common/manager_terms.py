@@ -208,13 +208,13 @@ def track_ang_vel_z_exp(
 def _exp_scaled(error: np.ndarray | torch.Tensor, scale: float):
     if isinstance(error, torch.Tensor):
         return torch.exp(-error / (scale * scale))
-    return np.asarray(np.exp(-error / (scale * scale)), dtype=get_global_dtype())
+    return torch.as_tensor(np.asarray(np.exp(-error / (scale * scale)), dtype=get_global_dtype()))
 
 
 def lin_vel_z_l2(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize vertical root velocity independently from planar tracking."""
     velocity = _state(
         "lin_vel_z_l2",
@@ -222,13 +222,13 @@ def lin_vel_z_l2(
         _asset(env, asset_cfg).data.root_link_lin_vel_b,
         (env.num_envs, 3),
     )
-    return np.asarray(np.square(velocity[:, 2]), dtype=get_global_dtype())
+    return torch.as_tensor(np.asarray(np.square(velocity[:, 2]), dtype=get_global_dtype()))
 
 
 def ang_vel_xy_l2(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize root roll/pitch angular velocity independently from yaw tracking."""
     velocity = _state(
         "ang_vel_xy_l2",
@@ -236,14 +236,16 @@ def ang_vel_xy_l2(
         _asset(env, asset_cfg).data.root_link_ang_vel_b,
         (env.num_envs, 3),
     )
-    return np.asarray(np.sum(np.square(velocity[:, :2]), axis=1), dtype=get_global_dtype())
+    return torch.as_tensor(
+        np.asarray(np.sum(np.square(velocity[:, :2]), axis=1), dtype=get_global_dtype())
+    )
 
 
 def base_height_l2(
     env: ManagerBasedRlEnv,
     target_height: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize world-frame root height error for the flat-ground pilot."""
     target = _real("base_height_l2", "target_height", target_height)
     position = _state(
@@ -252,18 +254,18 @@ def base_height_l2(
         _asset(env, asset_cfg).data.root_link_pos_w,
         (env.num_envs, 3),
     )
-    return np.asarray(np.square(position[:, 2] - target), dtype=get_global_dtype())
+    return torch.as_tensor(np.asarray(np.square(position[:, 2] - target), dtype=get_global_dtype()))
 
 
-def alive(env: ManagerBasedRlEnv) -> np.ndarray:
+def alive(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Constant reward for every step, unconditional as in the legacy tasks."""
-    return np.ones((env.num_envs,), dtype=get_global_dtype())
+    return torch.ones((env.num_envs,), dtype=torch.float32)
 
 
 def joint_deviation_l1(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize selected joint displacement from the default pose with an L1 kernel."""
     asset = _asset(env, asset_cfg)
     position = asset.data.joint_pos[:, asset_cfg.joint_ids]
@@ -279,7 +281,7 @@ def joint_deviation_l1(
         )
     default = _state("joint_deviation_l1", "default joint position", default, position.shape)
     position = _state("joint_deviation_l1", "joint position", position, position.shape)
-    return np.asarray(np.sum(np.abs(position - default), axis=1), dtype=get_global_dtype())
+    return torch.as_tensor(np.asarray(np.sum(np.abs(position - default), axis=1)))
 
 
 def stand_still_l1(
@@ -287,7 +289,7 @@ def stand_still_l1(
     command_name: str,
     command_threshold: float = 0.1,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize selected joint deviation only below the commanded-motion threshold."""
     threshold = _real(
         "stand_still_l1",
@@ -296,9 +298,8 @@ def stand_still_l1(
         minimum=0.0,
     )
     stopped = np.linalg.norm(_command(env, "stand_still_l1", command_name), axis=1) < threshold
-    return np.asarray(
-        joint_deviation_l1(env, asset_cfg=asset_cfg) * stopped,
-        dtype=get_global_dtype(),
+    return joint_deviation_l1(env, asset_cfg=asset_cfg) * torch.as_tensor(
+        stopped, dtype=torch.float32
     )
 
 
@@ -548,7 +549,7 @@ class feet_air_while_standing(ManagerTermBase):
         # are outside this contract.
         self._columns = starts
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> torch.Tensor:
         del params
         try:
             values = self._view.read()
@@ -562,7 +563,7 @@ class feet_air_while_standing(ManagerTermBase):
             np.linalg.norm(_command(env, self.name, self._command_name), axis=1)
             <= self._command_threshold
         )
-        return np.asarray(np.sum(~contact, axis=1) * standing, dtype=get_global_dtype())
+        return torch.as_tensor(np.asarray(np.sum(~contact, axis=1) * standing), dtype=torch.float32)
 
 
 __all__ = [

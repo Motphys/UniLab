@@ -895,12 +895,12 @@ def _joint_state_obs(env: _TestEnv) -> np.ndarray:
     return env.scene["robot"].data.joint_pos
 
 
-def _joint_state_reward(env: _TestEnv) -> np.ndarray:
-    return env.scene["robot"].data.joint_pos[:, 0]
+def _joint_state_reward(env: _TestEnv) -> torch.Tensor:
+    return torch.as_tensor(env.scene["robot"].data.joint_pos[:, 0], dtype=torch.float32)
 
 
-def _joint_state_termination(env: _TestEnv) -> np.ndarray:
-    return env.scene["robot"].data.joint_pos[:, 0] > 100.0
+def _joint_state_termination(env: _TestEnv) -> torch.Tensor:
+    return torch.as_tensor(env.scene["robot"].data.joint_pos[:, 0]) > 100.0
 
 
 def _mutate_joint_state_step_event(env: _TestEnv, env_ids: np.ndarray | None) -> None:

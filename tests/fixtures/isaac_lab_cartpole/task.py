@@ -10,6 +10,7 @@ import math
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
+import torch
 
 from tests.fixtures.cartpole_manager_adapters import (
     JointEffortAction,
@@ -34,34 +35,34 @@ def joint_pos_target_l2(
     env: ManagerBasedRlEnv,
     target: float,
     asset_cfg: SceneEntityCfg,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize wrapped joint-position deviation from a target value."""
     target_value = finite_real(target, label="joint_pos_target_l2 target")
     asset = cast("Entity", env.scene[asset_cfg.name])
     joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
     wrapped = np.remainder(joint_pos + math.pi, 2.0 * math.pi) - math.pi
-    return np.sum(np.square(wrapped - target_value), axis=1)
+    return torch.as_tensor(np.sum(np.square(wrapped - target_value), axis=1))
 
 
 def joint_vel_l1(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize the absolute velocity of selected joints."""
     asset = cast("Entity", env.scene[asset_cfg.name])
-    return np.sum(np.abs(asset.data.joint_vel[:, asset_cfg.joint_ids]), axis=1)
+    return torch.as_tensor(np.sum(np.abs(asset.data.joint_vel[:, asset_cfg.joint_ids]), axis=1))
 
 
 def joint_pos_out_of_manual_limit(
     env: ManagerBasedRlEnv,
     bounds: tuple[float, float] | list[float],
     asset_cfg: SceneEntityCfg,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Terminate when a selected joint leaves the configured manual bounds."""
     lower, upper = numeric_range(bounds, label="joint_pos_out_of_manual_limit bounds")
     asset = cast("Entity", env.scene[asset_cfg.name])
     joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
-    return np.any((joint_pos < lower) | (joint_pos > upper), axis=1)
+    return torch.as_tensor(np.any((joint_pos < lower) | (joint_pos > upper), axis=1))
 
 
 def register_fixture() -> None:

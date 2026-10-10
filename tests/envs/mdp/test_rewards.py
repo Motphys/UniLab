@@ -89,10 +89,7 @@ class _CommandManager:
 
 
 def _env() -> ManagerBasedRlEnv:
-    action = np.asarray(
-        [[1.0, 2.0], [0.5, -0.5], [-1.0, 0.25]],
-        dtype=np.float32,
-    )
+    action = torch.tensor([[1.0, 2.0], [0.5, -0.5], [-1.0, 0.25]], dtype=torch.float32)
     return cast(
         ManagerBasedRlEnv,
         SimpleNamespace(
@@ -104,9 +101,7 @@ def _env() -> ManagerBasedRlEnv:
                 prev_prev_action=action - 0.75,
             ),
             command_manager=_CommandManager(),
-            termination_manager=SimpleNamespace(
-                terminated=np.asarray([False, True, False], dtype=np.bool_)
-            ),
+            termination_manager=SimpleNamespace(terminated=torch.tensor([False, True, False])),
             max_episode_length_s=2.0,
         ),
     )
@@ -327,7 +322,7 @@ def test_terms_integrate_with_reward_manager_and_cold_selector_resolution() -> N
     result = manager.compute(dt=0.02)
     entity = cast(Any, env.scene["robot"])
     expected = -0.5 * np.sum(np.square(entity.data.joint_vel[:, [2, 0]]), axis=1)
-    expected += 2.0 * mdp.track_linear_velocity(env, std=0.5, command_name="twist")
+    expected += 2.0 * mdp.track_linear_velocity(env, std=0.5, command_name="twist").detach().numpy()
     np.testing.assert_allclose(result, expected)
     resolved = manager.get_term_cfg("joint_velocity").params["asset_cfg"]
     assert resolved.joint_ids == [2, 0]

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import torch
 
 from unilab.envs import mdp
 from unilab.managers import (
@@ -23,14 +24,14 @@ from unilab.managers import (
 )
 
 
-def _reward(env: _FakeEnv, std: float, scale: float) -> np.ndarray:
+def _reward(env: _FakeEnv, std: float, scale: float) -> torch.Tensor:
     del scale
-    return np.full(env.num_envs, std, dtype=np.float32)
+    return torch.full((env.num_envs,), std, dtype=torch.float32)
 
 
-def _termination(env: _FakeEnv, threshold: float) -> np.ndarray:
+def _termination(env: _FakeEnv, threshold: float) -> torch.Tensor:
     del threshold
-    return np.ones(env.num_envs, dtype=np.bool_)
+    return torch.ones(env.num_envs, dtype=torch.bool)
 
 
 class _FakeEnv:
