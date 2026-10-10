@@ -633,6 +633,7 @@ class MotionCommand(CommandTerm):
             tuple[dict[str, tuple[int, ...]], dict[str, tuple[int, int]]] | None
         ) = None
         self._last_reset_payload_validated = False
+        self._sampler_dispatch_diagnostic_offset = 0
 
         for name in (
             "error_anchor_pos",
@@ -932,10 +933,14 @@ class MotionCommand(CommandTerm):
         return CommandTerm.reset(self, rows, publish_metrics=publish_metrics)
 
     def sampler_reset_diagnostics(self) -> dict[str, float]:
+        dispatches = self.tensor_sampler.diagnostics.reset_dispatches
+        dispatch_count = dispatches - self._sampler_dispatch_diagnostic_offset
+        self._sampler_dispatch_diagnostic_offset = dispatches
         return {
+            "reset_done_sampler_dispatch_count": float(dispatch_count),
             "reset_done_sampler_host_transfer_count": float(
                 self.tensor_sampler.diagnostics.reset_host_row_transfers
-            )
+            ),
         }
 
     def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:
@@ -1024,22 +1029,12 @@ class MotionCommand(CommandTerm):
         motion_joint_vel = packet_joint_vel
         values_ms = (time.perf_counter() - values_started) * 1000.0
         root_write_started = time.perf_counter()
-        if self.robot.reset_state_tensor_active:
-            self.robot.write_motion_state_tensor_to_sim(
-                root_state=root_state,
-                position=joint_pos,
-                velocity=motion_joint_vel,
-                env_ids=rows,
-            )
-        else:
-            self.robot.write_root_state_to_sim(
-                root_state.detach().cpu().numpy(), env_ids=rows.detach().cpu().numpy()
-            )
-            self.robot.write_joint_state_to_sim(
-                joint_pos.detach().cpu().numpy(),
-                motion_joint_vel.detach().cpu().numpy(),
-                env_ids=rows.detach().cpu().numpy(),
-            )
+        self.robot.write_motion_state_tensor_to_sim(
+            root_state=root_state,
+            position=joint_pos,
+            velocity=motion_joint_vel,
+            env_ids=rows,
+        )
         root_write_ms = (time.perf_counter() - root_write_started) * 1000.0
         publish_started = time.perf_counter()
         self._ingest_motion_packet(rows, packet, origins=origins)
@@ -1078,6 +1073,10 @@ class MotionCommand(CommandTerm):
                 self._refresh_motion_torch(env_ids)
             return
         self._tensor_resample_ingested = None
+        if not self.cfg.params.truncate_on_clip_end and not self.robot.reset_state_tensor_active:
+            raise RuntimeError(
+                "MotionCommand clip wrap requires an active tensor reset transaction"
+            )
         failure_started = time.perf_counter()
         terminated = cast(torch.Tensor, self._env.termination_manager.terminated)
         self.tensor_sampler.update_failure_stats(terminated)
@@ -1089,9 +1088,7 @@ class MotionCommand(CommandTerm):
         timing["update_state_motion_step_sampler_ms"] = (
             time.perf_counter() - sampler_started
         ) * 1000.0
-        reset_state = getattr(self._env, "_reset_state", None)
-        reset_active = getattr(reset_state, "active", False)
-        if wrap_rows.numel() and not self.cfg.params.truncate_on_clip_end and reset_active:
+        if wrap_rows.numel() and not self.cfg.params.truncate_on_clip_end:
             self._resample_command(wrap_rows)
         refresh_started = time.perf_counter()
         self._refresh_motion_torch()
@@ -1162,15 +1159,6 @@ class MotionCommand(CommandTerm):
         cast(torch.Tensor, self.current_clip_end_frames).index_copy_(
             0, selector, self.tensor_sampler.current_clip_end_frames.index_select(0, selector)
         )
-
-    @property
-    def sampler_host_transfers(self) -> int:
-        """Count explicit sampler device-to-host transfers since the last read."""
-        return self.tensor_sampler.diagnostics.total
-
-    @sampler_host_transfers.setter
-    def sampler_host_transfers(self, value: int) -> None:
-        del value
 
     @staticmethod
     def _validate_cfg(cfg: MotionCommandCfg) -> None:

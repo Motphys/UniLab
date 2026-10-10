@@ -306,6 +306,8 @@ def test_g1_motion_manager_ppo_wraps_only_active_rows_in_one_state_commit(
 ) -> None:
     ensure_registries()
     _require_mujoco_runtime()
+    from unisim.backend.base import HostBridgeTransferPlan
+
     from unilab.base import registry
 
     _, override = _motion_manager_override("g1_motion_tracking", "mujoco")
@@ -321,32 +323,30 @@ def test_g1_motion_manager_ppo_wraps_only_active_rows_in_one_state_commit(
         command.time_steps[:] = command.tensor_sampler.current_clip_end_frames
         env.reset_buf.copy_(torch.tensor([True, False], device=env.device))
 
-        set_state_env_ids: list[np.ndarray] = []
-        original_set_state = env._backend.set_state
+        reset_rows: list[torch.Tensor] = []
 
-        def record_set_state(
-            env_ids: np.ndarray,
-            qpos: np.ndarray,
-            qvel: np.ndarray,
+        def _record_host_apply_reset(
+            self: HostBridgeTransferPlan,
+            env_ids: torch.Tensor,
+            qpos: torch.Tensor,
+            qvel: torch.Tensor,
             *,
             randomization: Any = None,
         ) -> Any:
-            set_state_env_ids.append(env_ids.copy())
-            return original_set_state(
-                env_ids,
-                qpos,
-                qvel,
-                randomization=randomization,
-            )
+            reset_rows.append(env_ids.detach().clone())
+            return self.__dict__.setdefault("_recorded_host_resets", len(reset_rows))
 
-        monkeypatch.setattr(env._backend, "set_state", record_set_state)
-        all_ids = np.arange(env.num_envs, dtype=np.int32)
-        with env._reset_state.scoped(all_ids):
+        host_plan = env.scene._tensor_read_plan.host_plan
+        assert host_plan is not None
+        env._reset_state.declare_packed_reset_device(env.device)
+        monkeypatch.setattr(type(host_plan), "apply_reset", _record_host_apply_reset)
+        all_rows = torch.arange(env.num_envs, dtype=torch.int64, device=env.device)
+        with env._reset_state.scoped_device_owner_tensor_with_host_commit(all_rows, host_plan):
             env.command_manager.compute(dt=0.0)
         env.command_manager.post_compute()
 
-        assert len(set_state_env_ids) == 1
-        np.testing.assert_array_equal(set_state_env_ids[0], [1])
+        assert len(reset_rows) == 1
+        torch.testing.assert_close(reset_rows[0], torch.tensor([1], device=env.device))
         assert command.time_steps[0] == command.tensor_sampler.current_clip_end_frames[0]
         assert command.time_steps[1] <= command.tensor_sampler.current_clip_end_frames[1]
         expected_motion = command.motion.get_motion_at_frame(command.time_steps)
@@ -963,6 +963,7 @@ def test_flashsac_motion_reset_publishes_call_graph_counts() -> None:
         assert timing["reset_done_command_term_count"] == 1.0
         assert timing["reset_done_manager_reset_count"] == 7.0
         assert timing["reset_done_observation_term_count"] == 19.0
+        assert timing["reset_done_sampler_dispatch_count"] == 1.0
         assert timing["reset_done_sampler_host_transfer_count"] == 0.0
     finally:
         env.close()
@@ -1003,6 +1004,7 @@ def test_flashsac_motion_selected_reset_uses_generic_manager_lifecycle() -> None
         assert isinstance(command, MotionCommand)
         timing = env._last_reset_manager_timing_ms
         assert timing["reset_done_manager_reset_count"] == 7.0
+        assert timing["reset_done_sampler_dispatch_count"] == 1.0
         assert timing["reset_done_sampler_host_transfer_count"] == 0.0
     finally:
         env.close()

@@ -31,10 +31,20 @@ def _sampling_dispatch_kernel(
 
 @dataclass
 class TensorMotionSamplerDiagnostics:
-    """Counters for explicit device-to-host transfers caused by compatibility."""
+    """Count observed compatibility paths that would defeat tensor-only resets.
 
+    The sampler itself no longer transfers rows to the host. We retain a real
+    (not synthesized) counter for reset sampling calls so diagnostics can assert
+    that reset dispatch happened while host-transfer counts remain structurally
+    zero.
+    """
+
+    reset_dispatches: int = 0
     reset_host_row_transfers: int = 0
     step_host_mirror_transfers: int = 0
+
+    def record_reset_dispatch(self) -> None:
+        self.reset_dispatches += 1
 
     @property
     def total(self) -> int:
@@ -135,6 +145,7 @@ class TensorMotionSampler:
             raise ValueError("TensorMotionSampler rows must be one-dimensional int64 device rows")
         if torch_rng is None:
             raise NotImplementedError("TensorMotionSampler requires the Manager Torch generator")
+        self.diagnostics.record_reset_dispatch()
         count = rows.numel()
         frames: torch.Tensor
         probabilities: torch.Tensor | None = None

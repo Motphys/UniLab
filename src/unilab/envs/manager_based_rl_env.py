@@ -1255,7 +1255,19 @@ class ManagerBasedRlEnv(TorchEnv):
         if self._uses_device_resident_reset(step_read_plan, step_reset_capabilities):
             assert step_read_plan is not None
             self._reset_state.declare_packed_reset_device(step_read_plan.device)
-            step_reset_context = self._reset_state.scoped_device_tensor(self._all_env_rows)
+            step_reset_context = self._reset_state.scoped_device_owner_tensor(self._all_env_rows)
+        elif (
+            step_read_plan is not None
+            and step_read_plan.host_plan is not None
+            and self._reset_state.can_commit_packed(term_name="command_owner")
+        ):
+            assert step_read_plan is not None
+            assert step_read_plan.host_plan is not None
+            self._reset_state.declare_packed_reset_device(step_read_plan.device)
+            step_reset_context = self._reset_state.scoped_device_owner_tensor_with_host_commit(
+                self._all_env_rows,
+                step_read_plan.host_plan,
+            )
         else:
             step_reset_context = self._reset_state.scoped(self._all_env_rows)
         timing["update_state_command_preflight_ms"] = (

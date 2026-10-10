@@ -675,6 +675,57 @@ def test_tensor_command_syncs_sampler_mirrors_on_selected_rows_only() -> None:
     )
 
 
+def test_tensor_clip_wrap_fails_closed_before_resampling_without_owner_transaction() -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    command._device = torch.device("cpu")
+    command.last_step_timing_ms = {}
+    command.time_steps = torch.tensor([4, 0, 10], dtype=torch.int32)
+    command.tensor_sampler = mt.TensorMotionSampler(
+        mode="adaptive",
+        num_envs=3,
+        num_frames=11,
+        clip_offsets=torch.tensor([0], dtype=torch.int64),
+        clip_end_frames=torch.tensor([10], dtype=torch.int32),
+        bin_count=1,
+        adaptive_lambda=0.8,
+        adaptive_kernel_size=1,
+        adaptive_uniform_ratio=0.1,
+        adaptive_alpha=0.001,
+        start_ratio=0.0,
+        initial_frames=torch.tensor([4, 0, 10], dtype=torch.int32),
+        initial_clip_end_frames=torch.tensor([10, 10, 10], dtype=torch.int32),
+        device=torch.device("cpu"),
+    )
+    command.tensor_sampler.current_frames.copy_(command.time_steps)
+    command.current_clip_end_frames = torch.tensor([10, 10, 10], dtype=torch.int32)
+    command._clip_offsets_torch = torch.tensor([0], dtype=torch.int64)
+    command._clip_end_frames_torch = torch.tensor([10], dtype=torch.int64)
+    command._tensor_all_rows = torch.arange(3, dtype=torch.int64)
+    command.cfg = SimpleNamespace(params=SimpleNamespace(truncate_on_clip_end=False))
+    command._tensor_post_compute_env_ids = None
+    command._tensor_resample_ingested = None
+    command.robot = SimpleNamespace(reset_state_tensor_active=False)
+    command._env = SimpleNamespace(
+        termination_manager=SimpleNamespace(terminated=torch.tensor([False, False, False])),
+        reset_buf=torch.tensor([False, False, False]),
+    )
+
+    resampled: list[torch.Tensor] = []
+    command._resample_command = lambda rows: resampled.append(rows)
+    command._refresh_motion_torch = lambda *args, **kwargs: None
+
+    with pytest.raises(RuntimeError, match="requires an active tensor reset transaction"):
+        command._update_command(None)
+
+    # Configuration is rejected before the sampler can advance the public frame
+    # carrier or consume reset RNG/publish a replacement packet.
+    assert resampled == []
+    torch.testing.assert_close(command.time_steps, torch.tensor([4, 0, 10], dtype=torch.int32))
+    torch.testing.assert_close(
+        command.tensor_sampler.current_frames, torch.tensor([4, 0, 10], dtype=torch.int32)
+    )
+
+
 def test_motion_feature_layout_is_cached_without_recomputing_shapes() -> None:
     command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._motion_feature_layout = None
@@ -695,7 +746,7 @@ def test_motion_feature_layout_is_cached_without_recomputing_shapes() -> None:
             "body_ang_vel_w": (len(command.cfg.body_names), 3),
         }
 
-    original = command._motion_feature_tail_shapes
+    original = mt.MotionCommand._motion_feature_tail_shapes
     mt.MotionCommand._motion_feature_tail_shapes = counted_tails
     try:
         first_tails, first_offsets = command._cached_motion_feature_shapes()
