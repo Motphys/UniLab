@@ -314,5 +314,10 @@ class ActionManager(ManagerBase):
                     "ActionManager requires tensor action terms; legacy NumPy action "
                     f"term '{term_name}' is unsupported"
                 )
+            if not isinstance(term.raw_action, torch.Tensor):
+                raise TypeError(
+                    "ActionManager requires tensor raw actions; term "
+                    f"'{term_name}' returned {type(term.raw_action).__name__}"
+                )
             self._term_names.append(term_name)
             self._terms[term_name] = term

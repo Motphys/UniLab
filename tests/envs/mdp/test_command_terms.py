@@ -9,11 +9,14 @@ import pytest
 import torch
 
 from unilab.envs.mdp import UniformPoseCommand, UniformPoseCommandCfg
+from unilab.managers.torch_rng import TorchManagerRng
 
 
 def _env(num_envs: int = 2) -> SimpleNamespace:
     return SimpleNamespace(
         num_envs=num_envs,
+        device=torch.device("cpu"),
+        torch_rng=TorchManagerRng.seeded(11),
         rng=np.random.default_rng(11),
     )
 
