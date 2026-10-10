@@ -44,8 +44,26 @@ requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA i
 
 class _CaptureEntity:
     def __init__(self, default_root_state: np.ndarray) -> None:
-        self.data = SimpleNamespace(default_root_state=default_root_state)
+        self.default_root_state = default_root_state
+        self._default_root_state_tensor: torch.Tensor | None = None
         self.writes: list[tuple[np.ndarray, np.ndarray]] = []
+
+    @property
+    def data(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            default_root_state=self.default_root_state,
+            default_root_state_torch=self.default_root_state_torch,
+        )
+
+    def default_root_state_torch(self, device: torch.device) -> torch.Tensor:
+        if (
+            self._default_root_state_tensor is None
+            or self._default_root_state_tensor.device != device
+        ):
+            self._default_root_state_tensor = torch.from_numpy(
+                np.array(self.default_root_state, copy=True)
+            ).to(device=device)
+        return self._default_root_state_tensor
 
     def write_root_state_to_sim(
         self,
@@ -63,6 +81,9 @@ class _CaptureScene:
 
     def __getitem__(self, name: str) -> _CaptureEntity:
         return self.entities[name]
+
+    def env_origins_torch(self, device: torch.device) -> torch.Tensor:
+        return torch.from_numpy(self.env_origins).to(device=device)
 
 
 def _capture_env(

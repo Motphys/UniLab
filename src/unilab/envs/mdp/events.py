@@ -2157,45 +2157,30 @@ def reset_root_state_uniform_tensor(
         raise ValueError("reset_root_state_uniform_tensor reset rows must live on env.device")
     ids = env_ids
     asset = env.scene[asset_cfg.name]
+    device = torch.device(env.device)
     try:
-        default = asset.data.default_root_state
+        asset.data.default_root_state_torch(torch.device(env.device))
     except NotImplementedError as exc:
         raise NotImplementedError(
             "EventManager term 'reset_root_state_uniform_tensor' requires a "
             f"floating-root state for entity '{asset_cfg.name}'"
         ) from exc
-    device = torch.device(env.device)
     rows = ids.to(dtype=torch.int64)
     count = rows.numel()
     if count == 0:
         return
 
-    # Cache immutable default and origin tables on the event owner. The first
-    # selected reset pays one cold H2D copy; subsequent resets reuse them.
-    default_tensor = getattr(env, "_tensor_reset_default_root_state", None)
-    origins_tensor = getattr(env, "_tensor_reset_env_origins", None)
-    origins_enabled = getattr(env, "_tensor_reset_env_origins_nonzero", None)
     pose_bounds_tensor = getattr(env, "_tensor_reset_pose_bounds", None)
     velocity_bounds_tensor = getattr(env, "_tensor_reset_velocity_bounds", None)
     bounds_key = getattr(env, "_tensor_reset_bounds_key", None)
-    origins_key = getattr(env, "_tensor_reset_env_origins_key", None)
-    new_origins_key = tuple(map(tuple, np.asarray(env.scene.env_origins, dtype=np.float32)))
+    origins_enabled = getattr(env, "_tensor_reset_env_origins_nonzero", None)
     new_bounds_key = (
         (asset_cfg.name, tuple(sorted(pose_range.items())), tuple(sorted(velocity_range.items())))
         if velocity_range is not None
         else (asset_cfg.name, tuple(sorted(pose_range.items())), None)
     )
-    if default_tensor is None or default_tensor.device != device:
-        default_tensor = torch.as_tensor(
-            np.array(default, copy=True, dtype=np.float32), device=device
-        )
-        env._tensor_reset_default_root_state = default_tensor
-    if origins_tensor is None or origins_tensor.device != device or origins_key != new_origins_key:
-        origins_tensor = torch.as_tensor(
-            np.array(env.scene.env_origins, dtype=np.float32, copy=True), device=device
-        )
-        env._tensor_reset_env_origins = origins_tensor
-        setattr(env, "_tensor_reset_env_origins_key", new_origins_key)
+    origins_tensor = env.scene.env_origins_torch(device)
+    if origins_enabled is None:
         # Decide immutable origin applicability once on the cold path. A hot
         # ``max().item()`` would synchronize every selected reset.
         origins_enabled = bool(torch.not_equal(origins_tensor, 0.0).any().item())
@@ -2221,6 +2206,8 @@ def reset_root_state_uniform_tensor(
         bounds[None, :, 1] - bounds[None, :, 0],
     )
     pose_delta, velocity_delta = torch.split(deltas, len(_SE3_KEYS), dim=1)
+
+    default_tensor = asset.data.default_root_state_torch(device)
 
     default_rows = (
         default_tensor if count == default_tensor.shape[0] else default_tensor.index_select(0, rows)

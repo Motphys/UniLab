@@ -681,6 +681,22 @@ def test_entity_full_width_position_target_maps_natural_joint_order() -> None:
     torch.testing.assert_close(control, target[:, [1, 2, 0]])
 
 
+def test_entity_cold_default_root_and_env_origin_torch_tables_are_cached() -> None:
+    _, scene = _scene("mujoco")
+    robot = scene["robot"]
+
+    roots = robot.data.default_root_state_torch(torch.device("cpu"))
+    origins = scene.env_origins_torch(torch.device("cpu"))
+    assert roots.shape == (3, 13)
+    assert origins.shape == (3, 3)
+    assert roots.dtype == torch.float32
+    assert origins.dtype == torch.float32
+    np.testing.assert_allclose(roots.numpy(), robot.data.default_root_state)
+    np.testing.assert_allclose(origins.numpy(), scene.env_origins)
+    assert robot.data.default_root_state_torch(torch.device("cpu")) is roots
+    assert scene.env_origins_torch(torch.device("cpu")) is origins
+
+
 @pytest.mark.parametrize(
     ("actuator_joint_names", "joint_names", "message"),
     [
