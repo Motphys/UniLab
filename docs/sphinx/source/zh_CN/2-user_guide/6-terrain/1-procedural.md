@@ -9,9 +9,9 @@ adapter 只在环境构建阶段物化地形。
 核心可复用部分包括：
 
 - `unilab.base.scene.SceneCfg`：`terrain` 与 scene 文件。
-- `unilab.tasks.locomotion.common.rough_manager_terms`：terrain generator、
-  rough reset、velocity command、height scan 与 action owner term。
-- `unilab.tasks.locomotion.common.height_scan`：缓存式高度采样。
+- `unilab.tasks.locomotion.common.rough_manager_terms`：可复用 rough terrain
+  generator 与 action/command owner term。
+- `unilab.tasks.locomotion.common.height_scan`：cold height-scan 采样偏移。
 
 例如，owner 可以声明生成式 terrain，而不让 backend 感知任务语义：
 
@@ -39,7 +39,7 @@ task owner 需要自行持有训练证据。
    backend。
 3. backend 的公开 scene materializer 生成 terrain matrix、origins、hfield
    与合并后的 scene model。
-4. entity 与 height-scanner ID 被缓存供 reset/step 使用。
+4. task owner 自行持有 scanner binding 与缓存 ID。
 
 step 和 reset 不解析机器人 XML，也不检查 asset metadata；它们只消费缓存
 ID 和公开 backend capability。

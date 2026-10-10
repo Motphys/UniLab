@@ -10,9 +10,9 @@ during environment construction.
 The core reusable pieces are:
 
 - `unilab.base.scene.SceneCfg` for `terrain` and scene files.
-- `unilab.tasks.locomotion.common.rough_manager_terms` for terrain generation,
-  rough reset, velocity-command, height-scan, and action owner terms.
-- `unilab.tasks.locomotion.common.height_scan` for cached height sampling.
+- `unilab.tasks.locomotion.common.rough_manager_terms` for the reusable rough
+  terrain generator and action/command owner terms.
+- `unilab.tasks.locomotion.common.height_scan` for cold height-scan offsets.
 
 For example, an owner can declare a generated terrain without putting terrain
 knowledge in the backend:
@@ -42,7 +42,7 @@ During `registry.make(...)`:
    selected UniSim backend.
 3. The backend's public scene materializer generates the terrain matrix,
    origins, hfield, and merged scene model.
-4. Entity and height-scanner IDs are cached for reset/step use.
+4. Task owners retain their own scanner bindings and cached IDs.
 
 Step and reset never parse robot XML or inspect asset metadata. They consume
 cached IDs and public backend capabilities.

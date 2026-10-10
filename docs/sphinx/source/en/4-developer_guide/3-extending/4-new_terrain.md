@@ -24,8 +24,8 @@ materialization out of `step()`, `reset()`, and hot domain-randomization loops.
 
 - Terrain generator shape and numerical behavior:
   `tests/terrains/test_terrain_generator.py`
-- Rough locomotion height-scan and spawn behavior:
-  `tests/envs/locomotion/test_terrain_spawn.py`
+- Backend terrain materialization contract:
+  `tests/base/test_backend_conformance.py`
 - Backend materialization boundaries: `tests/utils/test_xml_utils.py`
 
 ## Evidence In Repo
