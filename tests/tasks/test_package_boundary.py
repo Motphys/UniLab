@@ -213,6 +213,21 @@ def test_manager_publication_boundary_has_no_numpy_conversion() -> None:
     assert offenders == [], f"Manager publication NumPy conversion remains: {offenders}"
 
 
+def test_metrics_and_recorder_managers_do_not_import_numpy() -> None:
+    paths = (
+        _REPO_ROOT / "src" / "unilab" / "managers" / "metrics_manager.py",
+        _REPO_ROOT / "src" / "unilab" / "managers" / "recorder_manager.py",
+    )
+    violations = [
+        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        for path in paths
+        for module in sorted(_imports(path))
+        if module == "numpy" or module.startswith("numpy.")
+    ]
+
+    assert violations == [], f"metrics/recorder NumPy imports remain: {violations}"
+
+
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
     assert "motrix" in registry._envs["G1MotionTracking"].env_factory_dict

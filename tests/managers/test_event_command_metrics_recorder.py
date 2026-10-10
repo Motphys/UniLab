@@ -268,7 +268,7 @@ def test_command_reset_refresh_does_not_validate_full_command_or_metrics(
     assert scalar_conversions == 0
     np.testing.assert_array_equal(command._command[:, 0], [0.0, 0.0, np.nan, 0.0])
     np.testing.assert_array_equal(command.metrics["error"][[0, 2, 3]], [1.0, 3.0, 4.0])
-    assert np.isnan(command.metrics["error"][1])
+    assert bool(torch.isnan(command.metrics["error"][1]))
 
 
 def test_metrics_reductions_substeps_reset_and_finite_failure(fake_env: FakeEnv) -> None:
@@ -314,6 +314,12 @@ def test_metrics_reductions_substeps_reset_and_finite_failure(fake_env: FakeEnv)
     )
     with pytest.raises(TypeError, match="expected float32"):
         wrong_dtype.compute()
+    numpy_carrier = MetricsManager(
+        {"numpy_carrier": MetricsTermCfg(func=lambda env: np.ones(env.num_envs))},
+        fake_env,
+    )
+    with pytest.raises(TypeError, match="expected torch.Tensor"):
+        numpy_carrier.compute()
     assert NullMetricsManager().reset() == {}
 
 
