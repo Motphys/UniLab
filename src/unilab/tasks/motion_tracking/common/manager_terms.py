@@ -687,19 +687,7 @@ class MotionCommand(CommandTerm):
 
     def _make_motion_features(self, device: torch.device) -> torch.Tensor:
         """Cache the complete cold motion dataset as one device-resident table."""
-        arrays = (
-            self.motion.joint_pos,
-            self.motion.joint_vel,
-            self.motion.body_pos_w,
-            self.motion.body_quat_w,
-            self.motion.body_lin_vel_w,
-            self.motion.body_ang_vel_w,
-        )
-        host = np.concatenate(
-            [np.asarray(value, dtype=np.float32).reshape(value.shape[0], -1) for value in arrays],
-            axis=1,
-        )
-        return torch.from_numpy(np.ascontiguousarray(host)).to(device=device)
+        return self.motion.motion_features_torch(device)
 
     def _motion_packet(self, frames: torch.Tensor) -> torch.Tensor:
         """Gather motion rows from the device-resident feature table."""

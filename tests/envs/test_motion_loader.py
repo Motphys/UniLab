@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import torch
 
 from unilab.tasks.motion_tracking.common.motion_loader import MotionLoader, MotionSampler
 
@@ -72,6 +73,22 @@ def test_motion_loader_accepts_single_path_or_path_list(tmp_path):
 
     sampled = multi_loader.get_motion_at_frame(np.array([0, 1, 2, 4], dtype=np.int32))
     np.testing.assert_array_equal(sampled.joint_pos[:, 0], np.array([0.0, 1.0, 10.0, 12.0]))
+
+
+def test_motion_loader_publishes_immutable_torch_feature_table(tmp_path):
+    motion_a = tmp_path / "motion_a.npz"
+    motion_b = tmp_path / "motion_b.npz"
+    _write_motion_npz(motion_a, base_value=0.0, num_frames=2)
+    _write_motion_npz(motion_b, base_value=10.0, num_frames=3)
+    loader = MotionLoader([str(motion_a), str(motion_b)])
+
+    features = loader.motion_features_torch(torch.device("cpu"))
+
+    expected_width = 2 * loader.num_joints + loader.num_bodies * (3 + 4 + 3 + 3)
+    assert features.shape == (loader.num_frames, expected_width)
+    assert features.dtype == torch.float32
+    assert features.is_contiguous()
+    torch.testing.assert_close(features[:, : loader.num_joints], torch.from_numpy(loader.joint_pos))
 
 
 def test_motion_loader_rejects_mismatched_multi_clip_metadata(tmp_path):
