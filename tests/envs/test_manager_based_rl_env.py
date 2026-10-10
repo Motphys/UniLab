@@ -578,24 +578,24 @@ class _DriveCfg(ActionTermCfg):
 class _DriveAction(ActionTerm):
     def __init__(self, cfg: _DriveCfg, env) -> None:
         super().__init__(cfg, env)
-        self._processed = np.zeros((self.num_envs, 1), dtype=np.float32)
+        self._processed = torch.zeros((self.num_envs, 1), dtype=torch.float32)
 
     @property
     def action_dim(self) -> int:
         return 1
 
     @property
-    def raw_action(self) -> np.ndarray:
+    def raw_action(self) -> torch.Tensor:
         return self._processed
 
-    def process_actions(self, actions: np.ndarray) -> None:
+    def process_actions(self, actions: torch.Tensor) -> None:
         self._env.action_input_types.append(type(actions))
-        self._processed[:] = actions * cast(_DriveCfg, self.cfg).gain
+        self._processed.copy_(actions * cast(_DriveCfg, self.cfg).gain)
 
     def apply_actions(self) -> None:
         self._env.trace.append("action_apply")
         self._env.action_sim_steps.append(self._env._sim_step_counter)
-        self._entity.data.write_ctrl(torch.from_numpy(self._processed))
+        self._entity.data.write_ctrl(self._processed)
 
 
 class _FeedbackDriveAction(_DriveAction):

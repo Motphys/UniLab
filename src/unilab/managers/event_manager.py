@@ -14,6 +14,7 @@ import torch
 from prettytable import PrettyTable
 
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
+from unilab.managers.torch_rng import TorchManagerRng
 
 if TYPE_CHECKING:
     from unilab.managers._types import ManagerBasedRlEnv
@@ -78,7 +79,12 @@ class EventManager(ManagerBase):
     def __init__(self, cfg: dict[str, EventTermCfg | None], env: ManagerBasedRlEnv):
         self.cfg = deepcopy(cfg)
         self._device = torch.device(getattr(env, "device", torch.device("cpu")))
-        self._torch_rng = getattr(env, "torch_rng", None)
+        rng = env.torch_rng
+        if not isinstance(rng, TorchManagerRng):
+            raise RuntimeError(
+                "EventManager interval sampling requires the Manager-owned Torch generator"
+            )
+        self._torch_rng = rng
         self._mode_term_names: dict[EventMode, list[str]] = dict()
         self._mode_term_cfgs: dict[EventMode, list[EventTermCfg]] = dict()
         self._mode_class_term_cfgs: dict[EventMode, list[EventTermCfg]] = dict()
@@ -307,12 +313,4 @@ class EventManager(ManagerBase):
                 )
 
     def _sample_interval(self, lower: float, upper: float, count: int) -> torch.Tensor:
-        if self._torch_rng is not None:
-            return self._torch_rng.uniform(lower, upper, (count,), dtype=torch.float64).reshape(
-                count
-            )
-        return torch.as_tensor(
-            self._env.rng.uniform(lower, upper, count),
-            dtype=torch.float64,
-            device=self._device,
-        )
+        return self._torch_rng.uniform(lower, upper, (count,), dtype=torch.float64).reshape(count)
