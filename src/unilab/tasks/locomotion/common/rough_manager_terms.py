@@ -22,6 +22,7 @@ from unilab.envs.mdp.commands.velocity_command import (
 )
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.managers.torch_rng import TorchManagerRng
 from unilab.tasks.locomotion.common.height_scan import (
     DEFAULT_SCAN_POINTS_X,
     DEFAULT_SCAN_POINTS_Y,
@@ -321,18 +322,32 @@ class RoughTerrainReset(ManagerTermBase):
         ids = _env_ids(env, env_ids)
         count = len(ids)
         root_state = self._asset.data.default_root_state[ids].copy()
-        rng = env.rng
-        root_state[:, 0] += rng.uniform(*self._pose_range["x"], size=count)
-        root_state[:, 1] += rng.uniform(*self._pose_range["y"], size=count)
-        root_state[:, 2] += rng.uniform(*self._pose_range["z"], size=count)
-        roll = rng.uniform(*self._pose_range["roll"], size=count)
-        pitch = rng.uniform(*self._pose_range["pitch"], size=count)
-        yaw = rng.uniform(*self._pose_range["yaw"], size=count)
+        rng = getattr(env, "torch_rng", None)
+        if not isinstance(rng, TorchManagerRng):
+            raise RuntimeError(
+                "RoughTerrainReset sampling requires the Manager-owned Torch generator"
+            )
+        root_state[:, 0] += (
+            rng.uniform(*self._pose_range["x"], (count,), dtype=torch.float64).cpu().numpy()
+        )
+        root_state[:, 1] += (
+            rng.uniform(*self._pose_range["y"], (count,), dtype=torch.float64).cpu().numpy()
+        )
+        root_state[:, 2] += (
+            rng.uniform(*self._pose_range["z"], (count,), dtype=torch.float64).cpu().numpy()
+        )
+        roll = rng.uniform(*self._pose_range["roll"], (count,), dtype=torch.float64).cpu().numpy()
+        pitch = rng.uniform(*self._pose_range["pitch"], (count,), dtype=torch.float64).cpu().numpy()
+        yaw = rng.uniform(*self._pose_range["yaw"], (count,), dtype=torch.float64).cpu().numpy()
         root_state[:, 3:7] = np_quat_mul(
             root_state[:, 3:7], np_quat_from_euler_xyz(roll, pitch, yaw)
         )
         for column, axis in enumerate(_VELOCITY_AXES, start=7):
-            root_state[:, column] = rng.uniform(*self._velocity_range[axis], size=count)
+            root_state[:, column] = (
+                rng.uniform(*self._velocity_range[axis], (count,), dtype=torch.float64)
+                .cpu()
+                .numpy()
+            )
         root_state[:, :3] = self._context.spawn_manager.apply_spawn(
             ids,
             root_state[:, :3],

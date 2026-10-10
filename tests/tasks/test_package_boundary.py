@@ -75,6 +75,27 @@ def test_tensor_runtime_switch_is_absent_from_source_and_owner_configs() -> None
     assert offenders == [], f"tensor-runtime switch references remain: {offenders}"
 
 
+def test_locomotion_runtime_terms_do_not_use_environment_numpy_rng() -> None:
+    paths = (
+        _REPO_ROOT / "src" / "unilab" / "tasks" / "locomotion" / "g1" / "manager_terms.py",
+        _REPO_ROOT
+        / "src"
+        / "unilab"
+        / "tasks"
+        / "locomotion"
+        / "common"
+        / "rough_manager_terms.py",
+    )
+    offenders = [
+        (path.relative_to(_REPO_ROOT).as_posix(), line_number)
+        for path in paths
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if "env.rng" in line or "self._env.rng" in line
+    ]
+
+    assert offenders == [], f"locomotion NumPy RNG references remain: {offenders}"
+
+
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
     assert "motrix" in registry._envs["G1MotionTracking"].env_factory_dict
