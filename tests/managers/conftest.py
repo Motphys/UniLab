@@ -49,7 +49,7 @@ class FakeEnv:
         self.torch_rng = TorchManagerRng.seeded(seed)
         self.scene = {"robot": FakeEntity()}
         self.max_episode_length_s = 2.0
-        self.value = np.arange(num_envs, dtype=np.float32)
+        self.value = torch.arange(num_envs, dtype=torch.float32)
         self.obs = torch.arange(num_envs * 2, dtype=torch.float32).reshape(num_envs, 2)
         self.calls: list[tuple[str, np.ndarray | None]] = []
         self.obs_buf: dict[str, torch.Tensor] = {}

@@ -10,7 +10,6 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Sequence
 
-import numpy as np
 import torch
 from prettytable import PrettyTable
 
@@ -157,27 +156,24 @@ class TerminationManager(ManagerBase):
 
     def _compute_term(self, name: str, term_cfg: TerminationTermCfg) -> torch.Tensor:
         value = term_cfg.func(self._env, **term_cfg.params)
-        if isinstance(value, torch.Tensor):
-            if value.dtype != torch.bool:
-                raise TypeError(
-                    f"TerminationManager term '{name}' returned dtype {value.dtype}, expected bool."
-                )
-            if value.device != self._device:
-                raise ValueError(
-                    f"TerminationManager term '{name}' returned device {value.device}, "
-                    f"expected {self._device}."
-                )
-            if getattr(term_cfg.func, "returns_transient_tensor", False):
-                result = value
-            else:
-                result = value.clone()
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(
+                f"TerminationManager term '{name}' must return torch.Tensor, "
+                f"got {type(value).__name__}."
+            )
+        if value.dtype != torch.bool:
+            raise TypeError(
+                f"TerminationManager term '{name}' returned dtype {value.dtype}, expected bool."
+            )
+        if value.device != self._device:
+            raise ValueError(
+                f"TerminationManager term '{name}' returned device {value.device}, "
+                f"expected {self._device}."
+            )
+        if getattr(term_cfg.func, "returns_transient_tensor", False):
+            result = value
         else:
-            host = np.asarray(value)
-            if host.dtype != np.bool_:
-                raise TypeError(
-                    f"TerminationManager term '{name}' returned dtype {host.dtype}, expected bool."
-                )
-            result = torch.from_numpy(np.array(host, order="C", copy=True)).to(self._device)
+            result = value.clone()
         if result.shape != (self.num_envs,):
             raise ValueError(
                 f"TerminationManager term '{name}' returned shape {tuple(result.shape)}; "

@@ -7,6 +7,7 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+import torch
 
 from unilab.envs import mdp
 from unilab.managers import TerminationManager, TerminationTermCfg
@@ -34,8 +35,9 @@ def _env() -> ManagerBasedRlEnv:
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=3,
-            episode_length_buf=np.asarray([9, 10, 11], dtype=np.int64),
+            episode_length_buf=torch.tensor([9, 10, 11], dtype=torch.int64),
             max_episode_length=10,
+            device=torch.device("cpu"),
             scene={"robot": entity},
         ),
     )
