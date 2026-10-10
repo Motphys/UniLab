@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 
@@ -23,15 +22,15 @@ def _sampler(
     num_frames: int = 32,
     bin_count: int = 4,
     start_ratio: float = 0.0,
-    initial_frames: np.ndarray | None = None,
+    initial_frames: torch.Tensor | None = None,
 ) -> TensorMotionSampler:
-    frames = np.zeros(num_envs, dtype=np.int32) if initial_frames is None else initial_frames
+    frames = torch.zeros(num_envs, dtype=torch.int32) if initial_frames is None else initial_frames
     return TensorMotionSampler(
         mode=mode,
         num_envs=num_envs,
         num_frames=num_frames,
-        clip_offsets=np.asarray([0], dtype=np.int64),
-        clip_end_frames=np.asarray([num_frames - 1], dtype=np.int32),
+        clip_offsets=torch.tensor([0], dtype=torch.int64),
+        clip_end_frames=torch.tensor([num_frames - 1], dtype=torch.int32),
         bin_count=bin_count,
         adaptive_lambda=0.8,
         adaptive_kernel_size=1,
@@ -39,7 +38,7 @@ def _sampler(
         adaptive_alpha=0.5,
         start_ratio=start_ratio,
         initial_frames=frames,
-        initial_clip_end_frames=np.full(num_envs, num_frames - 1, dtype=np.int32),
+        initial_clip_end_frames=torch.full((num_envs,), num_frames - 1, dtype=torch.int32),
         device=torch.device("cpu"),
     )
 
@@ -88,7 +87,7 @@ def test_adaptive_failure_stats_match_bin_counts_without_host_sync() -> None:
 
 
 def test_step_updates_frames_and_clip_ends_on_device() -> None:
-    sampler = _sampler(initial_frames=np.asarray([0, 1, 2, 3], dtype=np.int32))
+    sampler = _sampler(initial_frames=torch.tensor([0, 1, 2, 3], dtype=torch.int32))
     active = torch.tensor([True, False, True, True])
     done = sampler.step(active)
     torch.testing.assert_close(
@@ -99,7 +98,7 @@ def test_step_updates_frames_and_clip_ends_on_device() -> None:
 
 
 def test_step_selected_rows_does_not_touch_or_read_inactive_rows() -> None:
-    sampler = _sampler(initial_frames=np.asarray([0, 1, 2, 3], dtype=np.int32))
+    sampler = _sampler(initial_frames=torch.tensor([0, 1, 2, 3], dtype=torch.int32))
     sampler.current_clip_end_frames.copy_(torch.tensor([9, 9, 9, 9], dtype=torch.int32))
     active = torch.tensor([True, False, True, False])
     rows = torch.tensor([0, 2], dtype=torch.int64)
@@ -116,7 +115,7 @@ def test_step_selected_rows_does_not_touch_or_read_inactive_rows() -> None:
 
 
 def test_step_full_publishes_mirrors_without_row_gathers() -> None:
-    sampler = _sampler(initial_frames=np.asarray([0, 1, 2, 3], dtype=np.int32))
+    sampler = _sampler(initial_frames=torch.tensor([0, 1, 2, 3], dtype=torch.int32))
     time_steps = torch.tensor([99, 99, 99, 99], dtype=torch.int32)
     active = torch.tensor([True, False, True, False])
 
@@ -144,7 +143,7 @@ def test_sampling_metrics_stay_device_scalars() -> None:
 
 
 def test_sampling_dispatch_matches_eager_clip_lookup_and_publishes_timing() -> None:
-    sampler = _sampler(initial_frames=np.asarray([0, 1, 2, 3], dtype=np.int32))
+    sampler = _sampler(initial_frames=torch.tensor([0, 1, 2, 3], dtype=torch.int32))
     rows = torch.tensor([1, 3], dtype=torch.int64)
     frames = torch.tensor([31, 7], dtype=torch.int32)
 
@@ -169,8 +168,8 @@ def test_sampling_dispatch_matches_eager_clip_lookup_and_publishes_timing() -> N
 
 
 def test_frame_indexed_clip_ends_match_searchsorted_ownership() -> None:
-    offsets = np.asarray([0, 7, 19, 30], dtype=np.int64)
-    ends = np.asarray([6, 18, 29, 31], dtype=np.int32)
+    offsets = torch.tensor([0, 7, 19, 30], dtype=torch.int64)
+    ends = torch.tensor([6, 18, 29, 31], dtype=torch.int32)
     sampler = TensorMotionSampler(
         mode="adaptive",
         num_envs=7,
@@ -183,8 +182,8 @@ def test_frame_indexed_clip_ends_match_searchsorted_ownership() -> None:
         adaptive_uniform_ratio=0.1,
         adaptive_alpha=0.5,
         start_ratio=0.0,
-        initial_frames=np.arange(7, dtype=np.int32),
-        initial_clip_end_frames=np.full(7, 6, dtype=np.int32),
+        initial_frames=torch.arange(7, dtype=torch.int32),
+        initial_clip_end_frames=torch.full((7,), 6, dtype=torch.int32),
         device=torch.device("cpu"),
     )
 

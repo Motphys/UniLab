@@ -3,23 +3,17 @@
 Multi-rank off-policy data-parallel runs partition host CPUs so each rank's
 collector owns one contiguous block (``training.dp_collector_cpu_ids``, routed
 into ``EnvCfg.cpu_ids``). The MuJoCo BatchEnvPool already pins its physics
-workers to that block, but the collector's host-side compute did not follow:
-Numba parallel kernels (``unisim.backend.body_state`` and the
-motion-tracking kernels) size their pool from the host CPU count and leave
-placement to the OS, so they drift across rank boundaries and compete with
-sibling ranks' pinned physics workers.
+workers to that block, but the collector's existing host-side native pools did
+not follow and could drift across rank boundaries to compete with sibling
+ranks' pinned physics workers.
 
 ``apply_env_cpu_runtime`` is the generic env-level counterpart, applied once on
-the env-construction cold path — before managers, backend materialization, or
-the first Numba parallel call exist:
+the env-construction cold path, before managers and backend materialization:
 
 - ``os.sched_setaffinity`` pins the calling thread to the block, and every
   already-running thread (e.g. BLAS pools spawned at ``import numpy``) is
-  pinned individually via ``/proc/self/task``; threads spawned later
-  (including Numba's lazily-launched pool) inherit the mask.
-- ``numba.set_num_threads(len(cpu_ids))`` sizes Numba's pool to the block
-  instead of the host, unless the operator pinned ``NUMBA_NUM_THREADS``
-  (mirroring the motion-kernel runtime policy).
+  pinned individually via ``/proc/self/task``; threads spawned later inherit
+  the mask.
 
 The function is backend-agnostic: ``EnvCfg.cpu_ids`` is the single source of
 truth, so any backend whose env declares a block gets the same confinement.
@@ -58,9 +52,9 @@ def _confine_existing_threads(ids: set[int]) -> None:
 def apply_env_cpu_runtime(cpu_ids: Sequence[int] | None) -> None:
     """Confine this process's host-side compute to the env-owned CPU block.
 
-    Cold path only: call from env construction, before the backend pool,
-    managers, or any Numba parallel kernel exist. ``None`` (the single-rank
-    default) is a no-op so the default path stays bit-identical.
+    Cold path only: call from env construction, before the backend pool or
+    managers exist. ``None`` (the single-rank default) is a no-op so the
+    default path keeps default OS scheduling.
 
     Structural validation (non-empty, unique, non-negative ints) is owned by
     ``EnvCfg.validate``; this function fails closed on CPU ids that are not
@@ -85,20 +79,6 @@ def apply_env_cpu_runtime(cpu_ids: Sequence[int] | None) -> None:
     else:
         warnings.warn(
             "EnvCfg.cpu_ids process confinement requires os.sched_setaffinity "
-            "(Linux); only the Numba thread cap is applied",
-            stacklevel=2,
-        )
-
-    if "NUMBA_NUM_THREADS" in os.environ:
-        return
-    from numba import set_num_threads
-
-    try:
-        set_num_threads(len(ids))
-    except ValueError as exc:
-        # len(ids) <= NUMBA_NUM_THREADS holds whenever the pool default came
-        # from this host's CPU count; warn instead of failing env construction.
-        warnings.warn(
-            f"EnvCfg.cpu_ids Numba thread cap to {len(ids)} rejected: {exc}",
+            "(Linux); CPU confinement is unavailable",
             stacklevel=2,
         )

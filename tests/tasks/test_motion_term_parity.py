@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 import torch
-from numba import config, get_num_threads, threading_layer
 
 from unilab.managers import RewardTermCfg, TerminationTermCfg
-from unilab.tasks.motion_tracking.common import kernels
 from unilab.tasks.motion_tracking.common import manager_terms as mt
 from unilab.tasks.motion_tracking.common.motion_math import (
     _adaptive_failure_alpha,
@@ -20,14 +17,10 @@ from unilab.tasks.motion_tracking.common.motion_math import (
     _gravity_z_in_body,
 )
 from unilab.utils.rotation import (
-    np_matrix_first_two_cols_from_quat,
-    np_quat_apply_batched,
     np_quat_apply_inverse_batched,
     np_quat_error_magnitude_squared_batched,
     np_quat_from_euler_xyz,
-    np_quat_inv,
     np_quat_mul_batched,
-    np_yaw_quat,
 )
 
 
@@ -93,20 +86,32 @@ def body_setup(monkeypatch: pytest.MonkeyPatch):
         body_ang_vel_w.shape, dtype=np.float32
     )
 
+    body_pos_w = torch.from_numpy(body_pos_w)
+    robot_body_pos_w = torch.from_numpy(robot_body_pos_w)
+    body_pos_relative_w = torch.from_numpy(body_pos_relative_w)
+    body_quat_relative_w = torch.from_numpy(body_quat_relative_w)
+    robot_body_quat_w = torch.from_numpy(robot_body_quat_w)
+    body_lin_vel_w = torch.from_numpy(body_lin_vel_w)
+    robot_body_lin_vel_w = torch.from_numpy(robot_body_lin_vel_w)
+    body_ang_vel_w = torch.from_numpy(body_ang_vel_w)
+    robot_body_ang_vel_w = torch.from_numpy(robot_body_ang_vel_w)
+
     command = SimpleNamespace(
         num_envs=num_envs,
         cfg=SimpleNamespace(body_names=tuple(f"b{i}" for i in range(num_bodies))),
         anchor_body_idx=anchor_body_idx,
+        tensor_carrier=True,
+        _body_ids=slice(None),
         body_pos_w=body_pos_w,
         robot_body_pos_w=robot_body_pos_w,
         anchor_pos_w=body_pos_w[:, anchor_body_idx],
         robot_anchor_pos_w=robot_body_pos_w[:, anchor_body_idx],
         anchor_quat_w=body_quat_relative_w[:, anchor_body_idx],
         robot_anchor_quat_w=robot_body_quat_w[:, anchor_body_idx],
-        joint_pos=rng.standard_normal((num_envs, 29), dtype=np.float32),
-        joint_vel=rng.standard_normal((num_envs, 29), dtype=np.float32),
-        robot_joint_pos=rng.standard_normal((num_envs, 29), dtype=np.float32),
-        robot_joint_vel=rng.standard_normal((num_envs, 29), dtype=np.float32),
+        joint_pos=torch.from_numpy(rng.standard_normal((num_envs, 29), dtype=np.float32)),
+        joint_vel=torch.from_numpy(rng.standard_normal((num_envs, 29), dtype=np.float32)),
+        robot_joint_pos=torch.from_numpy(rng.standard_normal((num_envs, 29), dtype=np.float32)),
+        robot_joint_vel=torch.from_numpy(rng.standard_normal((num_envs, 29), dtype=np.float32)),
         body_pos_relative_w=body_pos_relative_w,
         body_quat_relative_w=body_quat_relative_w,
         robot_body_quat_w=robot_body_quat_w,
@@ -117,7 +122,9 @@ def body_setup(monkeypatch: pytest.MonkeyPatch):
     )
 
     snapshots = {
-        key: value.copy() for key, value in vars(command).items() if isinstance(value, np.ndarray)
+        key: value.detach().clone()
+        for key, value in vars(command).items()
+        if isinstance(value, torch.Tensor)
     }
     monkeypatch.setattr(mt, "_command", lambda env, name: command)
     return command, _make_env(command), snapshots
@@ -141,33 +148,18 @@ def _expected_body_reward(
     reference = reference[:, body_ids]
     actual = actual[:, body_ids]
     if orientation:
-        error = np_quat_error_magnitude_squared_batched(reference, actual)
-    else:
-        error = np.square(reference - actual).sum(axis=-1)
-    return np.exp(-error.mean(axis=-1) / std**2)
-
-
-def test_anchor_position_error_exp_bit_parity(body_setup) -> None:
-    command, env, snapshots = body_setup
-    out = mt.motion_global_anchor_position_error_exp(env, "motion", std=0.3)
-    expected = np.exp(
-        -np.sum(
-            np.square(snapshots["anchor_pos_w"] - snapshots["robot_anchor_pos_w"]),
-            axis=-1,
+        from unilab.tasks.motion_tracking.common.tensor_rotation import (
+            quat_conjugate,
+            quat_mul,
         )
-        / 0.3**2
-    )
-    np.testing.assert_array_equal(out, expected)
-    np.testing.assert_array_equal(command.anchor_pos_w, snapshots["anchor_pos_w"])
 
-
-def test_joint_position_error_exp_bit_parity(body_setup) -> None:
-    command, env, snapshots = body_setup
-    out = mt.motion_joint_position_error_exp(env, "motion", std=0.2)
-    expected = np.exp(
-        -np.square(snapshots["joint_pos"] - snapshots["robot_joint_pos"]).mean(axis=-1) / 0.2**2
-    )
-    np.testing.assert_array_equal(out, expected)
+        rel = quat_mul(quat_conjugate(reference), actual)
+        xyz = torch.linalg.vector_norm(rel[..., 1:4], dim=-1)
+        angle = 2.0 * torch.atan2(xyz, rel[..., 0].abs().clamp(max=1.0))
+        error = angle.square()
+    else:
+        error = (reference - actual).square().sum(dim=-1)
+    return torch.exp(-error.mean(dim=-1) / std**2)
 
 
 @pytest.mark.parametrize(
@@ -194,34 +186,24 @@ def test_tensor_scalar_error_rewards_match_numpy_and_do_not_mutate(
     mean: bool,
 ) -> None:
     command, env, snapshots = body_setup
-    tensor_command = SimpleNamespace(
-        num_envs=command.num_envs,
-        cfg=command.cfg,
-        tensor_carrier=True,
-        **{
-            name: torch.from_numpy(value.copy())
-            for name, value in snapshots.items()
-            if isinstance(value, np.ndarray)
-        },
-    )
-    monkeypatch.setattr(mt, "_command", lambda env, name: tensor_command)
+    tensor_command = command
 
     out = function(env, "motion", std=std)
 
     reference = snapshots[reference_name]
     actual = snapshots[actual_name]
-    error = np.square(reference - actual)
-    reduction = error.mean(axis=-1) if mean else error.sum(axis=-1)
-    expected = torch.from_numpy(np.exp(-reduction / std**2))
+    error = (reference - actual).square()
+    reduction = error.mean(dim=-1) if mean else error.sum(dim=-1)
+    expected = torch.exp(-reduction / std**2)
     assert isinstance(out, torch.Tensor)
     torch.testing.assert_close(out, expected, rtol=2e-6, atol=2e-7)
     torch.testing.assert_close(
         getattr(tensor_command, reference_name),
-        torch.from_numpy(snapshots[reference_name]),
+        snapshots[reference_name],
     )
     torch.testing.assert_close(
         getattr(tensor_command, actual_name),
-        torch.from_numpy(snapshots[actual_name]),
+        snapshots[actual_name],
     )
 
 
@@ -229,9 +211,9 @@ def test_tensor_joint_rewards_use_device_resident_actual_state(
     monkeypatch: pytest.MonkeyPatch, body_setup
 ) -> None:
     command, env, snapshots = body_setup
-    motion_joint_pos = torch.from_numpy(snapshots["joint_pos"].copy())
+    motion_joint_pos = snapshots["joint_pos"].detach().clone()
     device_joint_pos = motion_joint_pos + 0.125
-    motion_joint_vel = torch.from_numpy(snapshots["joint_vel"].copy())
+    motion_joint_vel = snapshots["joint_vel"].detach().clone()
     device_joint_vel = motion_joint_vel - 0.25
     tensor_command = SimpleNamespace(
         tensor_carrier=True,
@@ -294,9 +276,9 @@ def _tensor_command_from_snapshots(command, snapshots):
         anchor_body_idx=command.anchor_body_idx,
         tensor_carrier=True,
         **{
-            name: torch.from_numpy(value.copy())
+            name: value.detach().clone()
             for name, value in snapshots.items()
-            if isinstance(value, np.ndarray)
+            if isinstance(value, torch.Tensor)
         },
     )
 
@@ -315,14 +297,11 @@ def test_tensor_anchor_position_termination_matches_numpy(
 
     out = term(env, "motion", threshold=0.15)
     expected = (
-        np.abs(
-            snapshots["body_pos_w"][:, command.anchor_body_idx, 2]
-            - snapshots["robot_anchor_pos_w"][:, 2]
-        )
-        > 0.15
-    )
+        snapshots["body_pos_w"][:, command.anchor_body_idx, 2]
+        - snapshots["robot_anchor_pos_w"][:, 2]
+    ).abs() > 0.15
     assert isinstance(out, torch.Tensor)
-    torch.testing.assert_close(out, torch.from_numpy(expected))
+    torch.testing.assert_close(out, expected)
 
 
 def test_tensor_anchor_orientation_termination_matches_numpy(
@@ -348,14 +327,11 @@ def test_tensor_anchor_orientation_termination_matches_numpy(
 
     out = mt.bad_anchor_ori(env, "motion", threshold=0.8)
     expected = (
-        np.abs(
-            np_quat_apply_inverse_batched(motion_quat, gravity)[:, 2]
-            - np_quat_apply_inverse_batched(robot_quat, gravity)[:, 2]
-        )
-        > 0.8
-    )
+        torch.from_numpy(np_quat_apply_inverse_batched(motion_quat, gravity)[:, 2])
+        - torch.from_numpy(np_quat_apply_inverse_batched(robot_quat, gravity)[:, 2])
+    ).abs() > 0.8
     assert isinstance(out, torch.Tensor)
-    torch.testing.assert_close(out, torch.from_numpy(expected))
+    torch.testing.assert_close(out, expected)
 
 
 @pytest.mark.parametrize(
@@ -392,12 +368,12 @@ def test_tensor_body_terminations_match_numpy(
     out = term(env, "motion", threshold=threshold, body_names=body_names)
     actual = snapshots[actual_name][:, [0, 3, 11], 2]
     if reference_name is None:
-        expected = np.any(actual < threshold, axis=-1)
+        expected = (actual < threshold).any(dim=-1)
     else:
         reference = snapshots[reference_name][:, [0, 3, 11], 2]
-        expected = np.any(np.abs(reference - actual) > threshold, axis=-1)
+        expected = ((reference - actual).abs() > threshold).any(dim=-1)
     assert isinstance(out, torch.Tensor)
-    torch.testing.assert_close(out, torch.from_numpy(expected))
+    torch.testing.assert_close(out, expected)
 
 
 def test_tensor_motion_clip_end_uses_current_rows(monkeypatch, body_setup) -> None:
@@ -419,37 +395,6 @@ def test_tensor_motion_clip_end_uses_current_rows(monkeypatch, body_setup) -> No
     torch.testing.assert_close(out, torch.from_numpy(frames >= clip_ends))
 
 
-def test_anchor_pos_termination_numba_parity_and_output_reuse(body_setup) -> None:
-    command, env, snapshots = body_setup
-    cfg = TerminationTermCfg(
-        func=mt.bad_anchor_pos_z_only,
-        params={"command_name": "motion", "threshold": 0.15},
-    )
-    term = mt.bad_anchor_pos_z_only(cfg, env)
-
-    out = term(env, "motion", threshold=0.15)
-    expected = (
-        np.abs(
-            snapshots["body_pos_w"][:, command.anchor_body_idx, 2]
-            - snapshots["robot_anchor_pos_w"][:, 2]
-        )
-        > 0.15
-    )
-    np.testing.assert_array_equal(out, expected)
-
-    out2 = term(env, "motion", threshold=0.3)
-    assert out2 is out
-    expected2 = (
-        np.abs(
-            snapshots["body_pos_w"][:, command.anchor_body_idx, 2]
-            - snapshots["robot_anchor_pos_w"][:, 2]
-        )
-        > 0.3
-    )
-    np.testing.assert_array_equal(out2, expected2)
-    np.testing.assert_array_equal(command.body_pos_w, snapshots["body_pos_w"])
-
-
 @pytest.mark.parametrize(
     ("term_type", "reference_name", "actual_name", "std", "orientation"),
     [
@@ -483,136 +428,7 @@ def test_anchor_pos_termination_numba_parity_and_output_reuse(body_setup) -> Non
         ),
     ],
 )
-def test_numba_body_rewards_match_numpy_and_reuse_output(
-    body_setup,
-    term_type,
-    reference_name: str,
-    actual_name: str,
-    std: float,
-    orientation: bool,
-) -> None:
-    command, env, snapshots = body_setup
-    term = term_type(_reward_cfg(), env)
-
-    out = term(env, "motion", std=std)
-    expected = _expected_body_reward(
-        snapshots[reference_name],
-        snapshots[actual_name],
-        slice(None),
-        std,
-        orientation=orientation,
-    )
-    np.testing.assert_allclose(out, expected, rtol=2e-6, atol=2e-7)
-    assert out.dtype == snapshots[reference_name].dtype
-    first_result = out.copy()
-
-    second_std = std * 1.5
-    out2 = term(env, "motion", std=second_std)
-    assert out2 is out
-    expected2 = _expected_body_reward(
-        snapshots[reference_name],
-        snapshots[actual_name],
-        slice(None),
-        second_std,
-        orientation=orientation,
-    )
-    np.testing.assert_allclose(out2, expected2, rtol=2e-6, atol=2e-7)
-    assert np.any(first_result != out2)
-    np.testing.assert_array_equal(getattr(command, reference_name), snapshots[reference_name])
-    np.testing.assert_array_equal(getattr(command, actual_name), snapshots[actual_name])
-
-
-@pytest.mark.parametrize(
-    ("term_type", "reference_name", "actual_name", "std", "orientation"),
-    [
-        (
-            mt.motion_relative_body_position_error_exp,
-            "body_pos_relative_w",
-            "robot_body_pos_w",
-            0.3,
-            False,
-        ),
-        (
-            mt.motion_relative_body_orientation_error_exp,
-            "body_quat_relative_w",
-            "robot_body_quat_w",
-            0.4,
-            True,
-        ),
-        (
-            mt.motion_global_body_linear_velocity_error_exp,
-            "body_lin_vel_w",
-            "robot_body_lin_vel_w",
-            1.0,
-            False,
-        ),
-        (
-            mt.motion_global_body_angular_velocity_error_exp,
-            "body_ang_vel_w",
-            "robot_body_ang_vel_w",
-            3.14,
-            False,
-        ),
-    ],
-)
-def test_numba_body_rewards_preserve_body_subset_contract(
-    body_setup,
-    term_type,
-    reference_name: str,
-    actual_name: str,
-    std: float,
-    orientation: bool,
-) -> None:
-    command, env, snapshots = body_setup
-    body_names = ("b0", "b3", "b11")
-    term = term_type(_reward_cfg(body_names=body_names), env)
-
-    out = term(env, "motion", std=std, body_names=body_names)
-    expected = _expected_body_reward(
-        snapshots[reference_name],
-        snapshots[actual_name],
-        [0, 3, 11],
-        std,
-        orientation=orientation,
-    )
-    np.testing.assert_allclose(out, expected, rtol=2e-6, atol=2e-7)
-    assert command.cfg.body_names == tuple(f"b{i}" for i in range(12))
-
-
-@pytest.mark.parametrize(
-    ("term_type", "reference_name", "actual_name", "std", "orientation"),
-    [
-        (
-            mt.motion_relative_body_position_error_exp,
-            "body_pos_relative_w",
-            "robot_body_pos_w",
-            0.3,
-            False,
-        ),
-        (
-            mt.motion_relative_body_orientation_error_exp,
-            "body_quat_relative_w",
-            "robot_body_quat_w",
-            0.4,
-            True,
-        ),
-        (
-            mt.motion_global_body_linear_velocity_error_exp,
-            "body_lin_vel_w",
-            "robot_body_lin_vel_w",
-            1.0,
-            False,
-        ),
-        (
-            mt.motion_global_body_angular_velocity_error_exp,
-            "body_ang_vel_w",
-            "robot_body_ang_vel_w",
-            3.14,
-            False,
-        ),
-    ],
-)
-def test_body_rewards_dispatch_tensor_carrier_without_mutation(
+def test_body_rewards_match_numpy_reference_without_mutation(
     monkeypatch: pytest.MonkeyPatch,
     body_setup,
     term_type,
@@ -622,168 +438,28 @@ def test_body_rewards_dispatch_tensor_carrier_without_mutation(
     orientation: bool,
 ) -> None:
     command, env, snapshots = body_setup
-    tensor_command = SimpleNamespace(
-        num_envs=command.num_envs,
-        cfg=command.cfg,
-        tensor_carrier=True,
-        **{
-            name: torch.from_numpy(value.copy())
-            for name, value in snapshots.items()
-            if isinstance(value, np.ndarray)
-        },
-    )
-    monkeypatch.setattr(mt, "_command", lambda env, name: tensor_command)
+    tensor_command = command
     term = term_type(_reward_cfg(), env)
 
     out = term(env, "motion", std=std)
 
-    expected = torch.from_numpy(
-        _expected_body_reward(
-            snapshots[reference_name],
-            snapshots[actual_name],
-            slice(None),
-            std,
-            orientation=orientation,
-        )
+    expected = _expected_body_reward(
+        snapshots[reference_name],
+        snapshots[actual_name],
+        slice(None),
+        std,
+        orientation=orientation,
     )
     assert isinstance(out, torch.Tensor)
     torch.testing.assert_close(out, expected, rtol=2e-6, atol=2e-7)
     torch.testing.assert_close(
         getattr(tensor_command, reference_name),
-        torch.from_numpy(snapshots[reference_name]),
+        snapshots[reference_name],
     )
     torch.testing.assert_close(
         getattr(tensor_command, actual_name),
-        torch.from_numpy(snapshots[actual_name]),
+        snapshots[actual_name],
     )
-
-
-def test_motion_hot_kernels_compile_parallel_on_term_construction(body_setup) -> None:
-    _, env, _ = body_setup
-    mt.bad_anchor_pos_z_only(
-        TerminationTermCfg(
-            func=mt.bad_anchor_pos_z_only,
-            params={"command_name": "motion", "threshold": 0.15},
-        ),
-        env,
-    )
-    for term_type in (
-        mt.motion_relative_body_position_error_exp,
-        mt.motion_relative_body_orientation_error_exp,
-        mt.motion_global_body_linear_velocity_error_exp,
-        mt.motion_global_body_angular_velocity_error_exp,
-    ):
-        term_type(_reward_cfg(), env)
-
-    dispatchers = (
-        kernels.termination_anchor_pos_kernel,
-        kernels.reward_motion_body_pos_kernel,
-        kernels.reward_motion_body_ori_kernel,
-        kernels.reward_motion_body_lin_vel_kernel,
-        kernels.reward_motion_body_ang_vel_kernel,
-    )
-    for dispatcher in dispatchers:
-        assert dispatcher.targetoptions["nopython"] is True
-        assert dispatcher.targetoptions["nogil"] is True
-        assert dispatcher.targetoptions["parallel"] is True
-        assert dispatcher.signatures
-    if "NUMBA_THREADING_LAYER" not in os.environ:
-        assert threading_layer() == "workqueue"
-    if "NUMBA_NUM_THREADS" not in os.environ:
-        assert get_num_threads() == min(8, config.NUMBA_DEFAULT_NUM_THREADS)
-
-
-def test_motion_metrics_kernel_matches_numpy_and_scopes_rows() -> None:
-    rng = np.random.default_rng(1701)
-    num_envs, num_bodies, num_joints = 257, 12, 29
-    anchor_body_idx = 4
-    motion_pos = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    robot_pos = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    relative_pos = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    motion_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
-    robot_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
-    relative_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
-    motion_lin = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    robot_lin = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    motion_ang = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    robot_ang = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    motion_joint_pos = rng.standard_normal((num_envs, num_joints), dtype=np.float32)
-    robot_joint_pos = rng.standard_normal((num_envs, num_joints), dtype=np.float32)
-    motion_joint_vel = rng.standard_normal((num_envs, num_joints), dtype=np.float32)
-    robot_joint_vel = rng.standard_normal((num_envs, num_joints), dtype=np.float32)
-    inputs = (
-        motion_pos,
-        robot_pos,
-        motion_quat,
-        robot_quat,
-        motion_lin,
-        robot_lin,
-        motion_ang,
-        robot_ang,
-        relative_pos,
-        relative_quat,
-        motion_joint_pos,
-        robot_joint_pos,
-        motion_joint_vel,
-        robot_joint_vel,
-    )
-    snapshots = tuple(value.copy() for value in inputs)
-    expected = (
-        np.linalg.norm(motion_pos[:, anchor_body_idx] - robot_pos[:, anchor_body_idx], axis=-1),
-        np.sqrt(
-            np_quat_error_magnitude_squared_batched(
-                motion_quat[:, anchor_body_idx], robot_quat[:, anchor_body_idx]
-            )
-        ),
-        np.linalg.norm(motion_lin[:, anchor_body_idx] - robot_lin[:, anchor_body_idx], axis=-1),
-        np.linalg.norm(motion_ang[:, anchor_body_idx] - robot_ang[:, anchor_body_idx], axis=-1),
-        np.linalg.norm(relative_pos - robot_pos, axis=-1).mean(axis=-1),
-        np.sqrt(np_quat_error_magnitude_squared_batched(relative_quat, robot_quat)).mean(axis=-1),
-        np.linalg.norm(motion_lin - robot_lin, axis=-1).mean(axis=-1),
-        np.linalg.norm(motion_ang - robot_ang, axis=-1).mean(axis=-1),
-        np.linalg.norm(motion_joint_pos - robot_joint_pos, axis=-1),
-        np.linalg.norm(motion_joint_vel - robot_joint_vel, axis=-1),
-    )
-    outputs = tuple(np.full(num_envs, -123.0, dtype=np.float32) for _ in expected)
-
-    def run(rows: np.ndarray) -> None:
-        kernels.update_motion_metrics_kernel(
-            rows,
-            anchor_body_idx,
-            motion_pos,
-            robot_pos,
-            motion_quat,
-            robot_quat,
-            motion_lin,
-            robot_lin,
-            motion_ang,
-            robot_ang,
-            relative_pos,
-            relative_quat,
-            motion_joint_pos,
-            robot_joint_pos,
-            motion_joint_vel,
-            robot_joint_vel,
-            *outputs,
-        )
-
-    selected = np.asarray([0, 3, 128, 256], dtype=np.int32)
-    run(selected)
-    untouched = np.ones(num_envs, dtype=bool)
-    untouched[selected] = False
-    for actual, reference in zip(outputs, expected, strict=True):
-        np.testing.assert_allclose(actual[selected], reference[selected], rtol=2e-6, atol=1e-5)
-        np.testing.assert_array_equal(actual[untouched], -123.0)
-
-    run(np.arange(num_envs, dtype=np.int32))
-    for actual, reference in zip(outputs, expected, strict=True):
-        np.testing.assert_allclose(actual, reference, rtol=2e-6, atol=1e-5)
-    for actual, snapshot in zip(inputs, snapshots, strict=True):
-        np.testing.assert_array_equal(actual, snapshot)
-    assert kernels.update_motion_metrics_kernel.targetoptions["nopython"] is True
-    assert kernels.update_motion_metrics_kernel.targetoptions["nogil"] is True
-    assert kernels.update_motion_metrics_kernel.targetoptions["parallel"] is True
-    assert kernels.update_motion_metrics_kernel.signatures
 
 
 def test_motion_metrics_tensor_peer_matches_numpy_and_scopes_rows() -> None:
@@ -857,97 +533,12 @@ def test_motion_metrics_tensor_peer_matches_numpy_and_scopes_rows() -> None:
         torch.testing.assert_close(actual, torch.from_numpy(snapshot))
 
 
-def test_motion_relative_state_kernel_matches_numpy_and_scopes_rows() -> None:
-    rng = np.random.default_rng(1818)
-    num_envs, num_bodies = 257, 12
-    anchor_body_idx = 4
-    motion_pos_local = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    env_origins = rng.standard_normal((num_envs, 1, 3), dtype=np.float32)
-    motion_pos_world = motion_pos_local + env_origins
-    motion_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
-    robot_pos = rng.standard_normal((num_envs, num_bodies, 3), dtype=np.float32)
-    robot_quat = _unit_quat(rng.standard_normal((num_envs, num_bodies, 4), dtype=np.float32))
-    inputs = (motion_pos_local, motion_pos_world, motion_quat, robot_pos, robot_quat)
-    snapshots = tuple(value.copy() for value in inputs)
-
-    motion_anchor_pos_local = motion_pos_local[:, anchor_body_idx]
-    motion_anchor_quat = motion_quat[:, anchor_body_idx]
-    robot_anchor_pos = robot_pos[:, anchor_body_idx]
-    robot_anchor_quat = robot_quat[:, anchor_body_idx]
-    delta_pos = robot_anchor_pos.copy()
-    delta_pos[:, 2] = motion_anchor_pos_local[:, 2]
-    delta_quat = np_yaw_quat(
-        np_quat_mul_batched(robot_anchor_quat, np_quat_inv(motion_anchor_quat))
-    )
-    expected_body_pos_relative = np_quat_apply_batched(
-        delta_quat[:, None],
-        motion_pos_local - motion_anchor_pos_local[:, None],
-    )
-    expected_body_pos_relative += delta_pos[:, None]
-    expected_body_quat_relative = np_quat_mul_batched(delta_quat[:, None], motion_quat)
-    expected_motion_anchor_pos = np_quat_apply_inverse_batched(
-        robot_anchor_quat,
-        motion_pos_world[:, anchor_body_idx] - robot_anchor_pos,
-    )
-    expected_motion_anchor_ori = np_matrix_first_two_cols_from_quat(
-        np_quat_mul_batched(np_quat_inv(robot_anchor_quat), motion_anchor_quat)
-    )
-    expected_robot_body_pos = np_quat_apply_inverse_batched(
-        robot_anchor_quat[:, None],
-        robot_pos - robot_anchor_pos[:, None],
-    )
-    expected_robot_body_ori = np_matrix_first_two_cols_from_quat(
-        np_quat_mul_batched(np_quat_inv(robot_anchor_quat)[:, None], robot_quat)
-    )
-    expected = (
-        expected_body_pos_relative,
-        expected_body_quat_relative,
-        expected_motion_anchor_pos,
-        expected_motion_anchor_ori,
-        expected_robot_body_pos,
-        expected_robot_body_ori,
-    )
-    outputs = tuple(np.full(value.shape, -123.0, dtype=np.float32) for value in expected)
-    output_addresses = tuple(value.ctypes.data for value in outputs)
-
-    def run(rows: np.ndarray) -> None:
-        kernels.update_motion_relative_state_kernel(
-            rows,
-            anchor_body_idx,
-            motion_pos_local,
-            motion_pos_world,
-            motion_quat,
-            robot_pos,
-            robot_quat,
-            *outputs,
-        )
-
-    selected = np.asarray([0, 3, 128, 256], dtype=np.int32)
-    run(selected)
-    untouched = np.ones(num_envs, dtype=bool)
-    untouched[selected] = False
-    for actual, reference in zip(outputs, expected, strict=True):
-        np.testing.assert_allclose(actual[selected], reference[selected], rtol=3e-6, atol=2e-6)
-        np.testing.assert_array_equal(actual[untouched], -123.0)
-
-    run(np.arange(num_envs, dtype=np.int32))
-    for actual, reference in zip(outputs, expected, strict=True):
-        np.testing.assert_allclose(actual, reference, rtol=3e-6, atol=2e-6)
-    for actual, snapshot in zip(inputs, snapshots, strict=True):
-        np.testing.assert_array_equal(actual, snapshot)
-    assert tuple(value.ctypes.data for value in outputs) == output_addresses
-    assert kernels.update_motion_relative_state_kernel.targetoptions["nopython"] is True
-    assert kernels.update_motion_relative_state_kernel.targetoptions["nogil"] is True
-    assert kernels.update_motion_relative_state_kernel.targetoptions["parallel"] is True
-    assert kernels.update_motion_relative_state_kernel.signatures
-
-
-def test_joint_pos_limits_bit_parity() -> None:
+def test_joint_pos_limits_matches_reference_equation() -> None:
     rng = np.random.default_rng(123)
     joint_pos = rng.standard_normal((8, 5), dtype=np.float32)
     limits = np.asarray([[-1.0, 1.0]] * 5, dtype=np.float32)
     asset = SimpleNamespace(data=SimpleNamespace(joint_pos=joint_pos, soft_joint_pos_limits=limits))
-    env = SimpleNamespace(scene={"robot": asset})
+    env = SimpleNamespace(scene={"robot": asset}, device=torch.device("cpu"))
     asset_cfg = SimpleNamespace(name="robot", joint_ids=np.array([4, 2, 0], dtype=np.intp))
 
     out = mt.joint_pos_limits(env, asset_cfg)
@@ -960,27 +551,28 @@ def test_joint_pos_limits_bit_parity() -> None:
         ),
         axis=-1,
     )
-    np.testing.assert_array_equal(out, expected)
+    torch.testing.assert_close(out, torch.from_numpy(expected), rtol=0.0, atol=0.0)
 
 
 def test_tensor_command_publishes_sampler_advance_exactly_once() -> None:
-    command = mt.TensorMotionCommand.__new__(mt.TensorMotionCommand)
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._device = torch.device("cpu")
+    command.last_step_timing_ms = {}
     command.time_steps = torch.tensor([4, 0, 9], dtype=torch.int32)
     command.tensor_sampler = mt.TensorMotionSampler(
         mode="adaptive",
         num_envs=3,
         num_frames=11,
-        clip_offsets=np.asarray([0], dtype=np.int64),
-        clip_end_frames=np.asarray([100], dtype=np.int32),
+        clip_offsets=torch.tensor([0], dtype=torch.int64),
+        clip_end_frames=torch.tensor([100], dtype=torch.int32),
         bin_count=1,
         adaptive_lambda=0.8,
         adaptive_kernel_size=1,
         adaptive_uniform_ratio=0.1,
         adaptive_alpha=0.001,
         start_ratio=0.0,
-        initial_frames=np.asarray([4, 0, 9], dtype=np.int32),
-        initial_clip_end_frames=np.asarray([100, 100, 100], dtype=np.int32),
+        initial_frames=torch.tensor([4, 0, 9], dtype=torch.int32),
+        initial_clip_end_frames=torch.tensor([100, 100, 100], dtype=torch.int32),
         device=torch.device("cpu"),
     )
     command.tensor_sampler.current_frames.copy_(command.time_steps)
@@ -990,7 +582,6 @@ def test_tensor_command_publishes_sampler_advance_exactly_once() -> None:
     command._tensor_all_rows = torch.arange(3, dtype=torch.int64)
     command.cfg = SimpleNamespace(params=SimpleNamespace(truncate_on_clip_end=True))
     command._tensor_post_compute_env_ids = None
-    command._resample_ingested_ids = None
     command._tensor_resample_ingested = None
     command._env = SimpleNamespace(
         termination_manager=SimpleNamespace(terminated=torch.tensor([False, False, False])),
@@ -1004,23 +595,24 @@ def test_tensor_command_publishes_sampler_advance_exactly_once() -> None:
 
 
 def test_tensor_command_full_refresh_gathers_advanced_frames() -> None:
-    command = mt.TensorMotionCommand.__new__(mt.TensorMotionCommand)
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._device = torch.device("cpu")
+    command.last_step_timing_ms = {}
     command.time_steps = torch.tensor([4, 0, 9], dtype=torch.int32)
     command.tensor_sampler = mt.TensorMotionSampler(
         mode="adaptive",
         num_envs=3,
         num_frames=11,
-        clip_offsets=np.asarray([0], dtype=np.int64),
-        clip_end_frames=np.asarray([100], dtype=np.int32),
+        clip_offsets=torch.tensor([0], dtype=torch.int64),
+        clip_end_frames=torch.tensor([100], dtype=torch.int32),
         bin_count=1,
         adaptive_lambda=0.8,
         adaptive_kernel_size=1,
         adaptive_uniform_ratio=0.1,
         adaptive_alpha=0.001,
         start_ratio=0.0,
-        initial_frames=np.asarray([4, 0, 9], dtype=np.int32),
-        initial_clip_end_frames=np.asarray([100, 100, 100], dtype=np.int32),
+        initial_frames=torch.tensor([4, 0, 9], dtype=torch.int32),
+        initial_clip_end_frames=torch.tensor([100, 100, 100], dtype=torch.int32),
         device=torch.device("cpu"),
     )
     command.tensor_sampler.current_frames.copy_(command.time_steps)
@@ -1030,16 +622,11 @@ def test_tensor_command_full_refresh_gathers_advanced_frames() -> None:
     command._tensor_all_rows = torch.arange(3, dtype=torch.int64)
     command.cfg = SimpleNamespace(params=SimpleNamespace(truncate_on_clip_end=True))
     command._tensor_post_compute_env_ids = None
-    command._resample_ingested_ids = None
     command._tensor_resample_ingested = None
     command._env = SimpleNamespace(
         termination_manager=SimpleNamespace(terminated=torch.tensor([False, False, False])),
         reset_buf=torch.tensor([False, False, False]),
     )
-    # The host NumPy sampler is never stepped on the tensor path; keep it frozen
-    # at frame 0 so the refresh must gather from the device carrier instead.
-    command.sampler = SimpleNamespace(current_frames=np.zeros(3, dtype=np.int64))
-
     captured: dict[str, Any] = {}
     command._motion_packet = lambda frames: frames
 
@@ -1057,7 +644,7 @@ def test_tensor_command_full_refresh_gathers_advanced_frames() -> None:
 
 
 def test_tensor_command_syncs_sampler_mirrors_on_selected_rows_only() -> None:
-    command = mt.TensorMotionCommand.__new__(mt.TensorMotionCommand)
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._device = torch.device("cpu")
     command._tensor_all_rows = torch.arange(3, dtype=torch.int64)
     command._tensor_post_compute_env_ids = torch.tensor([0, 2], dtype=torch.int64)
@@ -1067,16 +654,16 @@ def test_tensor_command_syncs_sampler_mirrors_on_selected_rows_only() -> None:
         mode="adaptive",
         num_envs=3,
         num_frames=11,
-        clip_offsets=np.asarray([0], dtype=np.int64),
-        clip_end_frames=np.asarray([100], dtype=np.int32),
+        clip_offsets=torch.tensor([0], dtype=torch.int64),
+        clip_end_frames=torch.tensor([100], dtype=torch.int32),
         bin_count=1,
         adaptive_lambda=0.8,
         adaptive_kernel_size=1,
         adaptive_uniform_ratio=0.1,
         adaptive_alpha=0.001,
         start_ratio=0.0,
-        initial_frames=np.asarray([7, 0, 8], dtype=np.int32),
-        initial_clip_end_frames=np.asarray([100, 100, 100], dtype=np.int32),
+        initial_frames=torch.tensor([7, 0, 8], dtype=torch.int32),
+        initial_clip_end_frames=torch.tensor([100, 100, 100], dtype=torch.int32),
         device=torch.device("cpu"),
     )
 
@@ -1089,7 +676,7 @@ def test_tensor_command_syncs_sampler_mirrors_on_selected_rows_only() -> None:
 
 
 def test_motion_feature_layout_is_cached_without_recomputing_shapes() -> None:
-    command = mt.TensorMotionCommand.__new__(mt.TensorMotionCommand)
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._motion_feature_layout = None
     command.motion = SimpleNamespace(num_joints=3)
     command.cfg = SimpleNamespace(body_names=("pelvis", "torso"))
@@ -1109,12 +696,12 @@ def test_motion_feature_layout_is_cached_without_recomputing_shapes() -> None:
         }
 
     original = command._motion_feature_tail_shapes
-    mt.TensorMotionCommand._motion_feature_tail_shapes = counted_tails
+    mt.MotionCommand._motion_feature_tail_shapes = counted_tails
     try:
         first_tails, first_offsets = command._cached_motion_feature_shapes()
         second_tails, second_offsets = command._cached_motion_feature_shapes()
     finally:
-        mt.TensorMotionCommand._motion_feature_tail_shapes = original
+        mt.MotionCommand._motion_feature_tail_shapes = original
 
     assert calls == 1
     assert first_tails is second_tails

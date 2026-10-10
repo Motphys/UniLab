@@ -23,12 +23,23 @@ class _MotionCommand(MotionCommand):
 
     cfg = None
 
-    def __init__(self, **values: Any) -> None:
-        self.__dict__.update(values)
+    def __new__(cls, *_args: Any, **values: Any) -> "_MotionCommand":
+        command = cast("_MotionCommand", MotionCommand.__new__(cls))
+        command.__dict__.update(values)
+        return command
+
+    def __init__(self, *_args: Any, **_values: Any) -> None:
+        return None
 
     @property
     def tensor_carrier(self) -> bool:
-        return bool(self.__dict__.get("tensor_carrier", False))
+        return True
+
+    @property
+    def device_robot_joint_pos(self) -> torch.Tensor:
+        value = self.__dict__["device_robot_joint_pos"]
+        assert isinstance(value, torch.Tensor)
+        return value
 
 
 class _FakeCommandManager:
@@ -78,7 +89,7 @@ def _command(
     body_quat_w: np.ndarray,
 ) -> Any:
     return _MotionCommand(
-        cfg=_MotionCommand(
+        cfg=SimpleNamespace(
             entity_name="robot",
             body_names=("torso", "pelvis"),
         ),
@@ -228,7 +239,7 @@ def test_anchor_terms_declare_command_body_namespace() -> None:
 
 
 def test_tensor_command_observation_accessors_return_carrier_views() -> None:
-    command = _MotionCommand(tensor_carrier=True)
+    command = _MotionCommand()
     command.motion_anchor_pos_b = torch.zeros((2, 3), dtype=torch.float32)
     command.motion_anchor_ori_b = torch.zeros((2, 6), dtype=torch.float32)
     command.robot_body_pos_b = torch.zeros((2, 2, 3), dtype=torch.float32)
@@ -260,7 +271,6 @@ def test_tensor_command_joint_observation_uses_cached_default() -> None:
         )
     )
     command = _MotionCommand(
-        tensor_carrier=True,
         robot=robot,
         device_robot_joint_pos=torch.full((2, 29), 1.0),
         joint_default_bias=torch.full((2, 29), 0.125),

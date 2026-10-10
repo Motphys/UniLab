@@ -33,8 +33,9 @@ def test_rocm_profile_preserves_non_substituted_runtime_dependencies() -> None:
     missing = set(default_dependencies) - set(rocm_dependencies)
 
     assert not missing
-    assert "numba" in rocm_dependencies
     assert "prettytable" in rocm_dependencies
+    assert "numba" not in default_dependencies
+    assert "numba" not in rocm_dependencies
 
 
 def test_rocm_profile_preserves_project_scripts() -> None:
@@ -51,5 +52,6 @@ def test_rocm_lock_contains_profile_runtime_dependencies() -> None:
     root = next(package for package in lock["package"] if package["name"] == "unilab")
     root_dependencies = {dependency["name"] for dependency in root["dependencies"]}
 
-    assert {"numba", "prettytable"} <= packages
-    assert {"numba", "prettytable"} <= root_dependencies
+    assert "prettytable" in packages
+    assert "prettytable" in root_dependencies
+    assert "numba" not in root_dependencies

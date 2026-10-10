@@ -75,6 +75,27 @@ def test_tensor_runtime_switch_is_absent_from_source_and_owner_configs() -> None
     assert offenders == [], f"tensor-runtime switch references remain: {offenders}"
 
 
+def test_production_source_does_not_import_or_configure_numba() -> None:
+    source_root = _REPO_ROOT / "src" / "unilab"
+    import_violations = [
+        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        for path in sorted(source_root.rglob("*.py"))
+        for module in sorted(_imports(path))
+        if module == "numba" or module.startswith("numba.")
+    ]
+    configuration_violations = [
+        (path.relative_to(_REPO_ROOT).as_posix(), line_number, line.strip())
+        for path in sorted(source_root.rglob("*.py"))
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if "NUMBA_" in line or "set_num_threads" in line
+    ]
+
+    assert import_violations == [], f"production Numba imports remain: {import_violations}"
+    assert configuration_violations == [], (
+        f"production Numba configuration remains: {configuration_violations}"
+    )
+
+
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
     assert "motrix" in registry._envs["G1MotionTracking"].env_factory_dict

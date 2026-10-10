@@ -2,9 +2,9 @@
 
 Multi-rank off-policy collectors pin their MuJoCo pool workers to a per-rank
 CPU block via ``EnvCfg.cpu_ids``; ``TorchEnv.__init__`` additionally confines the
-owning process to the same block and sizes Numba's parallel pool to it, so
-host-side kernels cannot drift onto sibling ranks' CPUs. Unit tests mock the
-OS/Numba seams; one subprocess test validates the real placement contract.
+owning process and its existing host-side threads to the same block, so they
+cannot drift onto sibling ranks' CPUs. One subprocess test validates the real
+placement contract.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from unittest.mock import MagicMock
 
 import gymnasium as gym
-import numba
 import numpy as np
 import pytest
 import torch
@@ -39,12 +38,6 @@ def _record_affinity(monkeypatch: pytest.MonkeyPatch, available: set[int]) -> li
     return calls
 
 
-def _record_numba(monkeypatch: pytest.MonkeyPatch) -> list[int]:
-    calls: list[int] = []
-    monkeypatch.setattr(numba, "set_num_threads", lambda n: calls.append(int(n)))
-    return calls
-
-
 def _record_confine(monkeypatch: pytest.MonkeyPatch) -> list[set[int]]:
     calls: list[set[int]] = []
     monkeypatch.setattr(
@@ -54,70 +47,45 @@ def _record_confine(monkeypatch: pytest.MonkeyPatch) -> list[set[int]]:
 
 
 def test_none_is_noop(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("NUMBA_NUM_THREADS", raising=False)
     affinity_calls = _record_affinity(monkeypatch, {0, 1, 2, 3})
     confine_calls = _record_confine(monkeypatch)
-    numba_calls = _record_numba(monkeypatch)
 
     apply_env_cpu_runtime(None)
 
     assert affinity_calls == []
     assert confine_calls == []
-    assert numba_calls == []
 
 
-def test_applies_affinity_and_numba_cap(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("NUMBA_NUM_THREADS", raising=False)
+def test_applies_affinity_and_confines_existing_threads(monkeypatch: pytest.MonkeyPatch):
     affinity_calls = _record_affinity(monkeypatch, {0, 1, 2, 3})
     confine_calls = _record_confine(monkeypatch)
-    numba_calls = _record_numba(monkeypatch)
 
     apply_env_cpu_runtime([1, 2])
 
     assert affinity_calls == [(0, {1, 2})]
     assert confine_calls == [{1, 2}]
-    assert numba_calls == [2]
-
-
-def test_respects_explicit_numba_num_threads(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("NUMBA_NUM_THREADS", "4")
-    affinity_calls = _record_affinity(monkeypatch, {0, 1, 2, 3})
-    confine_calls = _record_confine(monkeypatch)
-    numba_calls = _record_numba(monkeypatch)
-
-    apply_env_cpu_runtime([1, 2])
-
-    assert affinity_calls == [(0, {1, 2})]
-    assert confine_calls == [{1, 2}]
-    assert numba_calls == []
 
 
 def test_unavailable_cpu_ids_fail_closed(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("NUMBA_NUM_THREADS", raising=False)
     affinity_calls = _record_affinity(monkeypatch, {0, 1})
     confine_calls = _record_confine(monkeypatch)
-    numba_calls = _record_numba(monkeypatch)
 
     with pytest.raises(ValueError, match="not available"):
         apply_env_cpu_runtime([1, 2])
 
     assert affinity_calls == []
     assert confine_calls == []
-    assert numba_calls == []
 
 
-def test_platform_without_affinity_warns_and_caps_numba(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("NUMBA_NUM_THREADS", raising=False)
+def test_platform_without_affinity_warns(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delattr(os, "sched_setaffinity", raising=False)
     monkeypatch.delattr(os, "sched_getaffinity", raising=False)
     confine_calls = _record_confine(monkeypatch)
-    numba_calls = _record_numba(monkeypatch)
 
     with pytest.warns(UserWarning, match="sched_setaffinity"):
         apply_env_cpu_runtime([0, 1])
 
     assert confine_calls == []
-    assert numba_calls == [2]
 
 
 def test_confine_existing_threads_pins_tasks_and_skips_failures(
@@ -207,33 +175,20 @@ def test_torch_env_init_applies_env_cpu_runtime(monkeypatch: pytest.MonkeyPatch,
     not (hasattr(os, "sched_setaffinity") and os.path.isdir("/proc/self/task")),
     reason="requires Linux sched affinity and /proc",
 )
-def test_numba_threads_inherit_confined_block_in_fresh_process():
+def test_existing_threads_inherit_confined_block_in_fresh_process():
     script = r"""
 import json
 import os
 
-# Production collectors import numpy/numba (through the backend modules)
-# before env construction, so mirror that ordering here: the OpenBLAS pool
-# spawned at `import numpy` predates the env hook and must be confined
-# retroactively, while Numba's pool launches after it and inherits the mask.
-import numba  # noqa: F401
+# Production collectors import NumPy before env construction, so the OpenBLAS
+# pool predates the env hook and must be confined retroactively.
 import numpy as np
 
 from unilab.base.cpu_runtime import apply_env_cpu_runtime
 
 block = sorted(os.sched_getaffinity(0))[:2]
 apply_env_cpu_runtime(block)
-
-from numba import get_num_threads, njit, prange
-
-
-@njit(parallel=True)
-def _probe(out):
-    for i in prange(out.shape[0]):
-        out[i] = i * 2.0
-
-
-_probe(np.zeros(256))
+np.zeros(256)  # keep the host BLAS import observable
 
 
 def _expand(mask):
@@ -256,18 +211,10 @@ for tid in os.listdir("/proc/self/task"):
 
 print(
     "RESULT:"
-    + json.dumps(
-        {
-            "block": block,
-            "affinity": sorted(os.sched_getaffinity(0)),
-            "numba_threads": get_num_threads(),
-            "masks": masks,
-        }
-    )
+    + json.dumps({"block": block, "affinity": sorted(os.sched_getaffinity(0)), "masks": masks})
 )
 """
     env = dict(os.environ)
-    env.pop("NUMBA_NUM_THREADS", None)
     proc = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
@@ -280,10 +227,8 @@ print(
     assert len(result_lines) == 1, proc.stdout
     payload = json.loads(result_lines[0].removeprefix("RESULT:"))
     assert payload["affinity"] == payload["block"]
-    assert payload["numba_threads"] == len(payload["block"])
-    # Every thread in the process must stay inside the block: the main thread,
-    # the OpenBLAS pool spawned at import (confined retroactively), and Numba's
-    # pool (inherits the confined mask at its lazy launch).
+    # Every already-running thread (including the OpenBLAS pool spawned at
+    # import) must stay inside the env-owned block.
     assert payload["masks"]
     for mask in payload["masks"]:
         assert set(mask) <= set(payload["block"])

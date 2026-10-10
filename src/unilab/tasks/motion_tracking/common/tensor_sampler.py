@@ -1,7 +1,6 @@
 """Device-resident motion sampling for tensor Manager owners.
 
-The community ``MotionSampler`` remains the NumPy reference implementation and
-cold-path loader. This owner adapter owns the hot tensor lifecycle: adaptive
+This owner owns the cold metadata derivation and hot tensor lifecycle: adaptive
 failure statistics, frame advance, reset sampling, and sampling diagnostics stay
 on one Torch device and consume the Manager-owned Torch generator.
 """
@@ -11,7 +10,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-import numpy as np
 import torch
 
 
@@ -44,7 +42,7 @@ class TensorMotionSamplerDiagnostics:
 
 
 class TensorMotionSampler:
-    """Torch-native adaptive/mixed motion sampler for ``TensorMotionCommand``."""
+    """Torch-native adaptive/mixed motion sampler for ``MotionCommand``."""
 
     def __init__(
         self,
@@ -52,16 +50,16 @@ class TensorMotionSampler:
         mode: str,
         num_envs: int,
         num_frames: int,
-        clip_offsets: np.ndarray,
-        clip_end_frames: np.ndarray,
+        clip_offsets: torch.Tensor,
+        clip_end_frames: torch.Tensor,
         bin_count: int,
         adaptive_lambda: float,
         adaptive_kernel_size: int,
         adaptive_uniform_ratio: float,
         adaptive_alpha: float,
         start_ratio: float,
-        initial_frames: np.ndarray,
-        initial_clip_end_frames: np.ndarray,
+        initial_frames: torch.Tensor,
+        initial_clip_end_frames: torch.Tensor,
         device: torch.device,
     ) -> None:
         if mode not in {"adaptive", "mixed"}:
@@ -90,22 +88,22 @@ class TensorMotionSampler:
         if self.device.type == "cuda" and self.device.index is None:
             self.device = torch.device("cuda", index=torch.cuda.current_device())
 
-        self.current_frames = torch.as_tensor(
-            np.asarray(initial_frames, dtype=np.int32, copy=True), device=self.device
+        self.current_frames = initial_frames.detach().to(
+            device=self.device, dtype=torch.int32, copy=True
         )
-        self.current_clip_end_frames = torch.as_tensor(
-            np.asarray(initial_clip_end_frames, dtype=np.int32, copy=True), device=self.device
+        self.current_clip_end_frames = initial_clip_end_frames.detach().to(
+            device=self.device, dtype=torch.int32, copy=True
         )
-        self._clip_offsets = torch.as_tensor(
-            np.asarray(clip_offsets, dtype=np.int64, copy=True), device=self.device
+        self._clip_offsets = clip_offsets.detach().to(
+            device=self.device, dtype=torch.int64, copy=True
         )
-        self._clip_end_frames = torch.as_tensor(
-            np.asarray(clip_end_frames, dtype=np.int32, copy=True), device=self.device
+        self._clip_end_frames = clip_end_frames.detach().to(
+            device=self.device, dtype=torch.int32, copy=True
         )
         # Expand clip ownership to one int32 entry per frame. This trades a
         # cold O(num_frames) table for removing searchsorted from every selected
         # reset and full-width frame advance.
-        expanded_clip_ends = np.empty((self.num_frames,), dtype=np.int32)
+        expanded_clip_ends = torch.empty((self.num_frames,), dtype=torch.int32)
         for clip_index in range(len(clip_end_frames)):
             start = int(clip_offsets[clip_index])
             end = (
@@ -113,15 +111,15 @@ class TensorMotionSampler:
                 if clip_index + 1 < len(clip_offsets)
                 else self.num_frames
             )
-            expanded_clip_ends[start:end] = np.asarray(clip_end_frames[clip_index], dtype=np.int32)
-        self._frame_clip_ends = torch.as_tensor(expanded_clip_ends, device=self.device)
+            expanded_clip_ends[start:end] = clip_end_frames[clip_index]
+        self._frame_clip_ends = expanded_clip_ends.to(device=self.device)
         self._bin_failed = torch.zeros(self.bin_count, dtype=torch.float32, device=self.device)
-        kernel = np.asarray(
+        kernel = torch.tensor(
             [self.adaptive_lambda**index for index in range(self.adaptive_kernel_size)],
-            dtype=np.float32,
+            dtype=torch.float32,
         )
         kernel /= kernel.sum()
-        self._adaptive_kernel = torch.as_tensor(kernel, device=self.device)
+        self._adaptive_kernel = kernel.to(device=self.device)
         self.sampling_entropy = torch.zeros((), dtype=torch.float32, device=self.device)
         self.sampling_top1_prob = torch.zeros((), dtype=torch.float32, device=self.device)
         self.sampling_top1_bin = torch.zeros((), dtype=torch.float32, device=self.device)
@@ -208,7 +206,7 @@ class TensorMotionSampler:
         self.current_frames.add_(increment)
         time_steps.copy_(self.current_frames)
         frames = self.current_frames
-        clip_ends = self._frame_clip_ends.index_select(0, frames)
+        clip_ends = self._frame_clip_ends.index_select(0, frames.clamp(max=self.num_frames - 1))
         self.current_clip_end_frames.copy_(clip_ends)
         frames = frames.to(dtype=torch.int64)
         done = frames > clip_ends

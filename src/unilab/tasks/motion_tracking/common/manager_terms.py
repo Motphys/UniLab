@@ -1,12 +1,11 @@
-"""Manager-native NumPy terms for motion tracking."""
+"""Manager-native Torch terms for motion tracking."""
 
 from __future__ import annotations
 
-import dataclasses
 import math
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import TYPE_CHECKING, Callable, Literal, cast
 
 import numpy as np
 import torch
@@ -20,24 +19,8 @@ from unilab.managers import (
     ObservationTermCfg,
 )
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.utils.rotation import (
-    np_quat_apply_inverse,
-    np_quat_error_magnitude_squared_batched,
-    np_quat_from_euler_xyz,
-    np_quat_mul,
-)
 
-from .kernels import (
-    configure_motion_kernel_runtime,
-    reward_motion_body_ang_vel_kernel,
-    reward_motion_body_lin_vel_kernel,
-    reward_motion_body_ori_kernel,
-    reward_motion_body_pos_kernel,
-    termination_anchor_pos_kernel,
-    update_motion_metrics_kernel,
-    update_motion_relative_state_kernel,
-)
-from .motion_loader import MotionData, MotionLoader, MotionSampler
+from .motion_loader import MotionData, MotionLoader
 from .tensor_rotation import (
     quat_apply,
     quat_apply_inverse,
@@ -50,7 +33,7 @@ from .tensor_sampler import TensorMotionSampler
 
 
 def _quat_error_squared_torch(reference: torch.Tensor, actual: torch.Tensor) -> torch.Tensor:
-    """Match the Numba kernel's absolute-dot shortest-path angular error."""
+    """Return the absolute-dot shortest-path angular error."""
     rel = quat_mul(quat_conjugate(reference), actual)
     xyz = torch.linalg.vector_norm(rel[..., 1:4], dim=-1)
     angle = 2.0 * torch.atan2(xyz, rel[..., 0].abs().clamp(max=1.0))
@@ -279,7 +262,7 @@ def _bind_compiled_motion_reset_values() -> Callable[..., None]:
         return _motion_reset_values_compiled
     if not _compiled_motion_relative_state_available():
         return _motion_reset_values_kernel
-    _motion_reset_values_compiled = torch.compile(_motion_reset_values_kernel, dynamic=True)
+    _motion_reset_values_compiled = torch.compile(_motion_reset_values_kernel, dynamic=False)
     return _motion_reset_values_compiled
 
 
@@ -535,32 +518,25 @@ class MotionCommandCfg(CommandTermCfg):
         return self.params.sampling_mode
 
 
-@dataclass(kw_only=True)
-class TensorMotionCommandCfg(MotionCommandCfg):
-    """Device-resident motion command for tensor Manager owners."""
-
-    def build(self, env: ManagerBasedRlEnv) -> MotionCommand:
-        return TensorMotionCommand(self, env)
-
-
 class MotionCommand(CommandTerm):
-    """Motion reference command on UniLab's NumPy/entity runtime."""
+    """Device-resident motion reference command for Manager owners."""
 
     cfg: MotionCommandCfg
 
     def __init__(self, cfg: MotionCommandCfg, env: ManagerBasedRlEnv):
         _validate_motion_command_cfg(cfg)
         super().__init__(cfg, env)
+        device = env.device
+        if device.type == "cuda" and device.index is None:
+            device = torch.device("cuda", index=torch.cuda.current_device())
+        self._device = device
         self.robot = cast("Entity", env.scene[cfg.entity_name])
         body_ids, body_names = self.robot.find_bodies(cfg.body_names, preserve_order=True)
         if tuple(body_names) != cfg.body_names:
             raise ValueError(
                 f"MotionCommand body order {tuple(body_names)} does not match {cfg.body_names}"
             )
-        self._robot_body_ids = np.asarray(body_ids, dtype=np.intp)
-        self._robot_body_ids.setflags(write=False)
-        self._copy_robot_body_state = self.robot.bind_body_state_copy(self._robot_body_ids)
-        motion_body_ids = self.robot.motion_body_ids[self._robot_body_ids]
+        motion_body_ids = self.robot.motion_body_ids[np.asarray(body_ids)]
         self.motion = self._make_motion_loader(cfg.motion_file, motion_body_ids)
         if self.motion.num_joints != len(self.robot.joint_names):
             raise ValueError(
@@ -574,17 +550,6 @@ class MotionCommand(CommandTerm):
             )
 
         self.anchor_body_idx = cfg.body_names.index(cfg.anchor_body_name)
-        self.sampler = MotionSampler(
-            self.motion,
-            mode=self.cfg.params.sampling_mode,
-            num_envs=self.num_envs,
-            adaptive_lambda=self.cfg.params.adaptive_lambda,
-            adaptive_kernel_size=self.cfg.params.adaptive_kernel_size,
-            adaptive_uniform_ratio=self.cfg.params.adaptive_uniform_ratio,
-            adaptive_alpha=self.cfg.params.adaptive_alpha,
-            start_ratio=self.cfg.params.sampling_start_ratio,
-            rng=env.rng,
-        )
         self._pose_range = _range_matrix(cfg.params.pose_range, name="MotionCommand pose_range")
         self._velocity_range = _range_matrix(
             cfg.params.velocity_range, name="MotionCommand velocity_range"
@@ -600,42 +565,74 @@ class MotionCommand(CommandTerm):
 
         num_bodies = len(cfg.body_names)
         num_joints = self.motion.num_joints
-        dtype = self.motion.joint_pos.dtype
-        self.time_steps = self.sampler.current_frames
-        self._motion_data = self.motion.make_motion_data_buffer(self.num_envs)
-        self._command = np.empty((self.num_envs, num_joints * 2), dtype=dtype)
-        self._body_pos_w = np.empty((self.num_envs, num_bodies, 3), dtype=dtype)
-        self.body_pos_relative_w = np.empty_like(self._body_pos_w)
-        self.body_quat_relative_w = np.empty((self.num_envs, num_bodies, 4), dtype=dtype)
-        self.motion_anchor_pos_b = np.empty((self.num_envs, 3), dtype=dtype)
-        self.motion_anchor_ori_b = np.empty((self.num_envs, 6), dtype=dtype)
-        self.robot_body_pos_b = np.empty_like(self._body_pos_w)
-        self.robot_body_ori_b = np.empty((self.num_envs, num_bodies, 6), dtype=dtype)
-        self.joint_default_bias = np.zeros((self.num_envs, num_joints), dtype=dtype)
+        self._motion_features = self._make_motion_features(self._device)
+        self._clip_offsets_torch = torch.as_tensor(
+            self.motion.clip_offsets, dtype=torch.int64, device=self._device
+        )
+        self._clip_end_frames_torch = torch.as_tensor(
+            self.motion.clip_end_frames, dtype=torch.int64, device=self._device
+        )
+        self._motion_data = MotionData(
+            joint_pos=torch.empty((self.num_envs, num_joints), device=self._device),
+            joint_vel=torch.empty((self.num_envs, num_joints), device=self._device),
+            body_pos_w=torch.empty((self.num_envs, num_bodies, 3), device=self._device),
+            body_quat_w=torch.empty((self.num_envs, num_bodies, 4), device=self._device),
+            body_lin_vel_w=torch.empty((self.num_envs, num_bodies, 3), device=self._device),
+            body_ang_vel_w=torch.empty((self.num_envs, num_bodies, 3), device=self._device),
+        )
+        self._command = torch.empty((self.num_envs, num_joints * 2), device=self._device)
+        self._body_pos_w = torch.empty((self.num_envs, num_bodies, 3), device=self._device)
+        self.body_pos_relative_w = torch.empty_like(self._body_pos_w)
+        self.body_quat_relative_w = torch.empty((self.num_envs, num_bodies, 4), device=self._device)
+        self.motion_anchor_pos_b = torch.empty((self.num_envs, 3), device=self._device)
+        self.motion_anchor_ori_b = torch.empty((self.num_envs, 6), device=self._device)
+        self.robot_body_pos_b = torch.empty_like(self._body_pos_w)
+        self.robot_body_ori_b = torch.empty((self.num_envs, num_bodies, 6), device=self._device)
+        self.joint_default_bias = torch.zeros(
+            (self.num_envs, num_joints), dtype=torch.float32, device=self._device
+        )
         self._robot_cache_step = -1
-        self._all_env_ids = np.arange(self.num_envs, dtype=np.int32)
-        self._all_env_ids.setflags(write=False)
-        # Env ids of the most recent scoped (reset-path) compute; None after a
-        # per-step compute. Written by `_update_command`, consumed by
-        # `post_compute` to restrict refresh work to the reset rows.
-        self._post_compute_env_ids: np.ndarray | None = None
         self._tensor_post_compute_env_ids: torch.Tensor | None = None
-        # Reset rows whose motion-reference buffers were already ingested by
-        # `_resample_command` during the in-flight reset; consumed by the
-        # reset-path `_update_command` to skip the redundant `_refresh_motion`
-        # gather (issue #1355).
-        self._resample_ingested_ids: np.ndarray | None = None
-        # Motion rows gathered by the in-flight `_resample_command`, exposed so
-        # callers reuse the same gather instead of
-        # re-reading the same frames.
-        self._resample_motion: MotionData | None = None
-        self._robot_body_pos_w = np.empty_like(self._body_pos_w)
-        self._robot_body_quat_w = np.empty((self.num_envs, num_bodies, 4), dtype=dtype)
-        self._robot_body_lin_vel_w = np.empty_like(self._body_pos_w)
-        self._robot_body_ang_vel_w = np.empty_like(self._body_pos_w)
+        self._tensor_resample_ingested: torch.Tensor | None = None
+        self._robot_body_pos_w = torch.empty_like(self._body_pos_w)
+        self._robot_body_quat_w = torch.empty((self.num_envs, num_bodies, 4), device=self._device)
+        self._robot_body_lin_vel_w = torch.empty_like(self._body_pos_w)
+        self._robot_body_ang_vel_w = torch.empty_like(self._body_pos_w)
+        self._robot_joint_pos = torch.empty(
+            (self.num_envs, num_joints), dtype=torch.float32, device=self._device
+        )
+        self._robot_joint_vel = torch.empty(
+            (self.num_envs, num_joints), dtype=torch.float32, device=self._device
+        )
+        self._env_origins = torch.as_tensor(
+            np.asarray(self._env.scene.env_origins, dtype=np.float32), device=self._device
+        )
+        self._soft_joint_limits = torch.as_tensor(
+            np.asarray(self.robot.data.soft_joint_pos_limits, dtype=np.float32),
+            device=self._device,
+        )
+        self._pose_range_torch = torch.as_tensor(np.asarray(self._pose_range), device=self._device)
+        self._velocity_range_torch = torch.as_tensor(
+            np.asarray(self._velocity_range), device=self._device
+        )
+        self._joint_position_range_torch = torch.as_tensor(
+            self._joint_position_range, device=self._device
+        )
+        self._reset_joint_values = torch.empty(
+            (self.num_envs, num_joints), dtype=torch.float32, device=self._device
+        )
+        self._reset_root_state = torch.empty(
+            (self.num_envs, 13), dtype=torch.float32, device=self._device
+        )
         self._bind_read_phase = False
         self._tensor_all_rows = torch.arange(self.num_envs, dtype=torch.int64, device=self._device)
-        self._tensor_resample_ingested: torch.Tensor | None = None
+        self.last_step_timing_ms: dict[str, float] = {}
+        self.last_post_compute_timing_ms: dict[str, float] = {}
+        self.last_reset_timing_ms: dict[str, float] = {}
+        self._motion_feature_layout: (
+            tuple[dict[str, tuple[int, ...]], dict[str, tuple[int, int]]] | None
+        ) = None
+        self._last_reset_payload_validated = False
 
         for name in (
             "error_anchor_pos",
@@ -652,37 +649,32 @@ class MotionCommand(CommandTerm):
             "sampling_top1_prob",
             "sampling_top1_bin",
         ):
-            self.metrics[name] = np.zeros(self.num_envs, dtype=dtype)
-        self._prepare_tensor_carrier()
+            self.metrics[name] = torch.zeros(
+                self.num_envs, dtype=torch.float32, device=self._device
+            )
+        if self.cfg.params.sampling_mode not in ("adaptive", "mixed"):
+            raise NotImplementedError(
+                "MotionCommand tensor sampler requires adaptive or mixed sampling"
+            )
+        self._make_tensor_sampler()
         self._defer_read_phase_binding()
 
     def _defer_read_phase_binding(self) -> None:
-        """Defer public state-view binding until the Manager read phase exists.
-
-        Command construction happens before ``EntityScene`` compiles its packed
-        tensor read plan. NumPy commands complete their cold initialization
-        eagerly because their entity facade is already available; a tensor
-        command overrides this method and finishes only metadata allocation,
-        then binds public views from ``bind_read_phase``.
-        """
-        self._refresh_motion()
-        self._refresh_robot_state(force=True)
-        # Configure the parallel kernel workers on the cold path so the first
-        # measured manager step contains no Numba worker/JIT initialization.
-        configure_motion_kernel_runtime()
-        self._refresh_relative_state()
-        self._update_metrics(
-            torch.from_numpy(np.array(self._all_env_ids, copy=True)).to(self._device)
-        )
+        """Allocate immutable cold carriers only; defer state binding to read phase."""
 
     def bind_read_phase(self) -> None:
         if self._bind_read_phase:
             return
-        self._defer_read_phase_binding()
         self._bind_read_phase = True
-
-    def _prepare_tensor_carrier(self) -> None:
-        """Hook for subclasses to replace cold carrier buffers before probing."""
+        self._refresh_motion_torch()
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
+        if read_plan is not None:
+            read_plan.refresh()
+            self._refresh_robot_state(force=True)
+        else:
+            self._seed_robot_state_torch_from_defaults()
+        self._refresh_relative_state()
+        self._update_metrics(self._tensor_all_rows)
 
     def _make_motion_loader(
         self,
@@ -692,442 +684,8 @@ class MotionCommand(CommandTerm):
         """Materialize the profile-owned motion loader on the cold path."""
         return MotionLoader(motion_file, body_indices=body_indices)
 
-    def _refresh_motion(self, env_ids: np.ndarray | None = None) -> None:
-        """Refresh motion-reference buffers from the current frame indices."""
-        if env_ids is None:
-            self.motion.get_motion_at_frame(self.time_steps, out=self._motion_data)
-            np.add(
-                self._motion_data.body_pos_w,
-                self._env.scene.env_origins[:, None, :],
-                out=self._body_pos_w,
-            )
-            width = self.motion.num_joints
-            self._command[:, :width] = self._motion_data.joint_pos
-            self._command[:, width:] = self._motion_data.joint_vel
-            return
-        self._ingest_motion_rows(env_ids, self.motion.get_motion_at_frame(self.time_steps[env_ids]))
-
-    def _ingest_motion_rows(self, env_ids: np.ndarray, data: MotionData) -> None:
-        """Scatter one gathered motion frame set into the reference buffers."""
-        for motion_field in dataclasses.fields(data):
-            value = getattr(data, motion_field.name)
-            target = getattr(self._motion_data, motion_field.name)
-            if value is None or target is None:
-                continue
-            target[env_ids] = value
-        self._body_pos_w[env_ids] = data.body_pos_w + self._env.scene.env_origins[env_ids, None, :]
-        width = self.motion.num_joints
-        self._command[env_ids, :width] = data.joint_pos
-        self._command[env_ids, width:] = data.joint_vel
-
-    def _refresh_robot_state(
-        self, *, force: bool = False, env_ids: np.ndarray | None = None
-    ) -> None:
-        step = self._env.common_step_counter
-        if not force and self._robot_cache_step == step:
-            return
-        if env_ids is None:
-            self._copy_robot_body_state(
-                self._robot_body_pos_w,
-                self._robot_body_quat_w,
-                self._robot_body_lin_vel_w,
-                self._robot_body_ang_vel_w,
-            )
-        else:
-            # Partial-reset path (issue #1295): gather only the reset rows from
-            # the backend instead of full-batch body reads sliced afterwards.
-            # _robot_body_ids selects the tracked subset afterwards, so the
-            # row getters fetch all entity bodies for just these rows.
-            data = self.robot.data
-            self._robot_body_pos_w[env_ids] = data.body_link_pos_w_rows(env_ids)[
-                :, self._robot_body_ids
-            ]
-            self._robot_body_quat_w[env_ids] = data.body_link_quat_w_rows(env_ids)[
-                :, self._robot_body_ids
-            ]
-            self._robot_body_lin_vel_w[env_ids] = data.body_link_lin_vel_w_rows(env_ids)[
-                :, self._robot_body_ids
-            ]
-            self._robot_body_ang_vel_w[env_ids] = data.body_link_ang_vel_w_rows(env_ids)[
-                :, self._robot_body_ids
-            ]
-        self._robot_cache_step = step
-
-    def _refresh_relative_state(self, env_ids: np.ndarray | None = None) -> None:
-        rows = self._all_env_ids if env_ids is None else env_ids
-        update_motion_relative_state_kernel(
-            rows,
-            self.anchor_body_idx,
-            self._motion_data.body_pos_w,
-            self._body_pos_w,
-            self._motion_data.body_quat_w,
-            self._robot_body_pos_w,
-            self._robot_body_quat_w,
-            self.body_pos_relative_w,
-            self.body_quat_relative_w,
-            self.motion_anchor_pos_b,
-            self.motion_anchor_ori_b,
-            self.robot_body_pos_b,
-            self.robot_body_ori_b,
-        )
-
-    @property
-    def robot_joint_pos(self) -> np.ndarray:
-        return self.robot.data.joint_pos
-
-    @property
-    def robot_joint_vel(self) -> np.ndarray:
-        return self.robot.data.joint_vel
-
-    @property
-    def robot_body_pos_w(self) -> np.ndarray:
-        self._refresh_robot_state()
-        return self._robot_body_pos_w
-
-    @property
-    def robot_body_quat_w(self) -> np.ndarray:
-        self._refresh_robot_state()
-        return self._robot_body_quat_w
-
-    @property
-    def robot_body_lin_vel_w(self) -> np.ndarray:
-        self._refresh_robot_state()
-        return self._robot_body_lin_vel_w
-
-    @property
-    def robot_body_ang_vel_w(self) -> np.ndarray:
-        self._refresh_robot_state()
-        return self._robot_body_ang_vel_w
-
-    @property
-    def robot_anchor_pos_w(self) -> np.ndarray:
-        return self.robot_body_pos_w[:, self.anchor_body_idx]
-
-    @property
-    def robot_anchor_quat_w(self) -> np.ndarray:
-        return self.robot_body_quat_w[:, self.anchor_body_idx]
-
-    @property
-    def robot_anchor_lin_vel_w(self) -> np.ndarray:
-        return self.robot_body_lin_vel_w[:, self.anchor_body_idx]
-
-    @property
-    def robot_anchor_ang_vel_w(self) -> np.ndarray:
-        return self.robot_body_ang_vel_w[:, self.anchor_body_idx]
-
-    @property
-    def command(self) -> np.ndarray:
-        return self._command
-
-    @property
-    def joint_pos(self) -> np.ndarray:
-        return self._motion_data.joint_pos
-
-    @property
-    def joint_vel(self) -> np.ndarray:
-        return self._motion_data.joint_vel
-
-    @property
-    def body_pos_w(self) -> np.ndarray:
-        return self._body_pos_w
-
-    @property
-    def body_quat_w(self) -> np.ndarray:
-        return self._motion_data.body_quat_w
-
-    @property
-    def body_lin_vel_w(self) -> np.ndarray:
-        return self._motion_data.body_lin_vel_w
-
-    @property
-    def body_ang_vel_w(self) -> np.ndarray:
-        return self._motion_data.body_ang_vel_w
-
-    @property
-    def anchor_pos_w(self) -> np.ndarray:
-        return self._body_pos_w[:, self.anchor_body_idx]
-
-    @property
-    def anchor_quat_w(self) -> np.ndarray:
-        return self._motion_data.body_quat_w[:, self.anchor_body_idx]
-
-    @property
-    def anchor_lin_vel_w(self) -> np.ndarray:
-        return self._motion_data.body_lin_vel_w[:, self.anchor_body_idx]
-
-    @property
-    def anchor_ang_vel_w(self) -> np.ndarray:
-        return self._motion_data.body_ang_vel_w[:, self.anchor_body_idx]
-
-    def reset(
-        self,
-        env_ids: torch.Tensor | slice | None,
-        *,
-        publish_metrics: bool = True,
-    ) -> dict[str, float]:
-        if isinstance(env_ids, torch.Tensor):
-            ids = env_ids.detach().cpu().numpy().astype(np.int32, copy=False)
-        else:
-            ids = np.arange(self.num_envs, dtype=np.int32)[env_ids or slice(None)]
-        # Row-wise error metrics are consumed only here (CommandTerm.reset logs
-        # per-episode means from these rows, then zeroes them). The per-step
-        # compute path skips the full-batch metrics kernel (issue #1355), so
-        # refresh exactly the rows being reset from the current post-step
-        # buffers — the same inputs the former per-step refresh used, keeping
-        # the consumed values bit-identical.
-        self._update_error_metrics(ids)
-        lower, upper = self._joint_default_position_range
-        self.joint_default_bias[ids] = self._env.rng.uniform(
-            lower, upper, size=(len(ids), self.motion.num_joints)
-        )
-        return super().reset(
-            env_ids if isinstance(env_ids, torch.Tensor) else torch.from_numpy(ids),
-            publish_metrics=publish_metrics,
-        )
-
-    def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:
-        # The row-wise error metrics are consumed only by `reset()` (episode
-        # log extras), which refreshes exactly the rows it reads. The per-step
-        # call (env_ids=None) therefore skips the Numba kernel over all rows
-        # (issue #1355); the reset path (env_ids set) refreshes the reset rows
-        # so post-reset metrics track the post-reset state.
-        if env_ids is not None:
-            rows = (
-                env_ids.detach().cpu().numpy()
-                if isinstance(env_ids, torch.Tensor)
-                else np.asarray(env_ids)
-            )
-            self._update_error_metrics(rows)
-        # Sampler statistics are global scalars, so every row tracks them.
-        # These scalar sampling settings and the Numba error kernel below are
-        # still NumPy-owned; assert that migration boundary explicitly.
-        self._numpy_metric("sampling_entropy").fill(self.sampler.sampling_entropy)
-        self._numpy_metric("sampling_top1_prob").fill(self.sampler.sampling_top1_prob)
-        self._numpy_metric("sampling_top1_bin").fill(self.sampler.sampling_top1_bin)
-
-    def _numpy_metric(self, name: str) -> np.ndarray:
-        value = self.metrics[name]
-        if not isinstance(value, np.ndarray):
-            raise TypeError(
-                f"MotionCommand metric '{name}' must remain np.ndarray until its "
-                "Numba kernel migrates to Torch."
-            )
-        return value
-
-    def _update_error_metrics(self, rows: np.ndarray) -> None:
-        """Recompute the row-wise error metrics for the given rows."""
-        update_motion_metrics_kernel(
-            rows,
-            self.anchor_body_idx,
-            self._body_pos_w,
-            self._robot_body_pos_w,
-            self._motion_data.body_quat_w,
-            self._robot_body_quat_w,
-            self._motion_data.body_lin_vel_w,
-            self._robot_body_lin_vel_w,
-            self._motion_data.body_ang_vel_w,
-            self._robot_body_ang_vel_w,
-            self.body_pos_relative_w,
-            self.body_quat_relative_w,
-            self._motion_data.joint_pos,
-            self.robot_joint_pos,
-            self._motion_data.joint_vel,
-            self.robot_joint_vel,
-            self._numpy_metric("error_anchor_pos"),
-            self._numpy_metric("error_anchor_rot"),
-            self._numpy_metric("error_anchor_lin_vel"),
-            self._numpy_metric("error_anchor_ang_vel"),
-            self._numpy_metric("error_body_pos"),
-            self._numpy_metric("error_body_rot"),
-            self._numpy_metric("error_body_lin_vel"),
-            self._numpy_metric("error_body_ang_vel"),
-            self._numpy_metric("error_joint_pos"),
-            self._numpy_metric("error_joint_vel"),
-        )
-
-    def _resample_command(self, env_ids: torch.Tensor) -> None:
-        """Resample motion frames and stage the corresponding state writes."""
-        ids = env_ids.detach().cpu().numpy()
-        frames = self.sampler.sample_frames(ids)
-        motion = self.motion.get_motion_at_frame(frames)
-        count = env_ids.numel()
-        pose = self._env.rng.uniform(
-            self._pose_range[:, 0], self._pose_range[:, 1], size=(count, 6)
-        )
-        velocity = self._env.rng.uniform(
-            self._velocity_range[:, 0], self._velocity_range[:, 1], size=(count, 6)
-        )
-        root_pos = motion.body_pos_w[:, 0].copy()
-        root_pos += self._env.scene.env_origins[ids]
-        root_pos += pose[:, :3]
-        root_quat = np_quat_mul(
-            np_quat_from_euler_xyz(pose[:, 3], pose[:, 4], pose[:, 5]),
-            motion.body_quat_w[:, 0],
-        )
-        root_lin_vel = motion.body_lin_vel_w[:, 0] + velocity[:, :3]
-        root_ang_vel = motion.body_ang_vel_w[:, 0] + velocity[:, 3:]
-        joint_pos = motion.joint_pos.copy()
-        joint_pos += self._env.rng.uniform(
-            *self._joint_position_range,
-            size=joint_pos.shape,
-        )
-        limits = self.robot.data.soft_joint_pos_limits
-        np.clip(joint_pos, limits[:, 0], limits[:, 1], out=joint_pos)
-        self.robot.write_joint_state_to_sim(joint_pos, motion.joint_vel, env_ids=ids)
-        root_state = np.concatenate((root_pos, root_quat, root_lin_vel, root_ang_vel), axis=-1)
-        self.robot.write_root_state_to_sim(root_state, env_ids=ids)
-        self._ingest_motion_rows(ids, motion)
-        self._resample_ingested_ids = ids
-        self._resample_motion = motion
-
-    def _update_command(self, env_ids: torch.Tensor | None) -> None:
-        self._post_compute_env_ids = (
-            env_ids.detach().cpu().numpy() if isinstance(env_ids, torch.Tensor) else env_ids
-        )
-        self._tensor_post_compute_env_ids = env_ids if isinstance(env_ids, torch.Tensor) else None
-        if env_ids is not None:
-            ingested = self._resample_ingested_ids
-            self._resample_ingested_ids = None
-            host_rows = env_ids.detach().cpu().numpy()
-            if ingested is None or not np.array_equal(ingested, host_rows):
-                self._refresh_motion(host_rows)
-            return
-        self._resample_ingested_ids = None
-        terminated = self._env.termination_manager.terminated
-        if isinstance(terminated, torch.Tensor):
-            terminated = terminated.detach().cpu().numpy()
-        self.sampler.update_failure_stats(terminated)
-        active_ids = np.flatnonzero(~self._env.reset_buf).astype(np.int32, copy=False)
-        wrap_ids = self.sampler.step(active_ids)
-        if len(wrap_ids) and not self.cfg.params.truncate_on_clip_end:
-            self._resample_command(torch.from_numpy(wrap_ids).to(self._device))
-        self._refresh_motion()
-
-    def post_compute(self) -> None:
-        # On the reset path only the reset rows changed (via the committed
-        # set_state writes and the motion resample), so refresh just those rows.
-        env_ids = self._post_compute_env_ids
-        self._refresh_robot_state(force=True, env_ids=env_ids)
-        self._refresh_relative_state(env_ids)
-
-
-class TensorMotionCommand(MotionCommand):
-    """Motion command whose public carrier and selected reset stay on device."""
-
-    cfg: TensorMotionCommandCfg  # pyright: ignore[reportIncompatibleVariableOverride]
-
-    def __init__(self, cfg: TensorMotionCommandCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-
-    def _prepare_tensor_carrier(self) -> None:
-        """Allocate Torch buffers before Manager probes the command carrier."""
-        device = self._device
-        self.last_step_timing_ms: dict[str, float] = {}
-        self._motion_feature_layout: (
-            tuple[dict[str, tuple[int, ...]], dict[str, tuple[int, int]]] | None
-        ) = None
-        self._last_reset_payload_validated = False
-        num_bodies = len(self.cfg.body_names)
-        num_joints = self.motion.num_joints
-        self.time_steps = torch.as_tensor(
-            np.array(self.sampler.current_frames, dtype=np.int32, copy=True), device=device
-        )
-        self.current_clip_end_frames = torch.as_tensor(
-            np.array(self.sampler.current_clip_end_frames, dtype=np.int32, copy=True),
-            device=device,
-        )
-        self._motion_features = self._make_motion_features(device)
-        self._clip_offsets_torch = torch.as_tensor(
-            self.motion.clip_offsets, dtype=torch.int64, device=device
-        )
-        self._clip_end_frames_torch = torch.as_tensor(
-            self.motion.clip_end_frames, dtype=torch.int64, device=device
-        )
-        self._motion_data = MotionData(
-            joint_pos=cast("np.ndarray", torch.empty((self.num_envs, num_joints), device=device)),
-            joint_vel=cast("np.ndarray", torch.empty((self.num_envs, num_joints), device=device)),
-            body_pos_w=cast(
-                "np.ndarray", torch.empty((self.num_envs, num_bodies, 3), device=device)
-            ),
-            body_quat_w=cast(
-                "np.ndarray", torch.empty((self.num_envs, num_bodies, 4), device=device)
-            ),
-            body_lin_vel_w=cast(
-                "np.ndarray", torch.empty((self.num_envs, num_bodies, 3), device=device)
-            ),
-            body_ang_vel_w=cast(
-                "np.ndarray", torch.empty((self.num_envs, num_bodies, 3), device=device)
-            ),
-        )
-        self._command = torch.empty((self.num_envs, num_joints * 2), device=device)
-        self._body_pos_w = torch.empty((self.num_envs, num_bodies, 3), device=device)
-        self.body_pos_relative_w = torch.empty_like(self._body_pos_w)
-        self.body_quat_relative_w = torch.empty((self.num_envs, num_bodies, 4), device=device)
-        self.motion_anchor_pos_b = torch.empty((self.num_envs, 3), device=device)
-        self.motion_anchor_ori_b = torch.empty((self.num_envs, 6), device=device)
-        self.robot_body_pos_b = torch.empty_like(self._body_pos_w)
-        self.robot_body_ori_b = torch.empty((self.num_envs, num_bodies, 6), device=device)
-        self.joint_default_bias = torch.zeros(
-            (self.num_envs, num_joints), dtype=torch.float32, device=device
-        )
-        self._robot_body_pos_w = torch.empty_like(self._body_pos_w)
-        self._robot_body_quat_w = torch.empty((self.num_envs, num_bodies, 4), device=device)
-        self._robot_body_lin_vel_w = torch.empty_like(self._body_pos_w)
-        self._robot_body_ang_vel_w = torch.empty_like(self._body_pos_w)
-        self._robot_joint_pos = torch.empty(
-            (self.num_envs, num_joints), dtype=torch.float32, device=device
-        )
-        self._robot_joint_vel = torch.empty(
-            (self.num_envs, num_joints), dtype=torch.float32, device=device
-        )
-        self._env_origins = torch.as_tensor(
-            np.array(self._env.scene.env_origins, dtype=np.float32, copy=True), device=device
-        )
-        self._soft_joint_limits = torch.as_tensor(
-            np.array(self.robot.data.soft_joint_pos_limits, dtype=np.float32, copy=True),
-            device=device,
-        )
-        self._pose_range_torch = torch.as_tensor(
-            np.array(self._pose_range, copy=True), device=device
-        )
-        self._velocity_range_torch = torch.as_tensor(
-            np.array(self._velocity_range, copy=True), device=device
-        )
-        self._joint_position_range_torch = torch.as_tensor(
-            self._joint_position_range, device=device
-        )
-        self._reset_joint_values = torch.empty(
-            (self.num_envs, num_joints), dtype=torch.float32, device=device
-        )
-        self._reset_root_state = torch.empty(
-            (self.num_envs, 13), dtype=torch.float32, device=device
-        )
-        if self.cfg.params.sampling_mode not in ("adaptive", "mixed"):
-            raise NotImplementedError(
-                "TensorMotionCommand tensor sampler requires adaptive or mixed sampling"
-            )
-        self.tensor_sampler = TensorMotionSampler(
-            mode=self.cfg.params.sampling_mode,
-            num_envs=self.num_envs,
-            num_frames=self.motion.num_frames,
-            clip_offsets=self.motion.clip_offsets,
-            clip_end_frames=self.motion.clip_end_frames,
-            bin_count=self.sampler.bin_count,
-            adaptive_lambda=self.cfg.params.adaptive_lambda,
-            adaptive_kernel_size=self.cfg.params.adaptive_kernel_size,
-            adaptive_uniform_ratio=self.cfg.params.adaptive_uniform_ratio,
-            adaptive_alpha=self.cfg.params.adaptive_alpha,
-            start_ratio=self.cfg.params.sampling_start_ratio,
-            initial_frames=self.sampler.current_frames,
-            initial_clip_end_frames=self.sampler.current_clip_end_frames,
-            device=device,
-        )
-        for name in self.metrics:
-            self.metrics[name] = torch.zeros(self.num_envs, dtype=torch.float32, device=device)
-        self._refresh_motion()
-
     def _make_motion_features(self, device: torch.device) -> torch.Tensor:
-        """Cache the complete motion dataset as one device-resident table."""
+        """Cache the complete cold motion dataset as one device-resident table."""
         arrays = (
             self.motion.joint_pos,
             self.motion.joint_vel,
@@ -1142,45 +700,89 @@ class TensorMotionCommand(MotionCommand):
         )
         return torch.from_numpy(np.ascontiguousarray(host)).to(device=device)
 
-    def _motion_packet(self, frames: np.ndarray | torch.Tensor) -> torch.Tensor:
+    def _motion_packet(self, frames: torch.Tensor) -> torch.Tensor:
         """Gather motion rows from the device-resident feature table."""
-        rows = (
-            frames
-            if isinstance(frames, torch.Tensor)
-            else torch.as_tensor(frames, dtype=torch.int64, device=self._device)
-        )
-        if rows.device != self._device or rows.dtype != torch.int64:
-            rows = rows.to(device=self._device, dtype=torch.int64)
+        rows = frames.to(dtype=torch.int64, device=self._device)
         return self._motion_features.index_select(0, rows)
 
-    def _defer_read_phase_binding(self) -> None:
-        """Torch carriers were allocated eagerly; defer state-view binding."""
+    def _make_tensor_sampler(self) -> None:
+        if self._env.torch_rng is None:
+            raise NotImplementedError("MotionCommand requires the Manager-owned Torch generator")
+        self.tensor_sampler = TensorMotionSampler(
+            mode=self.cfg.params.sampling_mode,
+            num_envs=self.num_envs,
+            num_frames=self.motion.num_frames,
+            clip_offsets=self._clip_offsets_torch,
+            clip_end_frames=self._clip_end_frames_torch,
+            bin_count=int(self.motion.num_frames // self.motion.fps) + 1,
+            adaptive_lambda=self.cfg.params.adaptive_lambda,
+            adaptive_kernel_size=self.cfg.params.adaptive_kernel_size,
+            adaptive_uniform_ratio=self.cfg.params.adaptive_uniform_ratio,
+            adaptive_alpha=self.cfg.params.adaptive_alpha,
+            start_ratio=self.cfg.params.sampling_start_ratio,
+            initial_frames=torch.zeros(self.num_envs, dtype=torch.int32, device=self._device),
+            initial_clip_end_frames=self._clip_end_frames_torch[:1]
+            .to(dtype=torch.int32)
+            .expand(self.num_envs)
+            .contiguous(),
+            device=self._device,
+        )
+        self.time_steps = self.tensor_sampler.current_frames
+        self.current_clip_end_frames = self.tensor_sampler.current_clip_end_frames
 
-    def bind_read_phase(self) -> None:
-        if self._bind_read_phase:
+    def _refresh_robot_state(
+        self, *, force: bool = False, rows: torch.Tensor | None = None
+    ) -> None:
+        step = self._env.common_step_counter
+        if not force and self._robot_cache_step == step:
             return
-        self._bind_read_phase = True
-        self._refresh_motion()
         read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
-        if read_plan is not None:
-            read_plan.refresh()
-            self._refresh_robot_state(force=True)
-        else:
-            self._seed_robot_state_torch_from_defaults()
-        self._refresh_relative_state()
-        self._update_metrics(self._tensor_all_rows)
+        if read_plan is None or not read_plan.ready:
+            # Manager term construction probes command carriers before the scene
+            # read plan exists. Before `bind_read_phase`, immutable defaults are
+            # the explicit cold seed; after binding, a missing phase fails closed.
+            if not self._bind_read_phase:
+                self._seed_robot_state_torch_from_defaults()
+                return
+            raise RuntimeError("MotionCommand requires a refreshed scene tensor read phase")
+        view = read_plan.body_tensor_view(self.robot, self.cfg.body_names)
+        row_selector = self._tensor_all_rows if rows is None else rows
+        _bind_compiled_motion_robot_refresh()(
+            row_selector,
+            view.pos_w,
+            view.quat_w,
+            view.lin_vel_w,
+            view.ang_vel_w,
+            self._robot_body_pos_w,
+            self._robot_body_quat_w,
+            self._robot_body_lin_vel_w,
+            self._robot_body_ang_vel_w,
+        )
+        joint_view = read_plan.joint_tensor_view(self.robot)
+        self._robot_joint_pos = joint_view.joint_pos
+        self._robot_joint_vel = joint_view.joint_vel
+        self._robot_cache_step = step
+
+    def _refresh_relative_state(self, rows: torch.Tensor | None = None) -> None:
+        _bind_compiled_motion_relative_state()(
+            self._tensor_all_rows if rows is None else rows,
+            self.anchor_body_idx,
+            cast("torch.Tensor", self._motion_data.body_pos_w),
+            self._body_pos_w,
+            cast("torch.Tensor", self._motion_data.body_quat_w),
+            self._robot_body_pos_w,
+            self._robot_body_quat_w,
+            self.body_pos_relative_w,
+            self.body_quat_relative_w,
+            self.motion_anchor_pos_b,
+            self.motion_anchor_ori_b,
+            self.robot_body_pos_b,
+            self.robot_body_ori_b,
+        )
 
     @property
     def tensor_carrier(self) -> bool:
         return True
-
-    @property
-    def tensor_body_names(self) -> tuple[str, ...]:
-        return tuple(self.cfg.body_names)
-
-    @property
-    def tensor_current_clip_end_frames(self) -> torch.Tensor:
-        return cast(torch.Tensor, self.current_clip_end_frames)
 
     @property
     def device_robot_joint_pos(self) -> torch.Tensor:
@@ -1195,6 +797,110 @@ class TensorMotionCommand(MotionCommand):
         if read_plan is not None and read_plan.ready:
             self._robot_joint_vel = read_plan.joint_tensor_view(self.robot).joint_vel
         return self._robot_joint_vel
+
+    @property
+    def tensor_body_names(self) -> tuple[str, ...]:
+        return tuple(self.cfg.body_names)
+
+    @property
+    def tensor_current_clip_end_frames(self) -> torch.Tensor:
+        return cast(torch.Tensor, self.current_clip_end_frames)
+
+    @property
+    def robot_joint_pos(self) -> torch.Tensor:
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
+        if read_plan is not None and read_plan.ready:
+            self._robot_joint_pos = read_plan.joint_tensor_view(self.robot).joint_pos
+        return self._robot_joint_pos
+
+    @property
+    def robot_joint_vel(self) -> torch.Tensor:
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
+        if read_plan is not None and read_plan.ready:
+            self._robot_joint_vel = read_plan.joint_tensor_view(self.robot).joint_vel
+        return self._robot_joint_vel
+
+    @property
+    def robot_body_pos_w(self) -> torch.Tensor:
+        self._refresh_robot_state()
+        return self._robot_body_pos_w
+
+    @property
+    def robot_body_quat_w(self) -> torch.Tensor:
+        self._refresh_robot_state()
+        return self._robot_body_quat_w
+
+    @property
+    def robot_body_lin_vel_w(self) -> torch.Tensor:
+        self._refresh_robot_state()
+        return self._robot_body_lin_vel_w
+
+    @property
+    def robot_body_ang_vel_w(self) -> torch.Tensor:
+        self._refresh_robot_state()
+        return self._robot_body_ang_vel_w
+
+    @property
+    def robot_anchor_pos_w(self) -> torch.Tensor:
+        return self.robot_body_pos_w[:, self.anchor_body_idx]
+
+    @property
+    def robot_anchor_quat_w(self) -> torch.Tensor:
+        return self.robot_body_quat_w[:, self.anchor_body_idx]
+
+    @property
+    def robot_anchor_lin_vel_w(self) -> torch.Tensor:
+        return self.robot_body_lin_vel_w[:, self.anchor_body_idx]
+
+    @property
+    def robot_anchor_ang_vel_w(self) -> torch.Tensor:
+        return self.robot_body_ang_vel_w[:, self.anchor_body_idx]
+
+    @property
+    def command(self) -> torch.Tensor:
+        if not bool(torch.isfinite(self._command).all()):
+            self._refresh_motion_torch()
+        return self._command
+
+    @property
+    def joint_pos(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._motion_data.joint_pos)
+
+    @property
+    def joint_vel(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._motion_data.joint_vel)
+
+    @property
+    def body_pos_w(self) -> torch.Tensor:
+        return self._body_pos_w
+
+    @property
+    def body_quat_w(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._motion_data.body_quat_w)
+
+    @property
+    def body_lin_vel_w(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._motion_data.body_lin_vel_w)
+
+    @property
+    def body_ang_vel_w(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._motion_data.body_ang_vel_w)
+
+    @property
+    def anchor_pos_w(self) -> torch.Tensor:
+        return self._body_pos_w[:, self.anchor_body_idx]
+
+    @property
+    def anchor_quat_w(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._motion_data.body_quat_w)[:, self.anchor_body_idx]
+
+    @property
+    def anchor_lin_vel_w(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._motion_data.body_lin_vel_w)[:, self.anchor_body_idx]
+
+    @property
+    def anchor_ang_vel_w(self) -> torch.Tensor:
+        return cast("torch.Tensor", self._motion_data.body_ang_vel_w)[:, self.anchor_body_idx]
 
     def reset(
         self,
@@ -1213,7 +919,7 @@ class TensorMotionCommand(MotionCommand):
             self._update_torch_error_metrics(rows)
         if self._env.torch_rng is None:
             raise NotImplementedError(
-                "TensorMotionCommand reset requires the Manager-owned Torch generator"
+                "MotionCommand reset requires the Manager-owned Torch generator"
             )
         lower, upper = self._joint_default_position_range
         self.joint_default_bias[rows] = self._env.torch_rng.uniform(
@@ -1231,20 +937,6 @@ class TensorMotionCommand(MotionCommand):
                 self.tensor_sampler.diagnostics.reset_host_row_transfers
             )
         }
-
-    def _refresh_motion(self, env_ids: np.ndarray | None = None) -> None:
-        del env_ids
-        self._refresh_motion_torch()
-
-    def _refresh_relative_state(self, env_ids: np.ndarray | None = None) -> None:
-        del env_ids
-        self._refresh_relative_state_torch()
-
-    def _refresh_robot_state(
-        self, *, force: bool = False, env_ids: np.ndarray | None = None
-    ) -> None:
-        del env_ids
-        self._refresh_robot_state_torch(force=force, rows=None)
 
     def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:
         if env_ids is not None:
@@ -1264,7 +956,7 @@ class TensorMotionCommand(MotionCommand):
         rows = env_ids.to(dtype=torch.int64, device=self._device)
         sampler_started = time.perf_counter()
         if self._env.torch_rng is None:
-            raise NotImplementedError("TensorMotionCommand reset requires the Manager Torch RNG")
+            raise NotImplementedError("MotionCommand reset requires the Manager Torch RNG")
         frames = self.tensor_sampler.sample_frames(rows, self._env.torch_rng.generator)
         sampler_ms = (time.perf_counter() - sampler_started) * 1000.0
         sampler_dispatch_ms = getattr(self.tensor_sampler, "last_reset_dispatch_ms", 0.0)
@@ -1274,7 +966,7 @@ class TensorMotionCommand(MotionCommand):
         tails, offsets = self._cached_motion_feature_shapes()
         if self._env.torch_rng is None:
             raise NotImplementedError(
-                "TensorMotionCommand reset sampling requires the Manager-owned Torch generator"
+                "MotionCommand reset sampling requires the Manager-owned Torch generator"
             )
         pose = self._env.torch_rng.uniform(
             self._pose_range_torch[:, 0],
@@ -1304,9 +996,11 @@ class TensorMotionCommand(MotionCommand):
             joint_pos.shape,
             dtype=torch.float32,
         )
+        packet_joint_pos = packet[:, joint_start:joint_end]
+        packet_joint_vel = packet[:, vel_start:vel_end].contiguous()
         _bind_compiled_motion_reset_values()(
-            packet[:, joint_start:joint_end],
-            packet[:, vel_start:vel_end],
+            packet_joint_pos,
+            packet_joint_vel,
             packet[:, offsets["body_pos_w"][0] : offsets["body_pos_w"][1]].view(
                 count, *tails["body_pos_w"]
             ),
@@ -1327,23 +1021,29 @@ class TensorMotionCommand(MotionCommand):
             joint_pos,
             root_state,
         )
-        motion_joint_vel = packet[:, vel_start:vel_end].contiguous()
+        motion_joint_vel = packet_joint_vel
         values_ms = (time.perf_counter() - values_started) * 1000.0
-        root_values_ms = 0.0
         root_write_started = time.perf_counter()
-        self.robot.write_motion_state_tensor_to_sim(
-            root_state=root_state,
-            position=joint_pos,
-            velocity=motion_joint_vel,
-            env_ids=rows,
-        )
+        if self.robot.reset_state_tensor_active:
+            self.robot.write_motion_state_tensor_to_sim(
+                root_state=root_state,
+                position=joint_pos,
+                velocity=motion_joint_vel,
+                env_ids=rows,
+            )
+        else:
+            self.robot.write_root_state_to_sim(
+                root_state.detach().cpu().numpy(), env_ids=rows.detach().cpu().numpy()
+            )
+            self.robot.write_joint_state_to_sim(
+                joint_pos.detach().cpu().numpy(),
+                motion_joint_vel.detach().cpu().numpy(),
+                env_ids=rows.detach().cpu().numpy(),
+            )
         root_write_ms = (time.perf_counter() - root_write_started) * 1000.0
-        construction_ms = values_ms + root_values_ms + root_write_ms
         publish_started = time.perf_counter()
         self._ingest_motion_packet(rows, packet, origins=origins)
         publish_ms = (time.perf_counter() - publish_started) * 1000.0
-        self._resample_ingested_ids = None
-        self._resample_motion = None
         self._tensor_resample_ingested = env_ids
         self._last_reset_payload_validated = True
         self.last_reset_timing_ms.update(
@@ -1352,8 +1052,8 @@ class TensorMotionCommand(MotionCommand):
                 "reset_done_motion_sampler_dispatch_ms": sampler_dispatch_ms,
                 "reset_done_motion_packet_ms": packet_ms,
                 "reset_done_motion_reset_rng_ms": rng_ms,
-                "reset_done_motion_reset_values_ms": values_ms + root_values_ms,
-                "reset_done_motion_reset_construction_ms": construction_ms,
+                "reset_done_motion_reset_values_ms": values_ms,
+                "reset_done_motion_reset_construction_ms": values_ms + root_write_ms,
                 "reset_done_motion_reset_write_ms": root_write_ms,
                 "reset_done_motion_reset_publish_ms": publish_ms,
             }
@@ -1366,13 +1066,9 @@ class TensorMotionCommand(MotionCommand):
 
     def _update_command(self, env_ids: torch.Tensor | None) -> None:
         self._tensor_post_compute_env_ids = env_ids
-        timing = getattr(self, "last_step_timing_ms", None)
-        if timing is None:
-            timing = {}
-            self.last_step_timing_ms = timing
+        timing = self.last_step_timing_ms
         if env_ids is not None:
             ingested = self._tensor_resample_ingested
-            self._resample_ingested_ids = None
             self._tensor_resample_ingested = None
             if (
                 ingested is None
@@ -1381,7 +1077,6 @@ class TensorMotionCommand(MotionCommand):
             ):
                 self._refresh_motion_torch(env_ids)
             return
-        self._resample_ingested_ids = None
         self._tensor_resample_ingested = None
         failure_started = time.perf_counter()
         terminated = cast(torch.Tensor, self._env.termination_manager.terminated)
@@ -1394,7 +1089,9 @@ class TensorMotionCommand(MotionCommand):
         timing["update_state_motion_step_sampler_ms"] = (
             time.perf_counter() - sampler_started
         ) * 1000.0
-        if wrap_rows.numel() and not self.cfg.params.truncate_on_clip_end:
+        reset_state = getattr(self._env, "_reset_state", None)
+        reset_active = getattr(reset_state, "active", False)
+        if wrap_rows.numel() and not self.cfg.params.truncate_on_clip_end and reset_active:
             self._resample_command(wrap_rows)
         refresh_started = time.perf_counter()
         self._refresh_motion_torch()
@@ -1417,7 +1114,7 @@ class TensorMotionCommand(MotionCommand):
         if read_plan is None or not read_plan.ready:
             if not self._bind_read_phase:
                 return
-            raise RuntimeError("TensorMotionCommand requires a refreshed scene tensor read phase")
+            raise RuntimeError("MotionCommand requires a refreshed scene tensor read phase")
         view = read_plan.body_tensor_view(self.robot, self.cfg.body_names)
         view_ms = (time.perf_counter() - view_started) * 1000.0
         robot_started = time.perf_counter()
@@ -1481,53 +1178,14 @@ class TensorMotionCommand(MotionCommand):
 
     def _refresh_motion_torch(self, rows: torch.Tensor | None = None) -> None:
         """Gather motion rows and publish the device-resident command carrier."""
-        frames: np.ndarray | torch.Tensor
-        if rows is None:
-            frames = (
-                cast(torch.Tensor, self.time_steps)
-                if isinstance(self.time_steps, torch.Tensor)
-                else self.sampler.current_frames
-            )
-        elif isinstance(self.time_steps, torch.Tensor):
-            frames = cast(torch.Tensor, self.time_steps)[rows]
-        else:
-            frames = self.sampler.current_frames[rows.detach().cpu().numpy()]
+        frames = (
+            cast(torch.Tensor, self.time_steps)
+            if rows is None
+            else cast(torch.Tensor, self.time_steps)[rows]
+        )
         self._ingest_motion_packet(
             self._tensor_all_rows if rows is None else rows, self._motion_packet(frames)
         )
-
-    def _refresh_robot_state_torch(
-        self, *, force: bool = False, rows: torch.Tensor | None = None
-    ) -> None:
-        step = self._env.common_step_counter
-        if not force and self._robot_cache_step == step:
-            return
-        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
-        if read_plan is None or not read_plan.ready:
-            # Manager term construction probes command carriers before the scene
-            # read plan exists. Before `bind_read_phase`, immutable defaults are
-            # the explicit cold seed; after binding, a missing phase fails closed.
-            if not self._bind_read_phase:
-                self._seed_robot_state_torch_from_defaults()
-                return
-            raise RuntimeError("TensorMotionCommand requires a refreshed scene tensor read phase")
-        view = read_plan.body_tensor_view(self.robot, self.cfg.body_names)
-        row_selector = self._tensor_all_rows if rows is None else rows
-        _bind_compiled_motion_robot_refresh()(
-            row_selector,
-            view.pos_w,
-            view.quat_w,
-            view.lin_vel_w,
-            view.ang_vel_w,
-            self._robot_body_pos_w,
-            self._robot_body_quat_w,
-            self._robot_body_lin_vel_w,
-            self._robot_body_ang_vel_w,
-        )
-        joint_view = read_plan.joint_tensor_view(self.robot)
-        self._robot_joint_pos = joint_view.joint_pos
-        self._robot_joint_vel = joint_view.joint_vel
-        self._robot_cache_step = step
 
     def _seed_robot_state_torch_from_defaults(self) -> None:
         """Cold proxy path: seed immutable defaults before CUDA view binding."""
@@ -1640,7 +1298,7 @@ class TensorMotionCommand(MotionCommand):
         )
         values = tuple(self.metrics[name] for name in names)
         if any(not isinstance(value, torch.Tensor) for value in values):
-            raise TypeError("TensorMotionCommand row metrics must remain Torch tensors")
+            raise TypeError("MotionCommand row metrics must remain Torch tensors")
         return cast("tuple[torch.Tensor, ...]", values)
 
     def _update_torch_error_metrics(self, rows: torch.Tensor) -> None:
@@ -1673,7 +1331,7 @@ class TensorMotionCommand(MotionCommand):
         for name, value in values:
             metric = self.metrics[name]
             if not isinstance(metric, torch.Tensor):
-                raise TypeError("TensorMotionCommand sampler metrics must remain Torch tensors")
+                raise TypeError("MotionCommand sampler metrics must remain Torch tensors")
             metric.copy_(value.expand_as(metric))
 
 
@@ -1758,16 +1416,7 @@ class MotionJointPositionAction(JointPositionAction):
                 self._tensor_motion_target, joint_ids=self._target_ids
             )
             return
-        processed = self._entity_values(self._processed_actions)
-        encoder_bias = self._entity.data.encoder_bias[:, self._target_ids]
-        default_bias = self._motion_command.joint_default_bias[:, self._target_ids]
-        np.add(
-            processed,
-            default_bias,
-            out=self._target,
-        )
-        self._target -= encoder_bias
-        self._entity.set_joint_position_target(self._target, joint_ids=self._target_ids)
+        raise TypeError("MotionJointPositionAction requires a Torch control plane")
 
 
 def _command(env: ManagerBasedRlEnv, command_name: str) -> MotionCommand:
@@ -1782,67 +1431,51 @@ def _command(env: ManagerBasedRlEnv, command_name: str) -> MotionCommand:
     return command
 
 
-def motion_anchor_pos_b(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray | torch.Tensor:
+def motion_anchor_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     return _command(env, command_name).motion_anchor_pos_b
 
 
-def motion_anchor_ori_b(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray | torch.Tensor:
+def motion_anchor_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     return _command(env, command_name).motion_anchor_ori_b
 
 
-def robot_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray | torch.Tensor:
+def robot_body_pos_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     command = _command(env, command_name)
     return command.robot_body_pos_b.reshape(env.num_envs, -1)
 
 
-def robot_body_ori_b(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray | torch.Tensor:
+def robot_body_ori_b(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     command = _command(env, command_name)
     return command.robot_body_ori_b.reshape(env.num_envs, -1)
 
 
-def motion_joint_pos_rel(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray | torch.Tensor:
+def motion_joint_pos_rel(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     command = _command(env, command_name)
-    if getattr(command, "tensor_carrier", False):
-        # MotionCommand.robot_joint_pos dispatches through the entity's host
-        # facade; a tensor carrier owns the explicit device joint view.
-        robot_joint_pos = getattr(command, "device_robot_joint_pos", None)
-        if robot_joint_pos is None:
-            robot_joint_pos = command.robot_joint_pos
-        if not isinstance(robot_joint_pos, torch.Tensor):
-            robot_joint_pos = torch.as_tensor(
-                np.asarray(robot_joint_pos), dtype=torch.float32, device=env.device
-            )
-        return (
-            cast(torch.Tensor, robot_joint_pos)
-            - command.robot.data.default_joint_pos_torch(env.device)
-            - cast(torch.Tensor, command.joint_default_bias)
-        )
+    robot_joint_pos = getattr(command, "device_robot_joint_pos", None)
+    if not isinstance(robot_joint_pos, torch.Tensor):
+        raise TypeError("MotionCommand device_robot_joint_pos must be a Torch tensor")
     return (
-        command.robot_joint_pos - command.robot.data.default_joint_pos - command.joint_default_bias
+        robot_joint_pos
+        - command.robot.data.default_joint_pos_torch(env.device)
+        - cast(torch.Tensor, command.joint_default_bias)
     )
 
 
-def motion_joint_pos_rel_biased(
-    env: ManagerBasedRlEnv, command_name: str
-) -> np.ndarray | torch.Tensor:
+def motion_joint_pos_rel_biased(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Joint position relative to the episode default, including encoder bias."""
     command = _command(env, command_name)
-    if getattr(command, "tensor_carrier", False):
-        robot_joint_pos = getattr(command, "device_robot_joint_pos", None)
-        if robot_joint_pos is None:
-            robot_joint_pos = command.robot_joint_pos
-        return (
-            cast(torch.Tensor, robot_joint_pos)
-            + command.robot.data.encoder_bias_tensor.to(
-                device=env.device, dtype=torch.float32, non_blocking=True
-            )
-            - command.robot.data.default_joint_pos_torch(env.device)
-            - cast(torch.Tensor, command.joint_default_bias)
-        )
+    robot_joint_pos = getattr(command, "device_robot_joint_pos", None)
+    if robot_joint_pos is None:
+        robot_joint_pos = command.robot_joint_pos
+    if not isinstance(robot_joint_pos, torch.Tensor):
+        raise TypeError("MotionCommand device_robot_joint_pos must be a Torch tensor")
     return (
-        command.robot.data.joint_pos_biased
-        - command.robot.data.default_joint_pos
-        - command.joint_default_bias
+        robot_joint_pos
+        + command.robot.data.encoder_bias_tensor.to(
+            device=env.device, dtype=torch.float32, non_blocking=True
+        )
+        - command.robot.data.default_joint_pos_torch(env.device)
+        - cast(torch.Tensor, command.joint_default_bias)
     )
 
 
@@ -1857,37 +1490,25 @@ def _positive_std(value: float, *, term_name: str) -> float:
 
 def motion_global_anchor_position_error_exp(
     env: ManagerBasedRlEnv, command_name: str, std: float
-) -> np.ndarray | torch.Tensor:
+) -> torch.Tensor:
     command = _command(env, command_name)
     scale = _positive_std(std, term_name="motion anchor position")
-    if getattr(command, "tensor_carrier", False):
-        anchor_delta = command.anchor_pos_w - command.robot_anchor_pos_w
-        error = cast(torch.Tensor, anchor_delta).square().sum(dim=-1)
-        return torch.exp(-error / (scale * scale))
-    diff = command.anchor_pos_w - command.robot_anchor_pos_w
-    np.square(diff, out=diff)
-    error = np.sum(diff, axis=-1)
-    np.divide(error, -(scale**2), out=error)
-    return np.exp(error, out=error)
+    anchor_delta = command.anchor_pos_w - command.robot_anchor_pos_w
+    error = cast(torch.Tensor, anchor_delta).square().sum(dim=-1)
+    return torch.exp(-error / (scale * scale))
 
 
 def motion_global_anchor_orientation_error_exp(
     env: ManagerBasedRlEnv, command_name: str, std: float
-) -> np.ndarray | torch.Tensor:
+) -> torch.Tensor:
     command = _command(env, command_name)
     scale = _positive_std(std, term_name="motion anchor orientation")
-    if getattr(command, "tensor_carrier", False):
-        motion_anchor_quat = cast(torch.Tensor, command.anchor_quat_w)
-        robot_anchor_quat = cast(torch.Tensor, command.robot_anchor_quat_w)
-        rel = quat_mul(quat_conjugate(motion_anchor_quat), robot_anchor_quat)
-        xyz = torch.linalg.vector_norm(rel[..., 1:4], dim=-1)
-        angle = 2.0 * torch.atan2(xyz, rel[..., 0].abs().clamp(max=1.0))
-        return torch.exp(-angle.square() / (scale * scale))
-    error = np_quat_error_magnitude_squared_batched(
-        command.anchor_quat_w, command.robot_anchor_quat_w
-    )
-    np.divide(error, -(scale**2), out=error)
-    return np.exp(error, out=error)
+    motion_anchor_quat = cast(torch.Tensor, command.anchor_quat_w)
+    robot_anchor_quat = cast(torch.Tensor, command.robot_anchor_quat_w)
+    rel = quat_mul(quat_conjugate(motion_anchor_quat), robot_anchor_quat)
+    xyz = torch.linalg.vector_norm(rel[..., 1:4], dim=-1)
+    angle = 2.0 * torch.atan2(xyz, rel[..., 0].abs().clamp(max=1.0))
+    return torch.exp(-angle.square() / (scale * scale))
 
 
 class _BodyTerm(ManagerTermBase):
@@ -1908,229 +1529,92 @@ class _BodyTerm(ManagerTermBase):
                 raise ValueError(
                     f"Body names {missing} are not tracked by command '{command_name}'"
                 )
-            self._body_ids = np.asarray(
-                [command.cfg.body_names.index(name) for name in requested], dtype=np.intp
+            self._body_ids = torch.as_tensor(
+                [command.cfg.body_names.index(name) for name in requested],
+                dtype=torch.long,
+                device=env.device,
             )
-        # Lazily allocated scratch for squared-error reductions (issue #1296);
-        # shapes depend on the selected body set, so they are sized on first use.
-        self._diff_scratch: np.ndarray | None = None
-        self._err_scratch: np.ndarray | None = None
-
-    def _squared_error_3d(self, ref: np.ndarray, actual: np.ndarray) -> np.ndarray:
-        """Per-body squared 3D error with reused scratch, same op order as the
-        naive ``np.square(ref - actual).sum(axis=-1)`` (bit-identical)."""
-        if (
-            self._diff_scratch is None
-            or self._err_scratch is None
-            or self._diff_scratch.shape != ref.shape
-        ):
-            self._diff_scratch = np.empty(ref.shape, dtype=ref.dtype)
-            self._err_scratch = np.empty(ref.shape[:-1], dtype=ref.dtype)
-        diff = self._diff_scratch
-        err = self._err_scratch
-        np.subtract(ref, actual, out=diff)
-        np.square(diff, out=diff)
-        np.sum(diff, axis=-1, out=err)
-        return err
-
-    @staticmethod
-    def _exp_neg_scaled(error: np.ndarray, scale: float) -> np.ndarray:
-        """``np.exp(-error / scale**2)`` without intermediate temporaries; the
-        input buffer is consumed and returned (callers own it)."""
-        np.divide(error, -(scale**2), out=error)
-        return np.exp(error, out=error)
 
     def _validate(self, command_name: str, std: float) -> tuple[MotionCommand, float]:
         if command_name != self._command_name:
             raise ValueError(
-                f"{type(self).__name__} was bound to '{self._command_name}', got '{command_name}'"
+                f"{type(self).__name__} was bound to '{self._command_name}', received "
+                f"'{command_name}'"
             )
         return _command(self._env, command_name), _positive_std(std, term_name=type(self).__name__)
 
-
-class _NumbaBodyTerm(_BodyTerm):
-    """Shared cold-path setup for the four fixed parallel body reward kernels."""
-
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        configure_motion_kernel_runtime()
-        command = _command(env, self._command_name)
-        if isinstance(self._body_ids, slice):
-            body_ids = np.arange(len(command.cfg.body_names), dtype=np.intp)
-        else:
-            body_ids = self._body_ids
-        body_ids.setflags(write=False)
-        self._kernel_body_ids = body_ids
-        tensor_carrier = bool(getattr(command, "tensor_carrier", False))
-        dtype: np.dtype[Any] = (
-            np.dtype(np.float32) if tensor_carrier else np.dtype(command.body_pos_relative_w.dtype)
-        )
-        self._kernel_result = np.empty(self.num_envs, dtype=dtype)
-        self._tensor_carrier = tensor_carrier
-
-    def _kernel_std(self, scale: float) -> float:
-        return cast(float, self._kernel_result.dtype.type(scale))
-
+    @staticmethod
     def _body_reduce(
-        self,
         command: MotionCommand,
         reference_attr: str,
         actual_attr: str,
-        kernel: Callable[[np.ndarray, np.ndarray, np.ndarray, float, np.ndarray], None],
-        scale: float,
-    ) -> np.ndarray | torch.Tensor:
-        """Dispatch one fixed body-error reduction on the command's carrier."""
-        reference = getattr(command, reference_attr)
-        actual = getattr(command, actual_attr)
-        if self._tensor_carrier:
-            assert isinstance(reference, torch.Tensor)
-            assert isinstance(actual, torch.Tensor)
-            return self._tensor_body_reduce(reference, actual, scale)
-        kernel(
-            reference,
-            actual,
-            self._kernel_body_ids,
-            self._kernel_std(scale),
-            self._kernel_result,
-        )
-        return self._kernel_result
-
-    def _tensor_body_reduce(
-        self,
-        reference: torch.Tensor,
-        actual: torch.Tensor,
         scale: float,
     ) -> torch.Tensor:
-        """Tensor peer of the four fixed Numba squared-error reductions."""
-        if reference.ndim == 3 and reference.shape[-1] == 4:
+        """Apply one fixed body-error reduction with a Torch carrier."""
+        body_ids = getattr(command, "_body_ids", slice(None))
+        reference = cast(torch.Tensor, getattr(command, reference_attr))[:, body_ids]
+        actual = cast(torch.Tensor, getattr(command, actual_attr))[:, body_ids]
+        if reference.shape[-1] == 4:
             rel = quat_mul(quat_conjugate(reference), actual)
             xyz = torch.linalg.vector_norm(rel[..., 1:4], dim=-1)
             angle = 2.0 * torch.atan2(xyz, rel[..., 0].abs().clamp(max=1.0))
             error = angle.square().sum(dim=-1)
         else:
-            error = (reference - actual).square().sum(dim=(-1, -2))
+            error = (reference - actual).square().sum(dim=-1).sum(dim=-1)
         body_count = reference.shape[-2]
         return torch.exp(-error / (body_count * scale * scale))
 
 
-class motion_relative_body_position_error_exp(_NumbaBodyTerm):
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        command = _command(env, self._command_name)
-        self._body_reduce(
-            command,
-            "body_pos_relative_w",
-            "robot_body_pos_w",
-            reward_motion_body_pos_kernel,
-            1.0,
-        )
-
+class motion_relative_body_position_error_exp(_BodyTerm):
     def __call__(
         self,
         env: ManagerBasedRlEnv,
         command_name: str,
         std: float,
         body_names: tuple[str, ...] | None = None,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        return self._body_reduce(
-            command,
-            "body_pos_relative_w",
-            "robot_body_pos_w",
-            reward_motion_body_pos_kernel,
-            scale,
-        )
+        return self._body_reduce(command, "body_pos_relative_w", "robot_body_pos_w", scale)
 
 
-class motion_relative_body_orientation_error_exp(_NumbaBodyTerm):
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        command = _command(env, self._command_name)
-        self._body_reduce(
-            command,
-            "body_quat_relative_w",
-            "robot_body_quat_w",
-            reward_motion_body_ori_kernel,
-            1.0,
-        )
-
+class motion_relative_body_orientation_error_exp(_BodyTerm):
     def __call__(
         self,
         env: ManagerBasedRlEnv,
         command_name: str,
         std: float,
         body_names: tuple[str, ...] | None = None,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        return self._body_reduce(
-            command,
-            "body_quat_relative_w",
-            "robot_body_quat_w",
-            reward_motion_body_ori_kernel,
-            scale,
-        )
+        return self._body_reduce(command, "body_quat_relative_w", "robot_body_quat_w", scale)
 
 
-class motion_global_body_linear_velocity_error_exp(_NumbaBodyTerm):
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        command = _command(env, self._command_name)
-        self._body_reduce(
-            command,
-            "body_lin_vel_w",
-            "robot_body_lin_vel_w",
-            reward_motion_body_lin_vel_kernel,
-            1.0,
-        )
-
+class motion_global_body_linear_velocity_error_exp(_BodyTerm):
     def __call__(
         self,
         env: ManagerBasedRlEnv,
         command_name: str,
         std: float,
         body_names: tuple[str, ...] | None = None,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        return self._body_reduce(
-            command,
-            "body_lin_vel_w",
-            "robot_body_lin_vel_w",
-            reward_motion_body_lin_vel_kernel,
-            scale,
-        )
+        return self._body_reduce(command, "body_lin_vel_w", "robot_body_lin_vel_w", scale)
 
 
-class motion_global_body_angular_velocity_error_exp(_NumbaBodyTerm):
-    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
-        super().__init__(cfg, env)
-        command = _command(env, self._command_name)
-        self._body_reduce(
-            command,
-            "body_ang_vel_w",
-            "robot_body_ang_vel_w",
-            reward_motion_body_ang_vel_kernel,
-            1.0,
-        )
-
+class motion_global_body_angular_velocity_error_exp(_BodyTerm):
     def __call__(
         self,
         env: ManagerBasedRlEnv,
         command_name: str,
         std: float,
         body_names: tuple[str, ...] | None = None,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        return self._body_reduce(
-            command,
-            "body_ang_vel_w",
-            "robot_body_ang_vel_w",
-            reward_motion_body_ang_vel_kernel,
-            scale,
-        )
+        return self._body_reduce(command, "body_ang_vel_w", "robot_body_ang_vel_w", scale)
 
 
 class motion_relative_body_position_z_error_exp(_BodyTerm):
@@ -2140,77 +1624,65 @@ class motion_relative_body_position_z_error_exp(_BodyTerm):
         command_name: str,
         std: float,
         body_names: tuple[str, ...] | None = None,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env, body_names
         command, scale = self._validate(command_name, std)
-        if getattr(command, "tensor_carrier", False):
-            delta = (
-                cast(torch.Tensor, command.body_pos_relative_w)[:, self._body_ids, 2]
-                - cast(torch.Tensor, command.robot_body_pos_w)[:, self._body_ids, 2]
-            )
-            return torch.exp(-delta.square().mean(dim=-1) / (scale * scale))
-        error = np.square(
-            command.body_pos_relative_w[:, self._body_ids, 2]
-            - command.robot_body_pos_w[:, self._body_ids, 2]
+        delta = (
+            cast(torch.Tensor, command.body_pos_relative_w)[:, self._body_ids, 2]
+            - cast(torch.Tensor, command.robot_body_pos_w)[:, self._body_ids, 2]
         )
-        return self._exp_neg_scaled(error.mean(axis=-1), scale)
+        return torch.exp(-delta.square().mean(dim=-1) / (scale * scale))
 
 
 def motion_joint_position_error_exp(
     env: ManagerBasedRlEnv, command_name: str, std: float
-) -> np.ndarray | torch.Tensor:
+) -> torch.Tensor:
     command = _command(env, command_name)
     scale = _positive_std(std, term_name="motion joint position")
-    if getattr(command, "tensor_carrier", False):
-        robot_joint_pos = getattr(command, "device_robot_joint_pos", None)
-        if robot_joint_pos is None:
-            robot_joint_pos = command.robot_joint_pos
-        joint_delta = command.joint_pos - robot_joint_pos
-        error = cast(torch.Tensor, joint_delta).square().mean(dim=-1)
-        return torch.exp(-error / (scale * scale))
-    diff = command.joint_pos - command.robot_joint_pos
-    np.square(diff, out=diff)
-    error = diff.mean(axis=-1)
-    np.divide(error, -(scale**2), out=error)
-    return np.exp(error, out=error)
+    robot_joint_pos = getattr(command, "device_robot_joint_pos", None)
+    if robot_joint_pos is None:
+        robot_joint_pos = command.robot_joint_pos
+    if not isinstance(robot_joint_pos, torch.Tensor):
+        raise TypeError("MotionCommand device_robot_joint_pos must be a Torch tensor")
+    joint_delta = command.joint_pos - robot_joint_pos
+    error = cast(torch.Tensor, joint_delta).square().mean(dim=-1)
+    return torch.exp(-error / (scale * scale))
 
 
 def motion_joint_velocity_error_exp(
     env: ManagerBasedRlEnv, command_name: str, std: float
-) -> np.ndarray | torch.Tensor:
+) -> torch.Tensor:
     command = _command(env, command_name)
     scale = _positive_std(std, term_name="motion joint velocity")
-    if getattr(command, "tensor_carrier", False):
-        robot_joint_vel = getattr(command, "device_robot_joint_vel", None)
-        if robot_joint_vel is None:
-            robot_joint_vel = command.robot_joint_vel
-        joint_delta = command.joint_vel - robot_joint_vel
-        error = cast(torch.Tensor, joint_delta).square().mean(dim=-1)
-        return torch.exp(-error / (scale * scale))
-    diff = command.joint_vel - command.robot_joint_vel
-    np.square(diff, out=diff)
-    error = diff.mean(axis=-1)
-    np.divide(error, -(scale**2), out=error)
-    return np.exp(error, out=error)
+    robot_joint_vel = getattr(command, "device_robot_joint_vel", None)
+    if robot_joint_vel is None:
+        robot_joint_vel = command.robot_joint_vel
+    if not isinstance(robot_joint_vel, torch.Tensor):
+        raise TypeError("MotionCommand device_robot_joint_vel must be a Torch tensor")
+    joint_delta = command.joint_vel - robot_joint_vel
+    error = cast(torch.Tensor, joint_delta).square().mean(dim=-1)
+    return torch.exp(-error / (scale * scale))
 
 
 def joint_pos_limits(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize selected joint-limit violations through the entity facade."""
     asset = cast("Entity", env.scene[asset_cfg.name])
-    joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
-    limits = asset.data.soft_joint_pos_limits[asset_cfg.joint_ids]
-    # Same op order as the naive form (maximum -> add -> square -> sum),
-    # chained in place to avoid intermediate allocations.
-    error = np.subtract(limits[:, 0], joint_pos)
-    np.maximum(error, 0.0, out=error)
-    upper = np.subtract(joint_pos, limits[:, 1])
-    np.maximum(upper, 0.0, out=upper)
-    error += upper
-    np.square(error, out=error)
-    return np.sum(error, axis=-1)
+    joint_pos = torch.as_tensor(
+        asset.data.joint_pos[:, asset_cfg.joint_ids],
+        dtype=torch.float32,
+        device=env.device,
+    )
+    limits = torch.as_tensor(
+        asset.data.soft_joint_pos_limits[asset_cfg.joint_ids],
+        dtype=torch.float32,
+        device=env.device,
+    )
+    lower_violation = (limits[:, 0] - joint_pos).clamp_min(0.0)
+    upper_violation = (joint_pos - limits[:, 1]).clamp_min(0.0)
+    return (lower_violation + upper_violation).square().sum(dim=-1)
 
 
 class undesired_body_contacts(_BodyTerm):
@@ -2220,78 +1692,44 @@ class undesired_body_contacts(_BodyTerm):
         command_name: str,
         threshold: float,
         body_names: tuple[str, ...] | None = None,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env, body_names
         command = _command(self._env, command_name)
-        if getattr(command, "tensor_carrier", False):
-            robot_body_pos = cast(torch.Tensor, command.robot_body_pos_w)
-            return (
-                (robot_body_pos[:, self._body_ids, 2] < threshold)
-                .sum(dim=-1)
-                .to(dtype=torch.float32)
-            )
-        return np.sum(command.robot_body_pos_w[:, self._body_ids, 2] < threshold, axis=-1)
+        robot_body_pos = cast(torch.Tensor, command.robot_body_pos_w)
+        return (
+            (robot_body_pos[:, self._body_ids, 2] < threshold).sum(dim=-1).to(dtype=torch.float32)
+        )
 
 
 class bad_anchor_pos_z_only(ManagerTermBase):
-    """Anchor-height termination backed by a parallel, pre-warmed Numba kernel."""
+    """Anchor-height termination on the command's Torch carrier."""
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
-        configure_motion_kernel_runtime()
         command_name = cfg.params.get("command_name")
         if not isinstance(command_name, str) or not command_name:
             raise ValueError(f"{type(self).__name__} requires a non-empty command_name")
         self._command_name = command_name
-        self._result = np.empty(self.num_envs, dtype=np.bool_)
-        command = _command(env, command_name)
-        tensor_carrier = bool(getattr(command, "tensor_carrier", False))
-        configured_threshold = cfg.params.get("threshold", 0.0)
-        threshold = (
-            float(configured_threshold)
-            if tensor_carrier
-            else command.body_pos_w.dtype.type(configured_threshold)
-        )
-        if tensor_carrier:
-            # Numba warmup is host-only; the tensor peer is pure Torch and has
-            # no lazy dispatch to precompile.
-            return
-        termination_anchor_pos_kernel(
-            command.body_pos_w,
-            command.robot_body_pos_w,
-            command.anchor_body_idx,
-            threshold,
-            self._result,
-        )
 
     def __call__(
         self,
         env: ManagerBasedRlEnv,
         command_name: str,
         threshold: float,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env
         if command_name != self._command_name:
             raise ValueError(
-                f"{type(self).__name__} was bound to '{self._command_name}', got '{command_name}'"
+                f"{type(self).__name__} was bound to '{self._command_name}', received "
+                f"'{command_name}'"
             )
         command = _command(self._env, command_name)
-        if getattr(command, "tensor_carrier", False):
-            motion_anchor_pos = cast(torch.Tensor, command.body_pos_w)
-            robot_anchor_pos = cast(torch.Tensor, command.robot_body_pos_w)
-            return (
-                motion_anchor_pos[:, command.anchor_body_idx, 2]
-                - robot_anchor_pos[:, command.anchor_body_idx, 2]
-            ).abs() > threshold
-        threshold_value = command.body_pos_w.dtype.type(threshold)
-        termination_anchor_pos_kernel(
-            command.body_pos_w,
-            command.robot_body_pos_w,
-            command.anchor_body_idx,
-            threshold_value,
-            self._result,
-        )
-        return self._result
+        motion_anchor_pos = cast(torch.Tensor, command.body_pos_w)
+        robot_anchor_pos = cast(torch.Tensor, command.robot_body_pos_w)
+        return (
+            motion_anchor_pos[:, command.anchor_body_idx, 2]
+            - robot_anchor_pos[:, command.anchor_body_idx, 2]
+        ).abs() > threshold
 
 
 def bad_anchor_ori(
@@ -2299,19 +1737,14 @@ def bad_anchor_ori(
     command_name: str,
     threshold: float,
     asset_cfg: SceneEntityCfg | None = None,
-) -> np.ndarray | torch.Tensor:
+) -> torch.Tensor:
+    del asset_cfg
     command = _command(env, command_name)
-    if getattr(command, "tensor_carrier", False):
-        motion_anchor_quat = cast(torch.Tensor, command.anchor_quat_w)
-        robot_anchor_quat = cast(torch.Tensor, command.robot_anchor_quat_w)
-        motion_z = 2.0 * (motion_anchor_quat[:, 1] ** 2 + motion_anchor_quat[:, 2] ** 2) - 1.0
-        robot_z = 2.0 * (robot_anchor_quat[:, 1] ** 2 + robot_anchor_quat[:, 2] ** 2) - 1.0
-        return (motion_z - robot_z).abs() > threshold
-    asset = command.robot if asset_cfg is None else cast("Entity", env.scene[asset_cfg.name])
-    gravity_vec_w = asset.data.gravity_vec_w
-    motion_z = np_quat_apply_inverse(command.anchor_quat_w, gravity_vec_w)[:, 2]
-    robot_z = np_quat_apply_inverse(command.robot_anchor_quat_w, gravity_vec_w)[:, 2]
-    return np.abs(motion_z - robot_z) > threshold
+    motion_anchor_quat = cast(torch.Tensor, command.anchor_quat_w)
+    robot_anchor_quat = cast(torch.Tensor, command.robot_anchor_quat_w)
+    motion_z = 2.0 * (motion_anchor_quat[:, 1] ** 2 + motion_anchor_quat[:, 2] ** 2) - 1.0
+    robot_z = 2.0 * (robot_anchor_quat[:, 1] ** 2 + robot_anchor_quat[:, 2] ** 2) - 1.0
+    return (motion_z - robot_z).abs() > threshold
 
 
 class bad_motion_body_pos_z_only(_BodyTerm):
@@ -2321,19 +1754,13 @@ class bad_motion_body_pos_z_only(_BodyTerm):
         command_name: str,
         threshold: float,
         body_names: tuple[str, ...] | None = None,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env, body_names
         command = _command(self._env, command_name)
-        if getattr(command, "tensor_carrier", False):
-            reference = cast(torch.Tensor, command.body_pos_relative_w)
-            actual = cast(torch.Tensor, command.robot_body_pos_w)
-            error = (reference[:, self._body_ids, 2] - actual[:, self._body_ids, 2]).abs()
-            return torch.any(error > threshold, dim=-1)
-        error = np.abs(
-            command.body_pos_relative_w[:, self._body_ids, 2]
-            - command.robot_body_pos_w[:, self._body_ids, 2]
-        )
-        return np.any(error > threshold, axis=-1)
+        reference = cast(torch.Tensor, command.body_pos_relative_w)
+        actual = cast(torch.Tensor, command.robot_body_pos_w)
+        error = (reference[:, self._body_ids, 2] - actual[:, self._body_ids, 2]).abs()
+        return torch.any(error > threshold, dim=-1)
 
 
 class bad_undesired_body_contacts(_BodyTerm):
@@ -2343,22 +1770,19 @@ class bad_undesired_body_contacts(_BodyTerm):
         command_name: str,
         threshold: float,
         body_names: tuple[str, ...] | None = None,
-    ) -> np.ndarray | torch.Tensor:
+    ) -> torch.Tensor:
         del env, body_names
         command = _command(self._env, command_name)
-        if getattr(command, "tensor_carrier", False):
-            robot_body_pos = cast(torch.Tensor, command.robot_body_pos_w)
-            return torch.any(robot_body_pos[:, self._body_ids, 2] < threshold, dim=-1)
-        return np.any(command.robot_body_pos_w[:, self._body_ids, 2] < threshold, axis=-1)
+        robot_body_pos = cast(torch.Tensor, command.robot_body_pos_w)
+        return torch.any(robot_body_pos[:, self._body_ids, 2] < threshold, dim=-1)
 
 
-def motion_clip_end(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray | torch.Tensor:
+def motion_clip_end(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     command = _command(env, command_name)
-    if getattr(command, "tensor_carrier", False):
-        current_clip_ends = getattr(command, "tensor_current_clip_end_frames", None)
-        if current_clip_ends is not None:
-            return cast(torch.Tensor, command.time_steps) >= cast(torch.Tensor, current_clip_ends)
-    return command.time_steps >= command.sampler.current_clip_end_frames
+    current_clip_ends = getattr(command, "tensor_current_clip_end_frames", None)
+    if current_clip_ends is None:
+        raise TypeError("MotionCommand must publish tensor_current_clip_end_frames")
+    return cast(torch.Tensor, command.time_steps) >= cast(torch.Tensor, current_clip_ends)
 
 
 class MotionAnchorObservation(ManagerTermBase):
@@ -2453,8 +1877,6 @@ __all__ = [
     "MotionCommand",
     "MotionCommandCfg",
     "MotionCommandParamsCfg",
-    "TensorMotionCommandCfg",
-    "TensorMotionCommand",
     "MotionJointPositionAction",
     "MotionJointPositionActionCfg",
     "MotionAnchorObservation",

@@ -18,7 +18,7 @@ Manager-Based event term 是唯一 DR 声明路径：
 ## 状态结论
 
 1. reset/interval 随机化由 owner YAML 中的 `events:` manager term 声明，并由 manager 生命周期统一执行。
-2. Manager-Based owner 通过 Hydra command/event term 声明 reset 行为。G1 motion reset 扰动归 `MotionCommandCfg` 所有，WBT 另加 `EventTermCfg` reset 与 interval term。
+2. Manager-Based owner 通过 Hydra command/event term 声明 reset 行为。G1 motion reset 扰动归 device-resident `MotionCommandCfg` 所有，WBT 另加 `EventTermCfg` reset 与 interval term。
 3. `ResetRandomizationPayload` 表达 curated reset terms；backend 必须声明每个请求 term，并拥有其派生量重算义务。
 4. `MotrixBackend` 目前支持 `base_mass_delta`、`base_com_offset`、`kp`、`kd` 和 interval push；并且它要求在初始化期间所有模型 actuator 都是 position actuator。
 5. 固定 mesh/tool identity 由 `env.fixed_model_variants` 声明；reset-time geometry 字段仍位于 backend capability 声明之后，且不会改变该 identity。
@@ -29,7 +29,7 @@ Manager-Based event term 是唯一 DR 声明路径：
 | --- | --- | --- | --- | --- | --- |
 | `Go2JoystickFlat` | Hydra `events:` term | 是：owner YAML 声明 reset event | root-state reset + `pd_gains` kp/kd | 无 | `src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` |
 | `G1WalkFlat` | Hydra `events:` term | 是：Hydra `EventTermCfg` + Manager-Based reset term | root-state reset + 经 `pd_gains` 的 kp/kd | 无 | `g1/manager_terms.py` |
-| `G1MotionTracking` | Hydra command term | 是：Hydra `MotionCommandCfg` + Manager-Based command reset | motion frame、root pose/velocity 与 joint-position 采样 | 无 | `motion_tracking/common/manager_terms.py` |
+| `G1MotionTracking` | Hydra command term | 是：Hydra device-resident `MotionCommandCfg` + Manager-Based command reset | motion frame、root pose/velocity 与 joint-position 采样 | 无 | `motion_tracking/common/manager_terms.py` |
 
 ## 各任务域随机化清单
 

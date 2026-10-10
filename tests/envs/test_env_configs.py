@@ -53,6 +53,7 @@ def _require_genesis_runtime() -> None:
 def _require_newton_runtime() -> None:
     if sys.platform == "darwin":
         pytest.skip("newton is a CUDA-only backend; macOS has no supported CUDA runtime")
+    pytest.importorskip("newton", reason="newton requires the newton extra")
     from unisim.backend.newton.dependencies import load_newton_dependencies
 
     dependencies = load_newton_dependencies()
@@ -317,7 +318,7 @@ def test_g1_motion_manager_ppo_wraps_only_active_rows_in_one_state_commit(
     try:
         env.init_state()
         command = env.command_manager.get_term("motion")
-        command.time_steps[:] = command.sampler.current_clip_end_frames
+        command.time_steps[:] = command.tensor_sampler.current_clip_end_frames
         env.reset_buf.copy_(torch.tensor([True, False], device=env.device))
 
         set_state_env_ids: list[np.ndarray] = []
@@ -346,14 +347,11 @@ def test_g1_motion_manager_ppo_wraps_only_active_rows_in_one_state_commit(
 
         assert len(set_state_env_ids) == 1
         np.testing.assert_array_equal(set_state_env_ids[0], [1])
-        assert command.time_steps[0] == command.sampler.current_clip_end_frames[0]
-        assert command.time_steps[1] <= command.sampler.current_clip_end_frames[1]
+        assert command.time_steps[0] == command.tensor_sampler.current_clip_end_frames[0]
+        assert command.time_steps[1] <= command.tensor_sampler.current_clip_end_frames[1]
         expected_motion = command.motion.get_motion_at_frame(command.time_steps)
         np.testing.assert_array_equal(command.joint_pos, expected_motion.joint_pos)
-        np.testing.assert_array_equal(
-            command._robot_body_pos_w,
-            command.robot.data.body_link_pos_w[:, command._robot_body_ids],
-        )
+        torch.testing.assert_close(command._robot_body_pos_w, command.robot_body_pos_w)
         assert command._robot_cache_step == env.common_step_counter
     finally:
         env.close()
@@ -379,13 +377,15 @@ def test_g1_motion_manager_sac_clip_end_is_truncation() -> None:
     try:
         env.init_state()
         command = env.command_manager.get_term("motion")
-        command.time_steps[:] = command.sampler.current_clip_end_frames
+        command.time_steps[:] = command.tensor_sampler.current_clip_end_frames
 
         state = env.step(torch.zeros((2, 29), dtype=torch.float32))
 
         np.testing.assert_array_equal(state.terminated, [False, False])
         np.testing.assert_array_equal(state.truncated, [True, True])
-        np.testing.assert_array_equal(command.time_steps, command.sampler.current_clip_end_frames)
+        np.testing.assert_array_equal(
+            command.time_steps, command.tensor_sampler.current_clip_end_frames
+        )
     finally:
         env.close()
 
@@ -975,7 +975,7 @@ def test_flashsac_motion_selected_reset_uses_generic_manager_lifecycle() -> None
     _require_mjwarp_runtime()
     from unilab.base import registry
     from unilab.envs import ManagerBasedRlEnv
-    from unilab.tasks.motion_tracking.common.manager_terms import TensorMotionCommand
+    from unilab.tasks.motion_tracking.common.manager_terms import MotionCommand
 
     _, override = _motion_manager_override("g1_motion_tracking", "mjwarp", config_root="flashsac")
     env = registry.make(
@@ -1000,7 +1000,7 @@ def test_flashsac_motion_selected_reset_uses_generic_manager_lifecycle() -> None
 
         assert all(torch.isfinite(values).all() for values in obs.values())
         command = env.command_manager.get_term("motion")
-        assert isinstance(command, TensorMotionCommand)
+        assert isinstance(command, MotionCommand)
         timing = env._last_reset_manager_timing_ms
         assert timing["reset_done_manager_reset_count"] == 7.0
         assert timing["reset_done_sampler_host_transfer_count"] == 0.0

@@ -16,9 +16,6 @@ training:
   play_render_mode: record
   # First tick includes collector env construction and Newton warmup.
 env:
-  commands:
-    motion:
-      _target_: unilab.tasks.motion_tracking.common.manager_terms.TensorMotionCommandCfg
   # Explicit backend CUDA placement. Multi-GPU training overrides this
   # cold-path field from the rank topology.
   newton_device: cuda:0

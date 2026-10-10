@@ -6,9 +6,10 @@ import math
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
+import torch
 
 from unilab.assets.hub import resolve_motion_files
 from unilab.utils.rotation import np_quat_angular_velocity, np_quat_ensure_continuity
@@ -18,13 +19,15 @@ from unilab.utils.rotation import np_quat_angular_velocity, np_quat_ensure_conti
 class MotionData:
     """Container for motion data at specific frame(s)."""
 
-    joint_pos: np.ndarray  # (N, num_joints)
-    joint_vel: np.ndarray  # (N, num_joints)
-    body_pos_w: np.ndarray  # (N, num_bodies, 3)
-    body_quat_w: np.ndarray  # (N, num_bodies, 4)
-    body_lin_vel_w: np.ndarray  # (N, num_bodies, 3)
-    body_ang_vel_w: np.ndarray  # (N, num_bodies, 3)
-    joint_torque: np.ndarray | None = None  # (N, num_joints), None when the NPZ has no torque
+    # NumPy denotes the cold NPZ decode carrier; TensorMotionCommand stores
+    # device-resident Torch carriers in the same owner-shaped container.
+    joint_pos: np.ndarray | torch.Tensor  # (N, num_joints)
+    joint_vel: np.ndarray | torch.Tensor  # (N, num_joints)
+    body_pos_w: np.ndarray | torch.Tensor  # (N, num_bodies, 3)
+    body_quat_w: np.ndarray | torch.Tensor  # (N, num_bodies, 4)
+    body_lin_vel_w: np.ndarray | torch.Tensor  # (N, num_bodies, 3)
+    body_ang_vel_w: np.ndarray | torch.Tensor  # (N, num_bodies, 3)
+    joint_torque: np.ndarray | torch.Tensor | None = None  # optional torque carrier
 
 
 def quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
@@ -369,13 +372,17 @@ class MotionLoader:
             MotionData at specified frames
         """
         if out is not None:
-            np.take(self.joint_pos, frame_idx, axis=0, out=out.joint_pos)
-            np.take(self.joint_vel, frame_idx, axis=0, out=out.joint_vel)
-            np.take(self.body_pos_w, frame_idx, axis=0, out=out.body_pos_w)
-            np.take(self.body_quat_w, frame_idx, axis=0, out=out.body_quat_w)
-            np.take(self.body_lin_vel_w, frame_idx, axis=0, out=out.body_lin_vel_w)
-            np.take(self.body_ang_vel_w, frame_idx, axis=0, out=out.body_ang_vel_w)
+            # Keep this cold loader contract NumPy-only. Runtime command owners
+            # copy Torch carriers directly and never pass them through here.
+            arrays = self._numpy_motion_arrays(out)
+            np.take(self.joint_pos, frame_idx, axis=0, out=arrays[0])
+            np.take(self.joint_vel, frame_idx, axis=0, out=arrays[1])
+            np.take(self.body_pos_w, frame_idx, axis=0, out=arrays[2])
+            np.take(self.body_quat_w, frame_idx, axis=0, out=arrays[3])
+            np.take(self.body_lin_vel_w, frame_idx, axis=0, out=arrays[4])
+            np.take(self.body_ang_vel_w, frame_idx, axis=0, out=arrays[5])
             if self.joint_torque is not None and out.joint_torque is not None:
+                assert isinstance(out.joint_torque, np.ndarray)
                 np.take(self.joint_torque, frame_idx, axis=0, out=out.joint_torque)
             return out
 
@@ -388,6 +395,20 @@ class MotionLoader:
             body_ang_vel_w=self.body_ang_vel_w[frame_idx],
             joint_torque=(self.joint_torque[frame_idx] if self.joint_torque is not None else None),
         )
+
+    @staticmethod
+    def _numpy_motion_arrays(out: MotionData) -> tuple[np.ndarray, ...]:
+        values = (
+            out.joint_pos,
+            out.joint_vel,
+            out.body_pos_w,
+            out.body_quat_w,
+            out.body_lin_vel_w,
+            out.body_ang_vel_w,
+        )
+        if any(isinstance(value, torch.Tensor) for value in values):
+            raise TypeError("MotionLoader reusable buffers must be NumPy arrays")
+        return cast("tuple[np.ndarray, ...]", values)
 
 
 class MotionSampler:
