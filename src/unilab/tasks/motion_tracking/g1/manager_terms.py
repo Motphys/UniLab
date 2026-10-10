@@ -75,26 +75,39 @@ class joint_torque_l2(ManagerTermBase):
                 "joint_torque_l2 actuator order does not match the action target order: "
                 f"{selected_names} != {tuple(action.target_names)}"
             )
-        self._kp = kp
-        self._kd = kd
-        self._joint_ids = action.target_ids
-        self._torque = np.empty_like(action.target)
+        self._torque = torch.empty_like(action.tensor_target)
+        self._target_index = torch.from_numpy(action.target_ids.copy()).to(
+            device=action.tensor_target.device, dtype=torch.int64
+        )
+        self._kp_tensor = torch.as_tensor(
+            kp, device=action.tensor_target.device, dtype=torch.float32
+        )
+        self._kd_tensor = torch.as_tensor(
+            kd, device=action.tensor_target.device, dtype=torch.float32
+        )
 
     def __call__(
         self,
         env: ManagerBasedRlEnv,
         action_name: str = "joint_pos",
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-    ) -> np.ndarray:
+    ) -> torch.Tensor:
         del env, action_name, asset_cfg
-        np.subtract(
-            self._action.target,
-            self._entity.data.joint_pos[:, self._joint_ids],
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
+        if read_plan is not None and read_plan.ready:
+            joint_view = read_plan.joint_tensor_view(self._entity)
+        else:
+            joint_view = self._entity.joint_tensor_view(self._action.tensor_target.device)
+        joint_pos = joint_view.joint_pos.index_select(1, self._target_index)
+        joint_vel = joint_view.joint_vel.index_select(1, self._target_index)
+        torch.sub(
+            self._action.tensor_target,
+            joint_pos,
             out=self._torque,
         )
-        self._torque *= self._kp
-        self._torque -= self._kd * self._entity.data.joint_vel[:, self._joint_ids]
-        return np.sum(np.square(self._torque), axis=-1)
+        self._torque *= self._kp_tensor
+        self._torque.sub_(self._kd_tensor * joint_vel)
+        return torch.sum(torch.square(self._torque), dim=-1)
 
 
 __all__ = [

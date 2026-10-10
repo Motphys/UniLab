@@ -621,7 +621,7 @@ def test_go2_joint_targets_are_mapped_to_backend_control_order(backend_type: str
         0.01,
         base_name="base",
     )
-    control = np.zeros((2, backend.num_actuators), dtype=np.float32)
+    control = torch.zeros((2, backend.num_actuators), dtype=torch.float32)
     scene = EntityScene.from_scene_cfg(scene_cfg, backend, control)
     env = cast(ManagerBasedRlEnv, SimpleNamespace(num_envs=2, scene=scene))
     action = JointPositionActionCfg(
@@ -643,7 +643,7 @@ def test_go2_joint_targets_are_mapped_to_backend_control_order(backend_type: str
             for name in backend.get_actuator_joint_names()
         ]
     )
-    np.testing.assert_allclose(control, expected)
+    torch.testing.assert_close(control, torch.from_numpy(expected))
 
 
 def test_action_module_has_no_training_or_backend_private_dependencies() -> None:

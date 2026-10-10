@@ -162,10 +162,9 @@ def test_resampling_is_seeded_and_partial_reset_is_local() -> None:
 def test_uniform_velocity_command_fails_closed_without_torch_rng() -> None:
     env, _ = _env(seed=23)
     env.torch_rng = None
-    term = _cfg().build(env)
 
-    with pytest.raises(RuntimeError, match="Manager-owned Torch generator"):
-        term.reset(torch.tensor([0], dtype=torch.int64))
+    with pytest.raises(RuntimeError, match="CommandTerm scheduling"):
+        _cfg().build(env)
 
 
 def test_metrics_and_fixed_interval_resampling_follow_manager_schedule() -> None:
