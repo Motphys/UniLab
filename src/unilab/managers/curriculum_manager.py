@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Sequence
 
-import numpy as np
 import torch
 from prettytable import PrettyTable
 
@@ -125,7 +125,7 @@ class CurriculumManager(ManagerBase):
             if isinstance(value, torch.Tensor):
                 finite = bool(torch.isfinite(value).all())
             elif isinstance(value, (int, float)):
-                finite = bool(np.isfinite(value))
+                finite = bool(math.isfinite(value))
             else:
                 continue
             if not finite:

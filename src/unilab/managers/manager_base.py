@@ -9,7 +9,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import torch
 
 from unilab.base.config_overrides import (
@@ -52,7 +51,7 @@ class ManagerTermBaseCfg:
             # Resolve std dict to tensor once at init
             self.std = resolve_std_to_tensor(cfg.params["std"], env)
 
-          def __call__(self, env, **kwargs) -> np.ndarray:
+          def __call__(self, env, **kwargs) -> torch.Tensor:
             # Use cached self.std
             return compute_posture_reward(env, self.std)
 
