@@ -228,6 +228,17 @@ def test_metrics_and_recorder_managers_do_not_import_numpy() -> None:
     assert violations == [], f"metrics/recorder NumPy imports remain: {violations}"
 
 
+def test_manager_env_protocol_reset_buffer_is_torch() -> None:
+    path = _REPO_ROOT / "src" / "unilab" / "managers" / "_types.py"
+    offenders = [
+        line_number
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if "def reset_buf(self) -> np.ndarray" in line
+    ]
+
+    assert offenders == [], f"Manager reset buffer remains NumPy-typed: {offenders}"
+
+
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
     assert "motrix" in registry._envs["G1MotionTracking"].env_factory_dict
