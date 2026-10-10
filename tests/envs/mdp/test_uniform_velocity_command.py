@@ -159,6 +159,15 @@ def test_resampling_is_seeded_and_partial_reset_is_local() -> None:
     np.testing.assert_array_equal(left.get_term("twist").command_counter[[1, 3]], 1)
 
 
+def test_uniform_velocity_command_fails_closed_without_torch_rng() -> None:
+    env, _ = _env(seed=23)
+    env.torch_rng = None
+    term = _cfg().build(env)
+
+    with pytest.raises(RuntimeError, match="Manager-owned Torch generator"):
+        term.reset(torch.tensor([0], dtype=torch.int64))
+
+
 def test_metrics_and_fixed_interval_resampling_follow_manager_schedule() -> None:
     env, backend = _env()
     backend.body_lin_vel_b[:, 0, :2] = [0.5, -0.25]
