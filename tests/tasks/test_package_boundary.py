@@ -96,6 +96,23 @@ def test_production_source_does_not_import_or_configure_numba() -> None:
     )
 
 
+def test_manager_base_curriculum_and_event_core_do_not_import_numpy() -> None:
+    manager_core_paths = (
+        _REPO_ROOT / "src" / "unilab" / "managers" / "manager_base.py",
+        _REPO_ROOT / "src" / "unilab" / "managers" / "curriculum_manager.py",
+        _REPO_ROOT / "src" / "unilab" / "managers" / "event_manager.py",
+    )
+    violations = [
+        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        for path in manager_core_paths
+        for module in sorted(_imports(path))
+        if module == "numpy" or module.startswith("numpy.")
+    ]
+
+    assert violations == [], f"manager core NumPy imports remain: {violations}"
+
+
+
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
     assert "motrix" in registry._envs["G1MotionTracking"].env_factory_dict

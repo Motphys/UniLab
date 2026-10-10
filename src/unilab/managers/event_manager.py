@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
+import math
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-import numpy as np
 import torch
 from prettytable import PrettyTable
 
@@ -286,7 +286,7 @@ class EventManager(ManagerBase):
                         f"Event term '{term_name}' has mode 'interval' but 'interval_range_s' is not specified."
                     )
                 lower, upper = term_cfg.interval_range_s
-                if not np.isfinite((lower, upper)).all() or lower > upper:
+                if not (math.isfinite(lower) and math.isfinite(upper)) or lower > upper:
                     raise ValueError(
                         f"EventManager term '{term_name}' has invalid interval_range_s "
                         f"{term_cfg.interval_range_s}."
