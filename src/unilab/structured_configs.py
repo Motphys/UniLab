@@ -83,6 +83,8 @@ class FlashSACAlgoParams:
     n_step: int = 1
     amp_dtype: str = "auto"
     use_compile: bool = True
+    compile_full_objectives: bool = True
+    use_whole_cycle_cuda_graph: bool = True
 
 
 @dataclass

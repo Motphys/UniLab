@@ -46,6 +46,8 @@ def test_flashsac_config_defaults():
     assert cfg.algo_params.normalize_reward is True
     assert cfg.algo_params.amp_dtype == "auto"
     assert cfg.algo_params.use_compile is True
+    assert cfg.algo_params.compile_full_objectives is True
+    assert cfg.algo_params.use_whole_cycle_cuda_graph is True
 
 
 def test_ppo_config_defaults():
@@ -125,6 +127,9 @@ def test_offpolicy_flashsac_g1_task_overrides():
             overrides=["task=g1_walk_flat/mujoco"],
         )
     assert cfg.algo.algo == "flashsac"
+    assert cfg.algo.algo_params.use_compile is True
+    assert cfg.algo.algo_params.compile_full_objectives is True
+    assert cfg.algo.algo_params.use_whole_cycle_cuda_graph is True
 
 
 def test_offpolicy_flashsac_go2_task_overrides():

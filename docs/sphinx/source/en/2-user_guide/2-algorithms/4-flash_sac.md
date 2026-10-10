@@ -30,6 +30,28 @@ playback video. See {doc}`/en/1-getting_started/3-evaluation_and_playback`.
 - `algo.algo_params.actor_num_blocks=2`
 - `algo.algo_params.critic_num_blocks=2`
 
+## Learner acceleration controls
+
+The default single-NVIDIA learner enables all three acceleration layers. They
+remain separate configuration choices:
+
+- `algo.algo_params.use_compile` controls CUDA Inductor compilation. Set it to
+  `false` for the eager per-update compatibility path; this also disables the
+  dependent whole-cycle graph.
+- `algo.algo_params.compile_full_objectives` selects complete actor/critic
+  objectives instead of the smaller loss-tensor compile regions. It does not
+  control CUDA Graph capture.
+- `algo.algo_params.use_whole_cycle_cuda_graph` controls learner-owned
+  whole-cycle CUDA Graph capture. Set only this field to `false` to retain
+  Inductor compilation without whole-cycle capture.
+
+For example, run the eager debugging path with:
+
+```bash
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco \
+  algo.algo_params.use_compile=false
+```
+
 FlashSAC requires synchronized collection and the same sole replay path as SAC:
 bounded host ingress plus one complete replay ring on a CUDA or Apple
 MPS learner device. CPU and XPU training are unsupported.

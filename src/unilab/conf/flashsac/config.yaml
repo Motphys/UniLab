@@ -46,6 +46,7 @@ algo:
     amp_dtype: auto
     use_compile: true
     compile_full_objectives: true
+    use_whole_cycle_cuda_graph: true
 
 training:
   task_name: G1WalkFlat

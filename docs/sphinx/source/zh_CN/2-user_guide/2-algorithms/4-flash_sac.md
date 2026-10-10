@@ -28,6 +28,24 @@ uv run train --algo flashsac --task go2_joystick_flat --sim mujoco training.no_p
 - `algo.algo_params.actor_num_blocks=2`
 - `algo.algo_params.critic_num_blocks=2`
 
+## Learner 加速开关
+
+单 NVIDIA learner 默认开启全部三层加速，但它们是三个独立的配置选择：
+
+- `algo.algo_params.use_compile` 控制 CUDA Inductor 编译。设为 `false` 后走
+  eager 的逐 update 兼容路径，同时也会关闭依赖编译的 whole-cycle graph。
+- `algo.algo_params.compile_full_objectives` 选择编译完整 actor/critic objective，
+  还是较小的 loss-tensor 区域；它不控制 CUDA Graph 捕获。
+- `algo.algo_params.use_whole_cycle_cuda_graph` 控制 learner 自己捕获并回放整轮
+  CUDA Graph。只把此字段设为 `false`，可以保留 Inductor 编译而关闭整轮捕获。
+
+例如，使用 eager 调试路径：
+
+```bash
+uv run train --algo flashsac --task g1_walk_flat --sim mujoco \
+  algo.algo_params.use_compile=false
+```
+
 FlashSAC 要求同步采集，并与 SAC 共用唯一 replay 路径：有界 host ingress 加
 一个驻留在 CUDA 或 Apple MPS learner device 上的完整 replay ring。CPU 与 XPU
 training 不受支持。
