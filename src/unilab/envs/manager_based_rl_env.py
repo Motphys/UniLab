@@ -1090,16 +1090,16 @@ class ManagerBasedRlEnv(TorchEnv):
         """Return the contiguous authoritative Torch control tensor."""
         return self._control
 
-    def _manager_tensor(
-        self, values: np.ndarray | torch.Tensor, *, dtype: torch.dtype
-    ) -> torch.Tensor:
+    def _manager_tensor(self, values: torch.Tensor, *, dtype: torch.dtype) -> torch.Tensor:
         """Publish one completed Manager result on the public Torch carrier."""
-        if isinstance(values, torch.Tensor):
-            if values.device == self.device and values.dtype == dtype and values.is_contiguous():
-                return values
-            return values.to(device=self.device, dtype=dtype, copy=True)
-        host = np.array(values, order="C", copy=True)
-        return torch.from_numpy(host).to(device=self.device, dtype=dtype, copy=True)
+        if not isinstance(values, torch.Tensor):
+            raise TypeError(
+                f"ManagerBasedRlEnv public results must be torch.Tensor, "
+                f"got {type(values).__name__}"
+            )
+        if values.device == self.device and values.dtype == dtype and values.is_contiguous():
+            return values
+        return values.to(device=self.device, dtype=dtype, copy=True)
 
     def _initial_episode_steps(self) -> torch.Tensor:
         max_steps = self._cfg.max_episode_steps

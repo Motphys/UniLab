@@ -3207,6 +3207,20 @@ def test_manager_tensor_runtime_switch_is_removed() -> None:
     assert not hasattr(ManagerBasedRlEnvCfg(), "tensor_runtime_device")
 
 
+def test_manager_publication_rejects_numpy_results() -> None:
+    env = object.__new__(ManagerBasedRlEnv)
+    device = torch.device("cpu")
+    object.__setattr__(env, "_device", device)
+
+    with pytest.raises(TypeError, match="public results must be torch.Tensor"):
+        env._manager_tensor(np.ones((2, 1), dtype=np.float32), dtype=torch.float32)
+
+    values = torch.ones((2, 1), dtype=torch.float64)
+    published = env._manager_tensor(values, dtype=torch.float32)
+    assert published.dtype == torch.float32
+    assert published.data_ptr() != values.data_ptr()
+
+
 class _RecordingResetOwner(ResetOwner):
     def __init__(self, cfg: ResetOwnerCfg, env) -> None:
         super().__init__(cfg, env)

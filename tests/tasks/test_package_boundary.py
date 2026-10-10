@@ -202,6 +202,17 @@ def test_observation_manager_has_no_numpy_result_conversion() -> None:
     assert offenders == [], f"observation NumPy result conversion remains: {offenders}"
 
 
+def test_manager_publication_boundary_has_no_numpy_conversion() -> None:
+    path = _REPO_ROOT / "src" / "unilab" / "envs" / "manager_based_rl_env.py"
+    offenders = [
+        line_number
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if "np.array(values" in line or "torch.from_numpy(host)" in line
+    ]
+
+    assert offenders == [], f"Manager publication NumPy conversion remains: {offenders}"
+
+
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
     assert "motrix" in registry._envs["G1MotionTracking"].env_factory_dict
