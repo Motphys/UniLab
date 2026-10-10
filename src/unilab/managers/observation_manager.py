@@ -562,8 +562,10 @@ class ObservationManager(ManagerBase):
                 fresh = True
             noise_started = time.perf_counter()
             if isinstance(term_cfg.noise, noise_cfg.NoiseCfg):
-                # Noise accepts either carrier and returns a fresh allocation.
-                obs = term_cfg.noise.apply(obs, rng=self._env.rng, torch_rng=self._torch_generator)
+                # Noise returns a fresh Torch allocation.
+                obs = term_cfg.noise.apply(
+                    cast("torch.Tensor", obs), torch_rng=self._torch_generator
+                )
                 fresh = True
                 noise_ms += time.perf_counter() - noise_started
             elif isinstance(term_cfg.noise, noise_cfg.NoiseModelCfg):
@@ -659,18 +661,18 @@ class ObservationManager(ManagerBase):
             if term_cfg.delay_max_lag > 0:
                 delay_buffer = self._group_obs_term_delay_buffer[group_name][term_name]
                 if env_ids is None or not delay_buffer.is_initialized:
-                    delay_buffer.append(obs)
+                    delay_buffer.append(cast("torch.Tensor", obs))
                     obs = delay_buffer.compute()
                 else:
-                    delay_buffer.backfill(obs, env_ids)
+                    delay_buffer.backfill(cast("torch.Tensor", obs), env_ids)
                     obs = delay_buffer.peek()
             if term_cfg.history_length > 0:
                 circular_buffer = self._group_obs_term_history_buffer[group_name][term_name]
                 if env_ids is None or not circular_buffer.is_initialized:
                     if update_history or not circular_buffer.is_initialized:
-                        circular_buffer.append(obs)
+                        circular_buffer.append(cast("torch.Tensor", obs))
                 else:
-                    circular_buffer.backfill(obs, env_ids)
+                    circular_buffer.backfill(cast("torch.Tensor", obs), env_ids)
 
                 if term_cfg.flatten_history_dim:
                     history = circular_buffer.buffer
@@ -965,8 +967,7 @@ class ObservationManager(ManagerBase):
                     self._group_obs_class_instances[group_name][term_name] = noise_model_cls(
                         term_cfg.noise,
                         num_envs=self._env.num_envs,
-                        rng=self._env.rng,
-                        torch_rng=self._torch_generator,
+                        torch_rng=cast("torch.Generator", self._torch_generator),
                         device=self._device,
                     )
 
@@ -979,7 +980,6 @@ class ObservationManager(ManagerBase):
                         hold_prob=term_cfg.delay_hold_prob,
                         update_period=term_cfg.delay_update_period,
                         per_env_phase=term_cfg.delay_per_env_phase,
-                        generator=self._env.rng,
                         torch_generator=self._torch_generator,
                         device=self._device,
                     )

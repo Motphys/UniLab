@@ -27,7 +27,7 @@ When you first append to a new or reset batch row, that first value is copied
 to ALL history slots for that row:
 
   buffer = CircularBuffer(max_len=3, batch_size=2)
-  buffer.append(np.array([[5.0], [10.0]]))
+  buffer.append(torch.tensor([[5.0], [10.0]]))
 
   # buffer.buffer contains (shape: 2, 3, 1):
   # Batch 0: [5.0, 5.0, 5.0]   <- all slots filled with first value
@@ -45,9 +45,9 @@ reset rows get "first-append" treatment on their next write:
 
   buffer = CircularBuffer(max_len=3, batch_size=3)
 
-  buffer.append(np.array([[1.0], [10.0], [100.0]]))   # t0
-  buffer.append(np.array([[2.0], [20.0], [200.0]]))   # t1
-  buffer.append(np.array([[3.0], [30.0], [300.0]]))   # t2
+  buffer.append(torch.tensor([[1.0], [10.0], [100.0]]))   # t0
+  buffer.append(torch.tensor([[2.0], [20.0], [200.0]]))   # t1
+  buffer.append(torch.tensor([[3.0], [30.0], [300.0]]))   # t2
 
   # buffer.buffer:
   # Batch 0: [1.0, 2.0, 3.0]
@@ -63,7 +63,7 @@ reset rows get "first-append" treatment on their next write:
 
   # current_length: [3, 0, 3]  <- batch 1 has 0 valid frames
 
-  buffer.append(np.array([[4.0], [99.0], [400.0]]))  # t3
+  buffer.append(torch.tensor([[4.0], [99.0], [400.0]]))  # t3
 
   # buffer.buffer after append:
   # Batch 0: [2.0, 3.0, 4.0]        <- oldest overwritten (normal)
@@ -79,7 +79,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import numpy as np
 import torch
 
 
@@ -172,9 +171,7 @@ class CircularBuffer:
         idx = (torch.arange(self._max_len, device=self._buffer.device) + start) % self._max_len
         return self._buffer[idx].transpose(0, 1)
 
-    def reset(
-        self, batch_ids: Sequence[int] | np.ndarray | torch.Tensor | slice | None = None
-    ) -> None:
+    def reset(self, batch_ids: Sequence[int] | torch.Tensor | slice | None = None) -> None:
         """Zero out values and counters for specified batch rows.
 
         Args:
@@ -182,16 +179,12 @@ class CircularBuffer:
         """
         self._initialize_counters()
         assert self._num_pushes is not None
-        ids: Sequence[int] | np.ndarray | torch.Tensor | slice = (
-            slice(None) if batch_ids is None else batch_ids
-        )
+        ids: Sequence[int] | torch.Tensor | slice = slice(None) if batch_ids is None else batch_ids
         self._num_pushes[ids] = 0
         if self._buffer is not None:
             self._buffer[:, ids] = 0.0
 
-    def backfill(
-        self, data: np.ndarray | torch.Tensor, batch_ids: np.ndarray | torch.Tensor
-    ) -> None:
+    def backfill(self, data: torch.Tensor, batch_ids: torch.Tensor) -> None:
         """Fill the given rows' entire history with one frame, without advancing time.
 
         Unlike append, the global pointer does not move and other rows are
@@ -209,13 +202,13 @@ class CircularBuffer:
             raise RuntimeError("Buffer not initialized. Call append() first.")
 
         if not isinstance(data, torch.Tensor):
-            data = torch.from_numpy(np.ascontiguousarray(data))
+            raise TypeError(f"buffer data must be torch.Tensor, got {type(data).__name__}")
         self._initialize_counters(data.device)
         assert self._num_pushes is not None
         self._buffer[:, batch_ids] = data[batch_ids].unsqueeze(0)
         self._num_pushes[batch_ids] = 1
 
-    def append(self, data: np.ndarray | torch.Tensor) -> None:
+    def append(self, data: torch.Tensor) -> None:
         """Append a new frame for all batch elements.
 
         Args:
@@ -225,7 +218,7 @@ class CircularBuffer:
             raise ValueError(f"Expected batch size {self._batch_size}, got {data.shape[0]}")
 
         if not isinstance(data, torch.Tensor):
-            data = torch.from_numpy(np.ascontiguousarray(data))
+            raise TypeError(f"buffer data must be torch.Tensor, got {type(data).__name__}")
 
         if self._buffer is None:
             self._pointer = -1
@@ -248,7 +241,7 @@ class CircularBuffer:
 
         self._num_pushes += 1
 
-    def __getitem__(self, key: torch.Tensor | np.ndarray | int) -> torch.Tensor:
+    def __getitem__(self, key: torch.Tensor | int) -> torch.Tensor:
         """Retrieve lagged frames per batch (LIFO).
 
         Args:
@@ -263,10 +256,12 @@ class CircularBuffer:
 
         if isinstance(key, int):
             key = torch.full((self._batch_size,), key, dtype=torch.int64)
+        elif isinstance(key, torch.Tensor):
+            key = key.to(dtype=torch.int64)
         else:
-            key = torch.as_tensor(np.asarray(key), dtype=torch.int64)
-            if key.ndim == 0:
-                key = torch.full((self._batch_size,), int(key.item()), dtype=torch.int64)
+            raise TypeError(f"buffer lags must be torch.Tensor or int, got {type(key).__name__}")
+        if key.ndim == 0:
+            key = key.to(device=self._num_pushes.device).expand(self._batch_size).clone()
 
         if key.numel() != self._batch_size:
             raise ValueError(f"Expected {self._batch_size} lags, got {key.numel()}")

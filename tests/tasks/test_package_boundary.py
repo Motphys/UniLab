@@ -138,6 +138,21 @@ def test_generic_event_terms_do_not_use_environment_numpy_rng() -> None:
     assert offenders == [], f"generic event NumPy RNG references remain at lines: {offenders}"
 
 
+def test_manager_noise_and_temporal_buffers_do_not_import_numpy() -> None:
+    source_root = _REPO_ROOT / "src" / "unilab" / "managers"
+    owner_paths = (
+        *sorted((source_root / "_buffers").glob("*.py")),
+        *sorted((source_root / "_noise").glob("*.py")),
+    )
+    violations = [
+        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        for path in owner_paths
+        for module in sorted(_imports(path))
+        if module == "numpy" or module.startswith("numpy.")
+    ]
+
+    assert violations == [], f"buffer/noise NumPy imports remain: {violations}"
+
 
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()

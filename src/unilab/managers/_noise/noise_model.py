@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
-import numpy as np
 import torch
 from typing_extensions import override
 
@@ -20,14 +19,12 @@ class NoiseModel:
         self,
         noise_model_cfg: noise_cfg.NoiseModelCfg,
         num_envs: int,
-        rng: np.random.Generator | None = None,
         *,
-        torch_rng: torch.Generator | None = None,
+        torch_rng: torch.Generator,
         device: torch.device | str | None = None,
     ):
         self._noise_model_cfg = noise_model_cfg
         self._num_envs = num_envs
-        self._rng = rng
         self._torch_rng = torch_rng
         self._device = torch.device(device) if device is not None else torch.device("cpu")
 
@@ -43,7 +40,7 @@ class NoiseModel:
         assert self._noise_model_cfg.noise_cfg is not None
         return cast(
             "torch.Tensor",
-            self._noise_model_cfg.noise_cfg.apply(data, rng=self._rng, torch_rng=self._torch_rng),
+            self._noise_model_cfg.noise_cfg.apply(data, torch_rng=self._torch_rng),
         )
 
 
@@ -55,12 +52,11 @@ class NoiseModelWithAdditiveBias(NoiseModel):
         self,
         noise_model_cfg: noise_cfg.NoiseModelWithAdditiveBiasCfg,
         num_envs: int,
-        rng: np.random.Generator | None = None,
         *,
-        torch_rng: torch.Generator | None = None,
+        torch_rng: torch.Generator,
         device: torch.device | str | None = None,
     ):
-        super().__init__(noise_model_cfg, num_envs, rng, torch_rng=torch_rng, device=device)
+        super().__init__(noise_model_cfg, num_envs, torch_rng=torch_rng, device=device)
 
         # Validate bias configuration.
         if not hasattr(noise_model_cfg, "bias_noise_cfg") or noise_model_cfg.bias_noise_cfg is None:
@@ -78,9 +74,7 @@ class NoiseModelWithAdditiveBias(NoiseModel):
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         """Reset bias values for specified environments."""
         indices = slice(None) if env_ids is None else env_ids
-        replacement = self._bias_noise_cfg.apply(
-            self._bias[indices], rng=self._rng, torch_rng=self._torch_rng
-        )
+        replacement = self._bias_noise_cfg.apply(self._bias[indices], torch_rng=self._torch_rng)
         self._bias[indices] = cast("torch.Tensor", replacement)
 
     def _initial_bias(self, data: torch.Tensor) -> torch.Tensor:
