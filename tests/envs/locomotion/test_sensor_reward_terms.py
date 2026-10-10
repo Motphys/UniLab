@@ -8,9 +8,9 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+import torch
 from unisim.backend.base import BackendSensorView
 
-from unilab.dtype_config import get_global_dtype
 from unilab.managers import RewardTermCfg
 from unilab.managers._types import ManagerBasedRlEnv
 from unilab.tasks.locomotion.common import manager_terms, sensor_reward_terms
@@ -135,7 +135,7 @@ def test_alive_returns_unconditional_ones() -> None:
     env, _ = _env()
     result = manager_terms.alive(env)
     np.testing.assert_array_equal(result, np.ones(2))
-    assert result.dtype == np.dtype(get_global_dtype())
+    assert result.dtype == torch.float32
 
 
 def test_hot_paths_use_only_cached_runtime_objects() -> None:

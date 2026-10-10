@@ -5,12 +5,12 @@
 
 from __future__ import annotations
 
+import math
 import time
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import torch
 from prettytable import PrettyTable
 
@@ -116,7 +116,7 @@ class RewardManager(ManagerBase):
             timing = {}
             self.last_step_timing_ms = timing
         timing.clear()
-        if not np.isfinite(dt) or (self._scale_by_dt and dt <= 0.0):
+        if not math.isfinite(dt) or (self._scale_by_dt and dt <= 0.0):
             raise ValueError(f"RewardManager received invalid dt {dt}.")
         reset_started = time.perf_counter()
         self._reward_buf[:] = 0.0
@@ -256,7 +256,7 @@ class RewardManager(ManagerBase):
             if term_cfg is None:
                 print(f"term: {term_name} set to None, skipping...")
                 continue
-            if not np.isfinite(term_cfg.weight):
+            if not math.isfinite(term_cfg.weight):
                 raise ValueError(
                     f"RewardManager term '{term_name}' has non-finite weight {term_cfg.weight}."
                 )
@@ -270,23 +270,23 @@ class RewardManager(ManagerBase):
         self, name: str, term_cfg: RewardTermCfg, *, validate: bool = True
     ) -> torch.Tensor:
         value = term_cfg.func(self._env, **term_cfg.params)
-        if isinstance(value, torch.Tensor):
-            if value.dtype != torch.float32:
-                raise TypeError(
-                    f"RewardManager term '{name}' returned dtype {value.dtype}, expected float32."
-                )
-            if value.device != self._device:
-                raise ValueError(
-                    f"RewardManager term '{name}' returned device {value.device}, "
-                    f"expected {self._device}."
-                )
-            if getattr(term_cfg.func, "returns_transient_tensor", False):
-                result = value
-            else:
-                result = value.clone()
+        if not isinstance(value, torch.Tensor):
+            raise TypeError(
+                f"RewardManager term '{name}' must return torch.Tensor, got {type(value).__name__}."
+            )
+        if value.dtype != torch.float32:
+            raise TypeError(
+                f"RewardManager term '{name}' returned dtype {value.dtype}, expected float32."
+            )
+        if value.device != self._device:
+            raise ValueError(
+                f"RewardManager term '{name}' returned device {value.device}, "
+                f"expected {self._device}."
+            )
+        if getattr(term_cfg.func, "returns_transient_tensor", False):
+            result = value
         else:
-            host = np.array(value, dtype=np.float32, order="C", copy=True)
-            result = torch.from_numpy(host).to(device=self._device)
+            result = value.clone()
         if result.shape != (self.num_envs,):
             raise ValueError(
                 f"RewardManager term '{name}' returned shape {tuple(result.shape)}; "

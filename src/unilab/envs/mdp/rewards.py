@@ -89,72 +89,69 @@ def _command(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray:
     return command
 
 
-def is_alive(env: ManagerBasedRlEnv) -> np.ndarray:
+def _reward(values: np.ndarray) -> torch.Tensor:
+    """Publish a reward computation on the Torch float32 carrier."""
+    return torch.as_tensor(values, dtype=torch.float32)
+
+
+def is_alive(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Reward environments that have not reached a non-timeout termination."""
-    if isinstance(env.termination_manager.terminated, torch.Tensor):
-        return (~env.termination_manager.terminated).to(torch.float32)
-    return np.logical_not(env.termination_manager.terminated).astype(np.float32, copy=False)
+    return (~env.termination_manager.terminated).to(torch.float32)
 
 
-def is_terminated(env: ManagerBasedRlEnv) -> np.ndarray:
+def is_terminated(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Return one for non-timeout terminations."""
-    if isinstance(env.termination_manager.terminated, torch.Tensor):
-        return env.termination_manager.terminated.to(torch.float32)
-    return env.termination_manager.terminated.astype(np.float32, copy=False)
+    return env.termination_manager.terminated.to(torch.float32)
 
 
 def root_height(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Return the world-frame root height as a scalar reward or metric term."""
     asset = cast("Entity", env.scene[asset_cfg.name])
-    return np.asarray(asset.data.root_link_pos_w[:, 2])
+    return _reward(asset.data.root_link_pos_w[:, 2])
 
 
 def joint_vel_l2(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize selected joint velocities with an L2-squared kernel."""
     asset = cast("Entity", env.scene[asset_cfg.name])
-    return np.sum(np.square(asset.data.joint_vel[:, asset_cfg.joint_ids]), axis=1)
+    return _reward(np.sum(np.square(asset.data.joint_vel[:, asset_cfg.joint_ids]), axis=1))
 
 
-def action_rate_l2(env: ManagerBasedRlEnv) -> np.ndarray | torch.Tensor:
+def action_rate_l2(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Penalize the first difference of raw policy actions."""
     delta = env.action_manager.action - env.action_manager.prev_action
-    if isinstance(delta, torch.Tensor):
-        return torch.sum(torch.square(delta), dim=1)
-    return np.sum(np.square(delta), axis=1)
+    return torch.sum(torch.square(delta), dim=1)
 
 
-def action_acc_l2(env: ManagerBasedRlEnv) -> np.ndarray | torch.Tensor:
+def action_acc_l2(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Penalize the second difference of raw policy actions."""
     action_acc = (
         env.action_manager.action
         - 2.0 * env.action_manager.prev_action
         + env.action_manager.prev_prev_action
     )
-    if isinstance(action_acc, torch.Tensor):
-        return torch.sum(torch.square(action_acc), dim=1)
-    return np.sum(np.square(action_acc), axis=1)
+    return torch.sum(torch.square(action_acc), dim=1)
 
 
 def flat_orientation_l2(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize non-flat base orientation."""
     asset = cast("Entity", env.scene[asset_cfg.name])
-    return np.sum(np.square(asset.data.projected_gravity_b[:, :2]), axis=1)
+    return _reward(np.sum(np.square(asset.data.projected_gravity_b[:, :2]), axis=1))
 
 
 def upright(
     env: ManagerBasedRlEnv,
     std: float,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Gaussian reward for keeping one selected body upright (mjlab ``upright``).
 
     The reward is ``exp(-||pg_xy||^2 / std^2)`` where ``pg`` is the world
@@ -171,7 +168,7 @@ def upright(
     gravity = np.asarray(asset.data.gravity_vec_w)
     projected_gravity_b = np_quat_apply_inverse(body_quat_w[:, 0, :], gravity)
     xy_squared = np.sum(np.square(projected_gravity_b[:, :2]), axis=1)
-    return np.exp(-xy_squared / scale**2)
+    return _reward(np.exp(-xy_squared / scale**2))
 
 
 def track_linear_velocity(
@@ -179,7 +176,7 @@ def track_linear_velocity(
     std: float,
     command_name: str,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Reward commanded base linear velocity, assuming commanded z is zero."""
     scale = _positive_std("track_linear_velocity", std)
     asset = cast("Entity", env.scene[asset_cfg.name])
@@ -187,7 +184,7 @@ def track_linear_velocity(
     actual = asset.data.root_link_lin_vel_b
     xy_error = np.sum(np.square(command[:, :2] - actual[:, :2]), axis=1)
     z_error = np.square(actual[:, 2])
-    return np.exp(-(xy_error + z_error) / scale**2)
+    return _reward(np.exp(-(xy_error + z_error) / scale**2))
 
 
 def track_angular_velocity(
@@ -195,7 +192,7 @@ def track_angular_velocity(
     std: float,
     command_name: str,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Reward commanded yaw rate while keeping roll/pitch rates near zero."""
     scale = _positive_std("track_angular_velocity", std)
     asset = cast("Entity", env.scene[asset_cfg.name])
@@ -203,13 +200,13 @@ def track_angular_velocity(
     actual = asset.data.root_link_ang_vel_b
     z_error = np.square(command[:, 2] - actual[:, 2])
     xy_error = np.sum(np.square(actual[:, :2]), axis=1)
-    return np.exp(-(z_error + xy_error) / scale**2)
+    return _reward(np.exp(-(z_error + xy_error) / scale**2))
 
 
 def body_angular_velocity_penalty(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize roll/pitch angular velocity of one selected body."""
     asset = cast("Entity", env.scene[asset_cfg.name])
     ang_vel = asset.data.body_link_ang_vel_w[:, asset_cfg.body_ids, :]
@@ -218,20 +215,20 @@ def body_angular_velocity_penalty(
             "body_angular_velocity_penalty requires exactly one body; "
             f"received state shape {ang_vel.shape}"
         )
-    return np.sum(np.square(ang_vel[:, 0, :2]), axis=1)
+    return _reward(np.sum(np.square(ang_vel[:, 0, :2]), axis=1))
 
 
 def joint_pos_limits(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize joint positions if they cross the soft limits."""
     asset = cast("Entity", env.scene[asset_cfg.name])
     limits = np.asarray(asset.data.soft_joint_pos_limits)[asset_cfg.joint_ids]
     joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
     out_of_limits = -np.clip(joint_pos - limits[:, 0], min=None, max=0.0)
     out_of_limits += np.clip(joint_pos - limits[:, 1], min=0.0, max=None)
-    return np.sum(out_of_limits, axis=1)
+    return _reward(np.sum(out_of_limits, axis=1))
 
 
 def _selected_joint_names(asset: Entity, asset_cfg: SceneEntityCfg) -> list[str]:
@@ -266,13 +263,13 @@ class posture(ManagerTermBase):
         )
         self._default_joint_pos = np.asarray(asset.data.default_joint_pos)
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: object) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: object) -> torch.Tensor:
         del params
         asset = cast("Entity", env.scene[self._asset_cfg.name])
         current = asset.data.joint_pos[:, self._asset_cfg.joint_ids]
         desired = self._default_joint_pos[:, self._asset_cfg.joint_ids]
         error_squared = np.square(current - desired)
-        return np.exp(-np.mean(error_squared / np.square(self._std), axis=1))
+        return _reward(np.exp(-np.mean(error_squared / np.square(self._std), axis=1)))
 
 
 class variable_posture(ManagerTermBase):
@@ -332,7 +329,7 @@ class variable_posture(ManagerTermBase):
             )
         self._default_joint_pos = np.asarray(asset.data.default_joint_pos)
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: object) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: object) -> torch.Tensor:
         del params
         asset = cast("Entity", env.scene[self._asset_cfg.name])
         command = _command(env, self._command_name)
@@ -349,7 +346,7 @@ class variable_posture(ManagerTermBase):
         current = asset.data.joint_pos[:, self._asset_cfg.joint_ids]
         desired = self._default_joint_pos[:, self._asset_cfg.joint_ids]
         error_squared = np.square(current - desired)
-        return np.exp(-np.mean(error_squared / np.square(std), axis=1))
+        return _reward(np.exp(-np.mean(error_squared / np.square(std), axis=1)))
 
 
 __all__ = [

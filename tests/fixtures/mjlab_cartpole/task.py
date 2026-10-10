@@ -51,7 +51,7 @@ def cartpole_smooth_reward(
     env: ManagerBasedRlEnv,
     cart_cfg: SceneEntityCfg,
     hinge_cfg: SceneEntityCfg,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Port mjlab's dm_control-style smooth Cartpole reward to NumPy."""
     asset = cast("Entity", env.scene[cart_cfg.name])
     hinge_angle = asset.data.joint_pos[:, hinge_cfg.joint_ids].squeeze(-1)
@@ -64,7 +64,7 @@ def cartpole_smooth_reward(
     small_control = (4.0 + _quadratic_tolerance(control, margin=1.0)) / 5.0
     hinge_vel = asset.data.joint_vel[:, hinge_cfg.joint_ids].squeeze(-1)
     small_velocity = (1.0 + _gaussian_tolerance(hinge_vel, margin=5.0)) / 2.0
-    return upright * centered * small_control * small_velocity
+    return torch.as_tensor(upright * centered * small_control * small_velocity, dtype=torch.float32)
 
 
 def register_fixture() -> None:

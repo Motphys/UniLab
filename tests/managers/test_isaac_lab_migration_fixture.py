@@ -156,8 +156,6 @@ def test_fixture_stays_test_only_and_has_no_external_runtime_imports() -> None:
         line for line in source.splitlines() if not line.lstrip().startswith("#")
     )
     for forbidden in (
-        "import torch",
-        "from torch",
         "import isaaclab",
         "from isaaclab",
         "uni_rl",

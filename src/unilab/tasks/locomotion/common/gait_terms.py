@@ -258,7 +258,9 @@ class feet_air_time(_FootContactTerm):
         if gate is not None:
             if isinstance(gate, torch.Tensor):
                 return reward.to(device=gate.device) * gate
-            return np.asarray(reward.detach().cpu().numpy() * gate, dtype=get_global_dtype())
+            return torch.as_tensor(
+                np.asarray(reward.detach().cpu().numpy() * gate, dtype=get_global_dtype())
+            )
         return reward
 
 
@@ -327,7 +329,7 @@ class feet_swing_height(_FootContactTerm):
             cost = cost * gate
         self._peak_heights = np.where(first_contact, 0.0, self._peak_heights)
         self._was_in_air = in_air
-        return np.asarray(cost, dtype=get_global_dtype())
+        return torch.as_tensor(np.asarray(cost, dtype=get_global_dtype()))
 
 
 class feet_slip(_FootContactTerm):
@@ -368,7 +370,7 @@ class feet_slip(_FootContactTerm):
         cost = np.sum(vel_xy_norm_sq * contact, axis=1)
         if gate is not None:
             cost = cost * gate
-        return np.asarray(cost, dtype=get_global_dtype())
+        return torch.as_tensor(np.asarray(cost, dtype=get_global_dtype()))
 
 
 def feet_clearance(
@@ -377,7 +379,7 @@ def feet_clearance(
     command_name: str | None = None,
     command_threshold: float = 0.01,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Penalize clearance-height deviation weighted by planar foot velocity.
 
     Mirrors mjlab ``feet_clearance`` with foot heights taken from world-frame
@@ -402,7 +404,7 @@ def feet_clearance(
     gate = _command_gate(env, "feet_clearance", name, threshold)
     if gate is not None:
         cost = cost * gate
-    return np.asarray(cost, dtype=get_global_dtype())
+    return torch.as_tensor(np.asarray(cost, dtype=get_global_dtype()))
 
 
 class self_collision_cost(_FootContactTerm):
@@ -417,7 +419,9 @@ class self_collision_cost(_FootContactTerm):
 
     def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         del params
-        return np.asarray(np.sum(self._contact(env), axis=1), dtype=get_global_dtype())
+        return torch.as_tensor(
+            np.asarray(np.sum(self._contact(env), axis=1), dtype=get_global_dtype())
+        )
 
 
 class angular_momentum_penalty(SensorTermBase):
@@ -446,7 +450,9 @@ class angular_momentum_penalty(SensorTermBase):
             self._read(self._sensor, self.name),
             (env.num_envs, 3),
         )
-        return np.asarray(np.sum(np.square(angmom), axis=1), dtype=get_global_dtype())
+        return torch.as_tensor(
+            np.asarray(np.sum(np.square(angmom), axis=1), dtype=get_global_dtype())
+        )
 
 
 # Privileged per-foot observations (mjlab velocity critic terms).  These mirror
@@ -459,7 +465,7 @@ class angular_momentum_penalty(SensorTermBase):
 def foot_height(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     """Per-foot vertical clearance above the terrain, shape ``(num_envs, num_feet)``.
 
     mjlab reads this from a ``TerrainHeightSensor`` ring around each foot; the
@@ -474,7 +480,7 @@ def foot_height(
             f"got {getattr(positions, 'shape', None)}"
         )
     positions = _state("foot_height", "foot body position", positions, positions.shape)
-    return np.asarray(positions[:, :, 2], dtype=get_global_dtype())
+    return torch.as_tensor(np.asarray(positions[:, :, 2], dtype=get_global_dtype()))
 
 
 class foot_air_time(_FootContactTerm):
@@ -513,9 +519,9 @@ class foot_contact(_FootContactTerm):
     Mirrors mjlab ``foot_contact`` (``ContactSensor.data.found > 0``).
     """
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> torch.Tensor:
         del params
-        return np.asarray(self._contact(env), dtype=get_global_dtype())
+        return torch.as_tensor(np.asarray(self._contact(env), dtype=get_global_dtype()))
 
 
 class foot_contact_forces(_FootContactTerm):
@@ -534,7 +540,7 @@ class foot_contact_forces(_FootContactTerm):
                 f"received {self._view.dimensions} on backend '{self._view.backend_type}'"
             )
 
-    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray:
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> torch.Tensor:
         del params
         values = _state(
             self.name,
@@ -542,7 +548,9 @@ class foot_contact_forces(_FootContactTerm):
             self._read(self._view, self.name),
             (env.num_envs, self._flat_width),
         )
-        return np.asarray(np.sign(values) * np.log1p(np.abs(values)), dtype=get_global_dtype())
+        return torch.as_tensor(
+            np.asarray(np.sign(values) * np.log1p(np.abs(values)), dtype=get_global_dtype())
+        )
 
 
 __all__ = [

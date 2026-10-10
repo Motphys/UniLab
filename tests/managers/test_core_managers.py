@@ -196,8 +196,8 @@ class StatefulReward:
     def __init__(self, cfg: RewardTermCfg, env: FakeEnv):
         self.reset_ids = None
 
-    def __call__(self, env: FakeEnv) -> np.ndarray:
-        return env.value.copy()
+    def __call__(self, env: FakeEnv) -> torch.Tensor:
+        return env.value.clone()
 
     def reset(self, env_ids: np.ndarray | slice | None) -> None:
         self.reset_ids = env_ids
@@ -209,7 +209,7 @@ def test_reward_dt_scaling_reset_and_config_immutability(fake_env: FakeEnv) -> N
     reward = manager.compute(dt=0.25)
     assert isinstance(reward, torch.Tensor)
     assert reward.device.type == "cpu"
-    torch.testing.assert_close(reward, torch.tensor(fake_env.value * 0.5))
+    torch.testing.assert_close(reward, fake_env.value * 0.5)
     assert manager.get_active_iterable_terms(2) == [("stateful", [4.0])]
     reset_ids = np.array([1, 2])
     extras = manager.reset(reset_ids)
@@ -221,8 +221,8 @@ def test_reward_dt_scaling_reset_and_config_immutability(fake_env: FakeEnv) -> N
 
 
 def test_reward_step_extras_report_per_term_weighted_rates(fake_env: FakeEnv) -> None:
-    def ones(env: FakeEnv) -> np.ndarray:
-        return np.ones(env.num_envs, dtype=np.float32)
+    def ones(env: FakeEnv) -> torch.Tensor:
+        return torch.ones(env.num_envs, dtype=torch.float32)
 
     cfg = {
         "pos": RewardTermCfg(func=ones, weight=2.0),
@@ -236,7 +236,7 @@ def test_reward_step_extras_report_per_term_weighted_rates(fake_env: FakeEnv) ->
     assert set(extras) == {"reward/pos", "reward/neg", "reward/zero"}
     # Weighted reward rate (raw_value * weight), not scaled by dt.
     assert extras["reward/pos"] == pytest.approx(2.0)
-    assert extras["reward/neg"] == pytest.approx(float(np.mean(fake_env.value)) * -0.5)
+    assert extras["reward/neg"] == pytest.approx(float(fake_env.value.mean()) * -0.5)
     assert extras["reward/zero"] == 0.0
 
 
@@ -294,8 +294,8 @@ def test_reward_pack_rejects_invalid_output_width(fake_env: FakeEnv) -> None:
 
 @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
 def test_reward_nonfinite_is_an_error(fake_env: FakeEnv, bad: float) -> None:
-    def reward(env: FakeEnv) -> np.ndarray:
-        value = np.ones(env.num_envs, dtype=np.float32)
+    def reward(env: FakeEnv) -> torch.Tensor:
+        value = torch.ones(env.num_envs, dtype=torch.float32)
         value[2] = bad
         return value
 
@@ -305,8 +305,8 @@ def test_reward_nonfinite_is_an_error(fake_env: FakeEnv, bad: float) -> None:
 
 
 def test_reward_compute_publishes_phase_attribution(fake_env: FakeEnv) -> None:
-    def ones(env: FakeEnv) -> np.ndarray:
-        return np.ones(env.num_envs, dtype=np.float32)
+    def ones(env: FakeEnv) -> torch.Tensor:
+        return torch.ones(env.num_envs, dtype=torch.float32)
 
     manager = RewardManager(
         {"value": RewardTermCfg(func=ones, weight=1.0)},
@@ -378,35 +378,56 @@ def test_tensor_manager_terms_require_declared_dtype(fake_env: FakeEnv) -> None:
 
 def test_reward_and_termination_shape_validation(fake_env: FakeEnv) -> None:
     reward = RewardManager(
-        {"bad": RewardTermCfg(func=lambda env: np.zeros((env.num_envs, 1)), weight=1.0)},
+        {
+            "bad": RewardTermCfg(
+                func=lambda env: torch.zeros((env.num_envs, 1), dtype=torch.float32), weight=1.0
+            )
+        },
         fake_env,
     )
     with pytest.raises(ValueError, match=r"expected \(4,\)"):
         reward.compute(0.1)
 
     termination = TerminationManager(
-        {"bad": TerminationTermCfg(func=lambda env: np.zeros(env.num_envs))}, fake_env
+        {"bad": TerminationTermCfg(func=lambda env: torch.zeros(env.num_envs, dtype=torch.uint8))},
+        fake_env,
     )
     with pytest.raises(TypeError, match="expected bool"):
         termination.compute()
 
 
+def test_reward_and_termination_reject_numpy_carriers(fake_env: FakeEnv) -> None:
+    reward = RewardManager(
+        {"bad": RewardTermCfg(func=lambda env: np.ones(env.num_envs), weight=1.0)},
+        fake_env,
+    )
+    termination = TerminationManager(
+        {"bad": TerminationTermCfg(func=lambda env: np.ones(env.num_envs, dtype=np.bool_))},
+        fake_env,
+    )
+
+    with pytest.raises(TypeError, match="must return torch.Tensor"):
+        reward.compute(0.02)
+    with pytest.raises(TypeError, match="must return torch.Tensor"):
+        termination.compute()
+
+
 def test_termination_splits_timeouts_and_failures(fake_env: FakeEnv) -> None:
-    timeout = np.array([True, False, False, True])
-    failure = np.array([False, True, False, True])
+    timeout = torch.tensor([True, False, False, True])
+    failure = torch.tensor([False, True, False, True])
     manager = TerminationManager(
         {
-            "timeout": TerminationTermCfg(func=lambda env: timeout.copy(), time_out=True),
-            "failure": TerminationTermCfg(func=lambda env: failure.copy()),
+            "timeout": TerminationTermCfg(func=lambda env: timeout.clone(), time_out=True),
+            "failure": TerminationTermCfg(func=lambda env: failure.clone()),
         },
         fake_env,
     )
     dones = manager.compute()
     assert isinstance(dones, torch.Tensor)
     assert dones.dtype == torch.bool
-    torch.testing.assert_close(dones, torch.from_numpy(timeout | failure))
-    torch.testing.assert_close(manager.time_outs, torch.from_numpy(timeout))
-    torch.testing.assert_close(manager.terminated, torch.from_numpy(failure))
+    torch.testing.assert_close(dones, timeout | failure)
+    torch.testing.assert_close(manager.time_outs, timeout)
+    torch.testing.assert_close(manager.terminated, failure)
     assert manager.reset(torch.tensor([0, 1], dtype=torch.int64)) == {
         "Episode_Termination/timeout": 1,
         "Episode_Termination/failure": 1,
