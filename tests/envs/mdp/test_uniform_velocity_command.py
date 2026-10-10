@@ -20,6 +20,7 @@ from unilab.envs.mdp.commands import (
 )
 from unilab.managers import CommandManager
 from unilab.managers._types import ManagerBasedRlEnv
+from unilab.managers.torch_rng import TorchManagerRng
 from unilab.utils.rotation import np_yaw_to_quat
 
 
@@ -80,6 +81,8 @@ def _env(seed: int = 7) -> tuple[ManagerBasedRlEnv, _Backend]:
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=backend.num_envs,
+            device=torch.device("cpu"),
+            torch_rng=TorchManagerRng.seeded(seed),
             rng=np.random.default_rng(seed),
             scene=scene,
             step_dt=0.02,

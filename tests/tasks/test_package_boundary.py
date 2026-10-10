@@ -112,6 +112,21 @@ def test_manager_base_curriculum_and_event_core_do_not_import_numpy() -> None:
     assert violations == [], f"manager core NumPy imports remain: {violations}"
 
 
+def test_manager_scheduling_has_no_numpy_rng_fallback() -> None:
+    paths = (
+        _REPO_ROOT / "src" / "unilab" / "managers" / "command_manager.py",
+        _REPO_ROOT / "src" / "unilab" / "managers" / "event_manager.py",
+    )
+    offenders = [
+        (path.relative_to(_REPO_ROOT).as_posix(), line_number, line.strip())
+        for path in paths
+        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if ".rng.uniform" in line
+    ]
+
+    assert offenders == [], f"Manager scheduling NumPy RNG fallbacks remain: {offenders}"
+
+
 
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()

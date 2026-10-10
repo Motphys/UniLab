@@ -29,7 +29,7 @@ from .conftest import FakeEnv
 class DummyAction(ActionTerm):
     def __init__(self, cfg: DummyActionCfg, env: FakeEnv):
         super().__init__(cfg, env)
-        self._raw = np.zeros((env.num_envs, cfg.dim), dtype=np.float32)
+        self._raw = torch.zeros((env.num_envs, cfg.dim), dtype=torch.float32)
         self.applied = 0
         self.reset_ids: np.ndarray | slice | None = None
         self.input_types: list[type] = []
@@ -39,12 +39,12 @@ class DummyAction(ActionTerm):
         return self._raw.shape[1]
 
     @property
-    def raw_action(self) -> np.ndarray:
+    def raw_action(self) -> torch.Tensor:
         return self._raw
 
     def process_actions(self, actions: torch.Tensor) -> None:
         self.input_types.append(type(actions))
-        self._raw[:] = actions.detach().cpu().numpy()
+        self._raw.copy_(actions)
 
     def apply_actions(self) -> None:
         self.applied += 1
@@ -95,7 +95,7 @@ def test_action_split_history_apply_and_partial_reset(fake_env: FakeEnv) -> None
     )
     torch.testing.assert_close(manager.prev_action, first)
     torch.testing.assert_close(manager.action, second)
-    np.testing.assert_array_equal(manager.get_term("legs").raw_action, second[:, :2])
+    torch.testing.assert_close(manager.get_term("legs").raw_action, second[:, :2])
     manager.apply_action()
     assert manager.get_term("legs").applied == 1
     manager.reset(torch.tensor([1, 3], dtype=torch.int64))
@@ -190,6 +190,23 @@ def test_action_manager_rejects_declared_numpy_action_terms(
     monkeypatch.setattr(DummyAction, "uses_tensor_actions", False)
     with pytest.raises(TypeError, match="requires tensor action terms"):
         ActionManager({"legacy": DummyActionCfg(entity_name="robot", dim=1)}, fake_env)
+
+
+def test_action_manager_rejects_non_tensor_raw_action_carrier(
+    fake_env: FakeEnv, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_raw_action = DummyAction.raw_action
+
+    @property
+    def numpy_raw_action(self: DummyAction) -> np.ndarray:
+        return np.zeros((self._raw.shape[0], self.action_dim), dtype=np.float32)
+
+    monkeypatch.setattr(DummyAction, "raw_action", numpy_raw_action)
+    try:
+        with pytest.raises(TypeError, match="requires tensor raw actions"):
+            ActionManager({"legacy": DummyActionCfg(entity_name="robot", dim=1)}, fake_env)
+    finally:
+        monkeypatch.setattr(DummyAction, "raw_action", original_raw_action)
 
 
 class StatefulReward:

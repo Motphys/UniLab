@@ -137,6 +137,24 @@ def test_event_interval_rng_is_reproducible() -> None:
         torch.testing.assert_close(left_time, right_time)
 
 
+def test_event_and_command_scheduling_fail_closed_without_torch_rng() -> None:
+    cfg = {
+        "interval": EventTermCfg(
+            func=_record,
+            params={"label": "interval"},
+            mode="interval",
+            interval_range_s=(0.1, 2.0),
+        )
+    }
+    without_torch_rng = FakeEnv()
+    without_torch_rng.torch_rng = None
+    with pytest.raises(RuntimeError, match="Manager-owned Torch generator"):
+        EventManager(cfg, without_torch_rng)
+
+    with pytest.raises(RuntimeError, match="Manager-owned Torch generator"):
+        DummyCommandCfg(resampling_time_range=(1.0, 1.0)).build(without_torch_rng)
+
+
 class DummyCommand(CommandTerm):
     def __init__(self, cfg: DummyCommandCfg, env: FakeEnv):
         super().__init__(cfg, env)
