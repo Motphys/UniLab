@@ -15,6 +15,11 @@ Usage:
     # CUDA tensor backends are opt-in and require their extras:
     uv run --extra mjwarp scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
         --cases flashsac/g1_motion_tracking/mjwarp
+    # Owner profiles extend the case to <algo>/<task>/<sim>/<profile>; the owner
+    # config becomes task/<task>/<sim>_<profile>.yaml while the sim segment keeps
+    # selecting the backend (and its dependency check):
+    uv run --extra mjwarp scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
+        --cases flashsac/g1_motion_tracking/mjwarp/<profile>
     uv run --extra genesis scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
         --cases flashsac/g1_motion_tracking/genesis
     uv run scripts/benchmark/rl/benchmark_offpolicy_collector_active.py --num-envs 1024 --measure-steps 100
@@ -204,6 +209,13 @@ ENV_STEP_TIMING_KEYS = (
     "set_state_reset_forward_ms",
     "set_state_host_cache_refresh_ms",
     "set_state_internal_gap_ms",
+    # mjwarp set_state_tensor (device-resident tensor reset) internals. Only the
+    # mjwarp tensor path reports them; other backends/cases keep 0.0 columns via
+    # the RESET_DONE_DETAIL_TIMING_KEYS whitelist in backend_timing.py.
+    "set_state_tensor_model_update_ms",
+    "set_state_tensor_mask_ms",
+    "set_state_tensor_commit_forward_ms",
+    "set_state_tensor_host_cache_refresh_ms",
 )
 ENV_STEP_COUNT_KEYS = (
     "reset_done_count",
@@ -300,6 +312,13 @@ ENV_STEP_TIMING_CSV_FIELDS = (
     ("set_state_reset_forward_ms", "set_state_reset_forward_ms"),
     ("set_state_host_cache_refresh_ms", "set_state_host_cache_refresh_ms"),
     ("set_state_internal_gap_ms", "set_state_internal_gap_ms"),
+    ("set_state_tensor_model_update_ms", "set_state_tensor_model_update_ms"),
+    ("set_state_tensor_mask_ms", "set_state_tensor_mask_ms"),
+    ("set_state_tensor_commit_forward_ms", "set_state_tensor_commit_forward_ms"),
+    (
+        "set_state_tensor_host_cache_refresh_ms",
+        "set_state_tensor_host_cache_refresh_ms",
+    ),
 )
 
 
@@ -592,17 +611,22 @@ def _runtime_sim_backend(sim: str) -> str:
     return sim
 
 
+def _owner_task_name(sim: str, profile: str | None = None) -> str:
+    owner_sim = _runtime_sim_backend(sim)
+    return f"{owner_sim}_{profile}" if profile else owner_sim
+
+
 def _compose_offpolicy_cfg(
     algo: str,
     task: str,
     sim: str,
+    profile: str | None = None,
     *,
     num_envs: int | None = None,
     extra_overrides: list[str] | None = None,
 ) -> DictConfig:
-    owner_sim = _runtime_sim_backend(sim)
     overrides = [
-        f"task={task}/{owner_sim}",
+        f"task={task}/{_owner_task_name(sim, profile)}",
         "hydra.run.dir=.",
         "hydra.output_subdir=null",
         "hydra/job_logging=disabled",
@@ -620,7 +644,7 @@ def _compose_offpolicy_cfg(
         return compose(config_name="config", overrides=overrides)
 
 
-def _owner_config_path(algo: str, task: str, sim: str) -> Path:
+def _owner_config_path(algo: str, task: str, sim: str, profile: str | None = None) -> Path:
     return (
         ROOT_DIR
         / "src"
@@ -629,11 +653,14 @@ def _owner_config_path(algo: str, task: str, sim: str) -> Path:
         / algo
         / "task"
         / task
-        / f"{_runtime_sim_backend(sim)}.yaml"
+        / f"{_owner_task_name(sim, profile)}.yaml"
     )
 
 
 def _discover_cases(*, algos: list[str], sim: str) -> list[str]:
+    # Discovery covers the plain <sim>.yaml owners only; profiled owners
+    # (<sim>_<profile>.yaml) are opt-in via explicit <algo>/<task>/<sim>/<profile>
+    # cases so `--cases auto` keeps its historical scope.
     cases: list[str] = []
     owner_sim = _runtime_sim_backend(sim)
     for algo in algos:
@@ -680,14 +707,15 @@ def _default_case_specs(backends: Sequence[str]) -> list[str]:
     return [f"{template}/{backend}" for backend in backends for template in DEFAULT_CASE_TEMPLATES]
 
 
-def _parse_case(spec: str) -> tuple[str, str, str]:
+def _parse_case(spec: str) -> tuple[str, str, str, str | None]:
     parts = [part for part in spec.split("/") if part]
-    if len(parts) != 3:
-        raise ValueError(f"case must use <algo>/<task>/<sim>, got {spec!r}")
-    algo, task, sim = parts
+    if len(parts) not in (3, 4):
+        raise ValueError(f"case must use <algo>/<task>/<sim>[/<profile>], got {spec!r}")
+    algo, task, sim = parts[:3]
+    profile = parts[3] if len(parts) == 4 else None
     if algo not in DEFAULT_ALGOS:
         raise ValueError(f"unsupported off-policy algo {algo!r}; expected one of {DEFAULT_ALGOS}")
-    return algo, task, _runtime_sim_backend(sim)
+    return algo, task, _runtime_sim_backend(sim), profile
 
 
 def _resolve_case_specs(
@@ -1028,8 +1056,8 @@ def _build_and_run_case(
     from unilab.training import ensure_registries
     from unilab.utils.seed import apply_training_seed
 
-    algo, task, sim = _parse_case(spec)
-    owner_path = _owner_config_path(algo, task, sim)
+    algo, task, sim, profile = _parse_case(spec)
+    owner_path = _owner_config_path(algo, task, sim, profile)
     if not owner_path.is_file():
         raise FileNotFoundError(f"missing owner config for case {spec}: {owner_path}")
 
@@ -1037,6 +1065,7 @@ def _build_and_run_case(
         algo,
         task,
         sim,
+        profile,
         num_envs=num_envs,
         extra_overrides=extra_overrides,
     )
@@ -1642,6 +1671,13 @@ _SET_STATE_MJWARP_KEYS = (
     ("set_state_internal_gap_ms", "Gap"),
 )
 
+_SET_STATE_MJWARP_TENSOR_KEYS = (
+    ("set_state_tensor_model_update_ms", "Model update"),
+    ("set_state_tensor_mask_ms", "Tensor mask"),
+    ("set_state_tensor_commit_forward_ms", "Commit forward"),
+    ("set_state_tensor_host_cache_refresh_ms", "Tensor host cache"),
+)
+
 
 def _format_set_state_detail_table(results: list[CollectorResult]) -> str:
     """Backend set-state sub-timing table for adapter-defined keys.
@@ -1723,6 +1759,35 @@ def _format_set_state_mjwarp_table(results: list[CollectorResult]) -> str:
                 result.case.runtime_sim_backend,
                 _format_env_step_timing(result, "dr_reset_set_state_ms"),
                 *(_format_set_state_sub_ms(result, key) for key, _ in _SET_STATE_MJWARP_KEYS),
+            )
+        )
+    return _format_table(headers, rows)
+
+
+def _format_set_state_mjwarp_tensor_table(results: list[CollectorResult]) -> str:
+    """Backend set_state_tensor sub-timing table (mjwarp tensor keyset)."""
+    headers = (
+        "Algo",
+        "Task",
+        "Backend",
+        "Set state ms (%env, %active)",
+        *(label for _, label in _SET_STATE_MJWARP_TENSOR_KEYS),
+    )
+    rows = []
+    for result in results:
+        env_step = result.phase_ms_per_vector_step.get("env_step_ms")
+        if env_step is None:
+            continue
+        rows.append(
+            (
+                result.case.algo,
+                result.case.task,
+                result.case.runtime_sim_backend,
+                _format_env_step_timing(result, "dr_reset_set_state_ms"),
+                *(
+                    _format_set_state_sub_ms(result, key)
+                    for key, _ in _SET_STATE_MJWARP_TENSOR_KEYS
+                ),
             )
         )
     return _format_table(headers, rows)
@@ -2083,10 +2148,11 @@ def main() -> int:
     specs = _resolve_case_specs(args.cases, algos_arg=args.algos, backends=backends)
     if not specs:
         raise SystemExit("No benchmark cases resolved.")
-    # Explicit <algo>/<task>/<sim> cases bypass --backend, so check optional
-    # backend deps per resolved case as well.
+    # Explicit <algo>/<task>/<sim>[/<profile>] cases bypass --backend, so check
+    # optional backend deps per resolved case as well (profile never changes the
+    # backend selection — the sim segment does).
     for spec in specs:
-        _, _, spec_sim = _parse_case(spec)
+        _, _, spec_sim, _ = _parse_case(spec)
         if spec_sim in OPTIONAL_BACKENDS:
             _check_optional_backend_deps(spec_sim)
 
@@ -2202,6 +2268,8 @@ def main() -> int:
         print(_format_set_state_mujoco_table(results))
         print("\nBackend set_state detail — mjwarp keyset:")
         print(_format_set_state_mjwarp_table(results))
+        print("\nBackend set_state_tensor detail — mjwarp tensor keyset:")
+        print(_format_set_state_mjwarp_tensor_table(results))
     else:
         print("No successful benchmark cases.")
     return 0 if not errors else 1

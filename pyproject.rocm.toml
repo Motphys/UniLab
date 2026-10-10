@@ -23,7 +23,7 @@ classifiers = [
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "unisim-core>=1.7.13",
+    "unisim-core>=1.7.15",
     "numba>=0.67",
     "prettytable>=3.10",
     "torch==2.14.0",
@@ -72,7 +72,7 @@ mujoco = [
     "mujoco~=3.11.0",
     "mjbatch-uni~=0.2.5",
 ]
-motrix = ["unisim-core[motrix]>=1.7.13"]
+motrix = ["unisim-core[motrix]>=1.7.15"]
 uni_rl = ["unilab-rl==1.4.11"]
 
 [dependency-groups]

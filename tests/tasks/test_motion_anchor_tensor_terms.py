@@ -112,6 +112,11 @@ def test_quat_to_rot6_matches_numpy_first_two_columns() -> None:
     torch.testing.assert_close(actual, torch.as_tensor(expected))
 
 
+def test_quat_to_rot6_rejects_invalid_width() -> None:
+    with pytest.raises(ValueError, match="quaternion must have final dimension 4"):
+        quat_to_rot6(torch.zeros((2, 3)))
+
+
 def _cfg(term_class: type) -> ManagerTermBaseCfg:
     return ManagerTermBaseCfg(func=term_class, params={"command_name": "motion"})
 

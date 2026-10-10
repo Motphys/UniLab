@@ -32,6 +32,7 @@ def semantic_token(value: Any) -> Any:
         return "slice", value.start, value.stop, value.step
     if is_dataclass(value) and not isinstance(value, type):
         excluded = {"fixed_variant_plan"} if type(value).__name__ == "SceneCfg" else set()
+        excluded |= getattr(value, "_semantic_fingerprint_excludes", frozenset())
         return (
             _qualified_name(value),
             tuple(

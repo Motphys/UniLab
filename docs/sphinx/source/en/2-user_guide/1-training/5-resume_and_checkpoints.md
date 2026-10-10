@@ -5,17 +5,36 @@ Checkpoint selection is controlled by algorithm-level fields. Use
 
 ## Resume Training
 
-Use a run id or `-1` for the latest run in the relevant log directory:
+PPO/APPO resume from `algo.load_run` directly. Use a run id or `-1` for the
+latest run in the relevant log directory:
 
 ```bash
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
   algo.load_run=-1 \
   training.no_play=true
+```
 
-uv run train --algo sac --task g1_walk_flat --sim mujoco \
-  algo.load_run=2026-03-16_01-35-12_mujoco \
+Off-policy algorithms (SAC/FlashSAC/WarpSAC) keep resume opt-in so that the
+`algo.load_run=-1` default can never turn a fresh launch into an accidental
+resume. Set `algo.resume=true` and select the checkpoint with `algo.load_run`
+(run id or `-1` for the latest run) plus optional `algo.checkpoint`
+(iteration or filename; `-1` selects the latest checkpoint):
+
+```bash
+uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp \
+  --profile <owner-profile> \
+  algo.resume=true \
+  algo.load_run=2026-10-05_14-28-04_mjwarp \
   training.no_play=true
 ```
+
+The off-policy checkpoint restores the full learner state (networks,
+optimizers, schedulers, normalizers, and update count), and training
+continues with absolute iteration numbering (`model_32000.pt` resumes at
+iteration 32001, so `algo.max_iterations` stays the total budget, not an
+increment). The replay buffer is not checkpointed: a resumed run re-warms
+from an empty buffer through the usual train-start threshold, and RNG state
+is not restored.
 
 ## Replay A Checkpoint
 

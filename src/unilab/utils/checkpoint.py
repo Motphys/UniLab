@@ -65,6 +65,14 @@ def _normalize_load_run(load_run: str | int | PathLike[str]) -> str:
     return str(load_run)
 
 
+def normalize_checkpoint_value(value: object) -> str | None:
+    """Normalize a raw checkpoint selector value; sentinel values map to ``None``."""
+    if value is None:
+        return None
+    text = str(value)
+    return None if text in {"", "-1", "None", "null"} else text
+
+
 def resolve_checkpoint_path(
     base_log_dir: str | Path,
     load_run: str | int | PathLike[str],
@@ -160,12 +168,28 @@ def resolve_offpolicy_checkpoint_path(
     algo_log_name: str,
     task: str,
     load_run: str | int | PathLike[str],
+    *,
+    checkpoint: str | int | None = None,
+    suffix: str = ".pt",
+    log_root: str | Path | None = None,
 ) -> tuple[str | None, str | None]:
-    """Resolve an off-policy checkpoint from the repo-rooted log tree."""
-    checkpoint_path, checkpoint_dir = resolve_checkpoint_path(
-        Path(root_dir) / "logs" / algo_log_name / task,
-        load_run,
-        suffix=".pt",
+    """Resolve an off-policy checkpoint through the shared task resolver.
+
+    Without an explicit ``log_root`` the lookup stays on the repo-rooted
+    ``<root_dir>/logs/<algo_log_name>`` tree; the test-only
+    ``UNILAB_TEST_LOG_ROOT`` override is reserved for cfg-driven resolution
+    (``training.parse_checkpoint_path``).
+    """
+    if log_root is None:
+        log_root = (Path(root_dir) / "logs" / algo_log_name).absolute()
+    checkpoint_path, checkpoint_dir = resolve_task_checkpoint_path(
+        root_dir,
+        task_name=task,
+        load_run=load_run,
+        algo_log_name=algo_log_name,
+        checkpoint=normalize_checkpoint_value(checkpoint),
+        suffix=suffix,
+        log_root=log_root,
     )
     return (
         str(checkpoint_path) if checkpoint_path is not None else None,

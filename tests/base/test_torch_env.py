@@ -531,12 +531,18 @@ def test_backend_device_must_match_capability() -> None:
 def test_backend_reset_timing_hook_is_merged() -> None:
     class _TimedEnv(_StubTorchEnv):
         def _collect_reset_backend_timing_ms(self) -> dict[str, float]:
-            return {"set_state_internal_gap_ms": 2.5}
+            return {
+                "set_state_internal_gap_ms": 2.5,
+                # mjwarp set_state_tensor sub-timings are whitelisted via
+                # RESET_DONE_DETAIL_TIMING_KEYS and must reach info["timing"].
+                "set_state_tensor_commit_forward_ms": 1.25,
+            }
 
     env = _TimedEnv()
     env.init_state()
     state = env.step(_actions(env))
     assert state.info["timing"]["set_state_internal_gap_ms"] == 2.5
+    assert state.info["timing"]["set_state_tensor_commit_forward_ms"] == 1.25
 
 
 def test_training_state_round_trip_and_close() -> None:

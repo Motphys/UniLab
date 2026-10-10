@@ -1161,7 +1161,7 @@ class TensorMotionCommand(MotionCommand):
             return
         self._bind_read_phase = True
         self._refresh_motion()
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         if read_plan is not None:
             read_plan.refresh()
             self._refresh_robot_state(force=True)
@@ -1184,14 +1184,14 @@ class TensorMotionCommand(MotionCommand):
 
     @property
     def device_robot_joint_pos(self) -> torch.Tensor:
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         if read_plan is not None and read_plan.ready:
             self._robot_joint_pos = read_plan.joint_tensor_view(self.robot).joint_pos
         return self._robot_joint_pos
 
     @property
     def device_robot_joint_vel(self) -> torch.Tensor:
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         if read_plan is not None and read_plan.ready:
             self._robot_joint_vel = read_plan.joint_tensor_view(self.robot).joint_vel
         return self._robot_joint_vel
@@ -1412,7 +1412,7 @@ class TensorMotionCommand(MotionCommand):
 
     def post_compute(self) -> None:
         rows = self._tensor_post_compute_env_ids
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         view_started = time.perf_counter()
         if read_plan is None or not read_plan.ready:
             if not self._bind_read_phase:
@@ -1502,7 +1502,7 @@ class TensorMotionCommand(MotionCommand):
         step = self._env.common_step_counter
         if not force and self._robot_cache_step == step:
             return
-        read_plan = self._env.scene._tensor_read_plan
+        read_plan = getattr(self._env.scene, "_tensor_read_plan", None)
         if read_plan is None or not read_plan.ready:
             # Manager term construction probes command carriers before the scene
             # read plan exists. Before `bind_read_phase`, immutable defaults are
@@ -1695,12 +1695,20 @@ class MotionJointPositionAction(JointPositionAction):
         super().__init__(cfg, env)
         self._motion_command = _command(env, cfg.command_name)
         self._previous_raw_actions = torch.zeros_like(self._raw_actions)
-        self._tensor_motion_target = torch.empty_like(self._processed_actions)
+        # Tensor observation consumers can read this target before the first
+        # action application. Initialize deterministically rather than exposing
+        # uninitialized device memory in initial/reset observations.
+        self._tensor_motion_target = torch.zeros_like(self._processed_actions)
 
     @property
     def target(self) -> np.ndarray:
         """Most recently applied physical joint target in entity joint order."""
         return self._target
+
+    @property
+    def tensor_target(self) -> torch.Tensor:
+        """Most recently applied physical target for tensor control planes."""
+        return self._tensor_motion_target
 
     def process_actions(self, actions: torch.Tensor) -> None:
         self._previous_raw_actions.copy_(self._raw_actions)
@@ -2154,7 +2162,10 @@ def motion_joint_position_error_exp(
     command = _command(env, command_name)
     scale = _positive_std(std, term_name="motion joint position")
     if getattr(command, "tensor_carrier", False):
-        joint_delta = command.joint_pos - command.robot_joint_pos
+        robot_joint_pos = getattr(command, "device_robot_joint_pos", None)
+        if robot_joint_pos is None:
+            robot_joint_pos = command.robot_joint_pos
+        joint_delta = command.joint_pos - robot_joint_pos
         error = cast(torch.Tensor, joint_delta).square().mean(dim=-1)
         return torch.exp(-error / (scale * scale))
     diff = command.joint_pos - command.robot_joint_pos
@@ -2170,7 +2181,10 @@ def motion_joint_velocity_error_exp(
     command = _command(env, command_name)
     scale = _positive_std(std, term_name="motion joint velocity")
     if getattr(command, "tensor_carrier", False):
-        joint_delta = command.joint_vel - command.robot_joint_vel
+        robot_joint_vel = getattr(command, "device_robot_joint_vel", None)
+        if robot_joint_vel is None:
+            robot_joint_vel = command.robot_joint_vel
+        joint_delta = command.joint_vel - robot_joint_vel
         error = cast(torch.Tensor, joint_delta).square().mean(dim=-1)
         return torch.exp(-error / (scale * scale))
     diff = command.joint_vel - command.robot_joint_vel
@@ -2439,6 +2453,8 @@ __all__ = [
     "MotionCommand",
     "MotionCommandCfg",
     "MotionCommandParamsCfg",
+    "TensorMotionCommandCfg",
+    "TensorMotionCommand",
     "MotionJointPositionAction",
     "MotionJointPositionActionCfg",
     "MotionAnchorObservation",

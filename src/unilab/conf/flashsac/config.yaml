@@ -6,6 +6,10 @@ algo:
   algo: flashsac
   algo_log_name: flash_sac
   load_run: "-1"
+  # Opt-in training resume: resolve the algo.load_run/algo.checkpoint
+  # selection and continue from that learner checkpoint. Replay is not
+  # checkpointed, so a resumed run re-warms from an empty buffer.
+  resume: false
   seed: 1
   num_envs: 1024
   batch_size: 2048
@@ -13,6 +17,9 @@ algo:
   updates_per_step: 2
   learning_starts: 98
   policy_frequency: 2
+  # true updates actor(+temperature) before the critic in each update, matching
+  # the WarpSAC builder order; false preserves the critic-first default.
+  policy_before_critic: false
   max_iterations: 5000
   save_interval: 1000
   gamma: 0.97

@@ -686,3 +686,44 @@ def test_collector_env_cfg_override_from_none_base():
     runner.env_cfg_override = None
     runner.collector_cpu_ids = [4, 5]
     assert runner._collector_env_cfg_override() == {"cpu_ids": [4, 5]}
+
+
+def test_train_resume_defaults_disabled():
+    module = _offpolicy()
+    cfg = _offpolicy_cfg()
+
+    assert cfg.algo.resume is False
+    assert module.resolve_train_resume_checkpoint(cfg) is None
+
+
+def test_train_resume_resolves_selected_checkpoint(tmp_path):
+    module = _offpolicy()
+    run_dir = tmp_path / "G1WalkFlat" / "2026-10-05_14-28-04_mjwarp"
+    run_dir.mkdir(parents=True)
+    checkpoint = run_dir / "model_32000.pt"
+    checkpoint.write_bytes(b"stub")
+    cfg = _offpolicy_cfg(
+        algo="flashsac",
+        overrides=[
+            f"training.log_root={tmp_path}",
+            "algo.resume=true",
+            "algo.load_run=2026-10-05_14-28-04_mjwarp",
+        ],
+    )
+
+    assert module.resolve_train_resume_checkpoint(cfg) == str(checkpoint)
+
+
+def test_train_resume_fails_closed_when_checkpoint_missing(tmp_path):
+    module = _offpolicy()
+    cfg = _offpolicy_cfg(
+        algo="flashsac",
+        overrides=[
+            f"training.log_root={tmp_path}",
+            "algo.resume=true",
+            "algo.load_run=no-such-run",
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="algo.resume=true"):
+        module.resolve_train_resume_checkpoint(cfg)

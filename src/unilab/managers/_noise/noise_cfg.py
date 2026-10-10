@@ -286,10 +286,19 @@ class SegmentwiseUniformNoiseCfg(NoiseCfg):
 class GaussianNoiseCfg(NoiseCfg):
     mean: NoiseParam = 0.0
     std: NoiseParam = 1.0
+    # Optional symmetric clamp on the standard-normal draw, in units of sigma
+    # (e.g. clamp=3.0 bounds the additive noise to ±3*std). None keeps the
+    # unbounded Gaussian.
+    clamp: float | None = None
 
     def __post_init__(self):
         if isinstance(self.std, float) and self.std <= 0:
             raise ValueError(f"std ({self.std}) must be positive")
+        if self.clamp is not None:
+            if isinstance(self.clamp, bool) or not isinstance(self.clamp, (int, float)):
+                raise TypeError(f"clamp ({self.clamp!r}) must be a real number or None")
+            if not np.isfinite(self.clamp) or self.clamp <= 0:
+                raise ValueError(f"clamp ({self.clamp}) must be finite and positive")
 
     @override
     def apply(
@@ -312,6 +321,8 @@ class GaussianNoiseCfg(NoiseCfg):
                 noise = generator.standard_normal(data.shape, dtype=np.float32)
             else:
                 noise = generator.standard_normal(data.shape).astype(data.dtype, copy=False)
+            if self.clamp is not None:
+                np.clip(noise, -self.clamp, self.clamp, out=noise)
             noise = mean + std * noise
 
             if self.operation == "add":
@@ -336,6 +347,8 @@ class GaussianNoiseCfg(NoiseCfg):
             generator = self._require_generator(rng)
             unit = generator.standard_normal(tuple(data.shape)).astype(np.float32, copy=False)
             unit_torch = torch.from_numpy(unit).to(device=data.device, dtype=data.dtype)
+        if self.clamp is not None:
+            unit_torch.clamp_(min=-self.clamp, max=self.clamp)
         noise = mean + std * unit_torch
         if self.operation == "add":
             return data + noise

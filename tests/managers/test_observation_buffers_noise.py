@@ -213,6 +213,26 @@ def test_gaussian_tensor_noise_preserves_rng_stream_and_device() -> None:
     assert host_rng.bit_generator.state == tensor_rng.bit_generator.state
 
 
+def test_gaussian_noise_clamps_standard_normal_draw() -> None:
+    host_cfg = GaussianNoiseCfg(std=0.1, clamp=3.0)
+    torch_cfg = GaussianNoiseCfg(std=0.1, clamp=3.0)
+    host_data = np.full((128, 4), 1.0, dtype=np.float32)
+    tensor_data = torch.full((128, 4), 1.0)
+
+    host_result = host_cfg.apply(host_data, rng=np.random.default_rng(71))
+    tensor_result = torch_cfg.apply(tensor_data, torch_rng=torch.Generator().manual_seed(72))
+
+    assert isinstance(tensor_result, torch.Tensor)
+    assert float(np.max(np.abs(host_result - host_data))) <= 0.3 + 1e-8
+    assert float((tensor_result - tensor_data).abs().max()) <= 0.3 + 1e-8
+
+
+@pytest.mark.parametrize("clamp", [0.0, -3.0, float("inf"), True])
+def test_gaussian_noise_rejects_invalid_clamp(clamp) -> None:
+    with pytest.raises((TypeError, ValueError), match="clamp"):
+        GaussianNoiseCfg(std=0.1, clamp=clamp)
+
+
 def test_additive_bias_noise_supports_scalar_terms() -> None:
     from unilab.managers._noise import NoiseModelWithAdditiveBias
 
@@ -691,6 +711,31 @@ def test_class_terms_are_never_shared_across_groups() -> None:
     )
     assert manager._group_obs_term_share["policy"] == {}
     assert manager._group_obs_term_share["critic"] == {}
+
+
+def test_list_param_terms_share_raw_compute_across_groups() -> None:
+    calls = {"n": 0}
+
+    def windowed(env: FakeEnv, future_steps: list[int]) -> np.ndarray:
+        calls["n"] += 1
+        return np.tile(env.obs[:, :1], (1, len(future_steps)))
+
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={"ref": ObservationTermCfg(func=windowed, params={"future_steps": [0, 1, 2]})}
+            ),
+            "critic": ObservationGroupCfg(
+                terms={"ref": ObservationTermCfg(func=windowed, params={"future_steps": [0, 1, 2]})}
+            ),
+        },
+        FakeEnv(seed=11),
+    )
+    calls["n"] = 0
+    output = manager.compute(update_history=True)
+
+    assert calls["n"] == 1
+    np.testing.assert_array_equal(output["policy"], output["critic"])
 
 
 def test_observation_manager_publishes_step_phase_attribution() -> None:

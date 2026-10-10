@@ -9,7 +9,14 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import torch
-from unisim.backend.base import BackendRootStateLayout, SimBackend
+from unisim.backend.base import (
+    BackendRootStateLayout,
+    SimBackend,
+    TensorDataPlane,
+    TensorExecution,
+    TensorLifecycleCapabilities,
+    TensorProcessTopology,
+)
 from unisim.dr.types import (
     RESET_TERM_BODY_INERTIA,
     RESET_TERM_BODY_IPOS,
@@ -22,6 +29,7 @@ from unisim.dr.types import (
     DomainRandomizationCapabilities,
     IntervalRandomizationPlan,
     ResetRandomizationPayload,
+    TensorResetRandomizationPayload,
 )
 
 from unilab.base.entity import EntityCfg, EntityScene
@@ -29,6 +37,9 @@ from unilab.base.reset_state import ResetStateTransaction
 from unilab.envs import mdp
 from unilab.managers import EventManager, EventTermCfg, SceneEntityCfg
 from unilab.managers._types import ManagerBasedRlEnv
+from unilab.managers.torch_rng import TorchManagerRng
+
+requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is unavailable")
 
 
 class _CaptureEntity:
@@ -301,6 +312,10 @@ class _Backend:
             supports_interval_body_torque=self.interval_torque_supported,
         )
 
+    def get_tensor_capabilities(self) -> TensorLifecycleCapabilities:
+        # Host-only fake: no tensor lifecycle, no device reset randomization.
+        return TensorLifecycleCapabilities(execution=TensorExecution.UNSUPPORTED)
+
     def get_reset_term_default(self, term: str) -> np.ndarray:
         if not self.get_dr_capabilities().supports_reset_term(term):
             raise NotImplementedError(term)
@@ -395,6 +410,7 @@ def _transaction_env(
             rng=np.random.default_rng(rng_seed),
             scene=scene,
             step_dt=step_dt,
+            backend=backend,
         ),
     )
     return env, backend, transaction
@@ -880,6 +896,113 @@ def test_min_step_count_gating_reuses_committed_field_values() -> None:
         torch.tensor([200, 200, 50], dtype=torch.int64),
     )
     assert not np.allclose(fourth.body_mass, second.body_mass[:2])
+
+
+def test_startup_mass_and_com_sample_once_and_persist_across_resets() -> None:
+    env, backend, transaction = _transaction_env(rng_seed=61)
+    uniform_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    original_rng = env.rng
+
+    class _CountingRng:
+        def uniform(self, *args: Any, **kwargs: Any) -> np.ndarray:
+            uniform_calls.append((args, kwargs))
+            return original_rng.uniform(*args, **kwargs)
+
+    env.rng = _CountingRng()
+    asset_cfg = SceneEntityCfg("robot", body_names=("base",))
+    manager = EventManager(
+        {
+            "mass": EventTermCfg(
+                func=mdp.randomize_rigid_body_mass,
+                mode="startup",
+                params={
+                    "asset_cfg": asset_cfg,
+                    "mass_distribution_params": (1.5, 1.5),
+                    "operation": "scale",
+                    "recompute_inertia": False,
+                },
+            ),
+            "com": EventTermCfg(
+                func=mdp.randomize_rigid_body_com,
+                mode="startup",
+                params={
+                    "asset_cfg": asset_cfg,
+                    "com_range": {"x": (0.1, 0.1), "z": (-0.2, -0.2)},
+                },
+            ),
+        },
+        env,
+    )
+    all_rows = torch.arange(backend.num_envs, dtype=torch.int64)
+
+    with transaction.scoped(all_rows):
+        manager.apply(mode="startup", env_ids=all_rows)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    startup = backend.randomization_calls[0]
+    assert startup is not None
+    assert startup.body_mass is not None
+    assert startup.body_ipos is not None
+    np.testing.assert_allclose(startup.body_mass, [[15.0]] * backend.num_envs)
+    np.testing.assert_allclose(startup.body_ipos, [[[0.1, 0.0, -0.2]]] * backend.num_envs)
+    assert len(uniform_calls) == 2, "mass and COM must each sample exactly once"
+    assert uniform_calls[0][1]["size"] == (backend.num_envs, 1)
+    assert uniform_calls[1][1]["size"] == (backend.num_envs, 3)
+
+    selected = torch.tensor([1, 2], dtype=torch.int64)
+    with transaction.scoped(selected):
+        # Startup terms are not reset terms. An ordinary selected-row reset must
+        # not resample or recommit their model fields.
+        mdp.reset_scene_to_default(env, selected)
+    assert len(backend.set_state_calls) == 2
+    replay = backend.randomization_calls[-1]
+    assert replay is None or replay.body_mass is None
+    assert replay is None or replay.body_ipos is None
+    assert len(uniform_calls) == 2
+
+
+@pytest.mark.parametrize("mode", ["interval", "step"])
+def test_startup_capable_model_field_terms_reject_other_modes(mode: str) -> None:
+    env, backend, _ = _transaction_env()
+
+    with pytest.raises(
+        NotImplementedError,
+        match="only supports mode='reset/startup'",
+    ):
+        EventManager(
+            {
+                "mass": EventTermCfg(
+                    func=mdp.randomize_rigid_body_mass,
+                    mode=mode,
+                    params={
+                        "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                        "mass_distribution_params": (0.9, 1.1),
+                        "operation": "scale",
+                        "recompute_inertia": False,
+                    },
+                )
+            },
+            env,
+        )
+    with pytest.raises(
+        NotImplementedError,
+        match="only supports mode='reset/startup'",
+    ):
+        EventManager(
+            {
+                "com": EventTermCfg(
+                    func=mdp.randomize_rigid_body_com,
+                    mode=mode,
+                    params={
+                        "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                        "com_range": {"x": (-0.1, 0.1)},
+                    },
+                )
+            },
+            env,
+        )
+    assert backend.set_state_calls == []
 
 
 def test_min_step_count_gating_applies_to_pd_gains_payload_rows() -> None:
@@ -1627,3 +1750,202 @@ def test_randomize_body_mass_inertia_rejects_invalid_scale_range(scale_range) ->
             env,
         )
     assert backend.set_state_calls == []
+
+
+class _TensorBackend(_Backend):
+    """Fake backend exposing the public selected tensor-reset boundary."""
+
+    def __init__(self, *, device_reset_randomization: bool = False, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.device_reset_randomization = device_reset_randomization
+        self.tensor_reset_calls: list[tuple[Any, Any, Any, Any]] = []
+
+    def get_tensor_capabilities(self) -> TensorLifecycleCapabilities:
+        return TensorLifecycleCapabilities(
+            execution=TensorExecution.DEVICE_RESIDENT,
+            state_views=True,
+            state_fields=frozenset({"qpos", "qvel"}),
+            sensor_views=False,
+            stepping=True,
+            selected_reset=True,
+            reset_randomization=True,
+            process_topology=TensorProcessTopology.IN_PROCESS,
+            data_plane=TensorDataPlane.DIRECT,
+            stream_event_ownership="fake synchronous stream",
+            torch_devices=("cpu",),
+            device_reset_randomization=self.device_reset_randomization,
+        )
+
+    def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> dict:
+        self.tensor_reset_calls.append((env_indices, qpos, qvel, randomization))
+        return {"ok": True}
+
+
+def _tensor_dr_env(
+    *,
+    device_reset_randomization: bool,
+    device: torch.device,
+) -> tuple[ManagerBasedRlEnv, _TensorBackend, ResetStateTransaction]:
+    backend = _TensorBackend(device_reset_randomization=device_reset_randomization)
+    transaction = ResetStateTransaction(cast(SimBackend, backend))
+    scene = EntityScene(
+        {
+            "robot": EntityCfg(
+                root_body_name="base",
+                joint_names=("j0", "j1", "j2"),
+                body_names=("base",),
+                geom_names=("floor", "foot", "base_geom"),
+                actuator_names=("a0", "a1", "a2"),
+            )
+        },
+        cast(SimBackend, backend),
+        reset_state=transaction,
+    )
+    env = cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=backend.num_envs,
+            device=device,
+            rng=np.random.default_rng(5),
+            torch_rng=(TorchManagerRng.seeded(5, device=device) if device.type == "cuda" else None),
+            scene=scene,
+            step_dt=0.02,
+            backend=backend,
+        ),
+    )
+    transaction.declare_packed_reset_device(device)
+    return env, backend, transaction
+
+
+def _dr_event_cfg() -> dict[str, EventTermCfg]:
+    return {
+        "mass": EventTermCfg(
+            func=mdp.randomize_rigid_body_mass,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "mass_distribution_params": (0.8, 1.2),
+                "operation": "scale",
+                "recompute_inertia": False,
+            },
+        ),
+        "com": EventTermCfg(
+            func=mdp.randomize_rigid_body_com,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "com_range": {"x": (-0.05, 0.05)},
+            },
+        ),
+        "friction": EventTermCfg(
+            func=mdp.geom_friction,
+            mode="reset",
+            params={
+                "asset_cfg": SceneEntityCfg("robot"),
+                "ranges": {0: (0.3, 1.2)},
+                "operation": "abs",
+                "shared_random": True,
+            },
+        ),
+        "pd_lower": EventTermCfg(
+            func=mdp.pd_gains,
+            mode="reset",
+            params={
+                "kp_range": (2.0, 2.0),
+                "kd_range": (2.0, 2.0),
+                "asset_cfg": SceneEntityCfg("robot", actuator_names=["a0"]),
+            },
+        ),
+        "pd_upper": EventTermCfg(
+            func=mdp.pd_gains,
+            mode="reset",
+            params={
+                "kp_range": (0.5, 1.5),
+                "kd_range": (0.5, 1.5),
+                "asset_cfg": SceneEntityCfg("robot", actuator_names=["a1", "a2"]),
+            },
+        ),
+    }
+
+
+@pytest.mark.parametrize("device_capable", [False, True])
+def test_tensor_reset_terms_fall_back_to_host_payload_without_cuda_rows(
+    device_capable: bool,
+) -> None:
+    # CPU rows (or a missing capability flag) keep the NumPy staging path even
+    # inside a device tensor reset: the commit carries a host payload.
+    env, backend, transaction = _tensor_dr_env(
+        device_reset_randomization=device_capable,
+        device=torch.device("cpu"),
+    )
+    manager = EventManager(_dr_event_cfg(), env)
+    rows = torch.tensor([0, 2], dtype=torch.int64)
+
+    with transaction.scoped_device_event_tensor(rows):
+        manager.apply(mode="reset", env_ids=rows, global_env_step_count=0)
+
+    assert len(backend.tensor_reset_calls) == 1
+    randomization = backend.tensor_reset_calls[0][3]
+    assert isinstance(randomization, ResetRandomizationPayload)
+    assert not isinstance(randomization, TensorResetRandomizationPayload)
+    assert randomization.body_mass is not None
+    assert randomization.body_ipos is not None
+    assert randomization.geom_friction is not None
+    assert randomization.kp is not None and randomization.kd is not None
+    assert np.all((randomization.body_mass[:, 0] >= 8.0) & (randomization.body_mass[:, 0] <= 12.0))
+    np.testing.assert_allclose(randomization.kp[:, 0], 20.0)
+    np.testing.assert_allclose(randomization.kd[:, 0], 2.0)
+
+
+@requires_cuda
+def test_tensor_reset_terms_stage_device_randomization_payload() -> None:
+    device = torch.device("cuda")
+    env, backend, transaction = _tensor_dr_env(
+        device_reset_randomization=True,
+        device=device,
+    )
+    manager = EventManager(_dr_event_cfg(), env)
+    rows = torch.tensor([0, 2], dtype=torch.int64, device=device)
+
+    with transaction.scoped_device_event_tensor(rows):
+        manager.apply(mode="reset", env_ids=rows, global_env_step_count=0)
+
+    assert len(backend.tensor_reset_calls) == 1
+    committed_rows, _qpos, _qvel, randomization = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_rows, rows)
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+
+    body_mass = randomization.body_mass
+    assert isinstance(body_mass, torch.Tensor) and body_mass.is_cuda
+    assert body_mass.shape == (2, 1)
+    assert bool(((body_mass >= 8.0) & (body_mass <= 12.0)).all())
+
+    body_ipos = randomization.body_ipos
+    assert isinstance(body_ipos, torch.Tensor) and body_ipos.is_cuda
+    assert body_ipos.shape == (2, 1, 3)
+    assert bool(((body_ipos[..., 0] >= -0.05) & (body_ipos[..., 0] <= 0.05)).all())
+    torch.testing.assert_close(body_ipos[..., 1:], torch.zeros_like(body_ipos[..., 1:]))
+
+    geom_friction = randomization.geom_friction
+    assert isinstance(geom_friction, torch.Tensor) and geom_friction.is_cuda
+    assert geom_friction.shape == (2, 3, 3)
+    tangent = geom_friction[..., 0]
+    assert bool(((tangent >= 0.3) & (tangent <= 1.2)).all())
+    # shared_random: one grouped sample per row across all selected geoms.
+    torch.testing.assert_close(tangent, tangent[:, :1].expand_as(tangent))
+    # Untouched axes keep the backend defaults.
+    default_rest = torch.tensor([[0.01, 0.001], [0.02, 0.002], [0.03, 0.003]], device=device)
+    torch.testing.assert_close(geom_friction[..., 1:], default_rest.expand(2, 3, 2))
+
+    kp = randomization.kp
+    kd = randomization.kd
+    assert isinstance(kp, torch.Tensor) and isinstance(kd, torch.Tensor)
+    assert kp.is_cuda and kd.is_cuda
+    assert kp.shape == (2, 3) and kd.shape == (2, 3)
+    # Disjoint actuator columns from two terms merge in one dense commit.
+    torch.testing.assert_close(kp[:, 0], torch.full((2,), 20.0, device=device))
+    torch.testing.assert_close(kd[:, 0], torch.full((2,), 2.0, device=device))
+    assert bool(((kp[:, 1] >= 10.0) & (kp[:, 1] <= 30.0)).all())
+    assert bool(((kp[:, 2] >= 15.0) & (kp[:, 2] <= 45.0)).all())
+    assert bool(((kd[:, 1] >= 1.0) & (kd[:, 1] <= 3.0)).all())
+    assert bool(((kd[:, 2] >= 1.5) & (kd[:, 2] <= 4.5)).all())

@@ -124,6 +124,14 @@ class EventManager(ManagerBase):
             for term_cfg in self._mode_term_cfgs["reset"]
         )
 
+    @property
+    def uses_startup_rows(self) -> bool:
+        """Whether any startup term requires concrete full-width row indices."""
+        return any(
+            bool(getattr(term_cfg.func, "uses_startup_rows", False))
+            for term_cfg in self._mode_term_cfgs.get("startup", ())
+        )
+
     # Methods.
 
     def get_term_cfg(self, term_name: str) -> EventTermCfg:
