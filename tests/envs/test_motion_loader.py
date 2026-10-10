@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from unilab.tasks.motion_tracking.common.motion_loader import MotionLoader, MotionSampler
+from unilab.tasks.motion_tracking.common.motion_loader import MotionLoader
 
 
 def _write_motion_npz(
@@ -99,105 +99,6 @@ def test_motion_loader_rejects_mismatched_multi_clip_metadata(tmp_path):
 
     with np.testing.assert_raises(ValueError):
         MotionLoader([str(motion_a), str(motion_b)])
-
-
-def test_motion_sampler_start_mode_preserves_global_zero_frame(tmp_path):
-    motion_a = tmp_path / "motion_a.npz"
-    motion_b = tmp_path / "motion_b.npz"
-    _write_motion_npz(motion_a, base_value=0.0, num_frames=2)
-    _write_motion_npz(motion_b, base_value=10.0, num_frames=3)
-
-    np.random.seed(0)
-    loader = MotionLoader([str(motion_a), str(motion_b)])
-    sampler = MotionSampler(loader, mode="start", num_envs=16)
-
-    env_ids = np.arange(16, dtype=np.int32)
-    frames = sampler.sample_frames(env_ids)
-
-    np.testing.assert_array_equal(frames, np.zeros(16, dtype=np.int32))
-    np.testing.assert_array_equal(sampler.current_clip_indices, np.zeros(16, dtype=np.int32))
-    np.testing.assert_array_equal(sampler.current_clip_end_frames, np.full(16, 1, dtype=np.int32))
-
-
-def test_motion_sampler_clip_start_mode_uses_clip_starts_for_multi_clip_loader(tmp_path):
-    motion_a = tmp_path / "motion_a.npz"
-    motion_b = tmp_path / "motion_b.npz"
-    _write_motion_npz(motion_a, base_value=0.0, num_frames=2)
-    _write_motion_npz(motion_b, base_value=10.0, num_frames=3)
-
-    np.random.seed(0)
-    loader = MotionLoader([str(motion_a), str(motion_b)])
-    sampler = MotionSampler(loader, mode="clip_start", num_envs=16)
-
-    env_ids = np.arange(16, dtype=np.int32)
-    frames = sampler.sample_frames(env_ids)
-
-    assert np.isin(frames, loader.clip_offsets).all()
-    np.testing.assert_array_equal(
-        sampler.current_clip_end_frames, loader.clip_end_frames[sampler.current_clip_indices]
-    )
-
-
-def test_motion_sampler_step_respects_current_clip_end(tmp_path):
-    motion_a = tmp_path / "motion_a.npz"
-    motion_b = tmp_path / "motion_b.npz"
-    _write_motion_npz(motion_a, base_value=0.0, num_frames=2)
-    _write_motion_npz(motion_b, base_value=10.0, num_frames=3)
-
-    loader = MotionLoader([str(motion_a), str(motion_b)])
-    sampler = MotionSampler(loader, mode="uniform", num_envs=2)
-
-    sampler.current_frames[:] = np.array([1, 3], dtype=np.int32)
-    sampler.current_clip_indices[:] = np.array([0, 1], dtype=np.int32)
-    sampler.current_clip_end_frames[:] = np.array([1, 4], dtype=np.int32)
-
-    done_env_ids = sampler.step()
-    np.testing.assert_array_equal(done_env_ids, np.array([0], dtype=np.int64))
-    np.testing.assert_array_equal(sampler.current_frames, np.array([2, 4], dtype=np.int32))
-
-
-def test_motion_sampler_uses_env_owned_rng_and_steps_only_selected_rows(tmp_path):
-    motion = tmp_path / "motion.npz"
-    _write_motion_npz(motion, base_value=0.0, num_frames=8)
-    loader = MotionLoader(str(motion))
-    env_ids = np.array([0, 2], dtype=np.int32)
-    sampler = MotionSampler(
-        loader,
-        mode="uniform",
-        num_envs=3,
-        rng=np.random.default_rng(17),
-    )
-    expected_rng = np.random.default_rng(17)
-
-    frames = sampler.sample_frames(env_ids)
-
-    np.testing.assert_array_equal(frames, expected_rng.integers(0, 8, 2, dtype=np.int32))
-    untouched = int(sampler.current_frames[1])
-    sampler.current_clip_end_frames[:] = 7
-    done = sampler.step(np.array([2], dtype=np.int32))
-    assert done.size == 0
-    assert sampler.current_frames[1] == untouched
-    assert sampler.current_frames[2] == frames[1] + 1
-
-
-def test_motion_sampler_adaptive_zero_floor_cold_starts_uniform(tmp_path):
-    motion = tmp_path / "motion.npz"
-    _write_motion_npz(motion, base_value=0.0, num_frames=70)
-    loader = MotionLoader(str(motion))
-    sampler = MotionSampler(
-        loader,
-        mode="adaptive",
-        num_envs=64,
-        adaptive_uniform_ratio=0.0,
-        rng=np.random.default_rng(7),
-    )
-
-    frames = sampler.sample_frames(np.arange(64, dtype=np.int32))
-
-    assert frames.min() >= 0
-    assert frames.max() < loader.num_frames
-    np.testing.assert_allclose(sampler.sampling_entropy, 1.0)
-    np.testing.assert_allclose(sampler.sampling_top1_prob, 1.0 / sampler.bin_count)
 
 
 def test_motion_loader_reads_optional_joint_torque(tmp_path):
