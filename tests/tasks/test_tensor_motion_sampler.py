@@ -6,13 +6,7 @@ import pytest
 import torch
 
 from unilab.tasks.motion_tracking.common import tensor_sampler as mt
-from unilab.tasks.motion_tracking.common.motion_loader import MotionSampler
 from unilab.tasks.motion_tracking.common.tensor_sampler import TensorMotionSampler
-
-
-def _loader(num_frames: int = 32) -> object:
-    loader = object.__new__(MotionSampler.__mro__[0])
-    return loader
 
 
 def _sampler(
