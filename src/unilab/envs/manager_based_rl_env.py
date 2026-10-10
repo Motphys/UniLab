@@ -313,9 +313,7 @@ class ManagerBasedRlEnv(TorchEnv):
     metrics_manager: MetricsManager | NullMetricsManager
     recorder_manager: RecorderManager | NullRecorderManager
     _tensor_read_plan: SceneTensorReadPlan | None
-    _tensor_reset_default_root_state: torch.Tensor | None
     _last_reset_manager_timing_ms: dict[str, float]
-    _tensor_reset_env_origins: torch.Tensor | None
     _tensor_reset_env_origins_nonzero: bool | None
     _tensor_reset_pose_bounds: torch.Tensor | None
     _tensor_reset_velocity_bounds: torch.Tensor | None
@@ -350,8 +348,6 @@ class ManagerBasedRlEnv(TorchEnv):
         self._reward_log_names: tuple[str, ...] = ()
         self._reward_log_means = torch.empty(0, dtype=torch.float32, device=self.device)
         self._last_reset_manager_timing_ms = {}
-        self._tensor_reset_default_root_state = None
-        self._tensor_reset_env_origins = None
         self._tensor_reset_env_origins_nonzero = None
         self._tensor_reset_pose_bounds = None
         self._tensor_reset_velocity_bounds = None

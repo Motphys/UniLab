@@ -812,6 +812,7 @@ class EntityData:
         self._joint_vel_index = None if joint_vel_ids is None else _as_column_index(joint_vel_ids)
         self._default_root_state = default_root_state
         self._default_root_state_error = default_root_state_error
+        self._default_root_state_tensor: torch.Tensor | None = None
         self._default_joint_pos = default_joint_pos
         self._default_joint_vel = default_joint_vel
         self._default_joint_pos_tensor: torch.Tensor | None = None
@@ -949,6 +950,18 @@ class EntityData:
                 f"unavailable on backend '{self._backend_type}': {detail}"
             )
         return self._default_root_state
+
+    def default_root_state_torch(self, device: str | torch.device) -> torch.Tensor:
+        """Return the immutable default root state as a cached Torch table."""
+        resolved = torch.device(device)
+        if (
+            self._default_root_state_tensor is None
+            or self._default_root_state_tensor.device != resolved
+        ):
+            self._default_root_state_tensor = torch.from_numpy(
+                np.array(self.default_root_state, copy=True)
+            ).to(device=resolved, dtype=torch.float32)
+        return self._default_root_state_tensor
 
     @property
     def joint_pos(self) -> np.ndarray:
@@ -4167,6 +4180,7 @@ class EntityScene(Mapping[str, Entity]):
         env_origins = np.zeros((backend.num_envs, 3), dtype=np.float32)
         env_origins.setflags(write=False)
         self._env_origins = env_origins
+        self._env_origins_tensor: torch.Tensor | None = None
 
     @classmethod
     def from_scene_cfg(
@@ -4195,6 +4209,15 @@ class EntityScene(Mapping[str, Entity]):
     def env_origins(self) -> np.ndarray:
         """Read-only per-environment origins; flat UniLab scenes default to zero."""
         return self._env_origins
+
+    def env_origins_torch(self, device: str | torch.device) -> torch.Tensor:
+        """Return immutable per-environment origins as a cached Torch table."""
+        resolved = torch.device(device)
+        if self._env_origins_tensor is None or self._env_origins_tensor.device != resolved:
+            self._env_origins_tensor = torch.from_numpy(np.array(self.env_origins, copy=True)).to(
+                device=resolved, dtype=torch.float32
+            )
+        return self._env_origins_tensor
 
     def compile_tensor_reads(
         self,

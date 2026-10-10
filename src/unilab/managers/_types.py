@@ -185,6 +185,8 @@ class ManagerScene(Protocol):
     @property
     def env_origins(self) -> np.ndarray: ...
 
+    def env_origins_torch(self, device: str | torch.device) -> torch.Tensor: ...
+
     def __getitem__(self, name: str) -> ManagerEntity: ...
 
     def bind_sensor_data(self, names: Sequence[str]) -> ManagerSensorView: ...
@@ -273,8 +275,6 @@ class ManagerBasedRlEnv(Protocol):
     @property
     def backend(self) -> SimBackend: ...
 
-    _tensor_reset_default_root_state: torch.Tensor | None
-    _tensor_reset_env_origins: torch.Tensor | None
     _tensor_reset_pose_bounds: torch.Tensor | None
     _tensor_reset_velocity_bounds: torch.Tensor | None
 
