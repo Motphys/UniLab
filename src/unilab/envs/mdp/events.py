@@ -70,22 +70,27 @@ def _gain_choice(
 
 
 def _sample_gain_range(
-    rng: np.random.Generator,
+    rng: TorchManagerRng,
     bounds: tuple[float, float],
     shape: tuple[int, int],
     distribution: Literal["uniform", "log_uniform"],
 ) -> np.ndarray:
     if distribution == "uniform":
-        return rng.uniform(bounds[0], bounds[1], size=shape)
-    return np.exp(rng.uniform(np.log(bounds[0]), np.log(bounds[1]), size=shape))
+        return rng.uniform(bounds[0], bounds[1], shape, dtype=torch.float64).cpu().numpy()
+    return (
+        rng.uniform(math.log(bounds[0]), math.log(bounds[1]), shape, dtype=torch.float64)
+        .exp()
+        .cpu()
+        .numpy()
+    )
 
 
 def _sample_se3_range(
     range_dict: dict[str, tuple[float, float]] | None,
     shape: tuple[int, ...],
-    rng: np.random.Generator,
+    rng: TorchManagerRng,
 ) -> np.ndarray:
-    """Sample uniform ``[x, y, z, roll, pitch, yaw]`` offsets with NumPy."""
+    """Sample uniform ``[x, y, z, roll, pitch, yaw]`` offsets with Torch RNG."""
     if not shape or shape[-1] != len(_SE3_KEYS):
         raise ValueError(
             f"reset_root_state_uniform SE(3) sample shape must end in 6; received {shape}"
@@ -110,7 +115,9 @@ def _sample_se3_range(
     if np.any(invalid):
         keys = [_SE3_KEYS[index] for index in np.flatnonzero(invalid)]
         raise ValueError(f"reset_root_state_uniform range minimum exceeds maximum for keys {keys}")
-    return rng.uniform(ranges[:, 0], ranges[:, 1], size=shape)
+    lower = torch.as_tensor(ranges[:, 0], dtype=torch.float64, device=rng.device)
+    upper = torch.as_tensor(ranges[:, 1], dtype=torch.float64, device=rng.device)
+    return rng.uniform(lower, upper, shape, dtype=torch.float64).cpu().numpy()
 
 
 def _event_choice(value: Any, *, term_name: str, name: str, choices: tuple[str, ...]) -> str:
@@ -173,16 +180,23 @@ def _distribution_parameters(
 
 
 def _sample_distribution(
-    rng: np.random.Generator,
+    rng: TorchManagerRng,
     params: np.ndarray,
     shape: tuple[int, ...],
     distribution: str,
 ) -> np.ndarray:
+    low = torch.as_tensor(params[0], dtype=torch.float64, device=rng.device)
+    high = torch.as_tensor(params[1], dtype=torch.float64, device=rng.device)
     if distribution == "gaussian":
-        return rng.normal(params[0], params[1], size=shape)
+        return rng.normal(low, high, shape, dtype=torch.float64).cpu().numpy()
     if distribution == "log_uniform":
-        return np.exp(rng.uniform(np.log(params[0]), np.log(params[1]), size=shape))
-    return rng.uniform(params[0], params[1], size=shape)
+        return (
+            rng.uniform(torch.log(low), torch.log(high), shape, dtype=torch.float64)
+            .exp()
+            .cpu()
+            .numpy()
+        )
+    return rng.uniform(low, high, shape, dtype=torch.float64).cpu().numpy()
 
 
 def _apply_randomization_operation(
@@ -195,6 +209,15 @@ def _apply_randomization_operation(
     if operation == "scale":
         return default * samples
     return samples
+
+
+def _require_torch_rng(env: ManagerBasedRlEnv, term_name: str) -> TorchManagerRng:
+    rng = getattr(env, "torch_rng", None)
+    if not isinstance(rng, TorchManagerRng):
+        raise RuntimeError(
+            f"EventManager term '{term_name}' requires the Manager-owned Torch generator"
+        )
+    return rng
 
 
 def _axis_ranges(
@@ -651,6 +674,7 @@ class _ModelFieldRandomizer(ManagerTermBase):
 
     def _sample_axis(self, env: ManagerBasedRlEnv, axis: int, count: int) -> np.ndarray:
         parameters = self._ranges[:, axis]
+        rng = _require_torch_rng(env, self.name)
         if self._shared_random:
             samples = np.empty((count, len(parameters)), dtype=np.float64)
             groups: dict[tuple[float, float], list[int]] = {}
@@ -658,27 +682,44 @@ class _ModelFieldRandomizer(ManagerTermBase):
                 groups.setdefault((float(pair[0]), float(pair[1])), []).append(index)
             for (first, second), indices in groups.items():
                 if self._distribution == "gaussian":
-                    shared = env.rng.normal(first, second, size=(count, 1))
+                    shared = rng.normal(first, second, (count, 1), dtype=torch.float64)
                 elif self._distribution == "log_uniform":
-                    shared = np.exp(env.rng.uniform(np.log(first), np.log(second), size=(count, 1)))
+                    shared = rng.uniform(
+                        math.log(first), math.log(second), (count, 1), dtype=torch.float64
+                    ).exp()
                 else:
-                    shared = env.rng.uniform(first, second, size=(count, 1))
-                samples[:, indices] = shared
+                    shared = rng.uniform(first, second, (count, 1), dtype=torch.float64)
+                samples[:, indices] = shared.cpu().numpy()
             return samples
         if self._distribution == "gaussian":
-            return env.rng.normal(parameters[:, 0], parameters[:, 1], size=(count, len(parameters)))
+            return (
+                rng.normal(
+                    parameters[:, 0],
+                    parameters[:, 1],
+                    (count, len(parameters)),
+                    dtype=torch.float64,
+                )
+                .cpu()
+                .numpy()
+            )
         if self._distribution == "log_uniform":
-            return np.exp(
-                env.rng.uniform(
+            return (
+                rng.uniform(
                     np.log(parameters[:, 0]),
                     np.log(parameters[:, 1]),
-                    size=(count, len(parameters)),
+                    (count, len(parameters)),
+                    dtype=torch.float64,
                 )
+                .exp()
+                .cpu()
+                .numpy()
             )
-        return env.rng.uniform(
-            parameters[:, 0],
-            parameters[:, 1],
-            size=(count, len(parameters)),
+        return (
+            rng.uniform(
+                parameters[:, 0], parameters[:, 1], (count, len(parameters)), dtype=torch.float64
+            )
+            .cpu()
+            .numpy()
         )
 
     def __call__(
@@ -917,8 +958,12 @@ class PdGains(ManagerTermBase):
             return
         ids = resolve_env_ids(env, env_ids)
         shape = (len(ids), len(self._actuator_ids))
-        kp = _sample_gain_range(env.rng, self._kp_range, shape, self._distribution)
-        kd = _sample_gain_range(env.rng, self._kd_range, shape, self._distribution)
+        kp = _sample_gain_range(
+            _require_torch_rng(env, "pd_gains"), self._kp_range, shape, self._distribution
+        )
+        kd = _sample_gain_range(
+            _require_torch_rng(env, "pd_gains"), self._kd_range, shape, self._distribution
+        )
         if self._operation == "scale":
             kp = kp * _selected_reset_defaults(
                 self._default_kp,
@@ -1035,7 +1080,7 @@ class RandomizeRigidBodyMass(ManagerTermBase):
             )
         if self._startup_values is None:
             samples = _sample_distribution(
-                env.rng,
+                _require_torch_rng(env, "randomize_rigid_body_mass"),
                 self._distribution_params,
                 (env.num_envs, self._body_ids.size),
                 self._distribution,
@@ -1134,7 +1179,7 @@ class RandomizeRigidBodyMass(ManagerTermBase):
             return
         ids = resolve_env_ids(env, env_ids)
         samples = _sample_distribution(
-            env.rng,
+            _require_torch_rng(env, "randomize_rigid_body_mass"),
             self._distribution_params,
             (ids.size, self._body_ids.size),
             self._distribution,
@@ -1235,12 +1280,13 @@ class RandomizeBodyMassInertia(ManagerTermBase):
         del asset_cfg, scale_range
         ids = resolve_env_ids(env, env_ids)
         if self._scales is None:
-            alpha = env.rng.uniform(
+            alpha = _require_torch_rng(env, "randomize_body_mass_inertia").uniform(
                 math.log(self._scale_lo) / 2.0,
                 math.log(self._scale_hi) / 2.0,
-                size=(env.num_envs, self._body_ids.size),
+                (env.num_envs, self._body_ids.size),
+                dtype=torch.float64,
             )
-            self._scales = np.exp(2.0 * alpha)
+            self._scales = torch.exp(2.0 * alpha).cpu().numpy()
         scales = self._scales[ids]
         default_mass = _selected_reset_defaults(
             self._default_mass,
@@ -1338,10 +1384,16 @@ class RandomizeRigidBodyCom(ManagerTermBase):
                 name="com_range",
                 keys=_XYZ_KEYS,
             )
-            offsets = env.rng.uniform(
-                ranges[:, 0],
-                ranges[:, 1],
-                size=(env.num_envs, 3),
+            offsets = (
+                _require_torch_rng(env, "randomize_rigid_body_com")
+                .uniform(
+                    torch.as_tensor(ranges[:, 0], dtype=torch.float64),
+                    torch.as_tensor(ranges[:, 1], dtype=torch.float64),
+                    (env.num_envs, 3),
+                    dtype=torch.float64,
+                )
+                .cpu()
+                .numpy()
             )
             default_ipos = _selected_reset_defaults(
                 self._default_ipos,
@@ -1426,10 +1478,16 @@ class RandomizeRigidBodyCom(ManagerTermBase):
             keys=_XYZ_KEYS,
         )
         ids = resolve_env_ids(env, env_ids)
-        offsets = env.rng.uniform(
-            ranges[:, 0],
-            ranges[:, 1],
-            size=(ids.size, 3),
+        offsets = (
+            _require_torch_rng(env, "randomize_rigid_body_com")
+            .uniform(
+                torch.as_tensor(ranges[:, 0], dtype=torch.float64),
+                torch.as_tensor(ranges[:, 1], dtype=torch.float64),
+                (ids.size, 3),
+                dtype=torch.float64,
+            )
+            .cpu()
+            .numpy()
         )
         default_ipos = _selected_reset_defaults(
             self._default_ipos,
@@ -1493,7 +1551,7 @@ class RandomizePhysicsSceneGravity(ManagerTermBase):
         del gravity_distribution_params, operation, distribution
         ids = resolve_env_ids(env, env_ids)
         samples = _sample_distribution(
-            env.rng,
+            _require_torch_rng(env, "randomize_gravity"),
             self._distribution_params,
             (ids.size, 3),
             self._distribution,
@@ -1614,14 +1672,11 @@ class PushBySettingVelocity(ManagerTermBase):
         size: tuple[int, ...],
         env: ManagerBasedRlEnv,
     ) -> np.ndarray:
-        rng_owner = getattr(env, "torch_rng", None)
-        generator = rng_owner.generator if isinstance(rng_owner, TorchManagerRng) else None
-        if generator is not None:
-            unit = torch.rand(size, generator=generator, device=generator.device)
-            scale = torch.as_tensor(upper - lower, dtype=unit.dtype, device=unit.device)
-            offset = torch.as_tensor(lower, dtype=unit.dtype, device=unit.device)
-            return (unit * scale + offset).cpu().numpy()
-        return env.rng.uniform(lower, upper, size=size)
+        rng = _require_torch_rng(env, "push_by_setting_velocity")
+        unit = torch.rand(size, generator=rng.generator, device=rng.device)
+        scale = torch.as_tensor(upper - lower, dtype=unit.dtype, device=unit.device)
+        offset = torch.as_tensor(lower, dtype=unit.dtype, device=unit.device)
+        return (unit * scale + offset).cpu().numpy()
 
 
 push_by_setting_velocity = PushBySettingVelocity
@@ -1759,19 +1814,16 @@ class ApplyBodyImpulse(ManagerTermBase):
         return self._host_uniform(self._cooldown_s[0], self._cooldown_s[1], count)
 
     def _host_uniform(self, lower: float, upper: float, count: int) -> np.ndarray:
-        rng_owner = getattr(self._env, "torch_rng", None)
-        generator = rng_owner.generator if isinstance(rng_owner, TorchManagerRng) else None
-        if generator is not None:
-            return (
-                (
-                    torch.rand((count,), generator=generator, device=generator.device)
-                    * float(upper - lower)
-                    + float(lower)
-                )
-                .cpu()
-                .numpy()
+        rng = _require_torch_rng(self._env, "apply_body_impulse")
+        return (
+            (
+                torch.rand((count,), generator=rng.generator, device=rng.device)
+                * float(upper - lower)
+                + float(lower)
             )
-        return self._env.rng.uniform(lower, upper, count)
+            .cpu()
+            .numpy()
+        )
 
     def __call__(
         self,
@@ -1937,20 +1989,16 @@ class RandomizeEncoderBias(ManagerTermBase):
         )
 
     def _host_uniform(self, size: tuple[int, ...], env: ManagerBasedRlEnv) -> np.ndarray:
-        rng_owner = getattr(env, "torch_rng", None)
-        generator = rng_owner.generator if isinstance(rng_owner, TorchManagerRng) else None
+        rng = _require_torch_rng(env, "randomize_encoder_bias")
         lower, upper = self._range
-        if generator is not None:
-            return (
-                (
-                    torch.rand(size, generator=generator, device=generator.device)
-                    * float(upper - lower)
-                    + float(lower)
-                )
-                .cpu()
-                .numpy()
+        return (
+            (
+                torch.rand(size, generator=rng.generator, device=rng.device) * float(upper - lower)
+                + float(lower)
             )
-        return env.rng.uniform(lower, upper, size=size)
+            .cpu()
+            .numpy()
+        )
 
 
 randomize_encoder_bias = RandomizeEncoderBias
@@ -1987,14 +2035,18 @@ def reset_root_state_uniform(
             f"unsupported without a formal backend contract: {exc}"
         ) from exc
 
-    pose_samples = _sample_se3_range(pose_range, (len(ids), 6), env.rng)
+    pose_samples = _sample_se3_range(
+        pose_range, (len(ids), 6), _require_torch_rng(env, "reset_root_state_uniform")
+    )
     root_states[:, 0:3] = root_states[:, 0:3] + pose_samples[:, 0:3] + env.scene.env_origins[ids]
     orientation_delta = np_quat_from_euler_xyz(
         pose_samples[:, 3], pose_samples[:, 4], pose_samples[:, 5]
     )
     root_states[:, 3:7] = np_quat_mul(root_states[:, 3:7], orientation_delta)
 
-    velocity_samples = _sample_se3_range(velocity_range, (len(ids), 6), env.rng)
+    velocity_samples = _sample_se3_range(
+        velocity_range, (len(ids), 6), _require_torch_rng(env, "reset_root_state_uniform")
+    )
     root_states[:, 7:13] = root_states[:, 7:13] + velocity_samples
     asset.write_root_state_to_sim(root_states, env_ids=ids)
 

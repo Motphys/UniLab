@@ -83,6 +83,8 @@ def _capture_env(
         SimpleNamespace(
             num_envs=3,
             rng=np.random.default_rng(seed),
+            device=torch.device("cpu"),
+            torch_rng=TorchManagerRng.seeded(seed),
             scene=_CaptureScene(entity, env_origins),
         ),
     )
@@ -138,6 +140,15 @@ def test_uniform_root_state_applies_pinned_pose_velocity_and_origin_semantics() 
         defaults[ids, 7:13] + [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
     )
     np.testing.assert_array_equal(defaults[:, :3], [[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+
+
+def test_generic_event_randomization_fails_closed_without_torch_rng() -> None:
+    env, _entity = _capture_env()
+    env.torch_rng = None
+    ids = np.asarray([0, 1], dtype=np.int32)
+
+    with pytest.raises(RuntimeError, match="Manager-owned Torch generator"):
+        mdp.reset_root_state_uniform(env, ids, {"x": (0.1, 0.2)})
 
 
 def test_uniform_root_state_uses_env_rng_and_preserves_single_env_shape() -> None:
@@ -410,6 +421,8 @@ def _transaction_env(
             device=torch.device("cpu"),
             torch_rng=TorchManagerRng.seeded(rng_seed),
             rng=np.random.default_rng(rng_seed),
+            device=torch.device("cpu"),
+            torch_rng=TorchManagerRng.seeded(rng_seed),
             scene=scene,
             step_dt=step_dt,
             backend=backend,
@@ -902,15 +915,15 @@ def test_min_step_count_gating_reuses_committed_field_values() -> None:
 
 def test_startup_mass_and_com_sample_once_and_persist_across_resets() -> None:
     env, backend, transaction = _transaction_env(rng_seed=61)
-    uniform_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
-    original_rng = env.rng
+    uniform_calls = 0
+    original_uniform = env.torch_rng.uniform
 
-    class _CountingRng:
-        def uniform(self, *args: Any, **kwargs: Any) -> np.ndarray:
-            uniform_calls.append((args, kwargs))
-            return original_rng.uniform(*args, **kwargs)
+    def counted_uniform(*args: Any, **kwargs: Any) -> torch.Tensor:
+        nonlocal uniform_calls
+        uniform_calls += 1
+        return original_uniform(*args, **kwargs)
 
-    env.rng = _CountingRng()
+    env.torch_rng.uniform = counted_uniform  # type: ignore[method-assign]
     asset_cfg = SceneEntityCfg("robot", body_names=("base",))
     manager = EventManager(
         {
@@ -948,9 +961,7 @@ def test_startup_mass_and_com_sample_once_and_persist_across_resets() -> None:
     assert startup.body_ipos is not None
     np.testing.assert_allclose(startup.body_mass, [[15.0]] * backend.num_envs)
     np.testing.assert_allclose(startup.body_ipos, [[[0.1, 0.0, -0.2]]] * backend.num_envs)
-    assert len(uniform_calls) == 2, "mass and COM must each sample exactly once"
-    assert uniform_calls[0][1]["size"] == (backend.num_envs, 1)
-    assert uniform_calls[1][1]["size"] == (backend.num_envs, 3)
+    assert uniform_calls == 2, "mass and COM must each sample exactly once"
 
     selected = torch.tensor([1, 2], dtype=torch.int64)
     with transaction.scoped(selected):
@@ -961,7 +972,7 @@ def test_startup_mass_and_com_sample_once_and_persist_across_resets() -> None:
     replay = backend.randomization_calls[-1]
     assert replay is None or replay.body_mass is None
     assert replay is None or replay.body_ipos is None
-    assert len(uniform_calls) == 2
+    assert uniform_calls == 2
 
 
 @pytest.mark.parametrize("mode", ["interval", "step"])
@@ -1404,6 +1415,8 @@ def _bias_env(num_envs: int = 3, num_joints: int = 4, seed: int = 7) -> ManagerB
             device=torch.device("cpu"),
             torch_rng=TorchManagerRng.seeded(seed),
             rng=np.random.default_rng(seed),
+            device=torch.device("cpu"),
+            torch_rng=TorchManagerRng.seeded(seed),
             scene=_BiasScene(_BiasEntity(num_envs, num_joints)),
         ),
     )
@@ -1627,6 +1640,8 @@ def _mass_inertia_env(
             device=torch.device("cpu"),
             torch_rng=TorchManagerRng.seeded(rng_seed),
             rng=np.random.default_rng(rng_seed),
+            device=torch.device("cpu"),
+            torch_rng=TorchManagerRng.seeded(rng_seed),
             scene=scene,
             step_dt=0.02,
         ),
