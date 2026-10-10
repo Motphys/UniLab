@@ -36,6 +36,7 @@ from unilab.managers.reset_owner import ResetOwner, ResetOwnerCfg
 from unilab.managers.reward_manager import RewardTermCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
 from unilab.managers.termination_manager import TerminationTermCfg
+from unilab.managers.torch_rng import TorchManagerRng
 from unilab.tasks.locomotion.common.manager_terms import SensorTermBase
 
 if TYPE_CHECKING:
@@ -365,24 +366,14 @@ def _resample_gait(
         return
 
     rng_owner = getattr(env, "torch_rng", None)
-    if rng_owner is not None:
-        left = rng_owner.uniform(0.0, 2.0 * np.pi, (count,), dtype=torch.float32)
-        if context.init_mode == "independent":
-            right = rng_owner.uniform(0.0, 2.0 * np.pi, (count,), dtype=torch.float32)
-        else:
-            right = left + torch.pi
-        samples = torch.stack((left, right), dim=1)
+    if not isinstance(rng_owner, TorchManagerRng):
+        raise RuntimeError("G1 gait phase reset requires the Manager-owned Torch generator")
+    left = rng_owner.uniform(0.0, 2.0 * np.pi, (count,), dtype=torch.float32)
+    if context.init_mode == "independent":
+        right = rng_owner.uniform(0.0, 2.0 * np.pi, (count,), dtype=torch.float32)
     else:
-        # CPU/HOST_BRIDGE reference owners may still expose the legacy NumPy
-        # stream; upload the explicitly sampled selected rows once.
-        host_left = env.rng.uniform(0.0, 2.0 * np.pi, size=(count,))
-        if context.init_mode == "independent":
-            host_right = env.rng.uniform(0.0, 2.0 * np.pi, size=(count,))
-        else:
-            host_right = host_left + np.pi
-        samples = torch.as_tensor(
-            np.column_stack((host_left, host_right)), dtype=torch.float32, device=device
-        )
+        right = left + torch.pi
+    samples = torch.stack((left, right), dim=1)
     context.phase.index_copy_(0, rows, samples.to(dtype=context.phase.dtype))
 
 
