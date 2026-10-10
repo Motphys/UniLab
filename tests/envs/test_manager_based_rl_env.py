@@ -422,6 +422,21 @@ class _ScenePlanBackend(_StateBackend):
             "qvel": torch.zeros((self.num_envs, 3), dtype=torch.float32, device=target),
         }
 
+    def bind_sensor_data(self, names):
+        from unisim.backend.base import BackendSensorView
+
+        sensor_names = tuple(names)
+        values = [self.sensors[name] for name in sensor_names]
+        return BackendSensorView(
+            self.backend_type,
+            sensor_names,
+            tuple(value.shape[1] for value in values),
+            self.num_envs,
+            lambda: torch.cat(
+                [value.reshape(self.num_envs, -1) for value in values], dim=1
+            ).numpy(),
+        )
+
     def get_body_ids(self, names) -> np.ndarray:
         available = ("base", "platform", "ball")
         return np.asarray([available.index(name) for name in names], dtype=np.int32)
