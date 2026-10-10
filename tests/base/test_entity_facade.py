@@ -656,6 +656,31 @@ def test_entity_joint_position_target_maps_natural_joint_order_to_control_order(
         )
 
 
+def test_entity_full_width_position_target_maps_natural_joint_order() -> None:
+    backend = _StrictBackendProfile("mujoco")
+    backend.num_actuators = 3
+    backend.actuator_names = ("hip_motor", "unused_motor", "ankle_motor")
+    backend.actuator_joint_names = ("hip", "unused", "ankle")
+    backend.joint_ids = {"hip": 2, "knee": 0, "ankle": 4, "unused": 1}
+    backend.get_actuator_ctrl_range = lambda: np.asarray([[-3.0, 3.0]] * 3, dtype=np.float32)
+    control = torch.zeros((backend.num_envs, backend.num_actuators), dtype=torch.float32)
+    scene = EntityScene(
+        {
+            "robot": EntityCfg(
+                joint_names=("ankle", "hip", "unused"),
+                actuator_names=backend.actuator_names,
+            )
+        },
+        cast(SimBackend, backend),
+        control,
+    )
+
+    target = torch.arange(1.0, 4.0, dtype=torch.float32).repeat(backend.num_envs, 1)
+    scene["robot"].set_full_width_joint_position_target(target)
+
+    torch.testing.assert_close(control, target[:, [1, 2, 0]])
+
+
 @pytest.mark.parametrize(
     ("actuator_joint_names", "joint_names", "message"),
     [

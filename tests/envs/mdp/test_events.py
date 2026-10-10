@@ -418,8 +418,6 @@ def _transaction_env(
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=backend.num_envs,
-            device=torch.device("cpu"),
-            torch_rng=TorchManagerRng.seeded(rng_seed),
             rng=np.random.default_rng(rng_seed),
             device=torch.device("cpu"),
             torch_rng=TorchManagerRng.seeded(rng_seed),
@@ -1414,9 +1412,6 @@ def _bias_env(num_envs: int = 3, num_joints: int = 4, seed: int = 7) -> ManagerB
             num_envs=num_envs,
             device=torch.device("cpu"),
             torch_rng=TorchManagerRng.seeded(seed),
-            rng=np.random.default_rng(seed),
-            device=torch.device("cpu"),
-            torch_rng=TorchManagerRng.seeded(seed),
             scene=_BiasScene(_BiasEntity(num_envs, num_joints)),
         ),
     )
@@ -1637,9 +1632,6 @@ def _mass_inertia_env(
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=backend.num_envs,
-            device=torch.device("cpu"),
-            torch_rng=TorchManagerRng.seeded(rng_seed),
-            rng=np.random.default_rng(rng_seed),
             device=torch.device("cpu"),
             torch_rng=TorchManagerRng.seeded(rng_seed),
             scene=scene,

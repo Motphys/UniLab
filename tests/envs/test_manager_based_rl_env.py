@@ -664,17 +664,19 @@ class _Command(CommandTerm):
 
     def __init__(self, cfg: _CommandCfg, env) -> None:
         super().__init__(cfg, env)
-        self._command = np.zeros((self.num_envs, 1), dtype=np.float32)
+        self._command = torch.zeros((self.num_envs, 1), dtype=torch.float32)
 
     @property
-    def command(self) -> np.ndarray:
+    def command(self) -> torch.Tensor:
         return self._command
 
     def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:
         return None
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
-        self._command[env_ids.cpu().numpy(), 0] = self._env.rng.uniform(size=env_ids.numel())
+        rng = self._env.torch_rng
+        assert rng is not None
+        self._command[env_ids, 0] = rng.uniform(0.0, 1.0, (env_ids.numel(),))
 
     def _update_command(self, env_ids: torch.Tensor | None) -> None:
         ids = None if env_ids is None else env_ids.clone()
@@ -772,10 +774,10 @@ class _AliasedSensorCommand(CommandTerm):
 
     def __init__(self, cfg: CommandTermCfg, env) -> None:
         super().__init__(cfg, env)
-        self._command = np.zeros((self.num_envs, 2), dtype=np.float32)
+        self._command = torch.zeros((self.num_envs, 2), dtype=torch.float32)
 
     @property
-    def command(self) -> np.ndarray:
+    def command(self) -> torch.Tensor:
         return self._command
 
     def _update_metrics(self, env_ids: torch.Tensor | None = None) -> None:
@@ -844,16 +846,17 @@ class _NamedSensorTensorObservation:
 
 
 def _policy_obs(env: _TestEnv) -> np.ndarray:
-    return np.column_stack(
+    return torch.stack(
         (
-            env.episode_length_buf.to(torch.float32).detach().cpu().numpy(),
-            env.action_manager.action[:, 0].detach().cpu().numpy(),
-        )
+            env.episode_length_buf.to(torch.float32),
+            env.action_manager.action[:, 0],
+        ),
+        dim=1,
     )
 
 
-def _critic_obs(env: _TestEnv) -> np.ndarray:
-    return env.episode_length_buf[:, None].to(torch.float32).detach().cpu().numpy()
+def _critic_obs(env: _TestEnv) -> torch.Tensor:
+    return env.episode_length_buf[:, None].to(torch.float32)
 
 
 def _tensor_runtime_policy_obs(env: _TestEnv) -> torch.Tensor:
@@ -892,7 +895,7 @@ def _reward(env: _TestEnv) -> np.ndarray:
 
 
 def _joint_state_obs(env: _TestEnv) -> np.ndarray:
-    return env.scene["robot"].data.joint_pos
+    return torch.as_tensor(env.scene["robot"].data.joint_pos, dtype=torch.float32)
 
 
 def _joint_state_reward(env: _TestEnv) -> torch.Tensor:
@@ -3202,6 +3205,20 @@ def test_get_playback_debug_overlays_frame_is_none_when_all_terms_return_none() 
 def test_manager_tensor_runtime_switch_is_removed() -> None:
     assert not hasattr(ManagerBasedRlEnvCfg(), "tensor_runtime")
     assert not hasattr(ManagerBasedRlEnvCfg(), "tensor_runtime_device")
+
+
+def test_manager_publication_rejects_numpy_results() -> None:
+    env = object.__new__(ManagerBasedRlEnv)
+    device = torch.device("cpu")
+    object.__setattr__(env, "_device", device)
+
+    with pytest.raises(TypeError, match="public results must be torch.Tensor"):
+        env._manager_tensor(np.ones((2, 1), dtype=np.float32), dtype=torch.float32)
+
+    values = torch.ones((2, 1), dtype=torch.float64)
+    published = env._manager_tensor(values, dtype=torch.float32)
+    assert published.dtype == torch.float32
+    assert published.data_ptr() != values.data_ptr()
 
 
 class _RecordingResetOwner(ResetOwner):

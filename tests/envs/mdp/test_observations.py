@@ -116,7 +116,7 @@ class _Backend:
 
 class _ActionManager:
     def __init__(self) -> None:
-        self.action = np.arange(6, dtype=np.float32).reshape(2, 3)
+        self.action = torch.arange(6, dtype=torch.float32).reshape(2, 3)
         self._terms = {
             "legs": SimpleNamespace(raw_action=self.action[:, [0, 2]]),
         }
@@ -127,9 +127,9 @@ class _ActionManager:
 
 class _CommandManager:
     def __init__(self) -> None:
-        self.command = np.asarray([[1.0, 0.0, 0.2], [0.5, -0.1, -0.2]], dtype=np.float32)
+        self.command = torch.tensor([[1.0, 0.0, 0.2], [0.5, -0.1, -0.2]])
 
-    def get_command(self, name: str) -> np.ndarray:
+    def get_command(self, name: str) -> torch.Tensor:
         if name != "twist":
             raise KeyError(name)
         return self.command
@@ -306,52 +306,38 @@ def test_cuda_manager_names_every_non_tensor_observation_term() -> None:
     env, _ = _env()
     cast(Any, env).device = torch.device("cuda", index=torch.cuda.current_device())
     cast(Any, env).torch_rng = TorchManagerRng.seeded(4, device=cast(Any, env).device)
-    manager = ObservationManager(
-        {
-            "policy": ObservationGroupCfg(
-                terms={
-                    "torch_sensor": ObservationTermCfg(
-                        func=_tensor_observation,
-                    ),
-                    "host_sensor": ObservationTermCfg(func=_host_observation),
-                    "another_host_sensor": ObservationTermCfg(func=_host_observation),
-                }
-            )
-        },
-        env,
-    )
-
-    with pytest.raises(TypeError) as error:
-        manager.compute_group("policy")
-
-    message = str(error.value)
-    assert "CUDA runtime device cuda" in message
-    assert "terms ['host_sensor', 'another_host_sensor'] returned NumPy observations" in message
-    assert "tensor-native" in message
+    with pytest.raises(TypeError, match="expected torch.Tensor"):
+        ObservationManager(
+            {
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "torch_sensor": ObservationTermCfg(
+                            func=_tensor_observation,
+                        ),
+                        "host_sensor": ObservationTermCfg(func=_host_observation),
+                        "another_host_sensor": ObservationTermCfg(func=_host_observation),
+                    }
+                )
+            },
+            env,
+        )
 
 
-def test_cpu_manager_remains_compatible_with_mixed_carrier_observations() -> None:
+def test_cpu_manager_rejects_numpy_observation_carriers() -> None:
     env, _ = _env()
     cast(Any, env).device = torch.device("cpu")
-    manager = ObservationManager(
-        {
-            "policy": ObservationGroupCfg(
-                terms={
-                    "torch_sensor": ObservationTermCfg(func=_tensor_observation),
-                    "host_sensor": ObservationTermCfg(func=_host_observation),
-                }
-            )
-        },
-        env,
-    )
-
-    result = manager.compute_group("policy")
-
-    assert isinstance(result, torch.Tensor)
-    np.testing.assert_allclose(
-        result.detach().cpu().numpy(),
-        [[0.1, 1.0], [-0.1, 2.0]],
-    )
+    with pytest.raises(TypeError, match="expected torch.Tensor"):
+        ObservationManager(
+            {
+                "policy": ObservationGroupCfg(
+                    terms={
+                        "torch_sensor": ObservationTermCfg(func=_tensor_observation),
+                        "host_sensor": ObservationTermCfg(func=_host_observation),
+                    }
+                )
+            },
+            env,
+        )
 
 
 @pytest.mark.parametrize(

@@ -104,7 +104,7 @@ class builtin_sensor(_NamedSensorObservation):
         env: ManagerBasedRlEnv,
         sensor_name: str,
         entity_name: str | None = None,
-    ) -> np.ndarray:
+    ) -> torch.Tensor:
         del entity_name
         self._validate_call_name(sensor_name)
         return self._read_tensor(env)
@@ -129,7 +129,7 @@ class projected_gravity_from_sensor(_NamedSensorObservation):
         env: ManagerBasedRlEnv,
         sensor_name: str,
         entity_name: str | None = None,
-    ) -> np.ndarray:
+    ) -> torch.Tensor:
         del entity_name
         self._validate_call_name(sensor_name)
         return -self._read_tensor(env)
@@ -138,25 +138,37 @@ class projected_gravity_from_sensor(_NamedSensorObservation):
 def base_lin_vel(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     asset = cast("Entity", env.scene[asset_cfg.name])
-    return asset.data.root_link_lin_vel_b
+    return torch.as_tensor(
+        asset.data.root_link_lin_vel_b,
+        dtype=torch.float32,
+        device=getattr(env, "device", torch.device("cpu")),
+    )
 
 
 def base_ang_vel(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     asset = cast("Entity", env.scene[asset_cfg.name])
-    return asset.data.root_link_ang_vel_b
+    return torch.as_tensor(
+        asset.data.root_link_ang_vel_b,
+        dtype=torch.float32,
+        device=getattr(env, "device", torch.device("cpu")),
+    )
 
 
 def projected_gravity(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray:
+) -> torch.Tensor:
     asset = cast("Entity", env.scene[asset_cfg.name])
-    return asset.data.projected_gravity_b
+    return torch.as_tensor(
+        asset.data.projected_gravity_b,
+        dtype=torch.float32,
+        device=getattr(env, "device", torch.device("cpu")),
+    )
 
 
 # Per-env constant IMU mounting-misalignment quaternions, keyed by env instance
@@ -231,8 +243,13 @@ class _ImuMisalignedObservation(ManagerTermBase):
                 f"{self._max_angle_deg}, received {max_angle_deg}"
             )
 
-    def _rotate(self, values: np.ndarray) -> np.ndarray:
-        return np_quat_apply_batched(self._quat, values)
+    def _rotate(self, values: np.ndarray | torch.Tensor) -> torch.Tensor:
+        result = np_quat_apply_batched(self._quat, values)
+        return torch.as_tensor(
+            result,
+            dtype=torch.float32,
+            device=getattr(self._env, "device", torch.device("cpu")),
+        )
 
 
 class base_ang_vel_imu_misaligned(_ImuMisalignedObservation):
@@ -245,7 +262,7 @@ class base_ang_vel_imu_misaligned(_ImuMisalignedObservation):
         env: ManagerBasedRlEnv,
         max_angle_deg: float = 1.0,
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-    ) -> np.ndarray:
+    ) -> torch.Tensor:
         self._validate_max_angle(max_angle_deg)
         asset = cast("Entity", env.scene[asset_cfg.name])
         return self._rotate(asset.data.root_link_ang_vel_b)
@@ -261,7 +278,7 @@ class projected_gravity_imu_misaligned(_ImuMisalignedObservation):
         env: ManagerBasedRlEnv,
         max_angle_deg: float = 1.0,
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-    ) -> np.ndarray:
+    ) -> torch.Tensor:
         self._validate_max_angle(max_angle_deg)
         asset = cast("Entity", env.scene[asset_cfg.name])
         return self._rotate(asset.data.projected_gravity_b)
@@ -271,41 +288,41 @@ def joint_pos_rel(
     env: ManagerBasedRlEnv,
     biased: bool = False,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray | torch.Tensor:
+) -> torch.Tensor:
     if not isinstance(biased, bool):
         raise TypeError(f"joint_pos_rel biased must be bool, got {type(biased).__name__}")
     asset = cast("Entity", env.scene[asset_cfg.name])
     joint_ids = asset_cfg.joint_ids
+    device = getattr(env, "device", torch.device("cpu"))
     read_plan = getattr(env.scene, "_tensor_read_plan", None)
     if read_plan is not None:
         state = read_plan.joint_tensor_view(asset)
         return (
-            state.joint_pos[:, joint_ids]
-            - asset.data.default_joint_pos_torch(env.device)[:, joint_ids]
+            state.joint_pos[:, joint_ids] - asset.data.default_joint_pos_torch(device)[:, joint_ids]
         )
     joint_pos = asset.data.joint_pos_biased if biased else asset.data.joint_pos
-    return joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
+    result = joint_pos[:, joint_ids] - asset.data.default_joint_pos[:, joint_ids]
+    return torch.as_tensor(result, dtype=torch.float32, device=device)
 
 
 def joint_vel_rel(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
-) -> np.ndarray | torch.Tensor:
+) -> torch.Tensor:
     asset = cast("Entity", env.scene[asset_cfg.name])
     joint_ids = asset_cfg.joint_ids
+    device = getattr(env, "device", torch.device("cpu"))
     read_plan = getattr(env.scene, "_tensor_read_plan", None)
     if read_plan is not None:
         state = read_plan.joint_tensor_view(asset)
         return (
-            state.joint_vel[:, joint_ids]
-            - asset.data.default_joint_vel_torch(env.device)[:, joint_ids]
+            state.joint_vel[:, joint_ids] - asset.data.default_joint_vel_torch(device)[:, joint_ids]
         )
-    return asset.data.joint_vel[:, joint_ids] - asset.data.default_joint_vel[:, joint_ids]
+    result = asset.data.joint_vel[:, joint_ids] - asset.data.default_joint_vel[:, joint_ids]
+    return torch.as_tensor(result, dtype=torch.float32, device=device)
 
 
-def last_action(
-    env: ManagerBasedRlEnv, action_name: str | None = None
-) -> np.ndarray | torch.Tensor:
+def last_action(env: ManagerBasedRlEnv, action_name: str | None = None) -> torch.Tensor:
     if action_name is None:
         return env.action_manager.action
     try:
@@ -315,7 +332,7 @@ def last_action(
     return action
 
 
-def generated_commands(env: ManagerBasedRlEnv, command_name: str) -> np.ndarray:
+def generated_commands(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     try:
         command = env.command_manager.get_command(command_name)
     except KeyError as exc:

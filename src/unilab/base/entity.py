@@ -1522,6 +1522,11 @@ class Entity:
             self._actuator_target_joint_names,
             self._joint_to_actuator_local,
         ) = self._materialize_joint_actuator_mapping(backend, actuator_ids)
+        self._full_width_control_index_host: np.ndarray | None = None
+        self._full_width_natural_index_host: np.ndarray | None = None
+        self._full_width_control_index_tensor: torch.Tensor | None = None
+        self._full_width_natural_index_tensor: torch.Tensor | None = None
+        self._full_width_index_device: torch.device | None = None
         if control_buffer is not None:
             expected_control_shape = (backend.num_envs, backend.num_actuators)
             if control_buffer.shape != expected_control_shape:
@@ -2526,19 +2531,59 @@ class Entity:
                 f"Entity '{self.name}' capability 'joint position target' is unavailable "
                 f"for passive joints on backend '{self._backend_type}': {passive_names}"
             )
-        control = self._require_tensor_control_buffer_public()
         if target.dtype != torch.float32:
             raise TypeError("full-width joint position target must be float32")
+        control = self._require_tensor_control_buffer_public()
         if target.device != control.device:
             raise ValueError(
                 f"full-width joint position target must live on {control.device}, got {target.device}"
             )
-        if tuple(target.shape) != tuple(control.shape):
+        if tuple(target.shape) != (control.shape[0], joint_count):
             raise ValueError(
                 f"full-width joint position target has shape {tuple(target.shape)}; "
-                f"expected {tuple(control.shape)}"
+                f"expected {(control.shape[0], joint_count)} in natural joint order"
             )
-        control.copy_(target)
+        if self._actuator_ids is None:
+            raise self._capability_error(
+                "actuator control write", "actuator_names were not declared in EntityCfg"
+            )
+        control_index, natural_index = self._full_width_control_indices(
+            control, joint_to_actuator, joint_count
+        )
+        control[:, control_index] = target.index_select(1, natural_index)
+
+    def _full_width_control_indices(
+        self,
+        control: torch.Tensor,
+        joint_to_actuator: np.ndarray,
+        joint_count: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        assert self._actuator_ids is not None
+        if self._full_width_control_index_host is None:
+            backend_to_natural = np.full(control.shape[1], -1, dtype=np.intp)
+            backend_to_natural[self._actuator_ids[joint_to_actuator]] = np.arange(
+                joint_count, dtype=np.intp
+            )
+            self._full_width_control_index_host = np.flatnonzero(backend_to_natural >= 0)
+            self._full_width_natural_index_host = backend_to_natural[
+                self._full_width_control_index_host
+            ]
+        if (
+            self._full_width_control_index_tensor is None
+            or self._full_width_natural_index_tensor is None
+            or self._full_width_index_device != control.device
+        ):
+            self._full_width_control_index_tensor = torch.from_numpy(
+                self._full_width_control_index_host
+            ).to(device=control.device)
+            self._full_width_natural_index_tensor = torch.from_numpy(
+                self._full_width_natural_index_host
+            ).to(device=control.device)
+            self._full_width_index_device = control.device
+        return (
+            self._full_width_control_index_tensor,
+            self._full_width_natural_index_tensor,
+        )
 
     def _require_tensor_control_buffer_public(self) -> torch.Tensor:
         control = self.data.control_buffer

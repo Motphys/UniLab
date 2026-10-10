@@ -53,7 +53,7 @@ class FakeEnv:
         self.obs = torch.arange(num_envs * 2, dtype=torch.float32).reshape(num_envs, 2)
         self.calls: list[tuple[str, np.ndarray | None]] = []
         self.obs_buf: dict[str, torch.Tensor] = {}
-        self.reset_buf = np.zeros(num_envs, dtype=np.bool_)
+        self.reset_buf = torch.zeros(num_envs, dtype=torch.bool)
         self.device = torch.device("cpu")
 
 

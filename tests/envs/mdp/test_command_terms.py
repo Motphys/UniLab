@@ -57,10 +57,9 @@ def test_uniform_pose_command_reads_curriculum_updates_without_changing_width() 
 def test_uniform_pose_command_fails_closed_without_torch_rng() -> None:
     env = _env()
     env.torch_rng = None
-    term = UniformPoseCommandCfg(
-        resampling_time_range=(1.0, 1.0),
-        ranges=((0.0, 1.0),),
-    ).build(env)
 
-    with pytest.raises(RuntimeError, match="Manager-owned Torch generator"):
-        term.reset(torch.tensor([0], dtype=torch.int64))
+    with pytest.raises(RuntimeError, match="CommandTerm scheduling"):
+        UniformPoseCommandCfg(
+            resampling_time_range=(1.0, 1.0),
+            ranges=((0.0, 1.0),),
+        ).build(env)

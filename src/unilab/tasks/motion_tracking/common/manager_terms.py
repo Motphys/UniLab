@@ -1347,11 +1347,6 @@ class MotionJointPositionAction(JointPositionAction):
         self._tensor_motion_target = torch.zeros_like(self._processed_actions)
 
     @property
-    def target(self) -> np.ndarray:
-        """Most recently applied physical joint target in entity joint order."""
-        return self._target
-
-    @property
     def tensor_target(self) -> torch.Tensor:
         """Most recently applied physical target for tensor control planes."""
         return self._tensor_motion_target

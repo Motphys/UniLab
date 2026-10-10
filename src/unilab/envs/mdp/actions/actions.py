@@ -222,7 +222,7 @@ class BaseAction(ActionTerm):
         selector = self._reset_selector(env_ids)
         self._raw_actions[selector] = 0.0
 
-    def _reset_selector(self, env_ids: torch.Tensor | np.ndarray | slice) -> torch.Tensor | slice:
+    def _reset_selector(self, env_ids: torch.Tensor | slice) -> torch.Tensor | slice:
         if isinstance(env_ids, slice):
             return env_ids
         if (
@@ -237,9 +237,9 @@ class BaseAction(ActionTerm):
             raise TypeError(f"{type(self).__name__} reset rows must be 1-D integers")
         return env_ids.to(self._device, torch.int64)
 
-    def _entity_values(self, values: torch.Tensor) -> np.ndarray:
-        """Publish processed controls to the temporary NumPy Entity write boundary."""
-        return values.detach().cpu().numpy()
+    def _entity_values(self, values: torch.Tensor) -> torch.Tensor:
+        """Publish processed controls on the public Torch control boundary."""
+        return values
 
 
 @dataclass(kw_only=True)
@@ -265,7 +265,6 @@ class JointPositionAction(BaseAction):
             self._offset = self._cold_affine(
                 self._entity.data.default_joint_pos[:, self._target_ids].copy()
             )
-        self._target = np.empty((self.num_envs, self.action_dim), dtype=np.float32)
         self._tensor_target = torch.empty_like(self._processed_actions)
         self._full_width_natural_target = self._target_ids.size == self._entity.num_joints and bool(
             np.array_equal(self._target_ids, np.arange(self._entity.num_joints, dtype=np.intp))
@@ -294,9 +293,10 @@ class JointPositionAction(BaseAction):
                 )
             return
         processed = self._entity_values(self._processed_actions)
-        encoder_bias = self._entity.data.encoder_bias[:, self._target_ids]
-        np.subtract(processed, encoder_bias, out=self._target)
-        self._entity.set_joint_position_target(self._target, joint_ids=self._target_ids)
+        encoder_bias = self._entity.data.encoder_bias_tensor.to(
+            device=self._device, non_blocking=True
+        ).index_select(1, self._target_index)
+        self._entity.set_joint_position_target(processed - encoder_bias, joint_ids=self._target_ids)
 
 
 @dataclass(kw_only=True)

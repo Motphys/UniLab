@@ -301,7 +301,7 @@ def test_observation_groups_pipeline_order_and_history(fake_env: FakeEnv) -> Non
                     history_length=2,
                 ),
                 "bias": ObservationTermCfg(
-                    func=lambda env: np.ones((env.num_envs, 1), dtype=np.float32)
+                    func=lambda env: torch.ones((env.num_envs, 1), dtype=torch.float32)
                 ),
             }
         ),
@@ -312,16 +312,16 @@ def test_observation_groups_pipeline_order_and_history(fake_env: FakeEnv) -> Non
     }
     manager = ObservationManager(cfg, fake_env)
     first = manager.compute(update_history=True)
-    expected_first = np.clip(fake_env.obs, -1, 4) * 2
-    np.testing.assert_array_equal(first["policy"][:, :4], np.tile(expected_first, (1, 2)))
+    expected_first = fake_env.obs.clamp(-1, 4) * 2
+    torch.testing.assert_close(first["policy"][:, :4], expected_first.repeat(1, 2))
     assert list(first["dict_group"]) == ["state"]
     assert manager.group_obs_dim["policy"] == (5,)
 
     fake_env.obs = fake_env.obs + 10
     second = manager.compute(update_history=True)["policy"]
-    expected_second = np.clip(fake_env.obs, -1, 4) * 2
-    np.testing.assert_array_equal(second[:, :2], expected_first)
-    np.testing.assert_array_equal(second[:, 2:4], expected_second)
+    expected_second = fake_env.obs.clamp(-1, 4) * 2
+    torch.testing.assert_close(second[:, :2], expected_first)
+    torch.testing.assert_close(second[:, 2:4], expected_second)
     assert manager.get_active_iterable_terms(0)[0][0] == "policy-state"
 
 
@@ -483,7 +483,7 @@ def test_concatenated_result_owns_each_result_and_protects_term_buffers(
                 terms={
                     "source": ObservationTermCfg(func=lambda env: env.obs),
                     "constant": ObservationTermCfg(
-                        func=lambda env: np.ones((env.num_envs, 1), dtype=np.float32)
+                        func=lambda env: torch.ones((env.num_envs, 1), dtype=torch.float32)
                     ),
                 }
             )
@@ -496,22 +496,22 @@ def test_concatenated_result_owns_each_result_and_protects_term_buffers(
     assert first.dtype == torch.float32
     first_address = first.data_ptr()
     expected_first = torch.cat((source.clone(), torch.ones((fake_env.num_envs, 1))), dim=1)
-    np.testing.assert_array_equal(first, expected_first)
+    torch.testing.assert_close(first, expected_first)
 
     fake_env.obs += 100.0
     second = manager.compute(update_history=True)["policy"]
     assert isinstance(second, torch.Tensor)
     assert second.data_ptr() != first_address
-    np.testing.assert_array_equal(first, expected_first)
-    np.testing.assert_array_equal(second[:, :2], fake_env.obs)
-    assert not np.shares_memory(second, fake_env.obs)
+    torch.testing.assert_close(first, expected_first)
+    torch.testing.assert_close(second[:, :2], fake_env.obs)
+    assert second.data_ptr() != fake_env.obs.data_ptr()
 
 
 def test_concatenated_nan_sanitize_does_not_mutate_term_owned_input(
     fake_env: FakeEnv,
 ) -> None:
     source = fake_env.obs.clone()
-    source[0, 0] = np.nan
+    source[0, 0] = torch.nan
     manager = ObservationManager(
         {
             "policy": ObservationGroupCfg(
@@ -526,13 +526,13 @@ def test_concatenated_nan_sanitize_does_not_mutate_term_owned_input(
     result = manager.compute(update_history=True)["policy"]
     assert isinstance(result, torch.Tensor)
     assert torch.isfinite(result).all()
-    assert np.isnan(source[0, 0])
+    assert bool(torch.isnan(source[0, 0]))
 
 
 def test_concatenated_nan_error_still_identifies_offending_term(fake_env: FakeEnv) -> None:
-    def invalid(env: FakeEnv) -> np.ndarray:
-        result = np.ones((env.num_envs, 1), dtype=np.float32)
-        result[2, 0] = np.nan
+    def invalid(env: FakeEnv) -> torch.Tensor:
+        result = torch.ones((env.num_envs, 1), dtype=torch.float32)
+        result[2, 0] = torch.nan
         return result
 
     manager = ObservationManager(
@@ -589,7 +589,7 @@ def test_observation_finite_error_keeps_kind_term_and_env_diagnostics(
     invalid_values: tuple[float, float],
     invalid_kind: str,
 ) -> None:
-    def invalid(env: FakeEnv) -> np.ndarray:
+    def invalid(env: FakeEnv) -> torch.Tensor:
         result = env.obs.clone()
         result[2] = torch.tensor(invalid_values, dtype=result.dtype)
         return result
@@ -606,9 +606,9 @@ def test_observation_finite_error_keeps_kind_term_and_env_diagnostics(
 def test_observation_finite_warn_sanitizes_and_disabled_preserves(
     fake_env: FakeEnv, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def invalid(env: FakeEnv) -> np.ndarray:
+    def invalid(env: FakeEnv) -> torch.Tensor:
         result = env.obs.clone()
-        result[1, 0] = np.nan
+        result[1, 0] = torch.nan
         return result
 
     warn = ObservationManager(
@@ -641,7 +641,9 @@ def test_observation_explicit_sanitize_and_shape_error(fake_env: FakeEnv) -> Non
         {
             "policy": ObservationGroupCfg(
                 terms={
-                    "bad": ObservationTermCfg(func=lambda env: np.full((env.num_envs, 1), np.nan))
+                    "bad": ObservationTermCfg(
+                        func=lambda env: torch.full((env.num_envs, 1), torch.nan)
+                    )
                 },
                 nan_policy="sanitize",
             )
@@ -654,7 +656,11 @@ def test_observation_explicit_sanitize_and_shape_error(fake_env: FakeEnv) -> Non
         ObservationManager(
             {
                 "policy": ObservationGroupCfg(
-                    terms={"bad": ObservationTermCfg(func=lambda env: np.zeros((2, 1)))}
+                    terms={
+                        "bad": ObservationTermCfg(
+                            func=lambda env: torch.zeros((2, 1), dtype=torch.float32)
+                        )
+                    }
                 )
             },
             fake_env,
@@ -669,7 +675,7 @@ def test_identical_terms_share_raw_compute_across_groups() -> None:
     """
     calls = {"n": 0}
 
-    def counting(env: FakeEnv, scale: float = 1.0) -> np.ndarray:
+    def counting(env: FakeEnv, scale: float = 1.0) -> torch.Tensor:
         calls["n"] += 1
         return env.obs * scale
 
@@ -709,7 +715,7 @@ def test_class_terms_are_never_shared_across_groups() -> None:
     """Class-based (possibly stateful) terms must keep per-group calls."""
 
     class StatefulTerm:
-        def __call__(self, env: FakeEnv) -> np.ndarray:
+        def __call__(self, env: FakeEnv) -> torch.Tensor:
             return env.obs.clone()
 
         def reset(self, env_ids: np.ndarray | None = None) -> None:
@@ -732,7 +738,7 @@ def test_list_param_terms_share_raw_compute_across_groups() -> None:
 
     def windowed(env: FakeEnv, future_steps: list[int]) -> np.ndarray:
         calls["n"] += 1
-        return np.tile(env.obs[:, :1], (1, len(future_steps)))
+        return env.obs[:, :1].repeat(1, len(future_steps))
 
     manager = ObservationManager(
         {
