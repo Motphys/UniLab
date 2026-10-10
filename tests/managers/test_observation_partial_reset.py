@@ -64,25 +64,25 @@ def test_partial_reset_row_scoped_noise() -> None:
     manager.compute(update_history=True)  # populate caches like a step would
 
     ids = torch.tensor([0, 2], dtype=torch.int64)
-    rng_state = env.rng.bit_generator.state
+    rng_state = env.torch_rng.get_state()
     rows = manager.compute(update_history=True, env_ids=ids)
-    rng_after_rows = env.rng.bit_generator.state
+    rng_after_rows = env.torch_rng.get_state()
 
-    env.rng.bit_generator.state = rng_state
+    env.torch_rng.set_state(rng_state)
     full = manager.compute(update_history=True)
-    rng_after_full = env.rng.bit_generator.state
+    rng_after_full = env.torch_rng.get_state()
 
     assert rows["policy"].shape == (len(ids), full["policy"].shape[1])
     # Issue #1349: reset-path noise is drawn for the reset rows only, so the
     # shared RNG stream is consumed strictly less than the full-batch draw.
-    assert rng_after_rows != rng_after_full
+    assert not torch.equal(rng_after_rows, rng_after_full)
     # The un-noised trailing term stays bit-identical to the full-batch compute.
     state_dim = env.obs.shape[1]
     np.testing.assert_array_equal(rows["policy"][:, state_dim:], full["policy"][ids][:, state_dim:])
     # Noised columns differ from the full-batch slice (row-scoped draws).
     assert not np.array_equal(rows["policy"][:, :state_dim], full["policy"][ids][:, :state_dim])
     # The same RNG state reproduces the same reset rows deterministically.
-    env.rng.bit_generator.state = rng_state
+    env.torch_rng.set_state(rng_state)
     rows_again = manager.compute(update_history=True, env_ids=ids)
     np.testing.assert_array_equal(rows["policy"], rows_again["policy"])
 

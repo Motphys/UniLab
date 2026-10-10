@@ -75,6 +75,22 @@ def test_tensor_runtime_switch_is_absent_from_source_and_owner_configs() -> None
     assert offenders == [], f"tensor-runtime switch references remain: {offenders}"
 
 
+def test_manager_noise_and_temporal_buffers_do_not_import_numpy() -> None:
+    source_root = _REPO_ROOT / "src" / "unilab" / "managers"
+    owner_paths = (
+        *sorted((source_root / "_buffers").glob("*.py")),
+        *sorted((source_root / "_noise").glob("*.py")),
+    )
+    violations = [
+        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        for path in owner_paths
+        for module in sorted(_imports(path))
+        if module == "numpy" or module.startswith("numpy.")
+    ]
+
+    assert violations == [], f"buffer/noise NumPy imports remain: {violations}"
+
+
 def test_flashsac_motion_owner_uses_generic_manager_runtime() -> None:
     registry.ensure_registries()
     assert "motrix" in registry._envs["G1MotionTracking"].env_factory_dict
