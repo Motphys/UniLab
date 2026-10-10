@@ -334,6 +334,27 @@ class MotionLoader:
         clip_indices = np.searchsorted(self.clip_offsets, frame_idx, side="right") - 1
         return np.asarray(clip_indices, dtype=np.int32)
 
+    def motion_features_torch(self, device: str | torch.device) -> torch.Tensor:
+        """Return the immutable motion feature table on the requested device.
+
+        NPZ parsing and validation remain inside this cold-path leaf. Runtime
+        consumers receive one contiguous float32 table with columns packed in
+        the documented motion-feature order rather than mutable NumPy arrays.
+        """
+        arrays = (
+            self.joint_pos,
+            self.joint_vel,
+            self.body_pos_w,
+            self.body_quat_w,
+            self.body_lin_vel_w,
+            self.body_ang_vel_w,
+        )
+        host = np.concatenate(
+            [np.asarray(value, dtype=np.float32).reshape(value.shape[0], -1) for value in arrays],
+            axis=1,
+        )
+        return torch.from_numpy(np.ascontiguousarray(host)).to(device=device)
+
     @property
     def has_joint_torque(self) -> bool:
         """Whether every clip provided joint torque references."""
