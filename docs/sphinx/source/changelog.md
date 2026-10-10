@@ -13,6 +13,167 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.3.4 (2026-10-10)
+
+### Breaking changes / 破坏性变更
+
+- The Manager-Based runtime is now tensor-only: `NpEnv` and `NpEnvState` were
+  removed, `TorchEnv` is the sole environment lifecycle base, and Manager state,
+  observations, rewards, terminations, commands, events, metrics, and recorder
+  carriers use Torch tensors. Hot-path step/reset inputs no longer accept
+  NumPy arrays or perform hidden host conversion
+  ([ADR-0011](https://github.com/Motphys/UniLab/blob/main/docs/sphinx/source/adr/ADR-0011-torch-only-manager-based-runtime.md),
+  [ADR-0012](https://github.com/Motphys/UniLab/blob/main/docs/sphinx/source/adr/ADR-0012-sole-tensor-manager-and-scoped-backends.md)).
+  Manager-Based 运行时改为 tensor-only：删除 `NpEnv` / `NpEnvState`，
+  `TorchEnv` 成为唯一环境生命周期基类；Manager 的状态、观测、奖励、终止、
+  command、event、metric 与 recorder carrier 均使用 Torch tensor。热路径
+  step/reset 不再接受 NumPy 输入，也不再做隐藏 host 转换（ADR-0011、
+  ADR-0012）。
+
+- Production training now enters through the sole Manager-Based factory and the
+  scoped tensor backend set. Retired task owners, the WarpSAC config tree, and
+  task-owned direct training environment classes were removed; fused task
+  components remain Manager-owned terms rather than alternate environments
+  ([#2071](https://github.com/Motphys/UniLab/pull/2071),
+  [#2072](https://github.com/Motphys/UniLab/pull/2072),
+  [ADR-0012](https://github.com/Motphys/UniLab/blob/main/docs/sphinx/source/adr/ADR-0012-sole-tensor-manager-and-scoped-backends.md)).
+  生产训练统一进入唯一的 Manager-Based factory 与 scoped tensor backend 集。
+  退役 task owner、WarpSAC 配置树和 task-owned direct environment class 均已
+  移除；融合任务组件保持为 Manager-owned term，而不是另一套环境类。
+
+- Required runtime dependencies moved to `unisim-core>=1.7.15`,
+  `unilab-rl==1.4.11`, and `mjbatch-uni~=0.2.5`; SAC uses the upstream SAC
+  learner naming (`algo_log_name=sac`)
+  ([#2071](https://github.com/Motphys/UniLab/pull/2071),
+  [#2074](https://github.com/Motphys/UniLab/pull/2074),
+  [#2112](https://github.com/Motphys/UniLab/pull/2112),
+  [#2115](https://github.com/Motphys/UniLab/pull/2115)).
+  必需运行时依赖升级为 `unisim-core>=1.7.15`、`unilab-rl==1.4.11`、
+  `mjbatch-uni~=0.2.5`；SAC 使用上游 SAC learner 命名
+  （`algo_log_name=sac`）。
+
+### Added / 新增
+
+- Added a Manager-owned selected-reset lifecycle: tensor reset rows, an owner
+  reset transaction, reset-row observation publication, device-resident reset
+  randomization negotiated through `device_reset_randomization`, and
+  startup-mode body mass/COM randomization with committed baseline promotion.
+  新增 Manager-owned selected-reset 生命周期：tensor reset row、owner reset
+  transaction、reset-row observation publication、通过
+  `device_reset_randomization` 协商的 device-resident reset DR，以及带已提交
+  baseline promotion 的 startup-mode body mass/COM DR。
+
+- Added scene-owned packed tensor reads for entity joint, body, and named
+  sensor state; Manager terms consume validated device views, stable aggregate
+  views, and backend-declared DEVICE_RESIDENT sensor inventories instead of
+  hardcoded backend tables. Missing required device sensors fail closed.
+  新增 scene-owned packed tensor read：覆盖 entity joint/body/named sensor
+  状态；Manager term 消费经过校验的 device view、稳定 aggregate view 与后端
+  声明的 DEVICE_RESIDENT sensor inventory，而不是硬编码后端表。缺失的必需
+  device sensor 会 fail closed。
+
+- Added Manager-owned Torch RNG and deterministic seed/reset behavior for
+  observation noise, commands, events, impulses, and selected reset. Device
+  noise, temporal/delay state, and scalar sensor observation carriers are
+  tensor-native.
+  新增 Manager-owned Torch RNG，覆盖观测噪声、command、event、impulse 与
+  selected reset 的 seed/reset 行为。噪声、temporal/delay 状态和标量 sensor
+  observation carrier 均为 tensor-native。
+
+- Added the CUDA MPS single-rank execution-sharing mode and the user-owned
+  `uni-cumps` CLI (`status`, `doctor`, `start`, `stop`, `env`). Training
+  requests sharing explicitly with `training.cuda_process_sharing=mps` and
+  validates a recorded daemon before construction; it never silently starts or
+  stops a host service
+  ([ADR-0013](https://github.com/Motphys/UniLab/blob/main/docs/sphinx/source/adr/ADR-0013-cuda-mps-single-rank-execution-sharing.md),
+  [ADR-0014](https://github.com/Motphys/UniLab/blob/main/docs/sphinx/source/adr/ADR-0014-cuda-mps-cli-lifecycle-owner.md),
+  [#2065](https://github.com/Motphys/UniLab/pull/2065),
+  [#2069](https://github.com/Motphys/UniLab/pull/2069),
+  [#2085](https://github.com/Motphys/UniLab/pull/2085)).
+  新增 CUDA MPS single-rank execution-sharing 模式与用户拥有的 `uni-cumps`
+  CLI（`status` / `doctor` / `start` / `stop` / `env`）。训练必须通过
+  `training.cuda_process_sharing=mps` 显式请求，并在构造前校验已记录 daemon；
+  训练进程不会隐式启动或停止 host 服务（ADR-0013、ADR-0014）。
+
+- Added tensor-runtime production soak tooling, replay-ingress diagnostics,
+  abnormal-shutdown evidence, schema/bounds consumption, tensor NaN guards, and
+  the production guide for the scoped G1 Motion Tracking / FlashSAC / MJWarp
+  path.
+  新增 tensor-runtime 生产 soak 工具、replay-ingress 诊断、异常退出证据、
+  schema/bounds 消费、tensor NaN guard，以及 scoped G1 Motion Tracking /
+  FlashSAC / MJWarp 路径的生产指南。
+
+- Added opt-in off-policy training resume (`algo.resume=true`), explicit
+  playback checkpoint selection, FlashSAC `policy_before_critic`, learner
+  whole-cycle CUDA Graph controls, and grouped terminal metrics with bounded
+  width tiers.
+  新增 opt-in off-policy 训练续训（`algo.resume=true`）、显式 playback
+  checkpoint 选择、FlashSAC `policy_before_critic`、learner whole-cycle CUDA
+  Graph 控制，以及带宽度分层的分组终端指标。
+
+- Added generic motion-tracking capabilities retained for downstream task
+  packages: universal combo rewards, optional motion NPZ torque fields, tensor
+  motion sampler/carriers, initialized physical action targets with public
+  `tensor_target`, Gaussian-noise clamp, recursive hashable keys for shared
+  cross-group observation terms, and MJWarp `set_state_tensor` benchmark
+  timings/profile syntax.
+  新增供下游任务包复用的 generic motion-tracking 能力：universal combo
+  reward、可选 motion NPZ torque 字段、tensor motion sampler/carrier、确定性
+  初始化且公开 `tensor_target` 的物理 action target、Gaussian noise clamp、
+  跨组共享 observation term 的递归 hashable key，以及 MJWarp
+  `set_state_tensor` benchmark timing/profile 语法。
+
+### Changed / 变更
+
+- Reduced Manager host boundaries through packed reads, stable device views,
+  fused action/reward/termination/observation/reset kernels, device-side
+  samplers and RNG, cached tensor bounds, delayed reward host publication, and
+  phase-level update-state/reset timing attribution.
+  通过 packed read、稳定 device view、融合 action/reward/termination/
+  observation/reset kernel、device-side sampler 与 RNG、缓存 tensor bounds、
+  延迟 reward host publication，以及 update-state/reset 的阶段级 timing
+  attribution，减少 Manager host boundary。
+
+- MuJoCo remains the canonical HOST_BRIDGE backend. Its default Manager carrier
+  stays on CPU even when a learner resolves to CUDA; an indexed CUDA collector
+  carrier remains an explicit `training.collector_tensor_device=cuda` request.
+  MuJoCo 仍是 canonical HOST_BRIDGE backend。即使 learner 解析到 CUDA，其默认
+  Manager carrier 也保持 CPU；indexed CUDA collector carrier 必须显式设置
+  `training.collector_tensor_device=cuda`。
+
+- Removed the repository-wide uv version pin and kept lockfile reproducibility;
+  CI and Docker use the standard uv installation path.
+  移除仓库级 uv 版本限制；依赖可复现性仍由 lockfile 提供，CI 与 Docker 使用
+  标准 uv 安装路径。
+
+### Fixed / 修复
+
+- Moved MimicLite/FlashMimic task ownership downstream: UniLab no longer ships
+  the three `mjwarp_mimiclite*` owners, task torque-sensor scene, future-window
+  observation module, or MimicLite applied-torque term. Generic tensor runtime
+  capabilities remain upstream
+  ([#2119](https://github.com/Motphys/UniLab/issues/2119),
+  [#2120](https://github.com/Motphys/UniLab/pull/2120)).
+  MimicLite/FlashMimic 任务所有权迁至下游：UniLab 不再内置三个
+  `mjwarp_mimiclite*` owner、任务 torque-sensor 场景、future-window observation
+  module 或 MimicLite applied-torque term；generic tensor runtime 能力保留在上游。
+
+- Fixed frozen full-refresh motion references, partial tensor-command probing,
+  stale device-resident joint reward state, selected-reset readiness boundaries,
+  initial episode counter staggering, reset-row observation scale slicing, and
+  device sensor fallback behavior.
+  修复 full refresh 中 motion reference 冻结、partial tensor-command probing、
+  joint reward 使用 stale device-resident state、selected-reset readiness
+  boundary、初始 episode counter 交错、reset-row observation scale 切片，以及
+  device sensor fallback 行为。
+
+- Fixed host-bridge Manager Torch device handling, explicit device validation,
+  APPO/MJWarp test stability, ONNX export device examples, IsaacSim mapped
+  owner cold/dtype/readiness contracts, and Motrix owner restoration.
+  修复 host-bridge Manager Torch device 处理、显式设备校验、APPO/MJWarp 测试
+  稳定性、ONNX export device 示例、IsaacSim mapped owner 的 cold/dtype/
+  readiness 契约，以及 Motrix owner 恢复。
+
 ## 1.3.3 (2026-09-27)
 
 ### Changed / 变更
