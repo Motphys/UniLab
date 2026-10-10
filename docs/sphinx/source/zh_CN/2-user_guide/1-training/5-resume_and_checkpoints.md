@@ -20,7 +20,7 @@ off-policy 算法（SAC/FlashSAC/WarpSAC）的续训是显式开启的，以避�
 
 ```bash
 uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp \
-  --profile mimiclite_dr \
+  --profile <owner-profile> \
   algo.resume=true \
   algo.load_run=2026-10-05_14-28-04_mjwarp \
   training.no_play=true

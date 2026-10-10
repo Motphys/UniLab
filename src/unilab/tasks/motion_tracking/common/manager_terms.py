@@ -5,8 +5,6 @@ from __future__ import annotations
 import dataclasses
 import math
 import time
-import warnings
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
@@ -440,10 +438,6 @@ if TYPE_CHECKING:
 SamplingMode = Literal["start", "clip_start", "uniform", "adaptive", "mixed"]
 _RANGE_KEYS = ("x", "y", "z", "roll", "pitch", "yaw")
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
-_TORQUE_SENSOR_SUFFIX = "_torque"
-# Per-body observation motion layout: pos_w | quat_w | lin_vel_w | ang_vel_w.
-_OBS_MOTION_BLOCK_WIDTHS = (3, 4, 3, 3)
-_OBS_MOTION_WIDTH_PER_BODY = sum(_OBS_MOTION_BLOCK_WIDTHS)
 
 
 def _range_matrix(value: dict[str, tuple[float, float]], *, name: str) -> np.ndarray:
@@ -492,14 +486,6 @@ def _validate_motion_command_cfg(cfg: MotionCommandCfg) -> None:
         raise ValueError("MotionCommandCfg sampling_start_ratio must be within [0, 1]")
     if not isinstance(cfg.params.truncate_on_clip_end, bool):
         raise TypeError("MotionCommandCfg truncate_on_clip_end must be bool")
-    obs_body_names = cfg.params.obs_body_names
-    if obs_body_names is not None:
-        obs_names = tuple(obs_body_names)
-        if not obs_names or len(set(obs_names)) != len(obs_names):
-            raise ValueError("MotionCommandCfg obs_body_names must be non-empty and unique")
-        obs_root = cfg.params.obs_root_body_name or obs_names[0]
-        if obs_root not in obs_names:
-            raise ValueError("MotionCommandCfg obs_root_body_name must occur in obs_body_names")
 
 
 @dataclass
@@ -520,25 +506,6 @@ class MotionCommandParamsCfg:
     adaptive_kernel_size: int = 1
     adaptive_uniform_ratio: float = 0.1
     adaptive_alpha: float = 0.001
-    # Optional mimic-lite observation body set. It selects a body-sliced view
-    # of the same motion data while the reward-facing body contract is fixed.
-    obs_body_names: tuple[str, ...] | list[str] | None = None
-    obs_root_body_name: str | None = None
-    # MimicLite observation placement is intentionally excluded from legacy
-    # canonical fingerprints; owners must validate it separately.
-    _semantic_fingerprint_excludes = frozenset({"obs_body_names", "obs_root_body_name"})
-
-
-@dataclass(frozen=True)
-class TensorMotionObsFuture:
-    """Device-resident future reference gather over the observation bodies."""
-
-    future_steps: tuple[int, ...]
-    ref_joint_pos: torch.Tensor
-    ref_body_pos_w: torch.Tensor
-    ref_body_quat_w: torch.Tensor
-    ref_body_lin_vel_w: torch.Tensor
-    ref_body_ang_vel_w: torch.Tensor
 
 
 @dataclass(kw_only=True)
@@ -580,8 +547,6 @@ class MotionCommand(CommandTerm):
     """Motion reference command on UniLab's NumPy/entity runtime."""
 
     cfg: MotionCommandCfg
-    obs_motion: MotionLoader | None
-    _obs_terms_aux_memo: dict[Any, Any]
 
     def __init__(self, cfg: MotionCommandCfg, env: ManagerBasedRlEnv):
         _validate_motion_command_cfg(cfg)
@@ -594,24 +559,6 @@ class MotionCommand(CommandTerm):
             )
         self._robot_body_ids = np.asarray(body_ids, dtype=np.intp)
         self._robot_body_ids.setflags(write=False)
-        obs_names = tuple(cfg.params.obs_body_names or ())
-        self.obs_body_names = obs_names
-        if obs_names:
-            obs_ids, matched_obs_names = self.robot.find_bodies(obs_names, preserve_order=True)
-            if tuple(matched_obs_names) != obs_names:
-                raise ValueError(
-                    f"MotionCommand obs body order {tuple(matched_obs_names)} does not match "
-                    f"{obs_names}"
-                )
-            self._obs_robot_body_ids = np.asarray(obs_ids, dtype=np.intp)
-            self._obs_robot_body_ids.setflags(write=False)
-        else:
-            self._obs_robot_body_ids = None
-        self.obs_root_body_idx = (
-            0 if not obs_names else obs_names.index(cfg.params.obs_root_body_name or obs_names[0])
-        )
-        self.obs_motion = None
-        self._obs_terms_aux_memo = {}
         self._copy_robot_body_state = self.robot.bind_body_state_copy(self._robot_body_ids)
         motion_body_ids = self.robot.motion_body_ids[self._robot_body_ids]
         self.motion = self._make_motion_loader(cfg.motion_file, motion_body_ids)
@@ -736,27 +683,6 @@ class MotionCommand(CommandTerm):
 
     def _prepare_tensor_carrier(self) -> None:
         """Hook for subclasses to replace cold carrier buffers before probing."""
-
-    def memoize_aux(
-        self, future: TensorMotionObsFuture, key: str, compute: Callable[[], Any]
-    ) -> Any:
-        """Cache one future-scoped auxiliary observation value per future object.
-
-        Entries are keyed by future identity and rebound when the future is
-        refreshed; the memo is replaced once it holds eight distinct futures.
-        """
-        memo = getattr(self, "_obs_terms_aux_memo", None)
-        if memo is None or len(memo) >= 8:
-            memo = {}
-            self._obs_terms_aux_memo = memo
-        entry = memo.get(id(future))
-        if entry is None or entry[0] is not future:
-            entry = (future, {})
-            memo[id(future)] = entry
-        values: dict[str, Any] = entry[1]
-        if key not in values:
-            values[key] = compute()
-        return values[key]
 
     def _make_motion_loader(
         self,
@@ -1103,8 +1029,6 @@ class TensorMotionCommand(MotionCommand):
         self._last_reset_payload_validated = False
         num_bodies = len(self.cfg.body_names)
         num_joints = self.motion.num_joints
-        obs_body_names = self._resolve_obs_body_names()
-        num_obs_bodies = len(obs_body_names)
         self.time_steps = torch.as_tensor(
             np.array(self.sampler.current_frames, dtype=np.int32, copy=True), device=device
         )
@@ -1119,27 +1043,6 @@ class TensorMotionCommand(MotionCommand):
         self._clip_end_frames_torch = torch.as_tensor(
             self.motion.clip_end_frames, dtype=torch.int64, device=device
         )
-        if obs_body_names:
-            obs_body_ids = self._obs_robot_body_ids
-            assert obs_body_ids is not None
-            obs_motion_body_ids = self.robot.motion_body_ids[obs_body_ids]
-            self.obs_motion = self._make_motion_loader(self.cfg.motion_file, obs_motion_body_ids)
-            if (
-                self.obs_motion.fps != self.motion.fps
-                or self.obs_motion.num_frames != self.motion.num_frames
-                or self.obs_motion.num_joints != self.motion.num_joints
-                or self.obs_motion.num_bodies != num_obs_bodies
-            ):
-                raise ValueError(
-                    "TensorMotionCommand observation motion view is inconsistent with "
-                    "the reward motion view"
-                )
-            self._obs_motion_features = self._make_obs_motion_features(self.obs_motion, device)
-        else:
-            self.obs_motion = None
-            self._obs_motion_features = torch.empty(
-                (self.motion.num_frames, 0), dtype=torch.float32, device=device
-            )
         self._motion_data = MotionData(
             joint_pos=cast("np.ndarray", torch.empty((self.num_envs, num_joints), device=device)),
             joint_vel=cast("np.ndarray", torch.empty((self.num_envs, num_joints), device=device)),
@@ -1171,14 +1074,6 @@ class TensorMotionCommand(MotionCommand):
         self._robot_body_quat_w = torch.empty((self.num_envs, num_bodies, 4), device=device)
         self._robot_body_lin_vel_w = torch.empty_like(self._body_pos_w)
         self._robot_body_ang_vel_w = torch.empty_like(self._body_pos_w)
-        self._obs_robot_body_pos_w = torch.empty(
-            (self.num_envs, num_obs_bodies, 3), dtype=torch.float32, device=device
-        )
-        self._obs_robot_body_quat_w = torch.empty(
-            (self.num_envs, num_obs_bodies, 4), dtype=torch.float32, device=device
-        )
-        self._obs_robot_body_lin_vel_w = torch.empty_like(self._obs_robot_body_pos_w)
-        self._obs_robot_body_ang_vel_w = torch.empty_like(self._obs_robot_body_pos_w)
         self._robot_joint_pos = torch.empty(
             (self.num_envs, num_joints), dtype=torch.float32, device=device
         )
@@ -1229,39 +1124,7 @@ class TensorMotionCommand(MotionCommand):
         )
         for name in self.metrics:
             self.metrics[name] = torch.zeros(self.num_envs, dtype=torch.float32, device=device)
-        self._obs_future_cache_step = -1
-        self._obs_future_cache: dict[tuple[int, ...], TensorMotionObsFuture] = {}
         self._refresh_motion()
-
-    def _resolve_obs_body_names(self) -> tuple[str, ...]:
-        value = self.cfg.params.obs_body_names
-        return () if value is None else tuple(value)
-
-    @staticmethod
-    def _make_obs_motion_features(motion: MotionLoader, device: torch.device) -> torch.Tensor:
-        """Cache the observation body-sliced motion table on the device."""
-        blocks = (
-            motion.body_pos_w,
-            motion.body_quat_w,
-            motion.body_lin_vel_w,
-            motion.body_ang_vel_w,
-        )
-        widths = tuple(int(np.asarray(value).shape[-1]) for value in blocks)
-        if widths != _OBS_MOTION_BLOCK_WIDTHS:
-            raise ValueError(
-                "Observation motion feature blocks must follow the per-body "
-                f"pos/quat/lin_vel/ang_vel layout {_OBS_MOTION_BLOCK_WIDTHS}, got {widths}"
-            )
-        # Interleave each body's state blocks so a row reshapes directly to
-        # ``(bodies, pos_w | quat_w | lin_vel_w | ang_vel_w)`` in obs_future.
-        host = np.concatenate(
-            [
-                np.asarray(value, dtype=np.float32).reshape(value.shape[0], motion.num_bodies, -1)
-                for value in blocks
-            ],
-            axis=2,
-        ).reshape(motion.num_frames, -1)
-        return torch.from_numpy(np.ascontiguousarray(host)).to(device=device)
 
     def _make_motion_features(self, device: torch.device) -> torch.Tensor:
         """Cache the complete motion dataset as one device-resident table."""
@@ -1290,54 +1153,6 @@ class TensorMotionCommand(MotionCommand):
             rows = rows.to(device=self._device, dtype=torch.int64)
         return self._motion_features.index_select(0, rows)
 
-    def obs_future(self, future_steps: Iterable[int]) -> TensorMotionObsFuture:
-        """Gather future motion rows over the configured observation bodies."""
-        if not self.obs_body_names:
-            raise ValueError("MotionCommand observation bodies are not configured")
-        steps = tuple(int(step) for step in future_steps)
-        if not steps:
-            raise ValueError("obs_future requires at least one future step")
-        step_counter = self._env.common_step_counter
-        if self._obs_future_cache_step != step_counter:
-            self._obs_future_cache.clear()
-            self._obs_future_cache_step = step_counter
-        cached = self._obs_future_cache.get(steps)
-        if cached is not None:
-            return cached
-
-        frames = cast(torch.Tensor, self.time_steps).to(dtype=torch.int64)
-        offsets = self._clip_offsets_torch.index_select(0, self._frame_clip_indices(frames))
-        ends = self.current_clip_end_frames.to(dtype=torch.int64)
-        shifted = frames[:, None] + torch.as_tensor(steps, dtype=torch.int64, device=self._device)
-        shifted = torch.maximum(torch.minimum(shifted, ends[:, None]), offsets[:, None])
-        rows = shifted.reshape(-1)
-        packets = self._obs_motion_features.index_select(0, rows).view(
-            self.num_envs, len(steps), *self._obs_motion_features.shape[1:]
-        )
-        width_pos = _OBS_MOTION_BLOCK_WIDTHS[0]
-        width_quat_end = width_pos + _OBS_MOTION_BLOCK_WIDTHS[1]
-        width_lin_vel_end = width_quat_end + _OBS_MOTION_BLOCK_WIDTHS[2]
-        body_packets = packets.view(
-            self.num_envs, len(steps), len(self.obs_body_names), _OBS_MOTION_WIDTH_PER_BODY
-        )
-        result = TensorMotionObsFuture(
-            future_steps=steps,
-            ref_joint_pos=self._motion_features[:, : self.motion.num_joints]
-            .index_select(0, rows)
-            .view(self.num_envs, len(steps), self.motion.num_joints),
-            ref_body_pos_w=body_packets[..., :width_pos] + self._env_origins[:, None, None, :],
-            ref_body_quat_w=body_packets[..., width_pos:width_quat_end],
-            ref_body_lin_vel_w=body_packets[..., width_quat_end:width_lin_vel_end],
-            ref_body_ang_vel_w=body_packets[..., width_lin_vel_end:],
-        )
-        self._obs_future_cache[steps] = result
-        return result
-
-    def _frame_clip_indices(self, frames: torch.Tensor) -> torch.Tensor:
-        """Map device frame indices to clip rows without a host transfer."""
-        positions = torch.searchsorted(self._clip_offsets_torch[1:], frames, right=True)
-        return positions.clamp_(min=0, max=self.motion.num_clips - 1)
-
     def _defer_read_phase_binding(self) -> None:
         """Torch carriers were allocated eagerly; defer state-view binding."""
 
@@ -1361,7 +1176,7 @@ class TensorMotionCommand(MotionCommand):
 
     @property
     def tensor_body_names(self) -> tuple[str, ...]:
-        return tuple(dict.fromkeys((*self.cfg.body_names, *self.obs_body_names)))
+        return tuple(self.cfg.body_names)
 
     @property
     def tensor_current_clip_end_frames(self) -> torch.Tensor:
@@ -1380,34 +1195,6 @@ class TensorMotionCommand(MotionCommand):
         if read_plan is not None and read_plan.ready:
             self._robot_joint_vel = read_plan.joint_tensor_view(self.robot).joint_vel
         return self._robot_joint_vel
-
-    @property
-    def obs_robot_body_pos_w(self) -> torch.Tensor:
-        self._refresh_robot_state()
-        return self._obs_robot_body_pos_w
-
-    @property
-    def obs_robot_body_quat_w(self) -> torch.Tensor:
-        self._refresh_robot_state()
-        return self._obs_robot_body_quat_w
-
-    @property
-    def obs_robot_body_lin_vel_w(self) -> torch.Tensor:
-        self._refresh_robot_state()
-        return self._obs_robot_body_lin_vel_w
-
-    @property
-    def obs_robot_body_ang_vel_w(self) -> torch.Tensor:
-        self._refresh_robot_state()
-        return self._obs_robot_body_ang_vel_w
-
-    @property
-    def obs_robot_root_pos_w(self) -> torch.Tensor:
-        return self.obs_robot_body_pos_w[:, self.obs_root_body_idx]
-
-    @property
-    def obs_robot_root_quat_w(self) -> torch.Tensor:
-        return self.obs_robot_body_quat_w[:, self.obs_root_body_idx]
 
     def reset(
         self,
@@ -1632,11 +1419,6 @@ class TensorMotionCommand(MotionCommand):
                 return
             raise RuntimeError("TensorMotionCommand requires a refreshed scene tensor read phase")
         view = read_plan.body_tensor_view(self.robot, self.cfg.body_names)
-        obs_view = (
-            read_plan.body_tensor_view(self.robot, self.obs_body_names)
-            if self.obs_body_names
-            else None
-        )
         view_ms = (time.perf_counter() - view_started) * 1000.0
         robot_started = time.perf_counter()
         _bind_compiled_motion_post_compute()(
@@ -1660,12 +1442,6 @@ class TensorMotionCommand(MotionCommand):
             self.robot_body_pos_b,
             self.robot_body_ori_b,
         )
-        if obs_view is not None:
-            obs_target = slice(None) if rows is None else rows
-            self._obs_robot_body_pos_w[obs_target] = obs_view.pos_w[obs_target]
-            self._obs_robot_body_quat_w[obs_target] = obs_view.quat_w[obs_target]
-            self._obs_robot_body_lin_vel_w[obs_target] = obs_view.lin_vel_w[obs_target]
-            self._obs_robot_body_ang_vel_w[obs_target] = obs_view.ang_vel_w[obs_target]
         kernel_ms = (time.perf_counter() - robot_started) * 1000.0
         rebind_started = time.perf_counter()
         joint_view = read_plan.joint_tensor_view(self.robot)
@@ -1719,8 +1495,6 @@ class TensorMotionCommand(MotionCommand):
         self._ingest_motion_packet(
             self._tensor_all_rows if rows is None else rows, self._motion_packet(frames)
         )
-        self._obs_future_cache_step = -1
-        self.__dict__.get("_obs_future_cache", {}).clear()
 
     def _refresh_robot_state_torch(
         self, *, force: bool = False, rows: torch.Tensor | None = None
@@ -1750,12 +1524,6 @@ class TensorMotionCommand(MotionCommand):
             self._robot_body_lin_vel_w,
             self._robot_body_ang_vel_w,
         )
-        if self.obs_body_names:
-            obs_view = read_plan.body_tensor_view(self.robot, self.obs_body_names)
-            self._obs_robot_body_pos_w[row_selector] = obs_view.pos_w[row_selector]
-            self._obs_robot_body_quat_w[row_selector] = obs_view.quat_w[row_selector]
-            self._obs_robot_body_lin_vel_w[row_selector] = obs_view.lin_vel_w[row_selector]
-            self._obs_robot_body_ang_vel_w[row_selector] = obs_view.ang_vel_w[row_selector]
         joint_view = read_plan.joint_tensor_view(self.robot)
         self._robot_joint_pos = joint_view.joint_pos
         self._robot_joint_vel = joint_view.joint_vel
@@ -1780,18 +1548,6 @@ class TensorMotionCommand(MotionCommand):
         )
         self._robot_joint_pos.copy_(default_joint_pos.expand(self.num_envs, -1))
         self._robot_joint_vel.zero_()
-        if self.obs_body_names:
-            default_root = self.robot.data.default_root_state
-            if default_root is None:
-                self._obs_robot_body_pos_w.zero_()
-                self._obs_robot_body_quat_w.zero_()
-                self._obs_robot_body_quat_w[..., 0] = 1.0
-            else:
-                root = torch.as_tensor(np.array(default_root, copy=True), device=self._device)
-                self._obs_robot_body_pos_w.copy_(root[:, None, 0:3])
-                self._obs_robot_body_quat_w.copy_(root[:, None, 3:7])
-            self._obs_robot_body_lin_vel_w.zero_()
-            self._obs_robot_body_ang_vel_w.zero_()
         self._robot_cache_step = self._env.common_step_counter
 
     def _motion_feature_tail_shapes(self) -> dict[str, tuple[int, ...]]:
@@ -1829,11 +1585,6 @@ class TensorMotionCommand(MotionCommand):
         origins: torch.Tensor | None = None,
     ) -> None:
         """Scatter one device motion packet into the command carriers."""
-        # Selected reset can ingest newly sampled motion packets within the
-        # same common-step counter. Explicitly invalidate the future cache;
-        # otherwise reset observations reuse the pre-reset references.
-        self._obs_future_cache_step = -1
-        self._obs_future_cache.clear()
         count = rows.numel()
         selected_origins = (
             self._env_origins if count == self.num_envs else self._env_origins.index_select(0, rows)
@@ -1944,7 +1695,7 @@ class MotionJointPositionAction(JointPositionAction):
         super().__init__(cfg, env)
         self._motion_command = _command(env, cfg.command_name)
         self._previous_raw_actions = torch.zeros_like(self._raw_actions)
-        # MimicLite critic observations can read this target before the first
+        # Tensor observation consumers can read this target before the first
         # action application. Initialize deterministically rather than exposing
         # uninitialized device memory in initial/reset observations.
         self._tensor_motion_target = torch.zeros_like(self._processed_actions)
@@ -2482,65 +2233,6 @@ class undesired_body_contacts(_BodyTerm):
         return np.sum(command.robot_body_pos_w[:, self._body_ids, 2] < threshold, axis=-1)
 
 
-@dataclass(kw_only=True)
-class MimicLiteAppliedTorqueObservationCfg(ObservationTermCfg):
-    """Applied actuator torque read from the public packed sensor phase."""
-
-    command_name: str = "motion"
-
-
-class MimicLiteAppliedTorqueObservation(ManagerTermBase):
-    cfg: MimicLiteAppliedTorqueObservationCfg
-
-    def __init__(self, cfg: MimicLiteAppliedTorqueObservationCfg, env: ManagerBasedRlEnv):
-        super().__init__(env)
-        if not isinstance(cfg, MimicLiteAppliedTorqueObservationCfg):
-            raise TypeError("MimicLite torque observation has an incompatible config")
-        command = _command(env, cfg.command_name)
-        self._entity_name = command.cfg.entity_name
-        self._sensor_names = tuple(
-            f"{name}{_TORQUE_SENSOR_SUFFIX}" for name in command.robot.joint_names
-        )
-        try:
-            self._host_view = env.scene.bind_sensor_data(self._sensor_names)
-        except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
-            raise type(exc)(
-                "MimicLite torque observation could not materialize the host sensor "
-                f"view for {self._sensor_names}: {exc}"
-            ) from exc
-        self._warned_host_fallback = False
-
-    @property
-    def entity_name(self) -> str:
-        return self._entity_name
-
-    @property
-    def tensor_sensor_names(self) -> tuple[str, ...]:
-        return self._sensor_names
-
-    def __call__(self, env: ManagerBasedRlEnv) -> torch.Tensor:
-        if env is not self._env:
-            raise ValueError("MimicLite torque observation was called with an unbound env")
-        read_plan = getattr(env.scene, "_tensor_read_plan", None)
-        if read_plan is None:
-            # Manager probing runs before the scene compiles its packed read
-            # phase. Read the validated host view explicitly (same convention
-            # as _NamedSensorObservation._read_tensor) and warn once.
-            if not self._warned_host_fallback:
-                warnings.warn(
-                    "MimicLite torque observation read the host sensor view because "
-                    "the scene tensor read plan is not compiled yet",
-                    stacklevel=2,
-                )
-                self._warned_host_fallback = True
-            device = getattr(env, "device", torch.device("cpu"))
-            return torch.as_tensor(self._host_view.read(), dtype=torch.float32, device=device)
-        views = read_plan.sensor_tensor_views(
-            env.scene[self._entity_name], self._sensor_names
-        ).values
-        return torch.cat(tuple(views[name] for name in self._sensor_names), dim=-1)
-
-
 class bad_anchor_pos_z_only(ManagerTermBase):
     """Anchor-height termination backed by a parallel, pre-warmed Numba kernel."""
 
@@ -2763,12 +2455,9 @@ __all__ = [
     "MotionCommandParamsCfg",
     "TensorMotionCommandCfg",
     "TensorMotionCommand",
-    "TensorMotionObsFuture",
     "MotionJointPositionAction",
     "MotionJointPositionActionCfg",
     "MotionAnchorObservation",
-    "MimicLiteAppliedTorqueObservation",
-    "MimicLiteAppliedTorqueObservationCfg",
     "MotionAnchorOrientationObservation",
     "MotionAnchorPositionObservation",
     "bad_anchor_ori",

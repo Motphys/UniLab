@@ -71,63 +71,21 @@ def test_parse_case_requires_algo_task_sim() -> None:
 
 
 def test_parse_case_accepts_optional_owner_profile() -> None:
-    assert bench._parse_case("flashsac/g1_motion_tracking/mjwarp/mimiclite_dr") == (
+    assert bench._parse_case("flashsac/g1_motion_tracking/mjwarp/profile") == (
         "flashsac",
         "g1_motion_tracking",
         "mjwarp",
-        "mimiclite_dr",
+        "profile",
     )
 
     with pytest.raises(ValueError, match=r"<algo>/<task>/<sim>\[/<profile>\]"):
-        bench._parse_case("flashsac/g1_motion_tracking/mjwarp/mimiclite_dr/extra")
+        bench._parse_case("flashsac/g1_motion_tracking/mjwarp/profile/extra")
 
 
-def test_owner_config_path_resolves_profile_owner() -> None:
-    plain = bench._owner_config_path("flashsac", "g1_motion_tracking", "mjwarp")
-    profiled = bench._owner_config_path("flashsac", "g1_motion_tracking", "mjwarp", "mimiclite_dr")
+def test_owner_config_path_builds_profile_owner_name() -> None:
+    profiled = bench._owner_config_path("flashsac", "g1_motion_tracking", "mjwarp", "profile")
 
-    assert plain.name == "mjwarp.yaml"
-    assert profiled.name == "mjwarp_mimiclite_dr.yaml"
-    assert profiled.is_file()
-
-
-def test_owner_config_path_resolves_startup_profile_owner() -> None:
-    profiled = bench._owner_config_path(
-        "flashsac",
-        "g1_motion_tracking",
-        "mjwarp",
-        "mimiclite_dr_startup",
-    )
-
-    assert profiled.name == "mjwarp_mimiclite_dr_startup.yaml"
-    assert profiled.is_file()
-
-
-def test_profile_case_composes_profile_owner_with_sim_backend() -> None:
-    cfg = bench._compose_offpolicy_cfg(
-        "flashsac",
-        "g1_motion_tracking",
-        "mjwarp",
-        "mimiclite_dr",
-    )
-
-    # The profile selects the owner YAML; the sim segment still selects the
-    # runtime backend.
-    assert cfg.training.sim_backend == "mjwarp"
-    assert cfg.training.task_name == "G1MotionTracking"
-
-
-def test_startup_profile_case_composes_startup_mass_com_owner() -> None:
-    cfg = bench._compose_offpolicy_cfg(
-        "flashsac",
-        "g1_motion_tracking",
-        "mjwarp",
-        "mimiclite_dr_startup",
-    )
-
-    assert cfg.training.sim_backend == "mjwarp"
-    assert cfg.env.events.body_mass.mode == "startup"
-    assert cfg.env.events.body_com.mode == "startup"
+    assert profiled.name == "mjwarp_profile.yaml"
 
 
 def test_default_cases_cover_scoped_host_bridge() -> None:
