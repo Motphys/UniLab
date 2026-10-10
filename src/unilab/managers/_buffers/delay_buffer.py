@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import numpy as np
 import torch
 
 from unilab.managers._buffers import CircularBuffer
@@ -95,8 +94,7 @@ class DelayBuffer:
       per_env_phase (bool, optional): If True and `update_period > 0`, each
         environment uses a different phase offset in `[0, update_period)`, causing
         staggered refresh steps across the batch.
-      generator (np.random.Generator | None, optional): NumPy RNG for lag sampling when no Torch generator is supplied.
-      torch_generator (torch.Generator | None, optional): Manager-owned Torch RNG used in preference to the NumPy generator.
+      torch_generator (torch.Generator | None, optional): Manager-owned Torch RNG for lag sampling.
       device (torch.device | str | None, optional): Device for lag/step/phase state.
 
     Examples:
@@ -131,7 +129,6 @@ class DelayBuffer:
         hold_prob: float = 0.0,
         update_period: int = 0,
         per_env_phase: bool = True,
-        generator: np.random.Generator | None = None,
         torch_generator: torch.Generator | None = None,
         device: torch.device | str | None = None,
     ) -> None:
@@ -151,7 +148,6 @@ class DelayBuffer:
         self.hold_prob = hold_prob
         self.update_period = update_period
         self.per_env_phase = per_env_phase
-        self.generator = generator
         self.torch_generator = torch_generator
         self._device = torch.device(device) if device is not None else torch.device("cpu")
 
@@ -177,8 +173,8 @@ class DelayBuffer:
 
     def set_lags(
         self,
-        lags: np.ndarray | torch.Tensor,
-        batch_ids: Sequence[int] | np.ndarray | torch.Tensor | slice | None = None,
+        lags: torch.Tensor,
+        batch_ids: Sequence[int] | torch.Tensor | slice | None = None,
     ) -> None:
         """Set lag values for specified environments.
 
@@ -190,9 +186,7 @@ class DelayBuffer:
         values = torch.as_tensor(lags, dtype=torch.int64, device=self._device)
         self._current_lags[idx] = values.clamp(self.min_lag, self.max_lag)
 
-    def reset(
-        self, batch_ids: Sequence[int] | np.ndarray | torch.Tensor | slice | None = None
-    ) -> None:
+    def reset(self, batch_ids: Sequence[int] | torch.Tensor | slice | None = None) -> None:
         """Reset specified environments to initial state.
 
         Args:
@@ -210,7 +204,7 @@ class DelayBuffer:
             new_phases = self._sample_integers(0, self.update_period, shape=(self.batch_size,))
             self._phase_offsets[idx] = new_phases[idx]
 
-    def append(self, data: np.ndarray | torch.Tensor) -> None:
+    def append(self, data: torch.Tensor) -> None:
         """Append new observation to buffer.
 
         Args:
@@ -218,9 +212,7 @@ class DelayBuffer:
         """
         self._buffer.append(data)
 
-    def backfill(
-        self, data: np.ndarray | torch.Tensor, batch_ids: np.ndarray | torch.Tensor
-    ) -> None:
+    def backfill(self, data: torch.Tensor, batch_ids: torch.Tensor) -> None:
         """Backfill the given rows with one frame, without advancing time.
 
         Used after a partial reset: the reset rows (whose lags and step counters
@@ -318,28 +310,23 @@ class DelayBuffer:
         return torch.where(update_mask, candidate_lags, self._current_lags)
 
     def _sample_integers(self, low: int, high: int, *, shape: tuple[int, ...]) -> torch.Tensor:
-        if self.torch_generator is not None:
-            return torch.randint(
-                low,
-                high,
-                shape,
-                dtype=torch.int64,
-                device=self._device,
-                generator=self.torch_generator,
-            )
         generator = self._require_generator()
-        values = generator.integers(low, high, size=shape, dtype=np.int64)
-        return torch.as_tensor(values, dtype=torch.int64, device=self._device)
+        return torch.randint(
+            low,
+            high,
+            shape,
+            dtype=torch.int64,
+            device=self._device,
+            generator=generator,
+        )
 
     def _random_uniform(self, size: int) -> torch.Tensor:
-        if self.torch_generator is not None:
-            return torch.rand(
-                (size,), dtype=torch.float32, device=self._device, generator=self.torch_generator
-            )
         generator = self._require_generator()
-        return torch.as_tensor(generator.random(size), dtype=torch.float32, device=self._device)
+        return torch.rand((size,), dtype=torch.float32, device=self._device, generator=generator)
 
-    def _require_generator(self) -> np.random.Generator:
-        if self.generator is None:
-            raise ValueError("DelayBuffer stochastic sampling requires an env-owned generator.")
-        return self.generator
+    def _require_generator(self) -> torch.Generator:
+        if self.torch_generator is None:
+            raise ValueError(
+                "DelayBuffer stochastic sampling requires an env-owned Torch generator."
+            )
+        return self.torch_generator
