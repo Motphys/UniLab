@@ -104,8 +104,6 @@ def _command(env: ManagerBasedRlEnv, term: str, command_name: str) -> np.ndarray
         raise KeyError(f"{term} command capability '{command_name}' is unavailable")
     if isinstance(command, torch.Tensor):
         return command
-    if isinstance(command, torch.Tensor):
-        command = command.detach().cpu().numpy()
     return _state(term, f"command '{command_name}'", command, (env.num_envs, 3))
 
 

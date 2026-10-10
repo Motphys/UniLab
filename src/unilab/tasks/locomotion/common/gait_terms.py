@@ -175,8 +175,8 @@ class _FootContactTerm(SensorTermBase):
             )
         return ordered > self._contact_threshold
 
-    def _contact(self, env: ManagerBasedRlEnv) -> np.ndarray:
-        return self._contact_feet(env).detach().cpu().numpy()
+    def _contact(self, env: ManagerBasedRlEnv) -> torch.Tensor:
+        return self._contact_feet(env)
 
     def _contact_feet(self, env: ManagerBasedRlEnv) -> torch.Tensor:
         contact = self._contact_values(env)
@@ -258,9 +258,7 @@ class feet_air_time(_FootContactTerm):
         if gate is not None:
             if isinstance(gate, torch.Tensor):
                 return reward.to(device=gate.device) * gate
-            return torch.as_tensor(
-                np.asarray(reward.detach().cpu().numpy() * gate, dtype=get_global_dtype())
-            )
+            return reward * torch.as_tensor(gate, device=reward.device, dtype=reward.dtype)
         return reward
 
 
@@ -305,8 +303,12 @@ class feet_swing_height(_FootContactTerm):
                 f"sensor_groups declares {self.num_feet} feet"
             )
         self._asset_cfg = asset_cfg
-        self._peak_heights = np.zeros((env.num_envs, self.num_feet), dtype=get_global_dtype())
-        self._was_in_air = np.zeros((env.num_envs, self.num_feet), dtype=np.bool_)
+        self._peak_heights = torch.zeros(
+            (env.num_envs, self.num_feet), dtype=torch.float32, device=env.device
+        )
+        self._was_in_air = torch.zeros(
+            (env.num_envs, self.num_feet), dtype=torch.bool, device=env.device
+        )
 
     def reset(self, env_ids: torch.Tensor | np.ndarray | slice | None = None) -> None:
         rows = env_ids if env_ids is not None else slice(None)
@@ -317,19 +319,22 @@ class feet_swing_height(_FootContactTerm):
         del params
         contact = self._contact(env)
         positions, _ = _feet_pos_vel(self.name, env, self._asset_cfg, self.num_feet)
+        positions = torch.as_tensor(positions, device=contact.device, dtype=torch.float32)
         in_air = ~contact
-        self._peak_heights = np.where(
-            in_air, np.maximum(self._peak_heights, positions[:, :, 2]), self._peak_heights
+        self._peak_heights = torch.where(
+            in_air, torch.maximum(self._peak_heights, positions[:, :, 2]), self._peak_heights
         )
         first_contact = contact & self._was_in_air
         gate = _command_gate(env, self.name, self._command_name, self._command_threshold)
         error = self._peak_heights / self._target - 1.0
-        cost = np.sum(np.square(error) * first_contact, axis=1)
+        cost = torch.sum(torch.square(error) * first_contact, dim=1)
         if gate is not None:
-            cost = cost * gate
-        self._peak_heights = np.where(first_contact, 0.0, self._peak_heights)
+            cost = cost * torch.as_tensor(gate, device=cost.device, dtype=cost.dtype)
+        self._peak_heights = torch.where(
+            first_contact, torch.zeros_like(self._peak_heights), self._peak_heights
+        )
         self._was_in_air = in_air
-        return torch.as_tensor(np.asarray(cost, dtype=get_global_dtype()))
+        return cost.to(dtype=torch.float32)
 
 
 class feet_slip(_FootContactTerm):
@@ -365,12 +370,13 @@ class feet_slip(_FootContactTerm):
         del params
         contact = self._contact(env)
         _, velocities = _feet_pos_vel(self.name, env, self._asset_cfg, self.num_feet)
-        vel_xy_norm_sq = np.sum(np.square(velocities[:, :, :2]), axis=2)
+        velocities = torch.as_tensor(velocities, device=contact.device, dtype=torch.float32)
+        vel_xy_norm_sq = torch.sum(torch.square(velocities[:, :, :2]), dim=2)
         gate = _command_gate(env, self.name, self._command_name, self._command_threshold)
-        cost = np.sum(vel_xy_norm_sq * contact, axis=1)
+        cost = torch.sum(vel_xy_norm_sq * contact, dim=1)
         if gate is not None:
-            cost = cost * gate
-        return torch.as_tensor(np.asarray(cost, dtype=get_global_dtype()))
+            cost = cost * torch.as_tensor(gate, device=cost.device, dtype=cost.dtype)
+        return cost.to(dtype=torch.float32)
 
 
 def feet_clearance(
@@ -419,9 +425,7 @@ class self_collision_cost(_FootContactTerm):
 
     def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> np.ndarray | torch.Tensor:
         del params
-        return torch.as_tensor(
-            np.asarray(np.sum(self._contact(env), axis=1), dtype=get_global_dtype())
-        )
+        return torch.sum(self._contact(env), dim=1).to(dtype=torch.float32)
 
 
 class angular_momentum_penalty(SensorTermBase):
@@ -521,7 +525,7 @@ class foot_contact(_FootContactTerm):
 
     def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> torch.Tensor:
         del params
-        return torch.as_tensor(np.asarray(self._contact(env), dtype=get_global_dtype()))
+        return self._contact(env).to(dtype=torch.float32)
 
 
 class foot_contact_forces(_FootContactTerm):
