@@ -28,6 +28,7 @@ orphan: true
 | [ADR-0012 Sole Tensor Manager And Scoped Backends](ADR-0012-sole-tensor-manager-and-scoped-backends.md) | Manager runtime / backend scope | Proposed |
 | [ADR-0013 CUDA MPS Single-Rank Execution Sharing](ADR-0013-cuda-mps-single-rank-execution-sharing.md) | Training runtime / execution sharing | Proposed |
 | [ADR-0014 CUDA MPS CLI Lifecycle Owner](ADR-0014-cuda-mps-cli-lifecycle-owner.md) | Training runtime / host tooling | Proposed |
+| [ADR-0015 No Numba Runtime And Explicit NumPy Leaf Boundaries](ADR-0015-no-numba-and-explicit-numpy-leaf-boundaries.md) | Runtime dependency / NumPy boundary | Accepted |
 
 ## ADR Governance
 

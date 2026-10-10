@@ -25,6 +25,7 @@ orphan: true
 | [ADR-0009 SuperDex Native C++ Scene Batch Executor](ADR-0009-superdex-persistent-cpu-workers.md) | Backend CPU scene execution | Accepted |
 | [ADR-0010 Fixed Model Variant Ownership Boundary](ADR-0010-fixed-model-variant-ownership-boundary.md) | Fixed variants / cross-repository boundary | Proposed |
 | [ADR-0011 Torch-Only Manager-Based Runtime](ADR-0011-torch-only-manager-based-runtime.md) | Manager runtime / tensor lifecycle | Accepted |
+| [ADR-0015 No Numba Runtime And Explicit NumPy Leaf Boundaries](ADR-0015-no-numba-and-explicit-numpy-leaf-boundaries.md) | Runtime dependency / NumPy boundary | Accepted |
 
 ## ADR Governance
 
