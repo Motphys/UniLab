@@ -619,6 +619,7 @@ def test_motion_command_finite_verdict_reuses_persistent_carrier() -> None:
     command._device = torch.device("cpu")
     command._command = torch.ones((3, 4), dtype=torch.float32)
     command._command_finite_valid = torch.ones((), dtype=torch.bool)
+    command._deferred_validation_boundaries = False
     refreshes = 0
 
     def refresh() -> None:
@@ -635,6 +636,27 @@ def test_motion_command_finite_verdict_reuses_persistent_carrier() -> None:
     command.command
     assert command._command_finite_valid.item() is False
     assert refreshes == 1
+
+
+def test_motion_command_deferred_finite_verdict_does_not_host_refresh() -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    command._device = torch.device("cpu")
+    command._command = torch.ones((3, 4), dtype=torch.float32)
+    command._command_finite_valid = torch.ones((), dtype=torch.bool)
+    command._deferred_validation_boundaries = True
+    refreshes = 0
+
+    def refresh() -> None:
+        nonlocal refreshes
+        refreshes += 1
+
+    command._refresh_motion_torch = refresh
+    command._command[2, 3] = torch.nan
+    result = command.command
+
+    assert result.data_ptr() == command._command.data_ptr()
+    assert command._command_finite_valid.item() is False
+    assert refreshes == 0
 
 
 def test_tensor_command_full_refresh_gathers_advanced_frames() -> None:

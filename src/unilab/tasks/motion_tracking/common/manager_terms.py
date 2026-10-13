@@ -858,7 +858,7 @@ class MotionCommand(CommandTerm):
     @property
     def command(self) -> torch.Tensor:
         torch.all(torch.isfinite(self._command), out=self._command_finite_valid)
-        if not bool(self._command_finite_valid):
+        if not self.deferred_validation_boundaries and not bool(self._command_finite_valid):
             self._refresh_motion_torch()
         return self._command
 
