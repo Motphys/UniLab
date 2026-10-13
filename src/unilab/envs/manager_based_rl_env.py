@@ -1797,10 +1797,11 @@ class ManagerBasedRlEnv(TorchEnv):
             )
 
     def publish_validation_verdicts(self) -> None:
-        """Publish env, reward, and fused reset verdicts at one boundary."""
+        """Publish env, command, reward, and fused reset verdicts."""
         self.action_manager.publish_validation_verdict()
         self.reward_manager.publish_validation_verdict()
         self.observation_manager.publish_validation_verdict()
+        self.command_manager.publish_validation_verdicts()
         self._reset_state.publish_payload_validation_verdicts(term_name="reset_state")
         self._reset_state.publish_mask_validation_verdicts()
         self._backend.publish_torch_fused_validation()

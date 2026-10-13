@@ -4297,7 +4297,7 @@ def test_reward_log_publication_is_interval_boundary_only() -> None:
 
 
 def test_unified_validation_pack_publishes_all_owner_verdicts_once() -> None:
-    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
+    env, _backend = _make_env(_make_cfg(include_optional_managers=True))
     env.set_deferred_validation_boundaries(True)
     env.init_state()
     flags = env._validation_flags()
@@ -4310,6 +4310,10 @@ def test_unified_validation_pack_publishes_all_owner_verdicts_once() -> None:
     assert env.reward_manager.finite_valid.data_ptr() == reward_pointer
     assert all(bool(value) for value in env._validation_flags().values())
     assert bool(env.reward_manager.finite_valid)
+    assert all(
+        term._command_finite_valid.item() and term._metrics_finite_valid.item()
+        for term in env.command_manager._terms.values()
+    )
     assert state.info["reward_components"] is env.reward_manager.step_rewards
     env.close()
 
