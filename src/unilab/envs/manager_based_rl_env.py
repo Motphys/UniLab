@@ -30,6 +30,11 @@ from unisim.backend.base import (
 
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
+from unilab.base.collector_graph import (
+    COLLECTOR_GRAPH_MANIFEST_VERSION,
+    CollectorGraphMode,
+    resolve_collector_graph_mode,
+)
 from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,
     MANAGER_TERM_MAPPING_POLICY,
@@ -394,6 +399,17 @@ class ManagerBasedRlEnv(TorchEnv):
         self._all_env_rows = torch.arange(num_envs, dtype=torch.int64, device=self.device)
         self._all_env_reset_mask = torch.ones_like(self.reset_buf)
         self._has_transition = False
+        self._collector_graph_mode = CollectorGraphMode.DISABLED
+        self._collector_graph_requested = False
+        self._collector_graph_enabled = False
+        self._collector_graph_state = "unavailable"
+        self._collector_graph_capture_id: str | None = None
+        self._collector_graph_disable_reason = "collector graph mode is disabled"
+        self._collector_graph_fallback_count = 0
+        self._collector_graph_replay_count = 0
+        self._collector_graph_replay_publish_count = 0
+        self._collector_graph_replay_release_count = 0
+        self._collector_graph_step_active = False
 
         self._load_managers()
         self._mapped_obs_dims = self._validate_observation_mapping()
@@ -1196,15 +1212,114 @@ class ManagerBasedRlEnv(TorchEnv):
                 f"ManagerBasedRlEnv environments {pending} must be reset before step() "
                 "when auto_reset=False"
             )
-        state = super().step(actions)
-        self._publish_reward_components(state)
-        reset_completion = self.last_reset_completion
-        if reset_completion is not None:
-            state.info["graph_reset_completion"] = reset_completion
-        if not self._autoreset:
-            self._manual_reset_pending.logical_or_(state.terminated | state.truncated)
-        self.recorder_manager.record_post_step()
+        if self._collector_graph_step_active:
+            raise RuntimeError("collector graph mode cannot change during a control step")
+        self._collector_graph_step_active = True
+        try:
+            state = super().step(actions)
+            self._publish_reward_components(state)
+            reset_completion = self.last_reset_completion
+            if reset_completion is not None:
+                state.info["graph_reset_completion"] = reset_completion
+            if not self._autoreset:
+                self._manual_reset_pending.logical_or_(state.terminated | state.truncated)
+            self.recorder_manager.record_post_step()
+        finally:
+            self._collector_graph_step_active = False
         return state
+
+    def configure_collector_graph(
+        self, mode: CollectorGraphMode | str, *, allow_eager_fallback: bool = False
+    ) -> None:
+        """Negotiate the owner-controlled collector execution mode on a cold path.
+
+        ``graph`` always runs the public preflight first. Until the collector graph
+        implementation exists, a supported preflight still fails closed (or explicitly
+        falls back to eager); MJWarp physics graph availability is never interpreted
+        as collector graph enablement.
+        """
+        if self._collector_graph_step_active:
+            raise RuntimeError("collector graph mode cannot change during a control step")
+        resolved = (
+            mode if isinstance(mode, CollectorGraphMode) else resolve_collector_graph_mode(mode)
+        )
+        self._collector_graph_mode = resolved
+        self._collector_graph_requested = resolved is CollectorGraphMode.GRAPH
+        self._collector_graph_enabled = False
+        self._collector_graph_capture_id = None
+        self._collector_graph_fallback_count = 0
+        self._collector_graph_replay_count = 0
+        self._collector_graph_replay_publish_count = 0
+        self._collector_graph_replay_release_count = 0
+
+        if resolved is CollectorGraphMode.DISABLED:
+            self._collector_graph_state = "unavailable"
+            self._collector_graph_disable_reason = "collector graph mode is disabled"
+            return
+        if resolved is CollectorGraphMode.EAGER:
+            self._collector_graph_state = "eager"
+            self._collector_graph_disable_reason = "explicit eager collector execution"
+            return
+
+        try:
+            self.set_deferred_validation_boundaries(True)
+            verdict = self.preflight_graph_candidate(requested=True)
+        except BaseException:
+            self._collector_graph_state = "invalidated"
+            self._collector_graph_disable_reason = "collector graph preflight failed"
+            raise
+        if verdict.get("supported") is not True:
+            reason = verdict.get("disable_reason")
+            self._collector_graph_state = "invalidated"
+            self._collector_graph_disable_reason = (
+                str(reason)
+                if isinstance(reason, str) and reason.strip()
+                else "collector graph preflight failed"
+            )
+            if allow_eager_fallback:
+                self._collector_graph_mode = CollectorGraphMode.EAGER
+                self._collector_graph_state = "eager"
+                self._collector_graph_requested = False
+                self._collector_graph_disable_reason = (
+                    f"explicit eager fallback: {self._collector_graph_disable_reason}"
+                )
+                self._collector_graph_fallback_count = 1
+                return
+            raise RuntimeError(self._collector_graph_disable_reason)
+
+        # A supported preflight proves only that the owner may request capture.
+        # No collector capture/replay implementation is public yet, so graph mode
+        # remains fail-closed rather than treating MJWarp physics graphs as enabled.
+        self._collector_graph_state = "unavailable"
+        self._collector_graph_disable_reason = (
+            "collector graph capture execution is not implemented"
+        )
+        if allow_eager_fallback:
+            self._collector_graph_mode = CollectorGraphMode.EAGER
+            self._collector_graph_state = "eager"
+            self._collector_graph_requested = False
+            self._collector_graph_disable_reason = (
+                "explicit eager fallback: collector graph capture execution is not implemented"
+            )
+            self._collector_graph_fallback_count = 1
+        else:
+            raise RuntimeError(self._collector_graph_disable_reason)
+
+    def get_collector_graph_manifest(self) -> dict[str, Any]:
+        """Serialize collector execution mode evidence on a cold path."""
+        return {
+            "contract_version": COLLECTOR_GRAPH_MANIFEST_VERSION,
+            "mode": self._collector_graph_mode.value,
+            "requested": self._collector_graph_requested,
+            "enabled": self._collector_graph_enabled,
+            "state": self._collector_graph_state,
+            "capture_id": self._collector_graph_capture_id,
+            "disable_reason": self._collector_graph_disable_reason,
+            "fallback_count": self._collector_graph_fallback_count,
+            "replay_count": self._collector_graph_replay_count,
+            "replay_publish_count": self._collector_graph_replay_publish_count,
+            "replay_release_count": self._collector_graph_replay_release_count,
+        }
 
     def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
         del state

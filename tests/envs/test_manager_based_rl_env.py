@@ -28,6 +28,7 @@ import unilab.envs.manager_based_rl_env as manager_env_module
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.backend_timing import UPDATE_STATE_DETAIL_TIMING_KEYS
+from unilab.base.collector_graph import CollectorGraphMode, validate_collector_graph_manifest
 from unilab.base.entity import EntityCfg
 from unilab.base.scene import SceneCfg
 from unilab.base.torch_env import TorchEnv, TorchEnvState
@@ -1509,6 +1510,53 @@ def test_env_graph_candidate_preflight_reports_public_verdict() -> None:
         "backend_stream_contract": "test",
         "torch_stream_id": None,
     }
+    env.close()
+
+
+def test_collector_graph_defaults_to_disabled_and_negotiates_eager_cold_path() -> None:
+    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
+
+    initial = env.get_collector_graph_manifest()
+    assert initial["mode"] == "disabled"
+    assert initial["requested"] is False
+    assert initial["enabled"] is False
+    validate_collector_graph_manifest(initial)
+
+    env.configure_collector_graph(CollectorGraphMode.EAGER)
+    eager = env.get_collector_graph_manifest()
+
+    assert eager["mode"] == "eager"
+    assert eager["requested"] is False
+    assert eager["enabled"] is False
+    assert eager["state"] == "eager"
+    assert eager["disable_reason"] == "explicit eager collector execution"
+    validate_collector_graph_manifest(eager)
+    env.close()
+
+
+def test_graph_request_fails_closed_and_explicit_fallback_is_eager_only() -> None:
+    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
+    env.init_state()
+
+    with pytest.raises(RuntimeError, match="persistent observation output carrier"):
+        env.configure_collector_graph("graph")
+    failed = env.get_collector_graph_manifest()
+    assert failed["mode"] == "graph"
+    assert failed["requested"] is True
+    assert failed["enabled"] is False
+    assert failed["state"] == "invalidated"
+    validate_collector_graph_manifest(failed)
+
+    env.configure_collector_graph("graph", allow_eager_fallback=True)
+    fallback = env.get_collector_graph_manifest()
+
+    assert fallback["mode"] == "eager"
+    assert fallback["requested"] is False
+    assert fallback["enabled"] is False
+    assert fallback["state"] == "eager"
+    assert fallback["fallback_count"] == 1
+    assert fallback["disable_reason"].startswith("explicit eager fallback:")
+    validate_collector_graph_manifest(fallback)
     env.close()
 
 

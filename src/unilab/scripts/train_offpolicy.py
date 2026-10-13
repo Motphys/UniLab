@@ -31,6 +31,7 @@ from uni_rl.ipc.dp_launcher import (
 )
 from unisim.backend.base import log_playback_plan
 
+from unilab.base.collector_graph import CollectorGraphMode, validate_collector_graph_manifest
 from unilab.base.config_adapter import create_env
 from unilab.base.env_factory import registry_env_factory
 from unilab.base.process_device import (
@@ -53,6 +54,7 @@ from unilab.training import (
     resolve_nan_guard_cfg,
     should_run_playback,
 )
+from unilab.training.collector_graph import resolve_training_collector_graph_mode
 from unilab.training.cuda_mps_cli import (
     CudaMpsCliError,
     select_environment_for_gpu,
@@ -245,6 +247,13 @@ def build_offpolicy_play_env_cfg_override(algo_name: str, cfg: DictConfig) -> di
 
 def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
     """Build algorithm runner from unified Hydra config."""
+    collector_graph_mode = resolve_training_collector_graph_mode(cfg.training)
+    if collector_graph_mode is CollectorGraphMode.GRAPH:
+        raise RuntimeError(
+            "training.collector_graph=graph is requested but the neutral uni_rl "
+            "collector mode/capture transport contract is not implemented; refusing "
+            "to infer collector graph enablement from backend physics graphs"
+        )
     # Cold-path DP CPU partition: each rank's collector owns one contiguous
     # CPU block (single rank keeps the legacy unset behavior). The ids only
     # reach the collector env override — never the num_envs=1 probe envs,
@@ -660,6 +669,7 @@ def main(cfg: DictConfig) -> None:
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     algo_name = cfg.algo.algo
     task_name = cfg.training.task_name
+    collector_graph_mode = resolve_training_collector_graph_mode(cfg.training)
     assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
 
     if cfg.training.log_dir is None:
@@ -695,6 +705,27 @@ def main(cfg: DictConfig) -> None:
             seed_info=seed_info,
         )
         tracker.start()
+        collector_graph_manifest = {
+            "contract_version": 1,
+            "mode": collector_graph_mode.value,
+            "requested": collector_graph_mode is CollectorGraphMode.GRAPH,
+            "enabled": False,
+            "state": (
+                "unavailable" if collector_graph_mode is CollectorGraphMode.DISABLED else "eager"
+            ),
+            "capture_id": None,
+            "disable_reason": (
+                "collector graph mode is disabled"
+                if collector_graph_mode is CollectorGraphMode.DISABLED
+                else "explicit eager collector execution"
+            ),
+            "fallback_count": 0,
+            "replay_count": 0,
+            "replay_publish_count": 0,
+            "replay_release_count": 0,
+        }
+        validate_collector_graph_manifest(collector_graph_manifest)
+        tracker.update_summary({"collector_graph": collector_graph_manifest})
 
     try:
         with supervisor if supervisor is not None else nullcontext():

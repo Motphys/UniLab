@@ -73,22 +73,22 @@ OUT_OF_CAPTURE_VIOLATIONS: frozenset[tuple[str, int, str]] = frozenset(
     {
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1193,
+            1209,
             "self._manual_reset_pending.nonzero(as_tuple=False)",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1193,
+            1209,
             "self._manual_reset_pending.nonzero(as_tuple=False).flatten().detach().cpu()",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1193,
+            1209,
             "self._manual_reset_pending.nonzero(as_tuple=False).flatten().detach().cpu().tolist()",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1364,
+            1479,
             "torch.empty((self.num_envs, self.obs_groups_spec[name]), dtype=self._dtype, device=self.device)",
         ),
         (
