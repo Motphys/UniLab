@@ -75,7 +75,7 @@ disabled and this preflight is evidence only.
 | Termination flags, timeout/truncation, reset mask | `TerminationManager.compute`, `ManagerBasedRlEnv._update_state_in_read_phase`, `TorchEnv._compute_truncated` | Graph-eligible fixed-width compute. |
 | Reward vector and 11 component carriers | `RewardManager.compute`, `_publish_reward_components` | Graph-eligible fixed compute and publication. |
 | Actor/critic observations (160/289 columns) and terminal observations | `ObservationManager.compute/compute_group`, persistent output carriers, `_ensure_final_observation_scratch` | Graph-eligible persistent carriers; rotating manager scratch must be pinned for capture. |
-| Versioned Torch RNG draws | `TorchManagerRng`, `TensorMotionSampler.sample_frames`, `MotionCommand._resample_command` | Graph-eligible only in one recorded draw order; state/draw versions remain outside for rollback. |
+| Versioned Torch RNG draws | `TorchManagerRng`, `TensorMotionSampler.sample_frames`, `MotionCommand._resample_command`, observation noise | Graph-eligible only in the recorded draw order; state/draw versions remain outside for rollback. |
 | Full-width qpos/qvel staging and packed mask reset | `ResetStateTransaction`, `TorchPackedResetComposer`, `MjwarpBackend.set_state_tensor_mask` | Graph-eligible compute subboundary; MJWarp's current eager device-wide sync and any future full refresh remain explicitly rejected for capture. |
 | Post-reset full-width observations | `ManagerBasedRlEnv.reset`, Manager reset computes, `torch.where` scatter | Graph-eligible only for the preflight-clean canonical owner. |
 | Transition copy into fixed replay ingress slots | `ReplayBuffer._add_to_ingress` | Graph-eligible device copies after receipt visibility. |
@@ -182,20 +182,28 @@ The canonical frozen workload is FlashSAC / G1 motion tracking / MJWarp with:
 `N=2048`; action `[2048,29]`; observation groups actor/critic `[2048,160]` and
 `[2048,289]`; the eleven canonical motion/action/contact reward components;
 terminated, truncated, and reset masks `[2048]`; seed `1` (one Manager Torch
-generator, motion sampler then joint-default, resample-time, pose, velocity, and
-joint-noise draws); no interval events, metric, curriculum, recorder, manual-reset,
-or mapped multi-entity reset owners; `training.env_steps_per_sync=1`;
+generator); no interval events, metric, curriculum, recorder, manual-reset, or
+mapped multi-entity reset owners; `training.env_steps_per_sync=1`;
 `inference_slot_capacity=1`; FlashSAC `n_step=1`; replay capacity `512*2048`
 rows; ingress depth `2`; ingress slot rows `2048`.
 
 Benchmark commands are fixed as fresh-process, same-head null and MPS runs of:
-`uv run --no-sync train --algo flashsac --task g1_motion_tracking --sim mjwarp -- training.collector_graph=<disabled|eager|graph> algo.max_iterations=300 training.no_play=true`
-plus the #2311-prescribed paired repeat/interleave orchestration. Graph and eager
-must not be mixed within one distribution. The recorded host is
+`uv run --no-sync train --algo flashsac --task g1_motion_tracking --sim mjwarp algo.seed=1 env.seed=1 training.collector_graph=<disabled|eager|graph> algo.max_iterations=300 training.no_play=true`
+plus the #2311-prescribed paired repeat/interleave orchestration. The Manager
+RNG has its own `env.seed`; `algo.seed` alone does not fix it. Every run records
+the resolved seed and exact draw versions. Graph and eager must not be mixed
+within one distribution. The recorded host is
 `GPU-db468bab-1b15-2a0b-b5e6-7716e512d422` (RTX 4090), driver `580.178.04`,
 CUDA runtime `13.0`, PyTorch `2.14.0+cu130`, Warp `1.16.0`, MuJoCo/Warp
 `3.11.0`; each final gate run must re-record exact values rather than relying on
 this M0 snapshot.
+
+The frozen RNG/draw order is: the initial randomized episode-length draw during
+`init_state`; then on each reset joint-default bias, resampling time, adaptive
+motion sampler (`multinomial` bins then uniform offsets), pose, velocity, and
+joint noise; then actor observation noise during observation compute. A failed
+or invalidated replay restores the complete pre-boundary generator state and
+never advances this order silently.
 
 ### Validation and semantics
 
