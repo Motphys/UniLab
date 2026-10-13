@@ -232,6 +232,23 @@ def test_deferred_command_dt_verdict_stays_device_resident(fake_env: FakeEnv) ->
     assert null.reset(torch.empty(0, dtype=torch.bool)) == {}
 
 
+def test_deferred_command_and_metric_verdicts_publish_at_boundary(fake_env: FakeEnv) -> None:
+    manager = CommandManager({"goal": DummyCommandCfg(resampling_time_range=(0.5, 0.5))}, fake_env)
+    manager.set_deferred_validation_boundaries(True)
+    term = manager.get_term("goal")
+    term.metrics["error"][2] = np.nan
+
+    manager.compute(0.1)
+    term.command[1, 0] = np.nan
+    result = manager.get_command("goal")
+
+    assert torch.isnan(result[1]).any()
+    assert term._command_finite_valid.item() is False
+    assert term._metrics_finite_valid.item() is False
+    with pytest.raises(ValueError, match="metric 'error' contains NaN or Inf"):
+        term.publish_validation_verdict()
+
+
 def test_command_reset_rejects_non_fixed_width_mask(fake_env: FakeEnv) -> None:
     manager = CommandManager({"goal": DummyCommandCfg(resampling_time_range=(1.0, 1.0))}, fake_env)
     with pytest.raises(ValueError, match="CommandManager reset mask"):

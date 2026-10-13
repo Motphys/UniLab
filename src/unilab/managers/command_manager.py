@@ -75,6 +75,8 @@ class CommandTerm(ManagerTermBase):
         self.last_reset_timing_ms: dict[str, float] = {}
         self.last_post_compute_timing_ms: dict[str, float] = {}
         self._dt_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
+        self._command_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
+        self._metrics_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
         self._deferred_validation_boundaries = False
 
     @property
@@ -254,6 +256,9 @@ class CommandTerm(ManagerTermBase):
             )
         if metric_values:
             finite = torch.stack([torch.isfinite(value) for _, value in metric_values]).all()
+            self._metrics_finite_valid.copy_(finite)
+            if self._deferred_validation_boundaries:
+                return
             if bool(finite):
                 return
         for metric_name, metric_value in metric_values:
@@ -287,6 +292,19 @@ class CommandTerm(ManagerTermBase):
                 f"deferred command validation boundaries must be bool, got {type(enabled)}"
             )
         self._deferred_validation_boundaries = enabled
+
+    def publish_validation_verdict(self) -> None:
+        """Fail closed on deferred command and metric finite verdicts."""
+        if not self._deferred_validation_boundaries:
+            return
+        if not bool(self._command_finite_valid) and bool(self._metrics_finite_valid):
+            raise ValueError(f"CommandTerm '{self.name}' command contains NaN or Inf.")
+        if not bool(self._metrics_finite_valid):
+            for metric_name, metric_value in self.metrics.items():
+                if not _finite(metric_value):
+                    raise ValueError(
+                        f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
+                    )
 
     @abc.abstractmethod
     def _update_metrics(self) -> None:
@@ -433,6 +451,7 @@ class CommandManager(ManagerBase):
             step_timing.update(getattr(term, "last_step_timing_ms", {}))
             validation_started = time.perf_counter()
             self._validate_command(name, term.command)
+            term._validate_metrics()
             validation_ms += time.perf_counter() - validation_started
         step_timing["update_state_command_term_dispatch_ms"] = dispatch_ms * 1000.0
         step_timing["update_state_command_validation_ms"] = validation_ms * 1000.0
@@ -526,7 +545,12 @@ class CommandManager(ManagerBase):
 
     def _validate_command(self, name: str, command: torch.Tensor) -> torch.Tensor:
         self._validate_command_contract(name, command)
-        if not bool(torch.isfinite(command).all()):
+        valid = torch.isfinite(command).all()
+        term = self._terms[name]
+        term._command_finite_valid.copy_(valid)
+        if term.deferred_validation_boundaries:
+            return command
+        if not bool(valid):
             raise ValueError(f"CommandManager term '{name}' returned NaN or Inf.")
         return command
 
