@@ -97,6 +97,21 @@ def test_step_full_reuses_persistent_carriers_and_values() -> None:
     )
 
 
+def test_failure_stats_reuse_persistent_carriers() -> None:
+    sampler = _sampler()
+    sampler.current_frames.copy_(torch.tensor([0, 8, 16, 24], dtype=torch.int32))
+    terminated = torch.tensor([True, False, True, False])
+    before = sampler.bin_failed_count.clone()
+
+    sampler.update_failure_stats(terminated)
+
+    assert sampler._failure_bin_indices.tolist() == [0, 1, 2, 3]
+    assert sampler._failure_failed_bins.tolist() == [0, 4, 2, 4]
+    assert sampler._failure_counts.tolist() == [1, 0, 1, 0, 2]
+    expected = 0.5 * torch.tensor([1.0, 0.0, 1.0, 0.0]) + 0.5 * before
+    torch.testing.assert_close(sampler.bin_failed_count, expected, rtol=0, atol=0)
+
+
 def test_all_false_reset_sampling_is_state_noop() -> None:
     sampler = _sampler(initial_frames=torch.tensor([10, 11, 12, 13], dtype=torch.int32))
     frames_before = sampler.current_frames.clone()

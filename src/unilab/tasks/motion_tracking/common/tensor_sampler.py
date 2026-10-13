@@ -165,6 +165,25 @@ class TensorMotionSampler:
         self._step_clamped_rows = torch.empty(self.num_envs, dtype=torch.int64, device=self.device)
         self._step_clip_ends = torch.empty(self.num_envs, dtype=torch.int32, device=self.device)
         self._step_done = torch.empty(self.num_envs, dtype=torch.bool, device=self.device)
+        self._failure_frames = torch.empty(self.num_envs, dtype=torch.int64, device=self.device)
+        self._failure_bin_indices = torch.empty(
+            self.num_envs, dtype=torch.int64, device=self.device
+        )
+        self._failure_failed_bins = torch.empty(
+            self.num_envs, dtype=torch.int64, device=self.device
+        )
+        self._failure_discard_fill = torch.empty(
+            self.num_envs, dtype=torch.int64, device=self.device
+        )
+        self._failure_counts = torch.zeros(
+            self.bin_count + 1,
+            dtype=torch.int64,
+            device=self.device,
+        )
+        self._failure_terminated = torch.empty((), dtype=torch.bool, device=self.device)
+        self._failure_ones = torch.ones(self.num_envs, dtype=torch.int64, device=self.device)
+        self._failure_alpha = torch.empty(1, dtype=torch.float32, device=self.device)
+        self._failure_update = torch.empty_like(self._bin_failed)
         self.diagnostics = TensorMotionSamplerDiagnostics()
 
     @property
@@ -256,21 +275,33 @@ class TensorMotionSampler:
     def update_failure_stats(self, terminated: torch.Tensor) -> None:
         if self.mode != "adaptive":
             return
-        frames = self.current_frames.to(dtype=torch.int64)
-        bin_indices = (frames * self.bin_count // max(self.num_frames, 1)).clamp_(
-            max=self.bin_count - 1
-        )
+        frames = self._failure_frames
+        frames.copy_(self.current_frames)
+        frames.mul_(self.bin_count)
+        frames.div_(max(self.num_frames, 1), rounding_mode="floor")
+        bin_indices = self._failure_bin_indices
+        torch.clamp(frames, max=self.bin_count - 1, out=bin_indices)
         discard_bin = self.bin_count
-        failed_bins = torch.where(
-            terminated, bin_indices, torch.full_like(bin_indices, discard_bin)
-        )
-        failures = torch.bincount(failed_bins, minlength=discard_bin + 1)[: self.bin_count].to(
-            dtype=torch.float32
+        discard_fill = self._failure_discard_fill
+        discard_fill.fill_(discard_bin)
+        failed_bins = self._failure_failed_bins
+        torch.where(terminated, bin_indices, discard_fill, out=failed_bins)
+        self._failure_counts.zero_()
+        self._failure_counts.index_add_(
+            0,
+            failed_bins,
+            self._failure_ones,
         )
         # Keep the all-failed/all-active scalar on-device. Converting ``any()``
         # to Python would synchronize at this point in every update-state pass.
-        alpha = terminated.any().reshape(1).to(dtype=self._bin_failed.dtype) * self.adaptive_alpha
-        self._bin_failed.mul_(1.0 - alpha).add_(failures * alpha)
+        alpha = self._failure_alpha
+        torch.any(terminated, out=self._failure_terminated)
+        alpha.copy_(self._failure_terminated)
+        alpha.mul_(self.adaptive_alpha)
+        update = self._failure_update
+        torch.mul(self._bin_failed, 1.0 - alpha, out=update)
+        update.addcmul_(self._failure_counts[: self.bin_count], alpha)
+        self._bin_failed.copy_(update)
 
     def step_full(self, active: torch.Tensor, time_steps: torch.Tensor) -> torch.Tensor:
         """Advance and publish full-width frame mirrors without row gathers."""
