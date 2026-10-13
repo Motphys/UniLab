@@ -93,12 +93,12 @@ OUT_OF_CAPTURE_VIOLATIONS: frozenset[tuple[str, int, str]] = frozenset(
         ),
         (
             "src/unilab/managers/reward_manager.py",
-            240,
+            258,
             "torch.nonzero(~finite[:, term_idx])",
         ),
         (
             "src/unilab/managers/reward_manager.py",
-            243,
+            261,
             "invalid_rows.tolist()",
         ),
     }

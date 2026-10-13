@@ -79,6 +79,10 @@ class RewardManager(ManagerBase):
         self._step_reward = torch.zeros(
             (self.num_envs, len(self._term_names)), dtype=torch.float32, device=self._device
         )
+        self._term_reward_scratch = torch.empty_like(self._reward_buf)
+        self._packed_reward_scratch = torch.empty_like(self._reward_buf)
+        self._term_step_scratch = torch.empty_like(self._reward_buf)
+        self._packed_step_scratch = torch.empty_like(self._reward_buf)
         self._finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
         self._deferred_validation_boundaries = False
 
@@ -175,9 +179,16 @@ class RewardManager(ManagerBase):
             if term_timing is not None:
                 timing.update(term_timing)
             aggregation_started = time.perf_counter()
-            weighted = value * float(term_cfg.weight) * scale
+            weighted = self._term_reward_scratch
+            torch.mul(
+                value,
+                float(term_cfg.weight) * scale,
+                out=weighted,
+            )
             self._reward_buf += weighted
-            self._step_reward[:, term_idx] = weighted / scale
+            step_value = self._term_step_scratch
+            torch.div(weighted, scale, out=step_value)
+            self._step_reward[:, term_idx] = step_value
             aggregation_ms += time.perf_counter() - aggregation_started
         for term_idx, term_cfg in enumerate(self._term_cfgs):
             if not term_cfg.reward_pack_names:
@@ -212,9 +223,16 @@ class RewardManager(ManagerBase):
             for offset, packed_name in enumerate(term_cfg.reward_pack_names):
                 target_idx = self._term_names.index(packed_name)
                 target_cfg = self._term_cfgs[target_idx]
-                weighted = packed[:, offset] * float(target_cfg.weight) * scale
+                weighted = self._packed_reward_scratch
+                torch.mul(
+                    packed[:, offset],
+                    float(target_cfg.weight) * scale,
+                    out=weighted,
+                )
                 self._reward_buf += weighted
-                self._step_reward[:, target_idx] = weighted / scale
+                step_value = self._packed_step_scratch
+                torch.div(weighted, scale, out=step_value)
+                self._step_reward[:, target_idx] = step_value
             aggregation_ms += time.perf_counter() - aggregation_started
         finite_started = time.perf_counter()
         valid = torch.isfinite(self._reward_buf).all()
