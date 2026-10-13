@@ -413,6 +413,12 @@ class ManagerBasedRlEnv(TorchEnv):
 
         self._load_managers()
         self._mapped_obs_dims = self._validate_observation_mapping()
+        # Graph candidates own stable outputs. Eager execution does not read
+        # these carriers; it keeps freshly allocated public step outputs.
+        self._public_obs = {
+            name: torch.empty((num_envs, dim), dtype=self._dtype, device=self.device)
+            for name, dim in self.obs_groups_spec.items()
+        }
         self._validate_substep_capabilities()
         self._configure_action_control()
         self.set_autoreset(cfg.auto_reset)
@@ -1533,35 +1539,9 @@ class ManagerBasedRlEnv(TorchEnv):
         phase_started = time.perf_counter()
 
         publish_started = time.perf_counter()
-        if set(self._public_obs) != set(mapped_obs) or any(
-            self._public_obs[name].shape != value.shape
-            or self._public_obs[name].dtype != self._dtype
-            or self._public_obs[name].device != self.device
-            for name, value in mapped_obs.items()
-        ):
-            self._public_obs = {
-                name: torch.empty(
-                    (self.num_envs, self.obs_groups_spec[name]),
-                    dtype=self._dtype,
-                    device=self.device,
-                )
-                for name in mapped_obs
-            }
-        for name, values in mapped_obs.items():
-            self._public_obs[name].copy_(self._manager_tensor(values, dtype=self._dtype))
-        public_obs = self._public_obs
-        public_reward = self._manager_tensor(self.reward_buf, dtype=self._dtype)
-        if public_reward is self.reward_buf:
-            public_reward = self._public_reward
-            public_reward.copy_(self.reward_buf)
-        public_terminated = self._manager_tensor(self.reset_terminated, dtype=torch.bool)
-        public_truncated = self._manager_tensor(self.reset_time_outs, dtype=torch.bool)
-        if public_terminated is self.reset_terminated:
-            public_terminated = self._public_terminated
-            public_terminated.copy_(self.reset_terminated)
-        if public_truncated is self.reset_time_outs:
-            public_truncated = self._public_truncated
-            public_truncated.copy_(self.reset_time_outs)
+        public_obs, public_reward, public_terminated, public_truncated = self._publish_step_outputs(
+            mapped_obs
+        )
         timing["update_state_publication_ms"] = (time.perf_counter() - publish_started) * 1000.0
 
         replace_started = time.perf_counter()
@@ -1676,21 +1656,6 @@ class ManagerBasedRlEnv(TorchEnv):
             owner_failures.append("environment output carrier is not CUDA-resident")
         if self._reset_state.scene_layout is not None:
             owner_failures.append("mapped entity reset layout has no K=1 graph carrier")
-        if not self.reward_manager.step_reward_names:
-            owner_failures.append("reward component layout is empty")
-        final_observation_carrier = self._final_observation_scratch
-        if final_observation_carrier is None:
-            owner_failures.append("terminal observation carrier is not materialized")
-        else:
-            expected_groups = set(self.obs_groups_spec)
-            if set(final_observation_carrier) != expected_groups:
-                owner_failures.append("terminal observation carrier groups do not match outputs")
-            elif any(
-                value.device != self.device
-                or value.shape != (self.num_envs, self.obs_groups_spec[name])
-                for name, value in final_observation_carrier.items()
-            ):
-                owner_failures.append("terminal observation carrier layout does not match outputs")
         if set(self._public_obs) != set(self.obs_groups_spec) or any(
             value.device != self.device
             or value.shape != (self.num_envs, self.obs_groups_spec[name])
@@ -1711,6 +1676,21 @@ class ManagerBasedRlEnv(TorchEnv):
             for value in (self._public_terminated, self._public_truncated)
         ):
             owner_failures.append("persistent done output carriers are not graph-ready")
+        if not self.reward_manager.step_reward_names:
+            owner_failures.append("reward component layout is empty")
+        final_observation_carrier = self._final_observation_scratch
+        if final_observation_carrier is None:
+            owner_failures.append("terminal observation carrier is not materialized")
+        else:
+            expected_groups = set(self.obs_groups_spec)
+            if set(final_observation_carrier) != expected_groups:
+                owner_failures.append("terminal observation carrier groups do not match outputs")
+            elif any(
+                value.device != self.device
+                or value.shape != (self.num_envs, self.obs_groups_spec[name])
+                for name, value in final_observation_carrier.items()
+            ):
+                owner_failures.append("terminal observation carrier layout does not match outputs")
         if self.torch_rng.device != self.device:
             owner_failures.append("Torch RNG device does not match the graph carrier")
         if "interval" in self.event_manager.available_modes:
@@ -1828,6 +1808,36 @@ class ManagerBasedRlEnv(TorchEnv):
         if read_plan is not None:
             read_plan.refresh()
 
+    def _publish_step_outputs(
+        self, mapped_obs: Mapping[str, torch.Tensor]
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Publish eager-fresh outputs or copy them into graph carriers."""
+        eager_obs = {
+            name: self._manager_tensor(values, dtype=self._dtype)
+            for name, values in mapped_obs.items()
+        }
+        eager_reward = self._manager_tensor(self.reward_buf, dtype=self._dtype)
+        eager_terminated = self._manager_tensor(self.reset_terminated, dtype=torch.bool)
+        eager_truncated = self._manager_tensor(self.reset_time_outs, dtype=torch.bool)
+        if eager_terminated is self.reset_terminated:
+            eager_terminated = eager_terminated.clone()
+        if eager_truncated is self.reset_time_outs:
+            eager_truncated = eager_truncated.clone()
+        if not self._defer_validation_at_boundaries:
+            return eager_obs, eager_reward, eager_terminated, eager_truncated
+
+        for name, values in eager_obs.items():
+            self._public_obs[name].copy_(values)
+        self._public_reward.copy_(eager_reward)
+        self._public_terminated.copy_(eager_terminated)
+        self._public_truncated.copy_(eager_truncated)
+        return (
+            self._public_obs,
+            self._public_reward,
+            self._public_terminated,
+            self._public_truncated,
+        )
+
     def _compute_truncated(self, state: TorchEnvState) -> torch.Tensor:
         return state.truncated
 
@@ -1860,7 +1870,13 @@ class ManagerBasedRlEnv(TorchEnv):
             raise RuntimeError("ManagerBasedRlEnv requires init_state before mask reset")
         reset_timing: dict[str, float] = {}
         read_plan = self.scene._tensor_read_plan
-        if self._has_transition:
+        # Eager execution matches the pre-graph trajectory: an empty explicit
+        # reset does not publish a pre-reset recorder boundary. The integration
+        # graph candidate keeps the fixed-width lifecycle behind its explicit
+        # deferred-boundary switch.
+        if self._has_transition and (
+            self._defer_validation_at_boundaries or bool(reset_mask.any())
+        ):
             self.recorder_manager.record_pre_reset(reset_mask)
         # Match the selected-row lifecycle: curriculum consumes the terminal
         # episode state before reset clears the public counters.
