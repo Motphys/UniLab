@@ -630,6 +630,11 @@ class MotionCommand(CommandTerm):
         self._reset_packet_velocity = torch.empty_like(self._reset_joint_values)
         self._reset_joint_values_scratch = torch.empty_like(self._reset_joint_values)
         self._reset_root_state_scratch = torch.empty_like(self._reset_root_state)
+        self._reset_motion_packet = torch.empty(
+            (self.num_envs, self._motion_features.shape[1]),
+            dtype=torch.float32,
+            device=self._device,
+        )
         self._bind_read_phase = False
         self._tensor_all_rows = torch.arange(self.num_envs, dtype=torch.int64, device=self._device)
         self._tensor_all_reset_mask = torch.ones(
@@ -702,7 +707,9 @@ class MotionCommand(CommandTerm):
     def _motion_packet(self, frames: torch.Tensor) -> torch.Tensor:
         """Gather motion rows from the device-resident feature table."""
         rows = frames.to(dtype=torch.int64, device=self._device)
-        return self._motion_features.index_select(0, rows)
+        packet = self._reset_motion_packet
+        torch.index_select(self._motion_features, 0, rows, out=packet)
+        return packet
 
     def _make_tensor_sampler(self) -> None:
         if self._env.torch_rng is None:
