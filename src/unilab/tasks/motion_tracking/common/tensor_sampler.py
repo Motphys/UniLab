@@ -160,6 +160,11 @@ class TensorMotionSampler:
             self.num_envs, dtype=torch.int32, device=self.device
         )
         self._reset_frames = torch.empty(self.num_envs, dtype=torch.int32, device=self.device)
+        self._step_next_frames = torch.empty(self.num_envs, dtype=torch.int32, device=self.device)
+        self._step_active_rows = torch.empty(self.num_envs, dtype=torch.int64, device=self.device)
+        self._step_clamped_rows = torch.empty(self.num_envs, dtype=torch.int64, device=self.device)
+        self._step_clip_ends = torch.empty(self.num_envs, dtype=torch.int32, device=self.device)
+        self._step_done = torch.empty(self.num_envs, dtype=torch.bool, device=self.device)
         self.diagnostics = TensorMotionSamplerDiagnostics()
 
     @property
@@ -281,16 +286,22 @@ class TensorMotionSampler:
             or time_steps.device != self.device
         ):
             raise ValueError("TensorMotionSampler time_steps must be int32 device frames")
-        next_frames = self.current_frames + active.to(dtype=torch.int32)
-        frames = next_frames.to(dtype=torch.int64)
-        clip_ends = self._frame_clip_ends.index_select(
-            0, next_frames.clamp(max=self.num_frames - 1).to(dtype=torch.int64)
-        )
-        done = frames > clip_ends
+        next_frames = self._step_next_frames
+        torch.add(self.current_frames, active, out=next_frames)
+        next_frames.clamp_(max=self.num_frames - 1)
+        frames = self._step_clamped_rows
+        frames.copy_(next_frames)
+        clip_ends = self._step_clip_ends
+        torch.index_select(self._frame_clip_ends, 0, frames, out=clip_ends)
+        done = self._step_done
+        torch.gt(frames, clip_ends, out=done)
         done.logical_and_(active)
         self.current_frames.copy_(next_frames)
-        self.current_clip_end_frames.copy_(
-            torch.where(active, clip_ends, self.current_clip_end_frames)
+        torch.where(
+            active,
+            clip_ends,
+            self.current_clip_end_frames,
+            out=self.current_clip_end_frames,
         )
         time_steps.copy_(self.current_frames)
         return done

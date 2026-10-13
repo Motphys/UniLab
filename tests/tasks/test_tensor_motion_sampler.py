@@ -81,6 +81,22 @@ def test_reset_sampling_reuses_persistent_full_width_carriers() -> None:
     assert adaptive_frames.dtype is torch.int32
 
 
+def test_step_full_reuses_persistent_carriers_and_values() -> None:
+    sampler = _sampler(initial_frames=torch.tensor([30, 10, 11, 3], dtype=torch.int32))
+    active = torch.tensor([True, False, True, False])
+    time_steps = torch.zeros(4, dtype=torch.int32)
+
+    first = sampler.step_full(active, time_steps)
+    second = sampler.step_full(active, time_steps)
+
+    assert first.data_ptr() == sampler._step_done.data_ptr()
+    assert second.data_ptr() == sampler._step_done.data_ptr()
+    assert second.tolist() == [False, False, False, False]
+    torch.testing.assert_close(
+        sampler.current_frames, torch.tensor([31, 10, 13, 3], dtype=torch.int32)
+    )
+
+
 def test_all_false_reset_sampling_is_state_noop() -> None:
     sampler = _sampler(initial_frames=torch.tensor([10, 11, 12, 13], dtype=torch.int32))
     frames_before = sampler.current_frames.clone()
