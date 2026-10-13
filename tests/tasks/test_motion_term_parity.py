@@ -614,6 +614,29 @@ def test_tensor_command_publishes_sampler_advance_exactly_once() -> None:
     torch.testing.assert_close(command.time_steps, torch.tensor([5, 1, 10], dtype=torch.int32))
 
 
+def test_motion_command_finite_verdict_reuses_persistent_carrier() -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    command._device = torch.device("cpu")
+    command._command = torch.ones((3, 4), dtype=torch.float32)
+    command._command_finite_valid = torch.ones((), dtype=torch.bool)
+    refreshes = 0
+
+    def refresh() -> None:
+        nonlocal refreshes
+        refreshes += 1
+
+    command._refresh_motion_torch = refresh
+
+    first = command.command
+    assert command._command_finite_valid.item() is True
+    assert first.data_ptr() == command._command.data_ptr()
+
+    command._command[1, 1] = torch.nan
+    command.command
+    assert command._command_finite_valid.item() is False
+    assert refreshes == 1
+
+
 def test_tensor_command_full_refresh_gathers_advanced_frames() -> None:
     command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._device = torch.device("cpu")

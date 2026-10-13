@@ -589,6 +589,7 @@ class MotionCommand(CommandTerm):
             body_ang_vel_w=torch.empty_like(self._motion_data.body_ang_vel_w),
         )
         self._command = torch.empty((self.num_envs, num_joints * 2), device=self._device)
+        self._command_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
         self._body_pos_w = torch.empty((self.num_envs, num_bodies, 3), device=self._device)
         self._body_pos_packet_scratch = torch.empty_like(self._body_pos_w)
         self.body_pos_relative_w = torch.empty_like(self._body_pos_w)
@@ -856,7 +857,8 @@ class MotionCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        if not bool(torch.isfinite(self._command).all()):
+        torch.all(torch.isfinite(self._command), out=self._command_finite_valid)
+        if not bool(self._command_finite_valid):
             self._refresh_motion_torch()
         return self._command
 
