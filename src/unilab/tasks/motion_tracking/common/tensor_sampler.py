@@ -165,6 +165,22 @@ class TensorMotionSampler:
         self._step_clamped_rows = torch.empty(self.num_envs, dtype=torch.int64, device=self.device)
         self._step_clip_ends = torch.empty(self.num_envs, dtype=torch.int32, device=self.device)
         self._step_done = torch.empty(self.num_envs, dtype=torch.bool, device=self.device)
+        self._adaptive_probability_carrier = torch.empty(
+            self.bin_count, dtype=torch.float32, device=self.device
+        )
+        self._adaptive_padded = torch.empty(
+            self.bin_count + self.adaptive_kernel_size - 1,
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self._probability_products = torch.empty(
+            self.bin_count, dtype=torch.float32, device=self.device
+        )
+        self._entropy_sum = torch.empty((), dtype=torch.float32, device=self.device)
+        self._log_normalizer = torch.empty((), dtype=torch.float32, device=self.device)
+        self._sampling_log_bin_count = torch.log(
+            torch.tensor(float(self.bin_count), device=self.device)
+        )
         self.diagnostics = TensorMotionSamplerDiagnostics()
 
     @property
@@ -189,7 +205,7 @@ class TensorMotionSampler:
         frames: torch.Tensor
         probabilities: torch.Tensor | None = None
         if self.mode == "adaptive":
-            probabilities = self._adaptive_probabilities()
+            probabilities = self._compute_adaptive_probabilities()
             offsets = self._reset_random_offsets
             torch.rand(
                 offsets.shape,
@@ -306,24 +322,38 @@ class TensorMotionSampler:
         time_steps.copy_(self.current_frames)
         return done
 
-    def _adaptive_probabilities(self) -> torch.Tensor:
-        probabilities = self._bin_failed + self.adaptive_uniform_ratio / self.bin_count
+    def _compute_adaptive_probabilities(self) -> torch.Tensor:
+        probabilities = self._adaptive_probability_carrier
+        torch.add(
+            self._bin_failed,
+            self.adaptive_uniform_ratio / self.bin_count,
+            out=probabilities,
+        )
         if self.adaptive_kernel_size > 1:
-            probabilities = torch.nn.functional.pad(
-                probabilities, (0, self.adaptive_kernel_size - 1), mode="replicate"
+            padded = self._adaptive_padded
+            padded[: self.bin_count].copy_(probabilities)
+            padded[self.bin_count :].copy_(probabilities[-1].expand(self.adaptive_kernel_size - 1))
+            probabilities.copy_(
+                torch.nn.functional.conv1d(
+                    padded[None, None, :],
+                    self._adaptive_kernel[None, None, :],
+                    padding=0,
+                )[0, 0]
             )
-            probabilities = torch.nn.functional.conv1d(
-                probabilities[None, None, :],
-                self._adaptive_kernel[None, None, :],
-                padding=0,
-            )[0, 0]
-        return probabilities / probabilities.sum()
+        probabilities.div_(probabilities.sum())
+        return probabilities
 
     def _publish_sampling_metrics(self, probabilities: torch.Tensor) -> None:
         if self.bin_count > 1:
-            entropy = -(probabilities * torch.log(probabilities + 1.0e-12)).sum()
-            self.sampling_entropy.copy_(
-                (entropy / torch.log(torch.tensor(float(self.bin_count), device=self.device)))
+            products = self._probability_products
+            torch.mul(probabilities, torch.log(probabilities + 1.0e-12), out=products)
+            entropy = self._entropy_sum
+            torch.sum(products, dim=0, out=entropy)
+            torch.neg(entropy, out=entropy)
+            torch.div(
+                entropy,
+                self._sampling_log_bin_count,
+                out=self.sampling_entropy,
             )
         else:
             self.sampling_entropy.fill_(1.0)
