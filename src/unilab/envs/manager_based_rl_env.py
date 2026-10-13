@@ -1776,6 +1776,7 @@ class ManagerBasedRlEnv(TorchEnv):
         self.action_manager.set_deferred_validation_boundaries(enabled)
         self.reward_manager.set_deferred_validation_boundaries(enabled)
         self.observation_manager.set_deferred_validation_boundaries(enabled)
+        self.command_manager.set_deferred_validation_boundaries(enabled)
         self._reset_state.set_deferred_payload_validation(enabled)
         self._reset_state.set_deferred_mask_validation(enabled)
         capabilities = self._backend.get_tensor_capabilities()
