@@ -1775,6 +1775,7 @@ class ManagerBasedRlEnv(TorchEnv):
         super().set_deferred_validation_boundaries(enabled)
         self.action_manager.set_deferred_validation_boundaries(enabled)
         self.reward_manager.set_deferred_validation_boundaries(enabled)
+        self.observation_manager.set_deferred_validation_boundaries(enabled)
         self._reset_state.set_deferred_payload_validation(enabled)
         self._reset_state.set_deferred_mask_validation(enabled)
         capabilities = self._backend.get_tensor_capabilities()
@@ -1798,6 +1799,7 @@ class ManagerBasedRlEnv(TorchEnv):
         """Publish env, reward, and fused reset verdicts at one boundary."""
         self.action_manager.publish_validation_verdict()
         self.reward_manager.publish_validation_verdict()
+        self.observation_manager.publish_validation_verdict()
         self._reset_state.publish_payload_validation_verdicts(term_name="reset_state")
         self._reset_state.publish_mask_validation_verdicts()
         self._backend.publish_torch_fused_validation()
