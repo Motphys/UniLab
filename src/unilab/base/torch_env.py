@@ -130,6 +130,15 @@ class TorchEnv(ABEnv):
             raise ValueError("TorchEnv backend must support tensor stepping and mask reset")
         if execution is TensorExecution.HOST_BRIDGE and not capabilities.packed_host_bridge:
             raise ValueError("HOST_BRIDGE TorchEnv requires a packed host-bridge plan")
+        if (
+            execution is TensorExecution.HOST_BRIDGE
+            and self._device.type == "cuda"
+            and not capabilities.graph_completion_publication
+        ):
+            raise ValueError(
+                "CUDA HOST_BRIDGE TorchEnv requires graph_completion_publication so "
+                "downstream replay publication has an ordered public completion receipt"
+            )
         if not tensor_device_matches(capabilities.torch_devices, self._device):
             raise ValueError(
                 f"backend did not accept Torch device {str(self._device)!r}; "
