@@ -128,19 +128,24 @@ class CommandTerm(ManagerTermBase):
                     ),
                     dim=0,
                 ).detach()
-                host_reduced = reduced.cpu()
-                means = host_reduced[0].tolist()
-                finite = bool(host_reduced[1].min().item() == 1.0)
-                if not finite:
-                    for metric_name, metric_value in metric_values:
-                        if not bool((torch.isfinite(metric_value) | ~reset_mask).all()):
-                            raise ValueError(
-                                f"CommandTerm '{self.name}' metric '{metric_name}' contains "
-                                "NaN or Inf."
-                            )
-                for (metric_name, metric_value), mean in zip(metric_values, means, strict=True):
-                    extras[metric_name] = float(mean)
-                    metric_value.masked_fill_(reset_mask, 0.0)
+                self._metrics_finite_valid.copy_(reduced[1].min())
+                if self._deferred_validation_boundaries:
+                    for _, metric_value in metric_values:
+                        metric_value.masked_fill_(reset_mask, 0.0)
+                else:
+                    host_reduced = reduced.cpu()
+                    means = host_reduced[0].tolist()
+                    finite = bool(host_reduced[1].min().item() == 1.0)
+                    if not finite:
+                        for metric_name, metric_value in metric_values:
+                            if not bool((torch.isfinite(metric_value) | ~reset_mask).all()):
+                                raise ValueError(
+                                    f"CommandTerm '{self.name}' metric '{metric_name}' contains "
+                                    "NaN or Inf."
+                                )
+                    for (metric_name, metric_value), mean in zip(metric_values, means, strict=True):
+                        extras[metric_name] = float(mean)
+                        metric_value.masked_fill_(reset_mask, 0.0)
         else:
             self.clear_episode_metrics(reset_mask)
         metrics_ms = (time.perf_counter() - metrics_started) * 1000.0
