@@ -659,6 +659,20 @@ def test_motion_command_deferred_finite_verdict_does_not_host_refresh() -> None:
     assert refreshes == 0
 
 
+def test_motion_packet_reuses_persistent_reset_carrier() -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    command._device = torch.device("cpu")
+    command._motion_features = torch.arange(3 * 4, dtype=torch.float32).reshape(3, 4)
+    command._reset_motion_packet = torch.empty_like(command._motion_features)
+
+    first = command._motion_packet(torch.tensor((0, 1, 2), dtype=torch.int32))
+    second = command._motion_packet(torch.tensor((1, 1, 1), dtype=torch.int32))
+
+    assert first.data_ptr() == command._reset_motion_packet.data_ptr()
+    assert second.data_ptr() == command._reset_motion_packet.data_ptr()
+    torch.testing.assert_close(second, command._motion_features[torch.ones(3, dtype=torch.int64)])
+
+
 def test_tensor_command_full_refresh_gathers_advanced_frames() -> None:
     command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._device = torch.device("cpu")
