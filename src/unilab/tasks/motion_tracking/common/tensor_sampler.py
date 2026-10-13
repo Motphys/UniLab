@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import cast
 
 import torch
 
@@ -184,6 +185,23 @@ class TensorMotionSampler:
         self._failure_ones = torch.ones(self.num_envs, dtype=torch.int64, device=self.device)
         self._failure_alpha = torch.empty(1, dtype=torch.float32, device=self.device)
         self._failure_update = torch.empty_like(self._bin_failed)
+        self._adaptive_probability_carrier = torch.empty_like(self._bin_failed)
+        self._adaptive_probability_sum = torch.empty((), dtype=torch.float32, device=self.device)
+        self._adaptive_conv_input = torch.empty(
+            (1, 1, self.bin_count + self.adaptive_kernel_size - 1),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self._adaptive_conv_output = torch.empty(
+            (1, 1, self.bin_count), dtype=torch.float32, device=self.device
+        )
+        self._sampling_probability_scratch = torch.empty_like(self._bin_failed)
+        self._sampling_log_scratch = torch.empty_like(self._bin_failed)
+        self._sampling_entropy_scratch = torch.empty_like(self.sampling_entropy)
+        self._sampling_log_bin_count = torch.log(
+            torch.tensor(float(self.bin_count), device=self.device)
+        )
+        self._sampling_top1_index = torch.empty((), dtype=torch.int64, device=self.device)
         self.diagnostics = TensorMotionSamplerDiagnostics()
 
     @property
@@ -338,29 +356,47 @@ class TensorMotionSampler:
         return done
 
     def _adaptive_probabilities(self) -> torch.Tensor:
-        probabilities = self._bin_failed + self.adaptive_uniform_ratio / self.bin_count
+        probabilities = self._adaptive_probability_carrier
+        torch.add(
+            self._bin_failed,
+            self.adaptive_uniform_ratio / self.bin_count,
+            out=probabilities,
+        )
         if self.adaptive_kernel_size > 1:
-            probabilities = torch.nn.functional.pad(
-                probabilities, (0, self.adaptive_kernel_size - 1), mode="replicate"
+            conv_input = self._adaptive_conv_input
+            conv_input[:, :, : self.bin_count].copy_(probabilities)
+            conv_input[:, :, self.bin_count :].fill_(probabilities[self.bin_count - 1].detach())
+            kernel = self._adaptive_kernel[None, None, :]
+            torch.ops.aten.conv1d(
+                conv_input,
+                cast(torch.Tensor, kernel),
+                out=self._adaptive_conv_output,
             )
-            probabilities = torch.nn.functional.conv1d(
-                probabilities[None, None, :],
-                self._adaptive_kernel[None, None, :],
-                padding=0,
-            )[0, 0]
-        return probabilities / probabilities.sum()
+            probabilities = self._adaptive_conv_output[0, 0]
+        total = self._adaptive_probability_sum
+        torch.sum(probabilities, dim=0, out=total)
+        probabilities.div_(total)
+        return probabilities
 
     def _publish_sampling_metrics(self, probabilities: torch.Tensor) -> None:
         if self.bin_count > 1:
-            entropy = -(probabilities * torch.log(probabilities + 1.0e-12)).sum()
-            self.sampling_entropy.copy_(
-                (entropy / torch.log(torch.tensor(float(self.bin_count), device=self.device)))
-            )
+            shifted = self._sampling_probability_scratch
+            torch.add(probabilities, 1.0e-12, out=shifted)
+            logged = self._sampling_log_scratch
+            torch.log(shifted, out=logged)
+            logged.mul_(probabilities)
+            entropy = self._sampling_entropy_scratch
+            torch.sum(logged, dim=0, out=entropy)
+            entropy.neg_()
+            entropy.div_(self._sampling_log_bin_count)
+            self.sampling_entropy.copy_(entropy)
         else:
             self.sampling_entropy.fill_(1.0)
-        top1_index = torch.argmax(probabilities)
+        top1_index = self._sampling_top1_index
+        torch.argmax(probabilities, out=top1_index)
         self.sampling_top1_prob.copy_(probabilities[top1_index])
-        self.sampling_top1_bin.copy_(top1_index.to(dtype=torch.float32) / float(self.bin_count))
+        self.sampling_top1_bin.copy_(top1_index)
+        self.sampling_top1_bin.div_(self.bin_count)
 
     def _publish_mixed_metrics(self) -> None:
         start_mass = self.start_ratio + (1.0 - self.start_ratio) / self.bin_count

@@ -112,6 +112,23 @@ def test_failure_stats_reuse_persistent_carriers() -> None:
     torch.testing.assert_close(sampler.bin_failed_count, expected, rtol=0, atol=0)
 
 
+def test_adaptive_probabilities_and_metrics_reuse_persistent_carriers() -> None:
+    sampler = _sampler()
+    sampler.bin_failed_count.copy_(torch.tensor([0.2, 0.1, 0.0, 0.0]))
+
+    probabilities = sampler._adaptive_probabilities()
+    first_pointer = probabilities.data_ptr()
+    sampler._publish_sampling_metrics(probabilities)
+    repeat = sampler._adaptive_probabilities()
+
+    assert repeat.data_ptr() == first_pointer
+    expected = torch.tensor([0.5625, 0.3125, 0.0625, 0.0625])
+    torch.testing.assert_close(repeat, expected, rtol=0, atol=1.0e-7)
+    assert bool(torch.isfinite(sampler.sampling_entropy))
+    assert bool(torch.isfinite(sampler.sampling_top1_prob))
+    assert bool(torch.isfinite(sampler.sampling_top1_bin))
+
+
 def test_all_false_reset_sampling_is_state_noop() -> None:
     sampler = _sampler(initial_frames=torch.tensor([10, 11, 12, 13], dtype=torch.int32))
     frames_before = sampler.current_frames.clone()
