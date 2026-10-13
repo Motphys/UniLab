@@ -39,7 +39,7 @@ def _sampling_dispatch_mask_kernel(
     selected = torch.where(reset_mask, frames, current_frames)
     clip_ends = frame_clip_ends.index_select(0, frames)
     current_frames.copy_(selected)
-    current_clip_end_frames.copy_(torch.where(reset_mask, clip_ends, current_clip_end_frames))
+    torch.where(reset_mask, clip_ends, current_clip_end_frames, out=current_clip_end_frames)
 
 
 @dataclass
@@ -146,6 +146,20 @@ class TensorMotionSampler:
         self.sampling_entropy = torch.zeros((), dtype=torch.float32, device=self.device)
         self.sampling_top1_prob = torch.zeros((), dtype=torch.float32, device=self.device)
         self.sampling_top1_bin = torch.zeros((), dtype=torch.float32, device=self.device)
+        self._reset_random_offsets = torch.empty(
+            self.num_envs, dtype=torch.float32, device=self.device
+        )
+        self._reset_scaled_frames = torch.empty(
+            self.num_envs, dtype=torch.float32, device=self.device
+        )
+        self._reset_start_gate = torch.empty(self.num_envs, dtype=torch.bool, device=self.device)
+        self._reset_start_random = torch.empty(
+            self.num_envs, dtype=torch.float32, device=self.device
+        )
+        self._reset_uniform_frames = torch.empty(
+            self.num_envs, dtype=torch.int32, device=self.device
+        )
+        self._reset_frames = torch.empty(self.num_envs, dtype=torch.int32, device=self.device)
         self.diagnostics = TensorMotionSamplerDiagnostics()
 
     @property
@@ -171,26 +185,55 @@ class TensorMotionSampler:
         probabilities: torch.Tensor | None = None
         if self.mode == "adaptive":
             probabilities = self._adaptive_probabilities()
+            offsets = self._reset_random_offsets
+            torch.rand(
+                offsets.shape,
+                out=offsets,
+                dtype=torch.float32,
+                device=self.device,
+                generator=torch_rng,
+            )
             bins = torch.multinomial(
                 probabilities, self.num_envs, replacement=True, generator=torch_rng
             )
-            offsets = torch.rand(self.num_envs, device=self.device, generator=torch_rng)
-            frames = (
-                (bins.to(dtype=torch.float32) + offsets) / self.bin_count * (self.num_frames - 1)
-            ).to(dtype=torch.int32)
-        else:
-            use_start = torch.rand(self.num_envs, device=self.device, generator=torch_rng) < (
-                self.start_ratio
+            frames = self._reset_frames
+            frames.copy_(bins)
+            scaled = self._reset_scaled_frames
+            torch.add(
+                frames,
+                offsets,
+                out=scaled,
             )
-            uniform_frames = torch.randint(
-                0,
-                self.num_frames,
-                (self.num_envs,),
+            scaled.div_(self.bin_count)
+            scaled.mul_(self.num_frames - 1)
+            frames.copy_(scaled)
+        else:
+            use_start = self._reset_start_gate
+            start_random = self._reset_start_random
+            torch.rand(
+                start_random.shape,
+                out=start_random,
+                dtype=torch.float32,
                 device=self.device,
                 generator=torch_rng,
-                dtype=torch.int32,
             )
-            frames = torch.where(use_start, torch.zeros_like(uniform_frames), uniform_frames)
+            torch.less(start_random, self.start_ratio, out=use_start)
+            uniform_frames = self._reset_uniform_frames
+            torch.randint(
+                0,
+                self.num_frames,
+                uniform_frames.shape,
+                out=uniform_frames,
+                dtype=torch.int32,
+                generator=torch_rng,
+            )
+            frames = self._reset_frames
+            torch.where(
+                use_start,
+                torch.zeros_like(uniform_frames),
+                uniform_frames,
+                out=frames,
+            )
         _sampling_dispatch_mask_kernel(
             reset_mask,
             frames,
