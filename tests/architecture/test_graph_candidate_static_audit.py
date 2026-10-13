@@ -35,6 +35,7 @@ AUDITED_FUNCTIONS: dict[Path, frozenset[str]] = {
             "_reset_done_envs",
             "reset",
             "_publish_reward_components",
+            "_publish_step_outputs",
         }
     ),
     SOURCE_ROOT / "managers/action_manager.py": frozenset(
@@ -73,23 +74,38 @@ OUT_OF_CAPTURE_VIOLATIONS: frozenset[tuple[str, int, str]] = frozenset(
     {
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1213,
+            1219,
             "self._manual_reset_pending.nonzero(as_tuple=False)",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1213,
+            1219,
             "self._manual_reset_pending.nonzero(as_tuple=False).flatten().detach().cpu()",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1213,
+            1219,
             "self._manual_reset_pending.nonzero(as_tuple=False).flatten().detach().cpu().tolist()",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1543,
-            "torch.empty((self.num_envs, self.obs_groups_spec[name]), dtype=self._dtype, device=self.device)",
+            1823,
+            "eager_terminated.clone()",
+        ),
+        (
+            "src/unilab/envs/manager_based_rl_env.py",
+            1825,
+            "eager_truncated.clone()",
+        ),
+        (
+            "src/unilab/managers/observation_manager.py",
+            607,
+            "cast(torch.Tensor, obs).clone()",
+        ),
+        (
+            "src/unilab/managers/observation_manager.py",
+            680,
+            "torch.cat(tensors, dim=self._group_obs_concatenate_dim[group_name])",
         ),
         (
             "src/unilab/managers/reward_manager.py",

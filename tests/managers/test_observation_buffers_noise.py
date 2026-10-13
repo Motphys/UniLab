@@ -491,7 +491,7 @@ def test_concatenated_result_owns_each_result_and_protects_term_buffers(
     assert second.data_ptr() != fake_env.obs.data_ptr()
 
 
-def test_concatenated_outputs_rotate_persistent_carriers(fake_env: FakeEnv) -> None:
+def test_concatenated_outputs_do_not_alias_the_latest_term_buffer(fake_env: FakeEnv) -> None:
     source = fake_env.obs
     manager = ObservationManager(
         {
@@ -513,9 +513,6 @@ def test_concatenated_outputs_rotate_persistent_carriers(fake_env: FakeEnv) -> N
     addresses = [output.data_ptr() for output in outputs]
     assert addresses[0] != addresses[1]
     assert addresses[1] != addresses[2]
-    assert set(addresses) == set(
-        [carrier.data_ptr() for carrier in manager._group_output_carriers["policy"]]
-    )
     for output in outputs:
         torch.testing.assert_close(output[:, :2], source)
         torch.testing.assert_close(output[:, 2:], torch.full((fake_env.num_envs, 1), 3.0))

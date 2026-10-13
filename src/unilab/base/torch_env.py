@@ -278,7 +278,15 @@ class TorchEnv(ABEnv):
 
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
-        did_reset = self._autoreset
+        # Eager execution preserves the semantic autoreset gate: an empty done
+        # mask must not consume Manager reset RNG or publish a terminal carrier.
+        # Graph-candidate integration opts into the fixed-width boundary and
+        # keeps that experimental lifecycle explicit rather than changing the
+        # production trajectory.
+        did_reset = self._autoreset and (
+            self._defer_validation_at_boundaries
+            or bool((self._state.terminated | self._state.truncated).any())
+        )
         if did_reset:
             self._reset_done_envs()
         reset_done_ms = (time.perf_counter() - phase) * 1000.0
@@ -510,13 +518,17 @@ class TorchEnv(ABEnv):
     def _reset_done_envs(self) -> None:
         """Run the fixed-shape mask-driven autoreset lifecycle.
 
-        The empty-mask path is fixed-width. Backends and managers own the mask
-        semantics; no reset env-id row carrier is materialized.
+        The graph-candidate empty-mask path is fixed-width. Eager execution
+        retains the semantic no-done gate; backends and managers own mask
+        semantics and no reset env-id row carrier is materialized.
         """
         assert self._state is not None
         reset_total_started = time.perf_counter()
         detail_timing = {key: 0.0 for key in RESET_DONE_DETAIL_TIMING_KEYS}
         done = self._state.terminated | self._state.truncated
+        if not self._defer_validation_at_boundaries and not bool(done.any()):
+            self._clear_reset_done_detail_timing(self._state.info.setdefault("timing", {}))
+            return
         self._reset_done_count.copy_(done.sum())
 
         terminal_started = time.perf_counter()

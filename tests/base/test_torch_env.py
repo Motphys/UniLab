@@ -209,21 +209,21 @@ def test_unsupported_backend_tensor_runtime_fails_closed() -> None:
         env.init_state()
 
 
-def test_step_without_done_runs_fixed_width_reset_and_publishes_terminal_carrier() -> None:
+def test_step_without_done_preserves_eager_autoreset_gate() -> None:
     env = _StubTorchEnv(terminate=False)
     env.init_state()
     env.reset_masks.clear()
     state = env.step(_actions(env))
 
-    assert [mask.tolist() for mask in env.reset_masks] == [[False, False, False]]
-    assert state.final_observation is not None
-    torch.testing.assert_close(state.final_observation["obs"], torch.ones((3, 3)))
+    assert env.reset_masks == []
+    assert state.final_observation is None
     assert state.info["timing"]["reset_done_count"] == 0.0
 
 
 def test_reset_done_count_remains_device_resident_before_timing_publication() -> None:
     env = _StubTorchEnv(terminate=False)
     env.init_state()
+    env.set_deferred_validation_boundaries(True)
 
     env.step(_actions(env))
 
@@ -302,10 +302,7 @@ def test_timeout_computes_truncation_and_mask_reset() -> None:
 
     assert not bool(first.truncated.any())
     assert bool(second.truncated.any())
-    assert [mask.tolist() for mask in env.reset_masks] == [
-        [False, False, False],
-        [True, True, True],
-    ]
+    assert [mask.tolist() for mask in env.reset_masks] == [[True, True, True]]
 
 
 def test_numpy_actions_and_wrong_device_fail_closed() -> None:
