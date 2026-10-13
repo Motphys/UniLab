@@ -568,6 +568,23 @@ def test_backend_device_must_match_capability() -> None:
         env.init_state()
 
 
+def test_cuda_host_bridge_requires_public_completion_publication() -> None:
+    backend = _backend()
+    backend.get_tensor_capabilities.return_value = TensorLifecycleCapabilities(
+        execution=TensorExecution.HOST_BRIDGE,
+        state_fields=frozenset({"qpos", "qvel"}),
+        stepping=True,
+        selected_reset=True,
+        packed_host_bridge=True,
+        data_plane=TensorDataPlane.HOST_BRIDGE,
+        stream_event_ownership="test",
+        torch_devices=("cpu", "cuda"),
+    )
+    env = _StubTorchEnv(backend=backend, device="cuda")
+    with pytest.raises(ValueError, match="graph_completion_publication"):
+        env.init_state()
+
+
 def test_backend_reset_timing_hook_is_merged() -> None:
     class _TimedEnv(_StubTorchEnv):
         def _collect_reset_backend_timing_ms(self) -> dict[str, float]:
