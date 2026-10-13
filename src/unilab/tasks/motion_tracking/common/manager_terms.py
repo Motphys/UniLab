@@ -1371,6 +1371,9 @@ class MotionJointPositionAction(JointPositionAction):
         # action application. Initialize deterministically rather than exposing
         # uninitialized device memory in initial/reset observations.
         self._tensor_motion_target = torch.zeros_like(self._processed_actions)
+        self._selected_default_bias = torch.empty_like(self._tensor_motion_target)
+        self._selected_encoder_bias = torch.empty_like(self._tensor_motion_target)
+        self._control_adjustment = torch.empty_like(self._tensor_motion_target)
 
     @property
     def tensor_target(self) -> torch.Tensor:
@@ -1399,16 +1402,35 @@ class MotionJointPositionAction(JointPositionAction):
             )
             default_bias = self._motion_command.joint_default_bias
             if isinstance(default_bias, torch.Tensor):
-                selected_default_bias = default_bias.index_select(1, self._target_index)
+                selected_default_bias = self._selected_default_bias
+                torch.index_select(
+                    default_bias,
+                    1,
+                    self._target_index,
+                    out=selected_default_bias,
+                )
             else:
                 selected_default_bias = torch.as_tensor(
                     default_bias[:, self._target_ids],
                     device=self._device,
                     dtype=torch.float32,
                 )
+            selected_encoder_bias = self._selected_encoder_bias
+            torch.index_select(
+                encoder_bias,
+                1,
+                self._target_index,
+                out=selected_encoder_bias,
+            )
+            control_adjustment = self._control_adjustment
+            torch.sub(
+                selected_default_bias,
+                selected_encoder_bias,
+                out=control_adjustment,
+            )
             torch.add(
                 self._processed_actions,
-                selected_default_bias - encoder_bias.index_select(1, self._target_index),
+                control_adjustment,
                 out=self._tensor_motion_target,
             )
             self._entity.set_joint_position_target(
