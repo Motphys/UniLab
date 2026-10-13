@@ -74,6 +74,8 @@ class CommandTerm(ManagerTermBase):
         self.command_counter = torch.zeros(self.num_envs, dtype=torch.int64, device=self._device)
         self.last_reset_timing_ms: dict[str, float] = {}
         self.last_post_compute_timing_ms: dict[str, float] = {}
+        self._dt_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
+        self._deferred_validation_boundaries = False
 
     @property
     @abc.abstractmethod
@@ -199,7 +201,9 @@ class CommandTerm(ManagerTermBase):
                 )
         if tensor_dt:
             assert dt_tensor is not None
-            dt_is_finite = bool(torch.isfinite(dt_tensor).all())
+            valid = torch.isfinite(dt_tensor).all()
+            self._dt_finite_valid.copy_(valid)
+            dt_is_finite = self._deferred_validation_boundaries or bool(valid)
         else:
             assert dt_scalar is not None
             dt_is_finite = math.isfinite(dt_scalar)
@@ -271,6 +275,19 @@ class CommandTerm(ManagerTermBase):
             raise RuntimeError("CommandTerm scheduling requires the Manager-owned Torch generator")
         return rng
 
+    @property
+    def deferred_validation_boundaries(self) -> bool:
+        """Whether finite verdict publication may defer to completion."""
+        return self._deferred_validation_boundaries
+
+    def set_deferred_validation_boundaries(self, enabled: bool) -> None:
+        """Move finite publication to an explicit completion boundary."""
+        if not isinstance(enabled, bool):
+            raise TypeError(
+                f"deferred command validation boundaries must be bool, got {type(enabled)}"
+            )
+        self._deferred_validation_boundaries = enabled
+
     @abc.abstractmethod
     def _update_metrics(self) -> None:
         """Update full-width metrics based on the current state."""
@@ -320,6 +337,7 @@ class CommandManager(ManagerBase):
         self._device = torch.device(getattr(env, "device", torch.device("cpu")))
         self._last_term_reset_timing_ms: dict[str, float] = {}
         self.last_post_compute_timing_ms: dict[str, float] = {}
+        self._deferred_validation_boundaries = False
         super().__init__(env)
 
     def __str__(self) -> str:
@@ -350,6 +368,21 @@ class CommandManager(ManagerBase):
             command = self._validate_command(name, term.command)
             terms.append((name, command[env_idx].detach().cpu().tolist()))
         return terms
+
+    @property
+    def deferred_validation_boundaries(self) -> bool:
+        """Whether command finite publication may defer to completion."""
+        return self._deferred_validation_boundaries
+
+    def set_deferred_validation_boundaries(self, enabled: bool) -> None:
+        """Move finite publication to an explicit completion boundary."""
+        if not isinstance(enabled, bool):
+            raise TypeError(
+                f"deferred command validation boundaries must be bool, got {type(enabled)}"
+            )
+        self._deferred_validation_boundaries = enabled
+        for term in self._terms.values():
+            term.set_deferred_validation_boundaries(enabled)
 
     def reset(self, reset_mask: torch.Tensor) -> dict[str, float]:
         """Full-width command reset.
@@ -517,6 +550,9 @@ class NullCommandManager:
         self.active_terms: list[str] = []
         self._terms: dict[str, Any] = {}
         self.cfg = None
+
+    def set_deferred_validation_boundaries(self, enabled: bool) -> None:
+        del enabled
 
     def __str__(self) -> str:
         return "<NullCommandManager> (inactive)"

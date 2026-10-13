@@ -204,6 +204,25 @@ def test_command_resample_metrics_validation_and_null(fake_env: FakeEnv) -> None
     np.testing.assert_array_equal(manager.get_term("goal").command[:, 0], [0, 1, 1, 0])
     assert manager.get_term("goal").command_counter.tolist() == [1, 2, 2, 1]
 
+
+def test_deferred_command_dt_verdict_stays_device_resident(fake_env: FakeEnv) -> None:
+    manager = CommandManager({"goal": DummyCommandCfg(resampling_time_range=(0.5, 0.5))}, fake_env)
+    manager.set_deferred_validation_boundaries(True)
+    term = manager.get_term("goal")
+    assert term.deferred_validation_boundaries is True
+    dt = torch.full((fake_env.num_envs,), 0.1, dtype=torch.float32)
+    dt[1] = torch.nan
+    term.set_deferred_validation_boundaries(False)
+    with pytest.raises(ValueError, match="non-finite dt"):
+        term.compute(dt)
+    term.set_deferred_validation_boundaries(True)
+
+    term.compute(dt)
+
+    assert term.deferred_validation_boundaries is True
+    assert term._dt_finite_valid.item() is False
+
+    manager.set_deferred_validation_boundaries(False)
     manager.get_term("goal").command[0, 0] = np.nan
     with pytest.raises(ValueError, match="NaN or Inf"):
         manager.get_command("goal")
