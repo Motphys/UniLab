@@ -73,6 +73,9 @@ training:
   wandb_notes: null
   wandb_mode: null
   sim_backend: mujoco
+  # Owner-controlled collector execution mode. `graph` is fail-closed until the
+  # public collector capture/replay lifecycle is implemented and negotiated.
+  collector_graph: disabled
   # Explicit MuJoCo HOST_BRIDGE Manager carrier family. CPU remains the default
   # even when automatic learner selection resolves to CUDA.
   collector_tensor_device: cpu

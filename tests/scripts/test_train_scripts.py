@@ -255,6 +255,22 @@ def test_offpolicy_hydra_default_sim_backend():
     assert cfg.training.sim_backend == "mujoco"
 
 
+@pytest.mark.parametrize("algo", ["sac", "flashsac"])
+def test_offpolicy_collector_graph_defaults_to_disabled(algo: str):
+    cfg = _offpolicy_cfg(algo=algo)
+    assert cfg.training.collector_graph == "disabled"
+
+
+def test_offpolicy_graph_mode_fails_closed_before_runner_construction(monkeypatch):
+    cfg = _offpolicy_cfg(
+        ["task=g1_motion_tracking/mjwarp", "training.collector_graph=graph"],
+        algo="flashsac",
+    )
+    mod = _offpolicy()
+    with pytest.raises(RuntimeError, match="neutral uni_rl collector mode"):
+        mod.build_runner("flashsac", cfg)
+
+
 @pytest.mark.parametrize("algo", ["sac", "flashsac", "ppo", "appo"])
 def test_hydra_default_collector_tensor_device_is_cpu(algo: str):
     if algo in {"sac", "flashsac"}:
