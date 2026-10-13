@@ -312,10 +312,11 @@ class ActionManager(ManagerBase):
         else:
             valid = torch.isfinite(action).all()
             self._action_finite_valid.copy_(valid)
-        if self._deferred_validation_boundaries:
-            return
-        if not bool(valid):
+        if not self._deferred_validation_boundaries and not bool(valid):
             raise ValueError("ActionManager received an action containing NaN or Inf.")
+        # Deferred mode moves only the invalid-value publication boundary; action
+        # history and per-term transforms still execute. This keeps deferred
+        # control semantics identical while the verdict stays device-resident.
         # Shift history: prev_prev ← prev ← current ← new.
         self._prev_prev_action[:] = self._prev_action
         self._prev_action[:] = self._action
