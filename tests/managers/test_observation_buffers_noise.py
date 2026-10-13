@@ -521,6 +521,45 @@ def test_concatenated_outputs_rotate_persistent_carriers(fake_env: FakeEnv) -> N
         torch.testing.assert_close(output[:, 2:], torch.full((fake_env.num_envs, 1), 3.0))
 
 
+def test_configured_noise_publications_rotate_persistent_carriers(fake_env: FakeEnv) -> None:
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                enable_corruption=True,
+                terms={
+                    "state": ObservationTermCfg(
+                        func=lambda env: env.obs,
+                        noise=UniformNoiseCfg(n_min=-0.1, n_max=0.1),
+                    )
+                },
+            )
+        },
+        fake_env,
+    )
+
+    noisy_addresses = []
+    manager.compute(update_history=True)
+    for _ in range(3):
+        before = set(
+            carrier.data_ptr()
+            for carrier in manager._group_term_noise_carriers[("policy", "state")]
+        )
+        manager.compute(update_history=True)
+        after = set(
+            carrier.data_ptr()
+            for carrier in manager._group_term_noise_carriers[("policy", "state")]
+        )
+        assert before == after
+        noisy_addresses.append(
+            manager._group_term_noise_carriers[("policy", "state")][
+                manager._group_term_noise_generation[("policy", "state")] % 2
+            ].data_ptr()
+        )
+
+    assert len(noisy_addresses) == 3
+    assert len(set(noisy_addresses)) <= 2
+
+
 def test_concatenated_nan_sanitize_does_not_mutate_term_owned_input(
     fake_env: FakeEnv,
 ) -> None:
