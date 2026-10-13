@@ -7,6 +7,7 @@ on one Torch device and consume the Manager-owned Torch generator.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from typing import cast
@@ -202,6 +203,13 @@ class TensorMotionSampler:
             torch.tensor(float(self.bin_count), device=self.device)
         )
         self._sampling_top1_index = torch.empty((), dtype=torch.int64, device=self.device)
+        start_mass = self.start_ratio + (1.0 - self.start_ratio) / self.bin_count
+        uniform_mass = (1.0 - self.start_ratio) / self.bin_count
+        self._mixed_log_start = torch.empty_like(self.sampling_entropy)
+        self._mixed_log_start.fill_(math.log(start_mass + 1.0e-12))
+        self._mixed_log_uniform = torch.empty_like(self.sampling_entropy)
+        self._mixed_log_uniform.fill_(math.log(uniform_mass + 1.0e-12))
+        self._mixed_entropy = torch.empty_like(self.sampling_entropy)
         self.diagnostics = TensorMotionSamplerDiagnostics()
 
     @property
@@ -406,16 +414,15 @@ class TensorMotionSampler:
             self.sampling_entropy.fill_(0.0)
             return
         uniform_mass = (1.0 - self.start_ratio) / self.bin_count
-        entropy = -start_mass * torch.log(torch.tensor(start_mass + 1.0e-12, device=self.device))
-        entropy -= (
-            (self.bin_count - 1)
-            * uniform_mass
-            * torch.log(torch.tensor(uniform_mass + 1.0e-12, device=self.device))
-        )
-        denominator = torch.log(torch.tensor(float(self.bin_count), device=self.device))
-        self.sampling_entropy.copy_(
-            entropy / denominator if self.bin_count > 1 else torch.tensor(1.0)
-        )
+        entropy = self._mixed_entropy
+        entropy.copy_(self._mixed_log_start)
+        entropy.mul_(-start_mass)
+        entropy.add_(self._mixed_log_uniform, alpha=-(self.bin_count - 1) * uniform_mass)
+        if self.bin_count > 1:
+            entropy.div_(self._sampling_log_bin_count)
+        else:
+            entropy.fill_(1.0)
+        self.sampling_entropy.copy_(entropy)
 
 
 __all__ = ["TensorMotionSampler", "TensorMotionSamplerDiagnostics"]

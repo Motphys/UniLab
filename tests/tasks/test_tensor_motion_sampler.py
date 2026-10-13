@@ -129,6 +129,46 @@ def test_adaptive_probabilities_and_metrics_reuse_persistent_carriers() -> None:
     assert bool(torch.isfinite(sampler.sampling_top1_bin))
 
 
+def test_mixed_metrics_reuse_persistent_carriers_and_values() -> None:
+    sampler = _sampler(mode="mixed", start_ratio=0.5)
+    mask = torch.ones(4, dtype=torch.bool)
+    generator = torch.Generator(device="cpu").manual_seed(3)
+
+    first_entropy_pointer = sampler.sampling_entropy.data_ptr()
+    log_start_pointer = sampler._mixed_log_start.data_ptr()
+    log_uniform_pointer = sampler._mixed_log_uniform.data_ptr()
+    entropy_carrier_pointer = sampler._mixed_entropy.data_ptr()
+    sampler.sample_frames(mask, generator)
+    second_entropy_pointer = sampler.sampling_entropy.data_ptr()
+    sampler.sample_frames(mask, generator)
+
+    assert second_entropy_pointer == first_entropy_pointer
+    assert sampler.sampling_entropy.data_ptr() == first_entropy_pointer
+    assert sampler._mixed_log_start.data_ptr() == log_start_pointer
+    assert sampler._mixed_log_uniform.data_ptr() == log_uniform_pointer
+    assert sampler._mixed_entropy.data_ptr() == entropy_carrier_pointer
+    assert sampler.sampling_top1_prob.item() == pytest.approx(0.625)
+    assert sampler.sampling_top1_bin.item() == 0.0
+    start_mass = 0.625
+    uniform_mass = 0.125
+    expected = -start_mass * torch.log(torch.tensor(start_mass + 1.0e-12))
+    expected -= 3.0 * uniform_mass * torch.log(torch.tensor(uniform_mass + 1.0e-12))
+    expected /= torch.log(torch.tensor(4.0))
+    torch.testing.assert_close(sampler.sampling_entropy, expected, rtol=0, atol=1.0e-7)
+
+
+def test_mixed_metrics_handle_degenerate_and_single_bin_cases() -> None:
+    deterministic = _sampler(mode="mixed", start_ratio=1.0)
+    deterministic._publish_mixed_metrics()
+    assert deterministic.sampling_entropy.item() == 0.0
+    assert deterministic.sampling_top1_prob.item() == 1.0
+
+    single_bin = _sampler(mode="mixed", bin_count=1)
+    single_bin._publish_mixed_metrics()
+    assert single_bin.sampling_entropy.item() == 0.0
+    assert single_bin.sampling_top1_prob.item() == 1.0
+
+
 def test_all_false_reset_sampling_is_state_noop() -> None:
     sampler = _sampler(initial_frames=torch.tensor([10, 11, 12, 13], dtype=torch.int32))
     frames_before = sampler.current_frames.clone()
