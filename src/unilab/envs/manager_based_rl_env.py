@@ -404,6 +404,7 @@ class ManagerBasedRlEnv(TorchEnv):
         self._collector_graph_enabled = False
         self._collector_graph_state = "unavailable"
         self._collector_graph_capture_id: str | None = None
+        self._collector_graph_invalidation_reason: str | None = None
         self._collector_graph_disable_reason = "collector graph mode is disabled"
         self._collector_graph_fallback_count = 0
         self._collector_graph_replay_count = 0
@@ -1259,6 +1260,7 @@ class ManagerBasedRlEnv(TorchEnv):
         self._collector_graph_requested = resolved is CollectorGraphMode.GRAPH
         self._collector_graph_enabled = False
         self._collector_graph_capture_id = None
+        self._collector_graph_invalidation_reason = None
         self._collector_graph_fallback_count = 0
         self._collector_graph_replay_count = 0
         self._collector_graph_replay_publish_count = 0
@@ -1278,11 +1280,13 @@ class ManagerBasedRlEnv(TorchEnv):
             verdict = self.preflight_graph_candidate(requested=True)
         except BaseException:
             self._collector_graph_state = "invalidated"
+            self._collector_graph_invalidation_reason = "capture_failed"
             self._collector_graph_disable_reason = "collector graph preflight failed"
             raise
         if verdict.get("supported") is not True:
             reason = verdict.get("disable_reason")
             self._collector_graph_state = "invalidated"
+            self._collector_graph_invalidation_reason = "capture_failed"
             self._collector_graph_disable_reason = (
                 str(reason)
                 if isinstance(reason, str) and reason.strip()
@@ -1291,6 +1295,7 @@ class ManagerBasedRlEnv(TorchEnv):
             if allow_eager_fallback:
                 self._collector_graph_mode = CollectorGraphMode.EAGER
                 self._collector_graph_state = "eager"
+                self._collector_graph_invalidation_reason = None
                 self._collector_graph_requested = False
                 self._collector_graph_disable_reason = (
                     f"explicit eager fallback: {self._collector_graph_disable_reason}"
@@ -1326,6 +1331,7 @@ class ManagerBasedRlEnv(TorchEnv):
             "enabled": self._collector_graph_enabled,
             "state": self._collector_graph_state,
             "capture_id": self._collector_graph_capture_id,
+            "invalidation_reason": self._collector_graph_invalidation_reason,
             "disable_reason": self._collector_graph_disable_reason,
             "fallback_count": self._collector_graph_fallback_count,
             "replay_count": self._collector_graph_replay_count,

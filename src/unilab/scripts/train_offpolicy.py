@@ -714,6 +714,7 @@ def main(cfg: DictConfig) -> None:
                 "unavailable" if collector_graph_mode is CollectorGraphMode.DISABLED else "eager"
             ),
             "capture_id": None,
+            "invalidation_reason": None,
             "disable_reason": (
                 "collector graph mode is disabled"
                 if collector_graph_mode is CollectorGraphMode.DISABLED
