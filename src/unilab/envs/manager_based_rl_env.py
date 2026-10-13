@@ -1157,7 +1157,11 @@ class ManagerBasedRlEnv(TorchEnv):
     def _configure_action_control(self) -> None:
         # Tensor Manager stepping consumes one control tensor per control step in
         # P1; multi-substep state feedback fails closed during validation.
-        return
+        self._collector_action_input = torch.empty(
+            (self.num_envs, self.action_manager.total_action_dim),
+            dtype=torch.float32,
+            device=self.device,
+        )
 
     def _control_to_backend_boundary(self) -> torch.Tensor:
         """Return the contiguous authoritative Torch control tensor."""
@@ -1217,6 +1221,8 @@ class ManagerBasedRlEnv(TorchEnv):
         self._collector_graph_step_active = True
         try:
             state = super().step(actions)
+            if isinstance(actions, torch.Tensor):
+                self._collector_action_input.copy_(actions)
             self._publish_reward_components(state)
             reset_completion = self.last_reset_completion
             if reset_completion is not None:
@@ -1319,6 +1325,64 @@ class ManagerBasedRlEnv(TorchEnv):
             "replay_count": self._collector_graph_replay_count,
             "replay_publish_count": self._collector_graph_replay_publish_count,
             "replay_release_count": self._collector_graph_replay_release_count,
+        }
+
+    @property
+    def collector_action_input(self) -> torch.Tensor:
+        """Return the fixed public action input carrier for cold-path binding."""
+        return self._collector_action_input
+
+    @property
+    def collector_control(self) -> torch.Tensor:
+        """Return the fixed public control carrier for cold-path binding."""
+        return self._control
+
+    @property
+    def collector_reward_components(self) -> torch.Tensor:
+        """Return the fixed full-width reward-component publication carrier."""
+        return self.reward_manager.step_rewards
+
+    @property
+    def collector_validation_verdicts(self) -> dict[str, torch.Tensor]:
+        """Return persistent device verdicts for completion-boundary checks."""
+        verdicts = self._validation_flags()
+        verdicts["reward_finite"] = self.reward_manager.finite_valid
+        verdicts["action_term_finite"] = self.action_manager.action_finite_valid
+        return verdicts
+
+    def get_collector_carrier_layout(self) -> dict[str, Any]:
+        """Return fixed carrier layout identity on a cold path."""
+        action_shape = self.action_space.shape
+        return {
+            "num_envs": self.num_envs,
+            "device": str(self.device),
+            "action": self._carrier_layout(self._collector_action_input),
+            "control": self._carrier_layout(self._control),
+            "observations": {
+                name: self._carrier_layout(value) for name, value in self._public_obs.items()
+            },
+            "reward": self._carrier_layout(self._public_reward),
+            "reward_components": self._carrier_layout(self.reward_manager.step_rewards),
+            "terminated": self._carrier_layout(self._public_terminated),
+            "truncated": self._carrier_layout(self._public_truncated),
+            "terminal_observations": (
+                {
+                    name: self._carrier_layout(value)
+                    for name, value in self._final_observation_scratch.items()
+                }
+                if self._final_observation_scratch is not None
+                else {}
+            ),
+            "action_dimension": int(action_shape[0]) if action_shape is not None else None,
+        }
+
+    @staticmethod
+    def _carrier_layout(value: torch.Tensor) -> dict[str, Any]:
+        return {
+            "shape": tuple(int(size) for size in value.shape),
+            "dtype": str(value.dtype).removeprefix("torch."),
+            "device": str(value.device),
+            "data_ptr": value.data_ptr(),
         }
 
     def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:

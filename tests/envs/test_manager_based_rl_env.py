@@ -1665,6 +1665,62 @@ def test_step_reuses_persistent_public_output_carriers() -> None:
     env.close()
 
 
+def test_collector_fixed_carriers_keep_address_shape_device_dtype() -> None:
+    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
+    env.init_state()
+    env.step(torch.zeros((2, 1), dtype=torch.float32, device=env.device))
+
+    action = env.collector_action_input
+    control = env.collector_control
+    observations = env._public_obs
+    reward = env._public_reward
+    reward_components = env.collector_reward_components
+    terminated = env._public_terminated
+    truncated = env._public_truncated
+    terminal = env._final_observation_scratch
+    assert terminal is not None
+    layout = env.get_collector_carrier_layout()
+
+    assert action.shape == (2, 1)
+    assert control.shape == (2, 1)
+    assert observations == {"obs": observations["obs"], "critic": observations["critic"]}
+    assert reward.shape == (2,)
+    assert reward_components.shape == (2, 1)
+    assert terminated.shape == (2,)
+    assert truncated.shape == (2,)
+    assert set(terminal) == set(observations)
+    assert all(
+        value.shape == (2, env.obs_groups_spec[name])
+        for name, value in {**observations, **terminal}.items()
+    )
+    carriers = (
+        action,
+        control,
+        reward,
+        reward_components,
+        *observations.values(),
+        *terminal.values(),
+    )
+    assert all(value.dtype == torch.float32 for value in carriers)
+    assert terminated.dtype == torch.bool
+    assert truncated.dtype == torch.bool
+    assert all(value.device == env.device for value in (*carriers, terminated, truncated))
+    assert layout["action"]["data_ptr"] == action.data_ptr()
+    assert layout["control"]["data_ptr"] == control.data_ptr()
+    assert layout["reward"]["data_ptr"] == reward.data_ptr()
+    assert layout["reward_components"]["data_ptr"] == reward_components.data_ptr()
+    assert layout["observations"]["obs"]["data_ptr"] == observations["obs"].data_ptr()
+    assert layout["terminal_observations"]["critic"]["data_ptr"] == terminal["critic"].data_ptr()
+    assert env.collector_validation_verdicts.keys() >= {
+        "action_finite",
+        "control_finite",
+        "state_finite",
+        "reward_finite",
+        "action_term_finite",
+    }
+    env.close()
+
+
 def test_graph_rng_state_snapshot_is_versioned_and_restoreable() -> None:
     env, _backend = _make_env()
     env.init_state()
