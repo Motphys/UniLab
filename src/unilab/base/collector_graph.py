@@ -17,6 +17,9 @@ class CollectorGraphMode(Enum):
 
 COLLECTOR_GRAPH_MODES = frozenset({mode.value for mode in CollectorGraphMode})
 COLLECTOR_GRAPH_MANIFEST_VERSION = 1
+COLLECTOR_GRAPH_INVALIDATION_REASONS = frozenset(
+    {"model", "data", "view", "capacity", "policy_io", "stream_event", "capture_failed"}
+)
 
 
 def resolve_collector_graph_mode(value: Any) -> CollectorGraphMode:
@@ -45,6 +48,7 @@ def validate_collector_graph_manifest(manifest: Any) -> None:
     required = {
         "contract_version",
         "mode",
+        "invalidation_reason",
         "requested",
         "enabled",
         "state",
@@ -82,6 +86,14 @@ def validate_collector_graph_manifest(manifest: Any) -> None:
         raise ValueError(f"collector graph manifest has unsupported state {state!r}")
     capture_id = manifest["capture_id"]
     reason = manifest["disable_reason"]
+    invalidation_reason = manifest["invalidation_reason"]
+    if invalidation_reason is not None and (
+        not isinstance(invalidation_reason, str)
+        or invalidation_reason not in COLLECTOR_GRAPH_INVALIDATION_REASONS
+    ):
+        raise ValueError(
+            f"collector graph manifest has unsupported invalidation_reason {invalidation_reason!r}"
+        )
     if manifest["enabled"]:
         if mode != "graph" or not manifest["requested"] or state != "ready":
             raise ValueError("an enabled collector graph must be a requested, READY graph mode")
@@ -89,11 +101,19 @@ def validate_collector_graph_manifest(manifest: Any) -> None:
             raise ValueError("an enabled collector graph requires a non-empty capture_id")
         if reason is not None:
             raise ValueError("an enabled collector graph must not declare a disable reason")
+        if invalidation_reason is not None:
+            raise ValueError("an enabled collector graph must not declare an invalidation reason")
     else:
         if capture_id is not None:
             raise ValueError("a disabled collector graph must not publish a capture_id")
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("a disabled collector graph requires a non-empty disable reason")
+        if state == "invalidated" and invalidation_reason is None:
+            raise ValueError("an invalidated collector graph requires an invalidation reason")
+        if state != "invalidated" and invalidation_reason is not None:
+            raise ValueError(
+                "only an invalidated collector graph may declare an invalidation reason"
+            )
     if manifest["replay_release_count"] > manifest["replay_publish_count"]:
         raise ValueError("collector graph replay release count exceeds publication count")
 

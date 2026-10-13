@@ -36,6 +36,7 @@ def _manifest(**updates: object) -> dict[str, object]:
         "enabled": False,
         "state": "eager",
         "capture_id": None,
+        "invalidation_reason": None,
         "disable_reason": "explicit eager collector execution",
         "fallback_count": 0,
         "replay_count": 0,
@@ -77,6 +78,7 @@ def test_enabled_graph_manifest_requires_ready_capture_identity() -> None:
             enabled=True,
             state="ready",
             capture_id="capture-a",
+            invalidation_reason=None,
             disable_reason=None,
         )
     )
