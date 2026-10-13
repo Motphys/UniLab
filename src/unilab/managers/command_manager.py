@@ -402,6 +402,11 @@ class CommandManager(ManagerBase):
         for term in self._terms.values():
             term.set_deferred_validation_boundaries(enabled)
 
+    def publish_validation_verdicts(self) -> None:
+        """Publish all command term verdicts at one completion boundary."""
+        for term in self._terms.values():
+            term.publish_validation_verdict()
+
     def reset(self, reset_mask: torch.Tensor) -> dict[str, float]:
         """Full-width command reset.
 
@@ -577,6 +582,9 @@ class NullCommandManager:
 
     def set_deferred_validation_boundaries(self, enabled: bool) -> None:
         del enabled
+
+    def publish_validation_verdicts(self) -> None:
+        return None
 
     def __str__(self) -> str:
         return "<NullCommandManager> (inactive)"
