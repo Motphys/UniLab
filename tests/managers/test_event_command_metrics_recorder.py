@@ -249,6 +249,32 @@ def test_deferred_command_and_metric_verdicts_publish_at_boundary(fake_env: Fake
         term.publish_validation_verdict()
 
 
+def test_deferred_command_reset_metrics_stay_device_resident(fake_env: FakeEnv) -> None:
+    manager = CommandManager({"goal": DummyCommandCfg(resampling_time_range=(0.5, 0.5))}, fake_env)
+    manager.set_deferred_validation_boundaries(True)
+    term = manager.get_term("goal")
+    term.metrics["error"][2] = np.nan
+    reset_mask = torch.tensor([False, True, True, False], dtype=torch.bool)
+    metric_before = term.metrics["error"].clone()
+
+    def fail_cpu(_tensor: torch.Tensor) -> torch.Tensor:
+        raise AssertionError("deferred command reset published metrics through host")
+
+    original_cpu = torch.Tensor.cpu
+    torch.Tensor.cpu = fail_cpu
+    try:
+        extras = term.reset(reset_mask)
+    finally:
+        torch.Tensor.cpu = original_cpu
+
+    assert extras == {}
+    assert term._metrics_finite_valid.item() is False
+    torch.testing.assert_close(
+        term.metrics["error"],
+        torch.where(reset_mask, torch.zeros_like(metric_before), metric_before),
+    )
+
+
 def test_command_reset_rejects_non_fixed_width_mask(fake_env: FakeEnv) -> None:
     manager = CommandManager({"goal": DummyCommandCfg(resampling_time_range=(1.0, 1.0))}, fake_env)
     with pytest.raises(ValueError, match="CommandManager reset mask"):
