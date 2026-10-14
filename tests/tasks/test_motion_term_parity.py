@@ -614,6 +614,65 @@ def test_tensor_command_publishes_sampler_advance_exactly_once() -> None:
     torch.testing.assert_close(command.time_steps, torch.tensor([5, 1, 10], dtype=torch.int32))
 
 
+def test_motion_command_finite_verdict_reuses_persistent_carrier() -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    command._device = torch.device("cpu")
+    command._command = torch.ones((3, 4), dtype=torch.float32)
+    command._command_finite_valid = torch.ones((), dtype=torch.bool)
+    command._deferred_validation_boundaries = False
+    refreshes = 0
+
+    def refresh() -> None:
+        nonlocal refreshes
+        refreshes += 1
+
+    command._refresh_motion_torch = refresh
+
+    first = command.command
+    assert command._command_finite_valid.item() is True
+    assert first.data_ptr() == command._command.data_ptr()
+
+    command._command[1, 1] = torch.nan
+    command.command
+    assert command._command_finite_valid.item() is False
+    assert refreshes == 1
+
+
+def test_motion_command_deferred_finite_verdict_does_not_host_refresh() -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    command._device = torch.device("cpu")
+    command._command = torch.ones((3, 4), dtype=torch.float32)
+    command._command_finite_valid = torch.ones((), dtype=torch.bool)
+    command._deferred_validation_boundaries = True
+    refreshes = 0
+
+    def refresh() -> None:
+        nonlocal refreshes
+        refreshes += 1
+
+    command._refresh_motion_torch = refresh
+    command._command[2, 3] = torch.nan
+    result = command.command
+
+    assert result.data_ptr() == command._command.data_ptr()
+    assert command._command_finite_valid.item() is False
+    assert refreshes == 0
+
+
+def test_motion_packet_reuses_persistent_reset_carrier() -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    command._device = torch.device("cpu")
+    command._motion_features = torch.arange(3 * 4, dtype=torch.float32).reshape(3, 4)
+    command._reset_motion_packet = torch.empty_like(command._motion_features)
+
+    first = command._motion_packet(torch.tensor((0, 1, 2), dtype=torch.int32))
+    second = command._motion_packet(torch.tensor((1, 1, 1), dtype=torch.int32))
+
+    assert first.data_ptr() == command._reset_motion_packet.data_ptr()
+    assert second.data_ptr() == command._reset_motion_packet.data_ptr()
+    torch.testing.assert_close(second, command._motion_features[torch.ones(3, dtype=torch.int64)])
+
+
 def test_tensor_command_full_refresh_gathers_advanced_frames() -> None:
     command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._device = torch.device("cpu")

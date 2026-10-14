@@ -328,6 +328,33 @@ def test_reward_pack_supplies_outputs_without_duplicate_execution(fake_env: Fake
     assert calls == ["packed"]
 
 
+def test_reward_aggregation_reuses_persistent_scratch_carriers(fake_env: FakeEnv) -> None:
+    manager = RewardManager(
+        {
+            "left": RewardTermCfg(func=lambda env: torch.ones(env.num_envs), weight=2.0),
+            "right": RewardTermCfg(func=lambda env: torch.full((env.num_envs,), 3.0), weight=-1.0),
+        },
+        fake_env,
+        scale_by_dt=False,
+    )
+    addresses = {
+        name: getattr(manager, name).data_ptr()
+        for name in (
+            "_term_reward_scratch",
+            "_packed_reward_scratch",
+            "_term_step_scratch",
+            "_packed_step_scratch",
+        )
+    }
+
+    first = manager.compute(dt=1.0)
+    second = manager.compute(dt=1.0)
+
+    assert {name: getattr(manager, name).data_ptr() for name in addresses} == addresses
+    torch.testing.assert_close(first, torch.full_like(first, -1.0))
+    torch.testing.assert_close(second, first)
+
+
 def test_reward_pack_rejects_invalid_output_width(fake_env: FakeEnv) -> None:
     manager = RewardManager(
         {
@@ -602,3 +629,28 @@ def test_deferred_action_term_pack_skips_eager_publication(fake_env: FakeEnv) ->
     assert manager.action_finite_valid.item() is False
     with pytest.raises(ValueError, match="ActionManager received an action containing NaN"):
         manager.publish_validation_verdict()
+
+
+def test_deferred_action_still_updates_history_and_term_transforms(fake_env: FakeEnv) -> None:
+    manager = ActionManager(
+        {
+            "first": DeferredVerdictActionCfg(entity_name="robot", dim=1),
+            "second": DeferredVerdictActionCfg(entity_name="robot", dim=1),
+        },
+        fake_env,
+    )
+    manager.set_deferred_validation_boundaries(True)
+    manager.process_action(torch.zeros((fake_env.num_envs, 2), dtype=torch.float32))
+    actions = torch.full((fake_env.num_envs, 2), 2.0, dtype=torch.float32)
+
+    manager.process_action(actions)
+
+    torch.testing.assert_close(manager.action, actions)
+    torch.testing.assert_close(manager.prev_action, torch.zeros_like(actions))
+    torch.testing.assert_close(manager.prev_prev_action, torch.zeros_like(actions))
+    first = manager.get_term("first")
+    second = manager.get_term("second")
+    torch.testing.assert_close(first.raw_action, actions[:, :1])
+    torch.testing.assert_close(second.raw_action, actions[:, 1:])
+    assert first.publish_calls == 0
+    assert second.publish_calls == 0

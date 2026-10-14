@@ -1252,13 +1252,13 @@ class ManagerBasedRlEnv(TorchEnv):
         state.info["log"] = log
         self.extras = state.info
 
-        self.episode_length_buf.copy_(state.info["steps"]).add_(1)
         self.common_step_counter = self.step_counter + 1
         self._sim_step_counter = self.common_step_counter * self._cfg.sim_substeps
         timing["update_state_prelude_ms"] = (time.perf_counter_ns() - prelude_started_ns) / 1.0e6
 
         termination_compute_started = time.perf_counter()
-        self.termination_manager.compute()
+        self._advance_episode_steps(state.info["steps"])
+        self._compute_termination_and_reset_flags()
         termination_compute_ms = (time.perf_counter() - termination_compute_started) * 1000.0
         termination_timing = getattr(self.termination_manager, "last_step_timing_ms", {})
         timing.update(termination_timing)
@@ -1270,19 +1270,10 @@ class ManagerBasedRlEnv(TorchEnv):
         timing["update_state_termination_ms"] = (time.perf_counter() - phase_started) * 1000.0
         timing["update_state_termination_host_ms"] = termination_compute_ms
         phase_started = time.perf_counter()
-        terminated = self.termination_manager.terminated
-        time_outs = self.termination_manager.time_outs
-        if self._cfg.is_finite_horizon:
-            torch.logical_or(terminated, time_outs, out=self.reset_terminated)
-            self.reset_time_outs.fill_(False)
-        else:
-            self.reset_terminated.copy_(terminated)
-            self.reset_time_outs.copy_(time_outs)
-        torch.logical_or(self.reset_terminated, self.reset_time_outs, out=self.reset_buf)
         timing["update_state_reset_flags_ms"] = (time.perf_counter() - phase_started) * 1000.0
         phase_started = time.perf_counter()
 
-        self.reward_buf = self.reward_manager.compute(dt=self.step_dt)
+        self.reward_buf = self._compute_rewards()
         reward_timing = getattr(self.reward_manager, "last_step_timing_ms", {})
         state.info["update_state_timing"].update(reward_timing)
         timing.update(reward_timing)
@@ -1293,50 +1284,30 @@ class ManagerBasedRlEnv(TorchEnv):
 
         if self._cfg.sim_substeps == 1:
             self.metrics_manager.compute_substep()
-        self.metrics_manager.compute()
+        self._compute_metrics()
         timing["update_state_metrics_ms"] = (time.perf_counter() - phase_started) * 1000.0
         phase_started = time.perf_counter()
 
         events_started = time.perf_counter()
-        applied_runtime_event = False
-        if "step" in self.event_manager.available_modes:
-            self.event_manager.apply(mode="step", dt=self.step_dt)
-            applied_runtime_event = True
-        if "interval" in self.event_manager.available_modes:
-            self.event_manager.apply(mode="interval", dt=self.step_dt)
-            applied_runtime_event = True
-        if applied_runtime_event:
-            # Event terms may mutate simulation state through their formal
-            # interval/step capabilities; EventManager does not expose whether a
-            # particular interval fired, so this boundary stays fail-closed.
-            self.scene._invalidate_state_reads()
-            self._refresh_tensor_reads_after_mutation()
+        self._apply_runtime_events()
         timing["update_state_events_ms"] = (time.perf_counter() - events_started) * 1000.0
 
         command_preflight_started = time.perf_counter()
-        self._command_dt.fill_(self.step_dt)
-        self._command_dt.masked_fill_(self.reset_buf, 0.0)
-        step_read_plan = self.scene._tensor_read_plan
-        del step_read_plan
-        self._reset_state.declare_packed_reset_device(self.device)
-        step_reset_context = self._reset_state.scoped_device_owner_tensor(self._all_env_reset_mask)
+        step_reset_context = self._prepare_command_update()
         timing["update_state_command_preflight_ms"] = (
             time.perf_counter() - command_preflight_started
         ) * 1000.0
         command_started = time.perf_counter()
         with step_reset_context:
-            self.command_manager.compute(dt=self._command_dt)
+            self._compute_commands()
             step_timing = getattr(self.command_manager, "last_step_timing_ms", {})
             state.info["update_state_timing"].update(step_timing)
             timing.update(step_timing)
         timing["update_state_command_compute_ms"] = (time.perf_counter() - command_started) * 1000.0
         command_epilogue_started = time.perf_counter()
-        if self._reset_state.last_commit_had_writes:
-            self.scene._invalidate_state_reads()
-            self._refresh_tensor_reads_after_mutation()
-        read_refresh_ms = (time.perf_counter() - command_epilogue_started) * 1000.0
+        read_refresh_ms = self._refresh_reads_after_command_commit()
         post_compute_started = time.perf_counter()
-        self.command_manager.post_compute()
+        self._post_compute_commands()
         post_compute_ms = (time.perf_counter() - post_compute_started) * 1000.0
         timing["update_state_command_read_refresh_ms"] = read_refresh_ms
         timing["update_state_command_post_compute_ms"] = post_compute_ms
@@ -1346,7 +1317,7 @@ class ManagerBasedRlEnv(TorchEnv):
         timing["update_state_command_ms"] = (time.perf_counter() - phase_started) * 1000.0
         phase_started = time.perf_counter()
 
-        manager_obs = self.observation_manager.compute(update_history=True)
+        manager_obs = self._compute_observations()
         observation_timing = getattr(self.observation_manager, "last_step_timing_ms", {})
         state.info["update_state_timing"].update(observation_timing)
         timing.update(observation_timing)
@@ -1397,6 +1368,74 @@ class ManagerBasedRlEnv(TorchEnv):
                 time.perf_counter_ns() - epilogue_started_ns
             ) / 1.0e6
         return replacement
+
+    def _advance_episode_steps(self, steps: torch.Tensor) -> None:
+        """Advance the fixed-width device episode-step carrier by one."""
+        self.episode_length_buf.copy_(steps).add_(1)
+
+    def _compute_termination_and_reset_flags(self) -> None:
+        """Compute termination and publish fixed-width reset-flag carriers."""
+        self.termination_manager.compute()
+        terminated = self.termination_manager.terminated
+        time_outs = self.termination_manager.time_outs
+        if self._cfg.is_finite_horizon:
+            torch.logical_or(terminated, time_outs, out=self.reset_terminated)
+            self.reset_time_outs.fill_(False)
+        else:
+            self.reset_terminated.copy_(terminated)
+            self.reset_time_outs.copy_(time_outs)
+        torch.logical_or(self.reset_terminated, self.reset_time_outs, out=self.reset_buf)
+
+    def _compute_rewards(self) -> torch.Tensor:
+        """Compute and return the persistent full-width reward carrier."""
+        return self.reward_manager.compute(dt=self.step_dt)
+
+    def _compute_metrics(self) -> None:
+        """Advance Manager metric carriers after the step boundary."""
+        self.metrics_manager.compute()
+
+    def _apply_runtime_events(self) -> None:
+        """Apply runtime events and repack any backend state they mutate."""
+        applied_runtime_event = False
+        if "step" in self.event_manager.available_modes:
+            self.event_manager.apply(mode="step", dt=self.step_dt)
+            applied_runtime_event = True
+        if "interval" in self.event_manager.available_modes:
+            self.event_manager.apply(mode="interval", dt=self.step_dt)
+            applied_runtime_event = True
+        if applied_runtime_event:
+            # Event terms may mutate simulation state through their formal
+            # interval/step capabilities; EventManager does not expose whether a
+            # particular interval fired, so this boundary stays fail-closed.
+            self.scene._invalidate_state_reads()
+            self._refresh_tensor_reads_after_mutation()
+
+    def _prepare_command_update(self):
+        """Pin command dt and return the fixed-width owner transaction scope."""
+        self._command_dt.fill_(self.step_dt)
+        self._command_dt.masked_fill_(self.reset_buf, 0.0)
+        self._reset_state.declare_packed_reset_device(self.device)
+        return self._reset_state.scoped_device_owner_tensor(self._all_env_reset_mask)
+
+    def _compute_commands(self) -> None:
+        """Advance command state using the persistent per-env dt carrier."""
+        self.command_manager.compute(dt=self._command_dt)
+
+    def _refresh_reads_after_command_commit(self) -> float:
+        """Repack backend reads if the fixed-width command commit wrote state."""
+        started = time.perf_counter()
+        if self._reset_state.last_commit_had_writes:
+            self.scene._invalidate_state_reads()
+            self._refresh_tensor_reads_after_mutation()
+        return (time.perf_counter() - started) * 1000.0
+
+    def _post_compute_commands(self) -> None:
+        """Publish command post-compute state on its owner boundary."""
+        self.command_manager.post_compute()
+
+    def _compute_observations(self) -> dict[str, Any]:
+        """Compute all observation groups, histories, and noise carriers."""
+        return self.observation_manager.compute(update_history=True)
 
     def publish_reward_log(self) -> dict[str, float]:
         """Publish latest device reward means through the legacy log contract."""
@@ -1576,6 +1615,8 @@ class ManagerBasedRlEnv(TorchEnv):
         super().set_deferred_validation_boundaries(enabled)
         self.action_manager.set_deferred_validation_boundaries(enabled)
         self.reward_manager.set_deferred_validation_boundaries(enabled)
+        self.observation_manager.set_deferred_validation_boundaries(enabled)
+        self.command_manager.set_deferred_validation_boundaries(enabled)
         self._reset_state.set_deferred_payload_validation(enabled)
         self._reset_state.set_deferred_mask_validation(enabled)
         capabilities = self._backend.get_tensor_capabilities()
@@ -1596,9 +1637,11 @@ class ManagerBasedRlEnv(TorchEnv):
             )
 
     def publish_validation_verdicts(self) -> None:
-        """Publish env, reward, and fused reset verdicts at one boundary."""
+        """Publish env, command, reward, and fused reset verdicts."""
         self.action_manager.publish_validation_verdict()
         self.reward_manager.publish_validation_verdict()
+        self.observation_manager.publish_validation_verdict()
+        self.command_manager.publish_validation_verdicts()
         self._reset_state.publish_payload_validation_verdicts(term_name="reset_state")
         self._reset_state.publish_mask_validation_verdicts()
         self._backend.publish_torch_fused_validation()

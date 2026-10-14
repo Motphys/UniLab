@@ -1432,11 +1432,13 @@ def test_deferred_validation_boundaries_propagate_to_owner_verdicts() -> None:
     assert env.deferred_validation_boundaries is True
     assert env.action_manager.deferred_validation_boundaries is True
     assert env.reward_manager.deferred_validation_boundaries is True
+    assert env.observation_manager.deferred_validation_boundaries is True
     assert env._reset_state.deferred_payload_validation is True
     assert env._reset_state.deferred_mask_validation is True
 
     env.reward_manager._finite_valid.fill_(False)
     env.action_manager._action_finite_valid.fill_(True)
+    env.observation_manager._group_finite_valid["actor"].fill_(True)
     with pytest.raises(ValueError, match="RewardManager returned a non-finite reward"):
         env.publish_validation_verdicts()
     env.close()
@@ -4202,7 +4204,7 @@ def test_reward_log_publication_is_interval_boundary_only() -> None:
 
 
 def test_unified_validation_pack_publishes_all_owner_verdicts_once() -> None:
-    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
+    env, _backend = _make_env(_make_cfg(include_optional_managers=True))
     env.set_deferred_validation_boundaries(True)
     env.init_state()
     flags = env._validation_flags()
@@ -4215,6 +4217,10 @@ def test_unified_validation_pack_publishes_all_owner_verdicts_once() -> None:
     assert env.reward_manager.finite_valid.data_ptr() == reward_pointer
     assert all(bool(value) for value in env._validation_flags().values())
     assert bool(env.reward_manager.finite_valid)
+    assert all(
+        term._command_finite_valid.item() and term._metrics_finite_valid.item()
+        for term in env.command_manager._terms.values()
+    )
     assert state.info["reward_components"] is env.reward_manager.step_rewards
     env.close()
 
@@ -4435,3 +4441,68 @@ def test_eager_deferred_and_mask_widths_share_step_semantics() -> None:
         assert len(eager["backend_reset_rows"]) == len(deferred["backend_reset_rows"])
         for left, right in zip(eager["backend_reset_rows"], deferred["backend_reset_rows"]):
             torch.testing.assert_close(left, right)
+
+
+def test_extracted_env_update_body_preserves_eager_owner_order() -> None:
+    """The no-reset update body exposes the exact eager owner execution order."""
+    cfg = _make_cfg(
+        include_optional_managers=False, metrics={"progress": MetricsTermCfg(func=_metric)}
+    )
+    cfg.events = {}
+    env, _backend = _make_env(cfg)
+    env.init_state()
+    actions = torch.zeros((2, 1), dtype=torch.float32, device=env.device)
+    env.step(actions)
+
+    calls: list[str] = []
+    originals = {
+        "episode_steps": env._advance_episode_steps,
+        "termination": env._compute_termination_and_reset_flags,
+        "reward": env._compute_rewards,
+        "metrics": env._compute_metrics,
+        "events": env._apply_runtime_events,
+        "command": env._compute_commands,
+        "command_post": env._post_compute_commands,
+        "observations": env._compute_observations,
+    }
+
+    def bind(name: str, owner):
+        def wrapper(*args, **kwargs):
+            calls.append(name)
+            return owner(*args, **kwargs)
+
+        return wrapper
+
+    for name, owner in originals.items():
+        setattr(env, _method_name(name), bind(name, owner))
+
+    state = env.step(actions)
+
+    assert calls == [
+        "episode_steps",
+        "termination",
+        "reward",
+        "metrics",
+        "events",
+        "command",
+        "command_post",
+        "observations",
+    ]
+    assert state.terminated.shape == (2,)
+    assert state.truncated.shape == (2,)
+    assert state.reward.shape == (2,)
+    assert set(state.obs) == set(env.obs_groups_spec)
+    env.close()
+
+
+def _method_name(name: str) -> str:
+    return {
+        "episode_steps": "_advance_episode_steps",
+        "termination": "_compute_termination_and_reset_flags",
+        "reward": "_compute_rewards",
+        "metrics": "_compute_metrics",
+        "events": "_apply_runtime_events",
+        "command": "_compute_commands",
+        "command_post": "_post_compute_commands",
+        "observations": "_compute_observations",
+    }[name]

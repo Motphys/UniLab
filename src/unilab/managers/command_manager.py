@@ -74,6 +74,10 @@ class CommandTerm(ManagerTermBase):
         self.command_counter = torch.zeros(self.num_envs, dtype=torch.int64, device=self._device)
         self.last_reset_timing_ms: dict[str, float] = {}
         self.last_post_compute_timing_ms: dict[str, float] = {}
+        self._dt_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
+        self._command_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
+        self._metrics_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
+        self._deferred_validation_boundaries = False
 
     @property
     @abc.abstractmethod
@@ -124,19 +128,24 @@ class CommandTerm(ManagerTermBase):
                     ),
                     dim=0,
                 ).detach()
-                host_reduced = reduced.cpu()
-                means = host_reduced[0].tolist()
-                finite = bool(host_reduced[1].min().item() == 1.0)
-                if not finite:
-                    for metric_name, metric_value in metric_values:
-                        if not bool((torch.isfinite(metric_value) | ~reset_mask).all()):
-                            raise ValueError(
-                                f"CommandTerm '{self.name}' metric '{metric_name}' contains "
-                                "NaN or Inf."
-                            )
-                for (metric_name, metric_value), mean in zip(metric_values, means, strict=True):
-                    extras[metric_name] = float(mean)
-                    metric_value.masked_fill_(reset_mask, 0.0)
+                self._metrics_finite_valid.copy_(reduced[1].min())
+                if self._deferred_validation_boundaries:
+                    for _, metric_value in metric_values:
+                        metric_value.masked_fill_(reset_mask, 0.0)
+                else:
+                    host_reduced = reduced.cpu()
+                    means = host_reduced[0].tolist()
+                    finite = bool(host_reduced[1].min().item() == 1.0)
+                    if not finite:
+                        for metric_name, metric_value in metric_values:
+                            if not bool((torch.isfinite(metric_value) | ~reset_mask).all()):
+                                raise ValueError(
+                                    f"CommandTerm '{self.name}' metric '{metric_name}' contains "
+                                    "NaN or Inf."
+                                )
+                    for (metric_name, metric_value), mean in zip(metric_values, means, strict=True):
+                        extras[metric_name] = float(mean)
+                        metric_value.masked_fill_(reset_mask, 0.0)
         else:
             self.clear_episode_metrics(reset_mask)
         metrics_ms = (time.perf_counter() - metrics_started) * 1000.0
@@ -199,7 +208,9 @@ class CommandTerm(ManagerTermBase):
                 )
         if tensor_dt:
             assert dt_tensor is not None
-            dt_is_finite = bool(torch.isfinite(dt_tensor).all())
+            valid = torch.isfinite(dt_tensor).all()
+            self._dt_finite_valid.copy_(valid)
+            dt_is_finite = self._deferred_validation_boundaries or bool(valid)
         else:
             assert dt_scalar is not None
             dt_is_finite = math.isfinite(dt_scalar)
@@ -250,6 +261,9 @@ class CommandTerm(ManagerTermBase):
             )
         if metric_values:
             finite = torch.stack([torch.isfinite(value) for _, value in metric_values]).all()
+            self._metrics_finite_valid.copy_(finite)
+            if self._deferred_validation_boundaries:
+                return
             if bool(finite):
                 return
         for metric_name, metric_value in metric_values:
@@ -270,6 +284,32 @@ class CommandTerm(ManagerTermBase):
         if not isinstance(rng, TorchManagerRng):
             raise RuntimeError("CommandTerm scheduling requires the Manager-owned Torch generator")
         return rng
+
+    @property
+    def deferred_validation_boundaries(self) -> bool:
+        """Whether finite verdict publication may defer to completion."""
+        return self._deferred_validation_boundaries
+
+    def set_deferred_validation_boundaries(self, enabled: bool) -> None:
+        """Move finite publication to an explicit completion boundary."""
+        if not isinstance(enabled, bool):
+            raise TypeError(
+                f"deferred command validation boundaries must be bool, got {type(enabled)}"
+            )
+        self._deferred_validation_boundaries = enabled
+
+    def publish_validation_verdict(self) -> None:
+        """Fail closed on deferred command and metric finite verdicts."""
+        if not self._deferred_validation_boundaries:
+            return
+        if not bool(self._command_finite_valid) and bool(self._metrics_finite_valid):
+            raise ValueError(f"CommandTerm '{self.name}' command contains NaN or Inf.")
+        if not bool(self._metrics_finite_valid):
+            for metric_name, metric_value in self.metrics.items():
+                if not _finite(metric_value):
+                    raise ValueError(
+                        f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
+                    )
 
     @abc.abstractmethod
     def _update_metrics(self) -> None:
@@ -320,6 +360,7 @@ class CommandManager(ManagerBase):
         self._device = torch.device(getattr(env, "device", torch.device("cpu")))
         self._last_term_reset_timing_ms: dict[str, float] = {}
         self.last_post_compute_timing_ms: dict[str, float] = {}
+        self._deferred_validation_boundaries = False
         super().__init__(env)
 
     def __str__(self) -> str:
@@ -350,6 +391,26 @@ class CommandManager(ManagerBase):
             command = self._validate_command(name, term.command)
             terms.append((name, command[env_idx].detach().cpu().tolist()))
         return terms
+
+    @property
+    def deferred_validation_boundaries(self) -> bool:
+        """Whether command finite publication may defer to completion."""
+        return self._deferred_validation_boundaries
+
+    def set_deferred_validation_boundaries(self, enabled: bool) -> None:
+        """Move finite publication to an explicit completion boundary."""
+        if not isinstance(enabled, bool):
+            raise TypeError(
+                f"deferred command validation boundaries must be bool, got {type(enabled)}"
+            )
+        self._deferred_validation_boundaries = enabled
+        for term in self._terms.values():
+            term.set_deferred_validation_boundaries(enabled)
+
+    def publish_validation_verdicts(self) -> None:
+        """Publish all command term verdicts at one completion boundary."""
+        for term in self._terms.values():
+            term.publish_validation_verdict()
 
     def reset(self, reset_mask: torch.Tensor) -> dict[str, float]:
         """Full-width command reset.
@@ -400,6 +461,7 @@ class CommandManager(ManagerBase):
             step_timing.update(getattr(term, "last_step_timing_ms", {}))
             validation_started = time.perf_counter()
             self._validate_command(name, term.command)
+            term._validate_metrics()
             validation_ms += time.perf_counter() - validation_started
         step_timing["update_state_command_term_dispatch_ms"] = dispatch_ms * 1000.0
         step_timing["update_state_command_validation_ms"] = validation_ms * 1000.0
@@ -493,7 +555,12 @@ class CommandManager(ManagerBase):
 
     def _validate_command(self, name: str, command: torch.Tensor) -> torch.Tensor:
         self._validate_command_contract(name, command)
-        if not bool(torch.isfinite(command).all()):
+        valid = torch.isfinite(command).all()
+        term = self._terms[name]
+        term._command_finite_valid.copy_(valid)
+        if term.deferred_validation_boundaries:
+            return command
+        if not bool(valid):
             raise ValueError(f"CommandManager term '{name}' returned NaN or Inf.")
         return command
 
@@ -517,6 +584,12 @@ class NullCommandManager:
         self.active_terms: list[str] = []
         self._terms: dict[str, Any] = {}
         self.cfg = None
+
+    def set_deferred_validation_boundaries(self, enabled: bool) -> None:
+        del enabled
+
+    def publish_validation_verdicts(self) -> None:
+        return None
 
     def __str__(self) -> str:
         return "<NullCommandManager> (inactive)"

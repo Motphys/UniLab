@@ -589,6 +589,7 @@ class MotionCommand(CommandTerm):
             body_ang_vel_w=torch.empty_like(self._motion_data.body_ang_vel_w),
         )
         self._command = torch.empty((self.num_envs, num_joints * 2), device=self._device)
+        self._command_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
         self._body_pos_w = torch.empty((self.num_envs, num_bodies, 3), device=self._device)
         self._body_pos_packet_scratch = torch.empty_like(self._body_pos_w)
         self.body_pos_relative_w = torch.empty_like(self._body_pos_w)
@@ -629,6 +630,11 @@ class MotionCommand(CommandTerm):
         self._reset_packet_velocity = torch.empty_like(self._reset_joint_values)
         self._reset_joint_values_scratch = torch.empty_like(self._reset_joint_values)
         self._reset_root_state_scratch = torch.empty_like(self._reset_root_state)
+        self._reset_motion_packet = torch.empty(
+            (self.num_envs, self._motion_features.shape[1]),
+            dtype=torch.float32,
+            device=self._device,
+        )
         self._bind_read_phase = False
         self._tensor_all_rows = torch.arange(self.num_envs, dtype=torch.int64, device=self._device)
         self._tensor_all_reset_mask = torch.ones(
@@ -701,7 +707,9 @@ class MotionCommand(CommandTerm):
     def _motion_packet(self, frames: torch.Tensor) -> torch.Tensor:
         """Gather motion rows from the device-resident feature table."""
         rows = frames.to(dtype=torch.int64, device=self._device)
-        return self._motion_features.index_select(0, rows)
+        packet = self._reset_motion_packet
+        torch.index_select(self._motion_features, 0, rows, out=packet)
+        return packet
 
     def _make_tensor_sampler(self) -> None:
         if self._env.torch_rng is None:
@@ -856,7 +864,8 @@ class MotionCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        if not bool(torch.isfinite(self._command).all()):
+        torch.all(torch.isfinite(self._command), out=self._command_finite_valid)
+        if not self.deferred_validation_boundaries and not bool(self._command_finite_valid):
             self._refresh_motion_torch()
         return self._command
 
@@ -1371,6 +1380,9 @@ class MotionJointPositionAction(JointPositionAction):
         # action application. Initialize deterministically rather than exposing
         # uninitialized device memory in initial/reset observations.
         self._tensor_motion_target = torch.zeros_like(self._processed_actions)
+        self._selected_default_bias = torch.empty_like(self._tensor_motion_target)
+        self._selected_encoder_bias = torch.empty_like(self._tensor_motion_target)
+        self._control_adjustment = torch.empty_like(self._tensor_motion_target)
 
     @property
     def tensor_target(self) -> torch.Tensor:
@@ -1399,16 +1411,35 @@ class MotionJointPositionAction(JointPositionAction):
             )
             default_bias = self._motion_command.joint_default_bias
             if isinstance(default_bias, torch.Tensor):
-                selected_default_bias = default_bias.index_select(1, self._target_index)
+                selected_default_bias = self._selected_default_bias
+                torch.index_select(
+                    default_bias,
+                    1,
+                    self._target_index,
+                    out=selected_default_bias,
+                )
             else:
                 selected_default_bias = torch.as_tensor(
                     default_bias[:, self._target_ids],
                     device=self._device,
                     dtype=torch.float32,
                 )
+            selected_encoder_bias = self._selected_encoder_bias
+            torch.index_select(
+                encoder_bias,
+                1,
+                self._target_index,
+                out=selected_encoder_bias,
+            )
+            control_adjustment = self._control_adjustment
+            torch.sub(
+                selected_default_bias,
+                selected_encoder_bias,
+                out=control_adjustment,
+            )
             torch.add(
                 self._processed_actions,
-                selected_default_bias - encoder_bias.index_select(1, self._target_index),
+                control_adjustment,
                 out=self._tensor_motion_target,
             )
             self._entity.set_joint_position_target(

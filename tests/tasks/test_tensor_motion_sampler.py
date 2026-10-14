@@ -50,16 +50,123 @@ def test_adaptive_reset_sampling_is_device_resident_and_deterministic() -> None:
     reset_mask = torch.tensor([False, True, True, True])
 
     first = sampler.sample_frames(reset_mask, generator)
-    second = sampler.sample_frames(reset_mask, generator)
+    sampler.sample_frames(reset_mask, generator)
     assert first.shape == (4,)
     assert first.dtype == torch.int32
     assert first.device.type == "cpu"
-    assert not torch.equal(first, second)
+    # Integer frame output can alias across draws when both float samples land
+    # in the same frame bin; deterministic replay and persistent carriers below
+    # are the semantic checks.
     assert sampler.diagnostics.total == 0
 
     generator.manual_seed(7)
     repeat = sampler.sample_frames(reset_mask, generator)
     torch.testing.assert_close(repeat, first)
+
+
+def test_reset_sampling_reuses_persistent_full_width_carriers() -> None:
+    adaptive = _sampler()
+    mixed = _sampler(mode="mixed", start_ratio=0.5)
+    generator = torch.Generator(device="cpu").manual_seed(7)
+    mask = torch.tensor([False, True, True, True])
+
+    adaptive_frames = adaptive.sample_frames(mask, generator)
+    adaptive_repeat = adaptive.sample_frames(mask, generator)
+    mixed_frames = mixed.sample_frames(mask, generator)
+
+    assert adaptive_frames.data_ptr() == adaptive._reset_frames.data_ptr()
+    assert adaptive_repeat.data_ptr() == adaptive._reset_frames.data_ptr()
+    assert mixed_frames.data_ptr() == mixed._reset_frames.data_ptr()
+    assert adaptive_frames.shape == (4,)
+    assert adaptive_frames.dtype is torch.int32
+
+
+def test_step_full_reuses_persistent_carriers_and_values() -> None:
+    sampler = _sampler(initial_frames=torch.tensor([30, 10, 11, 3], dtype=torch.int32))
+    active = torch.tensor([True, False, True, False])
+    time_steps = torch.zeros(4, dtype=torch.int32)
+
+    first = sampler.step_full(active, time_steps)
+    second = sampler.step_full(active, time_steps)
+
+    assert first.data_ptr() == sampler._step_done.data_ptr()
+    assert second.data_ptr() == sampler._step_done.data_ptr()
+    assert second.tolist() == [False, False, False, False]
+    torch.testing.assert_close(
+        sampler.current_frames, torch.tensor([31, 10, 13, 3], dtype=torch.int32)
+    )
+
+
+def test_failure_stats_reuse_persistent_carriers() -> None:
+    sampler = _sampler()
+    sampler.current_frames.copy_(torch.tensor([0, 8, 16, 24], dtype=torch.int32))
+    terminated = torch.tensor([True, False, True, False])
+    before = sampler.bin_failed_count.clone()
+
+    sampler.update_failure_stats(terminated)
+
+    assert sampler._failure_bin_indices.tolist() == [0, 1, 2, 3]
+    assert sampler._failure_failed_bins.tolist() == [0, 4, 2, 4]
+    assert sampler._failure_counts.tolist() == [1, 0, 1, 0, 2]
+    expected = 0.5 * torch.tensor([1.0, 0.0, 1.0, 0.0]) + 0.5 * before
+    torch.testing.assert_close(sampler.bin_failed_count, expected, rtol=0, atol=0)
+
+
+def test_adaptive_probabilities_and_metrics_reuse_persistent_carriers() -> None:
+    sampler = _sampler()
+    sampler.bin_failed_count.copy_(torch.tensor([0.2, 0.1, 0.0, 0.0]))
+
+    probabilities = sampler._adaptive_probabilities()
+    first_pointer = probabilities.data_ptr()
+    sampler._publish_sampling_metrics(probabilities)
+    repeat = sampler._adaptive_probabilities()
+
+    assert repeat.data_ptr() == first_pointer
+    expected = torch.tensor([0.5625, 0.3125, 0.0625, 0.0625])
+    torch.testing.assert_close(repeat, expected, rtol=0, atol=1.0e-7)
+    assert bool(torch.isfinite(sampler.sampling_entropy))
+    assert bool(torch.isfinite(sampler.sampling_top1_prob))
+    assert bool(torch.isfinite(sampler.sampling_top1_bin))
+
+
+def test_mixed_metrics_reuse_persistent_carriers_and_values() -> None:
+    sampler = _sampler(mode="mixed", start_ratio=0.5)
+    mask = torch.ones(4, dtype=torch.bool)
+    generator = torch.Generator(device="cpu").manual_seed(3)
+
+    first_entropy_pointer = sampler.sampling_entropy.data_ptr()
+    log_start_pointer = sampler._mixed_log_start.data_ptr()
+    log_uniform_pointer = sampler._mixed_log_uniform.data_ptr()
+    entropy_carrier_pointer = sampler._mixed_entropy.data_ptr()
+    sampler.sample_frames(mask, generator)
+    second_entropy_pointer = sampler.sampling_entropy.data_ptr()
+    sampler.sample_frames(mask, generator)
+
+    assert second_entropy_pointer == first_entropy_pointer
+    assert sampler.sampling_entropy.data_ptr() == first_entropy_pointer
+    assert sampler._mixed_log_start.data_ptr() == log_start_pointer
+    assert sampler._mixed_log_uniform.data_ptr() == log_uniform_pointer
+    assert sampler._mixed_entropy.data_ptr() == entropy_carrier_pointer
+    assert sampler.sampling_top1_prob.item() == pytest.approx(0.625)
+    assert sampler.sampling_top1_bin.item() == 0.0
+    start_mass = 0.625
+    uniform_mass = 0.125
+    expected = -start_mass * torch.log(torch.tensor(start_mass + 1.0e-12))
+    expected -= 3.0 * uniform_mass * torch.log(torch.tensor(uniform_mass + 1.0e-12))
+    expected /= torch.log(torch.tensor(4.0))
+    torch.testing.assert_close(sampler.sampling_entropy, expected, rtol=0, atol=1.0e-7)
+
+
+def test_mixed_metrics_handle_degenerate_and_single_bin_cases() -> None:
+    deterministic = _sampler(mode="mixed", start_ratio=1.0)
+    deterministic._publish_mixed_metrics()
+    assert deterministic.sampling_entropy.item() == 0.0
+    assert deterministic.sampling_top1_prob.item() == 1.0
+
+    single_bin = _sampler(mode="mixed", bin_count=1)
+    single_bin._publish_mixed_metrics()
+    assert single_bin.sampling_entropy.item() == 0.0
+    assert single_bin.sampling_top1_prob.item() == 1.0
 
 
 def test_all_false_reset_sampling_is_state_noop() -> None:
