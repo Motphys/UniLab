@@ -1,0 +1,90 @@
+<mujoco model="onerobotics_a1_right">
+  <default>
+    <default class="robot">
+      <joint damping="2" armature="0.01" frictionloss="0.2" />
+      <default class="visual">
+        <geom contype="0" conaffinity="0" group="2" />
+      </default>
+      <default class="collision">
+        <geom contype="0" conaffinity="1" group="3" />
+      </default>
+    </default>
+  </default>
+  <compiler angle="radian" meshdir="../meshes" balanceinertia="true" />
+  <worldbody>
+    <body name="base_link" childclass="robot" pos="0 0 0.0158">
+      <geom name="base_link_collision" type="mesh" mesh="base_link_collision_base_link" class="collision" />
+      <geom name="base_link_visual" type="mesh" mesh="base_link_base_link" class="visual" />
+      <body name="Link1" pos="-0.0 0.0 0.0125">
+        <inertial pos="0.000104793909039569 0.000878025489583305 0.0937688680157419" mass="0.438675872181416" diaginertia="0.00060517294321352 0.000501491467720591 0.00025580993277449" />
+        <joint name="joint1-a1_r" type="hinge" range="-1.04 3.14" axis="0 0 1" />
+        <geom name="Link1_collision" type="mesh" mesh="Link1_collision_Link1" class="collision" />
+        <geom name="Link1_visual" type="mesh" mesh="Link1_Link1" class="visual" />
+        <body name="Link2" pos="-0.0 0.0 0.12745" quat="0.5 0.5 0.5 -0.5">
+          <inertial pos="-4.66303482215547e-05 -0.0610765811025605 0.00481122218899704" mass="0.387770755219132" diaginertia="0.000597204372907025 0.000348292487571024 0.000403661570691348" />
+          <joint name="joint2-a1_r" type="hinge" range="-3.14 0.26" axis="0 0 1" />
+          <geom name="Link2_collision" type="mesh" mesh="Link2_collision_Link2" class="collision" />
+          <geom name="Link2_visual" type="mesh" mesh="Link2_Link2" class="visual" />
+          <body name="Link3" pos="-0.0 -0.09325 -0.0001" quat="0.5 0.5 0.5 -0.5">
+            <inertial pos="-1.43987309591522e-05 0.00178404133280441 0.109669668659996" mass="0.407125793506889" diaginertia="0.000446520666780017 0.000343044757246363 0.000286204871222088" />
+            <joint name="joint3-a1_r" type="hinge" range="-2.76 2.76" axis="0 0 1" />
+            <geom name="Link3_collision" type="mesh" mesh="Link3_collision_Link3" class="collision" />
+            <geom name="Link3_visual" type="mesh" mesh="Link3_Link3" class="visual" />
+            <body name="Link4" pos="-0.0 -0.000999999996676215 0.140249999995695" quat="0.7071 0.7071 0 0">
+              <inertial pos="9.99808131922311e-07 0.0625047132640995 0.00555704355349793" mass="0.252142897202372" diaginertia="0.000178779070280237 0.000146134678616042 0.000165597697680657" />
+              <joint name="joint4-a1_r" type="hinge" range="-1.92 1.92" axis="0 0 1" />
+              <geom name="Link4_collision" type="mesh" mesh="Link4_collision_Link4" class="collision" />
+              <geom name="Link4_visual" type="mesh" mesh="Link4_Link4" class="visual" />
+              <body name="Link5" pos="-0.0 0.08800000000195 -0.00100000000141642" quat="0.7071 -0.7071 0 0">
+                <inertial pos="-2.1819607269304e-06 0.000940045309240356 0.0983077176130554" mass="0.333953527048094" diaginertia="0.000324219442352689 0.000299078218859742 0.000161241194938864" />
+                <joint name="joint5-a1_r" type="hinge" range="-2.23 2.23" axis="0 0 1" />
+                <geom name="Link5_collision" type="mesh" mesh="Link5_collision_Link5" class="collision" />
+                <geom name="Link5_visual" type="mesh" mesh="Link5_Link5" class="visual" />
+                <body name="Link6" pos="-0.0 0.0005 0.133" quat="0.7071 -0.7071 0 0">
+                  <inertial pos="1.41083567195476e-05 -0.0616500007920044 0.00592126579182656" mass="0.289938784061927" diaginertia="0.000346578289881221 0.000183154957217547 0.000268358636952706" />
+                  <joint name="joint6-a1_r" type="hinge" range="-1.57 1.57" axis="0 0 1" />
+                  <geom name="Link6_collision" type="mesh" mesh="Link6_collision_Link6" class="collision" />
+                  <geom name="Link6_visual" type="mesh" mesh="Link6_Link6" class="visual" />
+                  <body name="Link7" pos="-0.0 -0.112 0.00025" quat="0.7071 0.7071 0 0">
+                    <inertial pos="1.47613369245068e-07 -0.00220208936053254 0.00293052049190767" mass="0.2" diaginertia="3.17582e-05 2.13489e-05 5.19434e-05" />
+                    <joint name="joint7-a1_r" type="hinge" range="-2.76 2.76" axis="0 0 1" />
+                    <geom name="Link7_collision" type="mesh" mesh="Link7_collision_Link7" class="collision" />
+                    <geom name="Link7_visual" type="mesh" mesh="Link7_Link7" class="visual" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+      <freejoint name="floating_base" />
+    </body>
+  </worldbody>
+  <asset>
+    <mesh name="base_link_collision_base_link" file="a1_right/base_link.STL" />
+    <mesh name="base_link_base_link" file="a1_right/base_link.STL" />
+    <mesh name="Link1_collision_Link1" file="a1_right/Link1.STL" />
+    <mesh name="Link1_Link1" file="a1_right/Link1.STL" />
+    <mesh name="Link2_collision_Link2" file="a1_right/Link2.STL" />
+    <mesh name="Link2_Link2" file="a1_right/Link2.STL" />
+    <mesh name="Link3_collision_Link3" file="a1_right/Link3.STL" />
+    <mesh name="Link3_Link3" file="a1_right/Link3.STL" />
+    <mesh name="Link4_collision_Link4" file="a1_right/Link4.STL" />
+    <mesh name="Link4_Link4" file="a1_right/Link4.STL" />
+    <mesh name="Link5_collision_Link5" file="a1_right/Link5.STL" />
+    <mesh name="Link5_Link5" file="a1_right/Link5.STL" />
+    <mesh name="Link6_collision_Link6" file="a1_right/Link6.STL" />
+    <mesh name="Link6_Link6" file="a1_right/Link6.STL" />
+    <mesh name="Link7_collision_Link7" file="a1_right/Link7.STL" />
+    <mesh name="Link7_Link7" file="a1_right/Link7.STL" />
+  </asset>
+  <actuator>
+    <position name="joint1-a1_r" joint="joint1-a1_r" />
+    <position name="joint2-a1_r" joint="joint2-a1_r" />
+    <position name="joint3-a1_r" joint="joint3-a1_r" />
+    <position name="joint4-a1_r" joint="joint4-a1_r" />
+    <position name="joint5-a1_r" joint="joint5-a1_r" />
+    <position name="joint6-a1_r" joint="joint6-a1_r" />
+    <position name="joint7-a1_r" joint="joint7-a1_r" />
+  </actuator>
+</mujoco>

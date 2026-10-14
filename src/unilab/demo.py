@@ -20,10 +20,13 @@ class DemoSpec:
     algo: str
     task: str
     sim: str
-    entry: str  # "eval", "play_interactive", or "teaser"
+    entry: str  # "eval", "play_interactive", "robot_arm", or "teaser"
 
 
 DEMO_REGISTRY: dict[str, DemoSpec] = {
+    "a1-bimanual": DemoSpec(algo="", task="", sim="mujoco", entry="robot_arm"),
+    "a1-left-arm": DemoSpec(algo="", task="", sim="mujoco", entry="robot_arm"),
+    "a1-right-arm": DemoSpec(algo="", task="", sim="mujoco", entry="robot_arm"),
     "dance": DemoSpec(algo="ppo", task="g1_motion_tracking", sim="mujoco", entry="eval"),
     "teaser": DemoSpec(algo="", task="", sim="", entry="teaser"),
 }
@@ -215,6 +218,10 @@ def run_demo(*, demo_name: str, refresh: bool = False, device: str | None = None
     spec = get_demo_spec(demo_name)
     if spec.entry == "teaser":
         return _run_teaser_demo()
+    if spec.entry == "robot_arm":
+        from unilab.robot_arm_demo import run_robot_arm_demo
+
+        return run_robot_arm_demo(demo_name)
     if refresh and demo_name not in _LOCAL_ONLY_CHECKPOINT_DEMOS:
         _refresh_local_checkpoint(demo_name)
     elif refresh:
