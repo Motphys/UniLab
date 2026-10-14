@@ -344,6 +344,7 @@ def test_reward_aggregation_reuses_persistent_scratch_carriers(fake_env: FakeEnv
             "_packed_reward_scratch",
             "_term_step_scratch",
             "_packed_step_scratch",
+            "_step_reward_mean_scratch",
         )
     }
 
@@ -353,6 +354,9 @@ def test_reward_aggregation_reuses_persistent_scratch_carriers(fake_env: FakeEnv
     assert {name: getattr(manager, name).data_ptr() for name in addresses} == addresses
     torch.testing.assert_close(first, torch.full_like(first, -1.0))
     torch.testing.assert_close(second, first)
+    torch.testing.assert_close(
+        manager.step_reward_means, torch.tensor([2.0, -3.0], dtype=torch.float32)
+    )
 
 
 def test_reward_pack_rejects_invalid_output_width(fake_env: FakeEnv) -> None:
@@ -400,6 +404,26 @@ def test_deferred_reward_validation_fails_closed_at_boundary(fake_env: FakeEnv) 
     assert manager.finite_valid.item() is False
     with pytest.raises(ValueError, match="non-finite reward"):
         manager.publish_validation_verdict()
+
+
+def test_deferred_reward_finite_mask_uses_persistent_scratch(fake_env: FakeEnv) -> None:
+    def reward(env: FakeEnv) -> torch.Tensor:
+        value = torch.ones(env.num_envs, dtype=torch.float32)
+        value[1] = torch.nan
+        value[3] = torch.inf
+        return value
+
+    manager = RewardManager({"bad_reward": RewardTermCfg(func=reward, weight=1.0)}, fake_env)
+    manager.set_deferred_validation_boundaries(True)
+    value_scratch = manager._finite_value_scratch
+    finite_scratch = manager._finite_scratch
+
+    manager.compute(0.01)
+
+    assert value_scratch.data_ptr() == manager._finite_value_scratch.data_ptr()
+    assert finite_scratch.data_ptr() == manager._finite_scratch.data_ptr()
+    assert finite_scratch.tolist() == [True, False, True, False]
+    assert manager.finite_valid.item() is False
 
 
 def test_reward_compute_publishes_phase_attribution(fake_env: FakeEnv) -> None:
@@ -532,6 +556,27 @@ def test_termination_splits_timeouts_and_failures(fake_env: FakeEnv) -> None:
     }
 
 
+def test_termination_aggregates_into_persistent_carriers(fake_env: FakeEnv) -> None:
+    timeout = torch.tensor([True, False, False, True])
+    failure = torch.tensor([False, True, False, True])
+    manager = TerminationManager(
+        {
+            "timeout": TerminationTermCfg(func=lambda env: timeout.clone(), time_out=True),
+            "failure": TerminationTermCfg(func=lambda env: failure.clone()),
+        },
+        fake_env,
+    )
+    dones_address = manager._dones_buf.data_ptr()
+    term_address = manager._term_dones["timeout"].data_ptr()
+
+    first = manager.compute()
+    second = manager.compute()
+
+    assert first.data_ptr() == second.data_ptr() == dones_address
+    assert manager._term_dones["timeout"].data_ptr() == term_address
+    torch.testing.assert_close(second, timeout | failure)
+
+
 def test_transient_tensor_termination_opt_in_preserves_manager_buffers(
     fake_env: FakeEnv,
 ) -> None:
@@ -558,6 +603,58 @@ def test_transient_tensor_termination_opt_in_preserves_manager_buffers(
     manager.get_term("failure").logical_not_()
 
     torch.testing.assert_close(manager.terminated, original)
+
+
+def test_termination_terms_own_their_returned_carrier(fake_env: FakeEnv) -> None:
+    class Failure:
+        output: torch.Tensor | None = None
+
+        def __init__(self, cfg: TerminationTermCfg, env: FakeEnv):
+            del cfg, env
+
+        def __call__(self, env: FakeEnv) -> torch.Tensor:
+            del env
+            self.output = torch.tensor([False, True, False, True])
+            return self.output
+
+    manager = TerminationManager(
+        {"failure": TerminationTermCfg(func=Failure)},
+        fake_env,
+    )
+    failure = manager.get_term_cfg("failure").func
+
+    manager.compute()
+    assert failure.output is not None
+    assert manager.get_term("failure") is not failure.output
+
+    failure.output.logical_not_()
+
+    # A non-transient term owns the returned full-width carrier. The manager
+    # publishes it into persistent aggregation buffers and remains immune to
+    # later owner mutation.
+    torch.testing.assert_close(
+        manager._term_dones["failure"], torch.tensor([False, True, False, True])
+    )
+
+
+def test_termination_aggregation_reuses_time_out_owner_scratch(fake_env: FakeEnv) -> None:
+    scratch = torch.zeros(fake_env.num_envs, dtype=torch.bool)
+    setattr(fake_env, "time_out_scratch", scratch)
+    manager = TerminationManager(
+        {
+            "timeout": TerminationTermCfg(
+                func=lambda env: torch.ones(env.num_envs, dtype=torch.bool), time_out=True
+            )
+        },
+        fake_env,
+    )
+
+    first = manager.compute()
+    second = manager.compute()
+
+    assert manager.time_outs is scratch
+    assert first.data_ptr() == second.data_ptr()
+    torch.testing.assert_close(second, torch.ones_like(second))
 
 
 def test_curriculum_and_null_semantics(fake_env: FakeEnv) -> None:

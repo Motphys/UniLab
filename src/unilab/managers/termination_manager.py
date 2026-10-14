@@ -51,8 +51,12 @@ class TerminationManager(ManagerBase):
             self._term_dones[term_name] = torch.zeros(
                 self.num_envs, dtype=torch.bool, device=self._device
             )
-        self._truncated_buf = torch.zeros(self.num_envs, dtype=torch.bool, device=self._device)
+        output = getattr(env, "time_out_scratch", None)
+        if output is None:
+            output = torch.zeros(self.num_envs, dtype=torch.bool, device=self._device)
+        self._truncated_buf = output
         self._terminated_buf = torch.zeros_like(self._truncated_buf)
+        self._dones_buf = torch.zeros_like(self._truncated_buf)
 
     def __str__(self) -> str:
         msg = f"<TerminationManager> contains {len(self._term_names)} active terms.\n"
@@ -76,7 +80,8 @@ class TerminationManager(ManagerBase):
 
     @property
     def dones(self) -> torch.Tensor:
-        return self._truncated_buf | self._terminated_buf
+        torch.logical_or(self._truncated_buf, self._terminated_buf, out=self._dones_buf)
+        return self._dones_buf
 
     @property
     def time_outs(self) -> torch.Tensor:
@@ -138,7 +143,8 @@ class TerminationManager(ManagerBase):
             aggregation_ms += time.perf_counter() - aggregation_started
         timing["update_state_termination_term_dispatch_ms"] = dispatch_ms * 1000.0
         timing["update_state_termination_aggregation_ms"] = aggregation_ms * 1000.0
-        return self._truncated_buf | self._terminated_buf
+        torch.logical_or(self._truncated_buf, self._terminated_buf, out=self._dones_buf)
+        return self._dones_buf
 
     def get_term(self, name: str) -> torch.Tensor:
         return self._term_dones[name]
@@ -181,10 +187,7 @@ class TerminationManager(ManagerBase):
                 f"TerminationManager term '{name}' returned device {value.device}, "
                 f"expected {self._device}."
             )
-        if getattr(term_cfg.func, "returns_transient_tensor", False):
-            result = value
-        else:
-            result = value.clone()
+        result = value
         if result.shape != (self.num_envs,):
             raise ValueError(
                 f"TerminationManager term '{name}' returned shape {tuple(result.shape)}; "

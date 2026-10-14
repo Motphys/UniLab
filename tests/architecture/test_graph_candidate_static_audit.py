@@ -32,6 +32,7 @@ AUDITED_FUNCTIONS: dict[Path, frozenset[str]] = {
             "apply_action",
             "update_state",
             "_update_state_in_read_phase",
+            "_run_env_update_graph_body",
             "_reset_done_envs",
             "reset",
             "_publish_reward_components",
@@ -74,47 +75,51 @@ OUT_OF_CAPTURE_VIOLATIONS: frozenset[tuple[str, int, str]] = frozenset(
     {
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1220,
+            1419,
             "self._manual_reset_pending.nonzero(as_tuple=False)",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1220,
+            1419,
             "self._manual_reset_pending.nonzero(as_tuple=False).flatten().detach().cpu()",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1220,
+            1419,
             "self._manual_reset_pending.nonzero(as_tuple=False).flatten().detach().cpu().tolist()",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1829,
+            2278,
             "eager_terminated.clone()",
         ),
         (
             "src/unilab/envs/manager_based_rl_env.py",
-            1831,
+            2280,
             "eager_truncated.clone()",
         ),
         (
             "src/unilab/managers/observation_manager.py",
-            607,
+            635,
             "cast(torch.Tensor, obs).clone()",
         ),
         (
             "src/unilab/managers/observation_manager.py",
-            680,
-            "torch.cat(tensors, dim=self._group_obs_concatenate_dim[group_name])",
+            705,
+            "torch.cat(\n"
+            "                    tensors,\n"
+            "                    dim=self._group_obs_concatenate_dim[group_name],\n"
+            "                    out=result,\n"
+            "                )",
         ),
         (
             "src/unilab/managers/reward_manager.py",
-            258,
+            266,
             "torch.nonzero(~finite[:, term_idx])",
         ),
         (
             "src/unilab/managers/reward_manager.py",
-            261,
+            269,
             "invalid_rows.tolist()",
         ),
     }

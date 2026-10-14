@@ -27,6 +27,7 @@ orphan: true
 | [ADR-0011 Torch-Only Manager-Based Runtime](ADR-0011-torch-only-manager-based-runtime.md) | Manager runtime / tensor lifecycle | Accepted |
 | [ADR-0015 No Numba Runtime And Explicit NumPy Leaf Boundaries](ADR-0015-no-numba-and-explicit-numpy-leaf-boundaries.md) | Runtime dependency / NumPy boundary | Accepted |
 | [ADR-0231 Integration-only K=1 MJWarp Collector CUDA Graph](ADR-0231-k1-mjwarp-collector-cuda-graph-integration-only.md) | Collector CUDA graph / integration-only | Proposed / integration-only |
+| [ADR-0238 State-Update-Only CUDA Graph Boundary](ADR-0238-state-update-only-cuda-graph-boundary.md) | Manager CUDA graph / issue-scoped candidate | Proposed |
 
 ## ADR Governance
 

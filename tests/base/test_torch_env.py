@@ -221,7 +221,7 @@ def test_step_without_done_preserves_eager_autoreset_gate() -> None:
 
 
 def test_reset_done_count_remains_device_resident_before_timing_publication() -> None:
-    env = _StubTorchEnv(terminate=False)
+    env = _StubTorchEnv()
     env.init_state()
     env.set_deferred_validation_boundaries(True)
 
@@ -230,7 +230,7 @@ def test_reset_done_count_remains_device_resident_before_timing_publication() ->
     assert isinstance(env._reset_done_count, torch.Tensor)
     assert env._reset_done_count.dtype is torch.int64
     assert env._reset_done_count.device == env.device
-    torch.testing.assert_close(env._reset_done_count, torch.zeros((), dtype=torch.int64))
+    torch.testing.assert_close(env._reset_done_count, torch.full((), env.num_envs))
 
 
 def test_partial_autoreset_preserves_non_done_rows() -> None:

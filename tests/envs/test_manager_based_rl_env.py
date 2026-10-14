@@ -28,8 +28,8 @@ import unilab.envs.manager_based_rl_env as manager_env_module
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.backend_timing import UPDATE_STATE_DETAIL_TIMING_KEYS
-from unilab.base.collector_graph import CollectorGraphMode, validate_collector_graph_manifest
 from unilab.base.entity import EntityCfg
+from unilab.base.env_update_graph import EnvUpdateGraphMode, validate_env_update_graph_manifest
 from unilab.base.scene import SceneCfg
 from unilab.base.torch_env import TorchEnv, TorchEnvState
 from unilab.envs import (
@@ -285,6 +285,25 @@ class _FakeBackend:
             disable_reason="graph candidate was not requested",
         )
 
+    def preflight_env_update_graph(self, request):
+        from dataclasses import replace
+
+        if getattr(self, "reject_env_update_preflight", False):
+            return replace(
+                request,
+                backend_stream_contract="test",
+                supported=False,
+                disable_reason="test backend rejects update capture",
+            )
+        return replace(
+            request,
+            backend_stream_contract="test",
+            supported=True,
+            disable_reason=None,
+            torch_stream_id=self.torch_stream_id,
+            allocator_stats={"allocation.all.allocated": 3},
+        )
+
     def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> None:
         self.set_state_calls.append(
             (
@@ -344,6 +363,8 @@ class _FakeBackend:
             raise RuntimeError("simulated graph replay failed before publication")
         self.tensor_controls.append(ctrl.detach().clone())
         self.step(ctrl.detach().cpu().numpy(), nsteps)
+        if self.graph_completions and self.graph_completions[-1] == "not-a-token":
+            return {"timing": {}, "graph_completion": "not-a-token"}
         return {"timing": {}, "graph_completion": self.record_graph_completion("step")}
 
     def _graph_completion(self, operation: str):
@@ -1396,6 +1417,37 @@ def test_step_publishes_backend_graph_completion_for_transition_consumers() -> N
     env.close()
 
 
+def test_backend_step_receipt_is_available_before_update_state() -> None:
+    env, backend = _make_env(_make_cfg(include_optional_managers=False), torch_stream_id=17)
+    env.init_state()
+    observed: list[object] = []
+    original_update_state = env.update_state
+
+    def update_state_with_pending_receipt(state):
+        observed.append(env._pending_backend_step_completion)
+        return original_update_state(state)
+
+    env.update_state = update_state_with_pending_receipt
+    state = env.step(torch.zeros((2, 1), dtype=torch.float32, device=env.device))
+
+    assert observed == [backend.graph_completions[-1]]
+    assert env._pending_backend_step_completion is None
+    assert state.info["graph_completion"] is backend.graph_completions[-1]
+    env.close()
+
+
+def test_invalid_backend_step_receipt_fails_before_update_state() -> None:
+    env, backend = _make_env(_make_cfg(include_optional_managers=False))
+    backend.graph_completions.append("not-a-token")
+    env.init_state()
+
+    with pytest.raises(TypeError, match="backend graph_completion"):
+        env.step(torch.zeros((2, 1), dtype=torch.float32, device=env.device))
+    assert env._pending_backend_step_completion is None
+    assert "graph_completion" not in env._state.info
+    env.close()
+
+
 def test_graph_rng_snapshot_and_rollback_is_version_bounded() -> None:
     env, _ = _make_env()
     env.reset()
@@ -1515,53 +1567,6 @@ def test_env_graph_candidate_preflight_reports_public_verdict() -> None:
     env.close()
 
 
-def test_collector_graph_defaults_to_disabled_and_negotiates_eager_cold_path() -> None:
-    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
-
-    initial = env.get_collector_graph_manifest()
-    assert initial["mode"] == "disabled"
-    assert initial["requested"] is False
-    assert initial["enabled"] is False
-    validate_collector_graph_manifest(initial)
-
-    env.configure_collector_graph(CollectorGraphMode.EAGER)
-    eager = env.get_collector_graph_manifest()
-
-    assert eager["mode"] == "eager"
-    assert eager["requested"] is False
-    assert eager["enabled"] is False
-    assert eager["state"] == "eager"
-    assert eager["disable_reason"] == "explicit eager collector execution"
-    validate_collector_graph_manifest(eager)
-    env.close()
-
-
-def test_graph_request_fails_closed_and_explicit_fallback_is_eager_only() -> None:
-    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
-    env.init_state()
-
-    with pytest.raises(RuntimeError, match="environment output carrier is not CUDA-resident"):
-        env.configure_collector_graph("graph")
-    failed = env.get_collector_graph_manifest()
-    assert failed["mode"] == "graph"
-    assert failed["requested"] is True
-    assert failed["enabled"] is False
-    assert failed["state"] == "invalidated"
-    validate_collector_graph_manifest(failed)
-
-    env.configure_collector_graph("graph", allow_eager_fallback=True)
-    fallback = env.get_collector_graph_manifest()
-
-    assert fallback["mode"] == "eager"
-    assert fallback["requested"] is False
-    assert fallback["enabled"] is False
-    assert fallback["state"] == "eager"
-    assert fallback["fallback_count"] == 1
-    assert fallback["disable_reason"].startswith("explicit eager fallback:")
-    validate_collector_graph_manifest(fallback)
-    env.close()
-
-
 def test_env_graph_candidate_preflight_rejects_cpu_carrier() -> None:
     env, _backend = _make_env()
     env.init_state()
@@ -1661,62 +1666,6 @@ def test_step_publishes_non_aliased_public_output_carriers() -> None:
     env.close()
 
 
-def test_collector_fixed_carriers_keep_address_shape_device_dtype() -> None:
-    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
-    env.init_state()
-    env.step(torch.zeros((2, 1), dtype=torch.float32, device=env.device))
-
-    action = env.collector_action_input
-    control = env.collector_control
-    observations = env._public_obs
-    reward = env._public_reward
-    reward_components = env.collector_reward_components
-    terminated = env._public_terminated
-    truncated = env._public_truncated
-    terminal = env._final_observation_scratch
-    assert terminal is not None
-    layout = env.get_collector_carrier_layout()
-
-    assert action.shape == (2, 1)
-    assert control.shape == (2, 1)
-    assert observations == {"obs": observations["obs"], "critic": observations["critic"]}
-    assert reward.shape == (2,)
-    assert reward_components.shape == (2, 1)
-    assert terminated.shape == (2,)
-    assert truncated.shape == (2,)
-    assert set(terminal) == set(observations)
-    assert all(
-        value.shape == (2, env.obs_groups_spec[name])
-        for name, value in {**observations, **terminal}.items()
-    )
-    carriers = (
-        action,
-        control,
-        reward,
-        reward_components,
-        *observations.values(),
-        *terminal.values(),
-    )
-    assert all(value.dtype == torch.float32 for value in carriers)
-    assert terminated.dtype == torch.bool
-    assert truncated.dtype == torch.bool
-    assert all(value.device == env.device for value in (*carriers, terminated, truncated))
-    assert layout["action"]["data_ptr"] == action.data_ptr()
-    assert layout["control"]["data_ptr"] == control.data_ptr()
-    assert layout["reward"]["data_ptr"] == reward.data_ptr()
-    assert layout["reward_components"]["data_ptr"] == reward_components.data_ptr()
-    assert layout["observations"]["obs"]["data_ptr"] == observations["obs"].data_ptr()
-    assert layout["terminal_observations"]["critic"]["data_ptr"] == terminal["critic"].data_ptr()
-    assert env.collector_validation_verdicts.keys() >= {
-        "action_finite",
-        "control_finite",
-        "state_finite",
-        "reward_finite",
-        "action_term_finite",
-    }
-    env.close()
-
-
 def test_graph_rng_state_snapshot_is_versioned_and_restoreable() -> None:
     env, _backend = _make_env()
     env.init_state()
@@ -1738,6 +1687,140 @@ def test_graph_rng_state_snapshot_is_versioned_and_restoreable() -> None:
     first_after_restore = env.torch_rng.random(1)
     env.torch_rng.set_state(restored["state"])
     torch.testing.assert_close(env.torch_rng.random(1), first_after_restore)
+    env.close()
+
+
+def test_env_update_graph_defaults_disabled_and_negotiates_distinct_eager_mode() -> None:
+    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
+
+    initial = env.get_env_update_graph_manifest()
+    assert initial["mode"] == "disabled"
+    assert initial["requested"] is False
+    assert initial["enabled"] is False
+    assert initial["backend_step_receipt"] == {
+        "operation": None,
+        "sequence": None,
+        "capture_id": None,
+    }
+    assert initial["update_completion"]["operation"] == "env_update"
+    assert initial["update_completion"]["capture_id"] is None
+    validate_env_update_graph_manifest(initial)
+
+    env.configure_env_update_graph(EnvUpdateGraphMode.EAGER)
+    eager = env.get_env_update_graph_manifest()
+
+    assert eager["mode"] == "eager"
+    assert eager["requested"] is False
+    assert eager["enabled"] is False
+    assert eager["state"] == "eager"
+    assert eager["disable_reason"] == "explicit eager env update execution"
+    validate_env_update_graph_manifest(eager)
+    env.close()
+
+
+def test_env_update_graph_request_fails_closed_without_backend_boundary() -> None:
+    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
+    env._backend.reject_env_update_preflight = True
+    env.init_state()
+
+    with pytest.raises(RuntimeError, match="test backend rejects update capture"):
+        env.configure_env_update_graph("graph")
+    failed = env.get_env_update_graph_manifest()
+    assert failed["mode"] == "graph"
+    assert failed["requested"] is True
+    assert failed["enabled"] is False
+    assert failed["state"] == "invalidated"
+    assert failed["invalidation_reason"] == "capture_failed"
+    validate_env_update_graph_manifest(failed)
+
+    env.configure_env_update_graph("graph", allow_eager_fallback=True)
+    fallback = env.get_env_update_graph_manifest()
+    assert fallback["mode"] == "eager"
+    assert fallback["requested"] is False
+    assert fallback["fallback_count"] == 1
+    assert fallback["disable_reason"].startswith("explicit eager fallback:")
+    validate_env_update_graph_manifest(fallback)
+    env.close()
+
+
+def test_env_update_graph_supported_preflight_fails_closed_on_cpu_carriers() -> None:
+    env, backend = _make_env(_make_cfg(include_optional_managers=False), torch_stream_id=17)
+    env.init_state()
+    env.set_deferred_validation_boundaries(True)
+
+    with pytest.raises(RuntimeError, match="environment carriers must be CUDA-resident"):
+        env.configure_env_update_graph("graph")
+    manifest = env.get_env_update_graph_manifest()
+
+    assert manifest["mode"] == "graph"
+    assert manifest["requested"] is True
+    assert manifest["enabled"] is False
+    assert manifest["state"] == "invalidated"
+    assert manifest["invalidation_reason"] == "capture_failed"
+    assert "environment carriers must be CUDA-resident" in manifest["disable_reason"]
+    validate_env_update_graph_manifest(manifest)
+
+    env.configure_env_update_graph("graph", allow_eager_fallback=True)
+    fallback = env.get_env_update_graph_manifest()
+    assert fallback["mode"] == "eager"
+    assert fallback["fallback_count"] == 1
+    assert fallback["disable_reason"].startswith("explicit eager fallback:")
+    validate_env_update_graph_manifest(fallback)
+    env.close()
+
+
+def test_env_update_graph_owner_preflight_rejects_cpu_carriers() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.events = {}
+    env, backend = _make_env(cfg, torch_stream_id=17)
+    env.init_state()
+    env.set_deferred_validation_boundaries(True)
+
+    with pytest.raises(RuntimeError, match="environment carriers must be CUDA-resident"):
+        env.configure_env_update_graph("graph")
+    manifest = env.get_env_update_graph_manifest()
+    assert manifest["state"] == "invalidated"
+    assert manifest["invalidation_reason"] == "capture_failed"
+    validate_env_update_graph_manifest(manifest)
+    assert backend.tensor_controls == []
+    env.close()
+
+
+def test_env_update_graph_owner_preflight_requires_deferred_validation() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.events = {}
+    env, _backend = _make_env(cfg, torch_stream_id=17)
+    env.init_state()
+
+    with pytest.raises(RuntimeError, match="deferred validation boundaries must be enabled"):
+        env.configure_env_update_graph("graph")
+    assert env.get_env_update_graph_manifest()["invalidation_reason"] == "capture_failed"
+    env.close()
+
+
+def test_env_update_graph_carrier_layout_pins_update_outputs_and_verdicts() -> None:
+    env, _backend = _make_env(_make_cfg(include_optional_managers=False))
+    env.init_state()
+    env.step(torch.zeros((2, 1), dtype=torch.float32, device=env.device))
+
+    verdicts = env.env_update_validation_verdicts
+    layout = env.get_env_update_carrier_layout()
+
+    assert set(layout["observations"]) == set(env.obs_groups_spec)
+    assert layout["reward_components"]["shape"] == (2, 1)
+    assert layout["episode_steps"]["shape"] == (2,)
+    assert layout["command_dt"]["shape"] == (2,)
+    assert layout["terminated"]["shape"] == (2,)
+    assert layout["truncated"]["shape"] == (2,)
+    assert layout["reset_mask"]["shape"] == (2,)
+    assert layout["reward_components"]["data_ptr"] == (env.reward_manager.step_rewards.data_ptr())
+    assert layout["episode_steps"]["data_ptr"] == env.episode_length_buf.data_ptr()
+    assert layout["command_dt"]["data_ptr"] == env._command_dt.data_ptr()
+    assert layout["reset_mask"]["data_ptr"] == env.reset_buf.data_ptr()
+    assert set(layout["validation_verdicts"]) == set(verdicts)
+    assert layout["validation_verdicts"]["reward_finite"]["data_ptr"] == (
+        verdicts["reward_finite"].data_ptr()
+    )
     env.close()
 
 
@@ -4178,8 +4261,8 @@ def test_autoreset_empty_partial_and_full_masks_share_one_fixed_width_lifecycle(
     env.close()
 
 
-def test_deferred_empty_autoreset_keeps_fixed_width_lifecycle() -> None:
-    """The integration-only graph candidate retains the fixed-width boundary."""
+def test_deferred_empty_autoreset_preserves_semantic_gate() -> None:
+    """Deferred validation retains the eager no-done autoreset gate."""
     cfg = _make_cfg()
     cfg.terminations = {"selective": None, "time_out": None}
     env, _backend = _make_env(cfg)
@@ -4192,11 +4275,11 @@ def test_deferred_empty_autoreset_keeps_fixed_width_lifecycle() -> None:
 
     state = env.step(torch.zeros((2, 1), dtype=torch.float32, device=env.device))
 
-    assert command.reset_masks[-1].tolist() == [False, False]
-    assert state.final_observation is not None
+    assert [mask.tolist() for mask in command.reset_masks] == [[False, False]]
+    assert state.final_observation is None
     trace = env.trace[recorder_traces_before:]
-    assert ("pre_reset", [False, False]) in trace
-    assert ("post_reset", [False, False]) in trace
+    assert ("pre_reset", [False, False]) not in trace
+    assert ("post_reset", [False, False]) not in trace
     env.close()
 
 
@@ -4514,7 +4597,9 @@ def test_eager_deferred_and_mask_widths_share_step_semantics() -> None:
         # eager/deferred mode can intentionally differ in reset RNG and trace.
         if torch.equal(eager["rng_after"], deferred["rng_after"]):
             torch.testing.assert_close(eager["command"], deferred["command"])
-            assert eager["trace"] == deferred["trace"]
+            assert [event for event in eager["trace"] if event[0] != "pre_reset"] == [
+                event for event in deferred["trace"] if event[0] != "pre_reset"
+            ]
         torch.testing.assert_close(eager["reward_means"], deferred["reward_means"])
         for name in eager["after_obs"]:
             torch.testing.assert_close(eager["after_obs"][name], deferred["after_obs"][name])
@@ -4545,3 +4630,68 @@ def test_eager_deferred_and_mask_widths_share_step_semantics() -> None:
         assert len(eager["backend_reset_rows"]) == len(deferred["backend_reset_rows"])
         for left, right in zip(eager["backend_reset_rows"], deferred["backend_reset_rows"]):
             torch.testing.assert_close(left, right)
+
+
+def test_extracted_env_update_body_preserves_eager_owner_order() -> None:
+    """The no-reset update body exposes the exact eager owner execution order."""
+    cfg = _make_cfg(
+        include_optional_managers=False, metrics={"progress": MetricsTermCfg(func=_metric)}
+    )
+    cfg.events = {}
+    env, _backend = _make_env(cfg)
+    env.init_state()
+    actions = torch.zeros((2, 1), dtype=torch.float32, device=env.device)
+    env.step(actions)
+
+    calls: list[str] = []
+    originals = {
+        "episode_steps": env._advance_episode_steps,
+        "termination": env._compute_termination_and_reset_flags,
+        "reward": env._compute_rewards,
+        "metrics": env._compute_metrics,
+        "events": env._apply_runtime_events,
+        "command": env._compute_commands,
+        "command_post": env._post_compute_commands,
+        "observations": env._compute_observations,
+    }
+
+    def bind(name: str, owner):
+        def wrapper(*args, **kwargs):
+            calls.append(name)
+            return owner(*args, **kwargs)
+
+        return wrapper
+
+    for name, owner in originals.items():
+        setattr(env, _method_name(name), bind(name, owner))
+
+    state = env.step(actions)
+
+    assert calls == [
+        "episode_steps",
+        "termination",
+        "reward",
+        "metrics",
+        "events",
+        "command",
+        "command_post",
+        "observations",
+    ]
+    assert state.terminated.shape == (2,)
+    assert state.truncated.shape == (2,)
+    assert state.reward.shape == (2,)
+    assert set(state.obs) == set(env.obs_groups_spec)
+    env.close()
+
+
+def _method_name(name: str) -> str:
+    return {
+        "episode_steps": "_advance_episode_steps",
+        "termination": "_compute_termination_and_reset_flags",
+        "reward": "_compute_rewards",
+        "metrics": "_compute_metrics",
+        "events": "_apply_runtime_events",
+        "command": "_compute_commands",
+        "command_post": "_post_compute_commands",
+        "observations": "_compute_observations",
+    }[name]

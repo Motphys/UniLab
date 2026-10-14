@@ -83,6 +83,11 @@ class RewardManager(ManagerBase):
         self._packed_reward_scratch = torch.empty_like(self._reward_buf)
         self._term_step_scratch = torch.empty_like(self._reward_buf)
         self._packed_step_scratch = torch.empty_like(self._reward_buf)
+        self._finite_value_scratch = torch.empty_like(self._reward_buf)
+        self._finite_scratch = torch.empty_like(self._reward_buf, dtype=torch.bool)
+        self._step_reward_mean_scratch = torch.empty(
+            (len(self._term_names),), dtype=torch.float32, device=self._device
+        )
         self._finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
         self._deferred_validation_boundaries = False
 
@@ -235,8 +240,11 @@ class RewardManager(ManagerBase):
                 self._step_reward[:, target_idx] = step_value
             aggregation_ms += time.perf_counter() - aggregation_started
         finite_started = time.perf_counter()
-        valid = torch.isfinite(self._reward_buf).all()
-        self._finite_valid.copy_(valid)
+        finite_value = self._finite_value_scratch
+        torch.sub(self._reward_buf, self._reward_buf, out=finite_value)
+        finite = self._finite_scratch
+        torch.eq(finite_value, 0.0, out=finite)
+        torch.all(finite, out=self._finite_valid)
         if self._deferred_validation_boundaries:
             timing["update_state_reward_term_dispatch_ms"] = dispatch_ms * 1000.0
             timing["update_state_reward_aggregation_ms"] = aggregation_ms * 1000.0
@@ -245,7 +253,7 @@ class RewardManager(ManagerBase):
             ) * 1000.0
             timing["update_state_reward_manager_residual_ms"] = reset_ms * 1000.0
             return self._reward_buf
-        finite = bool(valid)
+        finite = bool(self._finite_valid)
         finite_ms = time.perf_counter() - finite_started
         if not finite:
             finite = torch.isfinite(self._step_reward)
@@ -295,7 +303,7 @@ class RewardManager(ManagerBase):
         """Latest per-term weighted means on the Manager device."""
         if not self._term_names:
             return torch.empty(0, dtype=torch.float32, device=self._device)
-        return self._step_reward.mean(dim=0)
+        return torch.mean(self._step_reward, dim=0, out=self._step_reward_mean_scratch)
 
     @property
     def step_rewards(self) -> torch.Tensor:

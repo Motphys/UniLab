@@ -97,6 +97,17 @@ def test_basic_termination_terms_match_pinned_semantics() -> None:
     )
 
 
+def test_time_out_reuses_environment_persistent_scratch() -> None:
+    env = _env()
+    scratch = torch.empty((env.num_envs,), dtype=torch.bool)
+    setattr(env, "time_out_scratch", scratch)
+
+    result = mdp.time_out(env)
+
+    assert result is scratch
+    np.testing.assert_array_equal(result, [False, True, True])
+
+
 def test_terms_integrate_with_termination_manager_and_selector_resolution() -> None:
     env = _env()
     selector = SceneEntityCfg("robot")

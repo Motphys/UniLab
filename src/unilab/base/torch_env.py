@@ -24,6 +24,7 @@ from unisim.backend.base import (
     CameraCfg,
     DebugOverlayGetter,
     DebugPrimitive,
+    GraphCompletionToken,
     SimBackend,
     TensorExecution,
     tensor_device_matches,
@@ -109,6 +110,7 @@ class TorchEnv(ABEnv):
         self._rgb_array_renderer_ready = False
         self._nan_guard: "TensorNanGuard | None" = None
         self._defer_validation_at_boundaries = False
+        self._pending_backend_step_completion: GraphCompletionToken | None = None
 
     @property
     def device(self) -> torch.device:
@@ -245,6 +247,7 @@ class TorchEnv(ABEnv):
 
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
+        self._pending_backend_step_completion = None
         try:
             backend_result = self._backend.step_tensor(ctrl, self._cfg.sim_substeps)
         except BaseException:
@@ -254,6 +257,20 @@ class TorchEnv(ABEnv):
             raise
         step_core_ms = (time.perf_counter() - phase) * 1000.0
         step_core_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
+        if isinstance(backend_result, dict):
+            pending_completion = backend_result.get("graph_completion")
+            if pending_completion is not None and not isinstance(
+                pending_completion, GraphCompletionToken
+            ):
+                self._state.info.pop("graph_completion", None)
+                raise TypeError(
+                    "backend graph_completion must be a GraphCompletionToken; got "
+                    f"{type(pending_completion).__name__}"
+                )
+            # Publish the receipt to the owner before update_state. The update
+            # graph needs this ordering dependency before replay, while public
+            # transition consumers still read it only after the update succeeds.
+            self._pending_backend_step_completion = pending_completion
 
         # Transition publication starts only after the backend completion
         # boundary succeeds. A failed replay therefore leaves the previous
@@ -264,7 +281,10 @@ class TorchEnv(ABEnv):
 
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
-        self._state = self.update_state(self._state)
+        try:
+            self._state = self.update_state(self._state)
+        finally:
+            self._pending_backend_step_completion = None
         if self._nan_guard is not None:
             self._nan_guard.capture(self._tensor_diagnostics_state())
             nan_ids = self._nan_guard.check(
@@ -287,15 +307,9 @@ class TorchEnv(ABEnv):
 
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
-        # Eager execution preserves the semantic autoreset gate: an empty done
-        # mask must not consume Manager reset RNG or publish a terminal carrier.
-        # Graph-candidate integration opts into the fixed-width boundary and
-        # keeps that experimental lifecycle explicit rather than changing the
-        # production trajectory.
-        did_reset = self._autoreset and (
-            self._defer_validation_at_boundaries
-            or bool((self._state.terminated | self._state.truncated).any())
-        )
+        # Preserve the semantic autoreset gate in both modes: an empty done
+        # mask must not consume reset RNG or publish a terminal carrier.
+        did_reset = self._autoreset and bool((self._state.terminated | self._state.truncated).any())
         if did_reset:
             self._reset_done_envs()
         reset_done_ms = (time.perf_counter() - phase) * 1000.0
@@ -327,7 +341,12 @@ class TorchEnv(ABEnv):
                 timing[f"backend_{key}"] = value
             completion = backend_result.get("graph_completion")
             if completion is not None:
-                self._state.info["graph_completion"] = completion
+                if "graph_completion" in self._state.info:
+                    # Preserve the independent owner update receipt while keeping
+                    # the backend dependency publicly inspectable.
+                    self._state.info["backend_step_completion"] = completion
+                else:
+                    self._state.info["graph_completion"] = completion
         return self._state
 
     def _validate_action(self, actions: torch.Tensor) -> None:

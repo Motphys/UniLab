@@ -177,6 +177,10 @@ class ObservationManager(ManagerBase):
         self._group_term_noise_generation: dict[tuple[str, str], int] = dict()
         self._deferred_validation_boundaries = False
         self._group_finite_valid: dict[str, torch.Tensor] = {}
+        self._group_finite_scratch: dict[str, torch.Tensor] = {}
+        self._group_finite_value_scratch: dict[str, torch.Tensor] = {}
+        self._group_output_carriers: dict[str, list[torch.Tensor]] = {}
+        self._group_output_generation: dict[str, int] = {}
 
         for group_name, group_term_dims in self._group_obs_term_dim.items():
             if self._group_obs_concatenate[group_name]:
@@ -190,8 +194,32 @@ class ObservationManager(ManagerBase):
 
         self._obs_buffer: dict[str, torch.Tensor | dict[str, torch.Tensor]] | None = None
         for group_name, group_dim in self._group_obs_dim.items():
-            group_tail = group_dim[1:]
-            verdict_shape = (self.num_envs, *(size for size in group_tail if isinstance(size, int)))
+            # Deferred finite verdicts are row-owned: every non-batch dimension
+            # is reduced exactly once. Keep the full-width boolean mask resident
+            # too because isfinite has no out= overload.
+            verdict_shape = (self.num_envs,)
+            resolved_group_dim = cast("tuple[int, ...]", group_dim)
+            scratch_shape = (self.num_envs, *resolved_group_dim)
+            if self._group_obs_concatenate[group_name]:
+                self._group_finite_value_scratch[group_name] = torch.empty(
+                    scratch_shape,
+                    dtype=torch.float32,
+                    device=self._device,
+                )
+                self._group_output_carriers[group_name] = [
+                    torch.empty(
+                        scratch_shape,
+                        dtype=torch.float32,
+                        device=self._device,
+                    )
+                    for _ in range(2)
+                ]
+            if self._group_obs_concatenate[group_name]:
+                self._group_finite_scratch[group_name] = torch.empty(
+                    scratch_shape,
+                    dtype=torch.bool,
+                    device=self._device,
+                )
             self._group_finite_valid[group_name] = torch.ones(
                 verdict_shape, dtype=torch.bool, device=self._device
             )
@@ -677,12 +705,20 @@ class ObservationManager(ManagerBase):
                 # preserve its exact dtype/device without a defensive copy.
                 result = tensors[0]
             else:
-                result = torch.cat(
+                generation = self._group_output_generation.get(group_name, 0)
+                carriers = self._group_output_carriers[group_name]
+                result = carriers[generation % len(carriers)]
+                self._group_output_generation[group_name] = generation + 1
+                torch.cat(
                     tensors,
                     dim=self._group_obs_concatenate_dim[group_name],
+                    out=result,
                 )
             if defer_error_nan_check:
-                finite = torch.isfinite(result)
+                finite_value = self._group_finite_value_scratch[group_name]
+                torch.sub(result, result, out=finite_value)
+                finite = self._group_finite_scratch[group_name]
+                torch.eq(finite_value, 0.0, out=finite)
                 verdict = self._group_finite_valid[group_name]
                 torch.all(finite, dim=tuple(range(1, finite.ndim)), out=verdict)
                 if self._deferred_validation_boundaries:

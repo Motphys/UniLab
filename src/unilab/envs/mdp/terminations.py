@@ -45,7 +45,10 @@ def _state_tensor(term_name: str, value: object, num_envs: int, *, width: int) -
 
 def time_out(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Terminate when the episode length reaches its maximum."""
-    return env.episode_length_buf >= env.max_episode_length
+    output = getattr(env, "time_out_scratch", None)
+    if output is None:
+        return env.episode_length_buf >= env.max_episode_length
+    return torch.ge(env.episode_length_buf, env.max_episode_length, out=output)
 
 
 def bad_orientation(

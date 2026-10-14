@@ -323,6 +323,34 @@ def test_observation_groups_pipeline_order_and_history(fake_env: FakeEnv) -> Non
     assert manager.get_active_iterable_terms(0)[0][0] == "policy-state"
 
 
+def test_concatenated_observations_rotate_persistent_output_carriers(
+    fake_env: FakeEnv,
+) -> None:
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "left": ObservationTermCfg(func=lambda env: env.obs),
+                    "right": ObservationTermCfg(
+                        func=lambda env: torch.ones((env.num_envs, 1), dtype=torch.float32)
+                    ),
+                }
+            )
+        },
+        fake_env,
+    )
+    addresses = [carrier.data_ptr() for carrier in manager._group_output_carriers["policy"]]
+
+    first = manager.compute(update_history=True)["policy"]
+    second = manager.compute(update_history=True)["policy"]
+
+    assert first.data_ptr() == addresses[0]
+    assert second.data_ptr() == addresses[1]
+    torch.testing.assert_close(
+        second, torch.cat((fake_env.obs, torch.ones_like(fake_env.obs[:, :1])), dim=1)
+    )
+
+
 def test_non_temporal_tensor_terms_stay_on_device_for_clip_scale_concat(
     fake_env: FakeEnv,
 ) -> None:
@@ -577,6 +605,44 @@ def test_deferred_observation_finite_verdict_stays_device_resident(fake_env: Fak
     assert manager.finite_valid("policy").tolist() == [True, False, True, True]
     with pytest.raises(ValueError, match="ObservationManager group 'policy'"):
         manager.publish_validation_verdict()
+
+
+def test_deferred_observation_finite_mask_uses_persistent_scratch(fake_env: FakeEnv) -> None:
+    def invalid(env: FakeEnv) -> torch.Tensor:
+        value = torch.ones((env.num_envs, 2), dtype=torch.float32)
+        value[1] = torch.nan
+        value[3] = torch.inf
+        return value
+
+    manager = ObservationManager(
+        {
+            "policy": ObservationGroupCfg(
+                terms={
+                    "finite": ObservationTermCfg(func=lambda env: env.obs),
+                    "invalid": ObservationTermCfg(func=invalid),
+                }
+            )
+        },
+        fake_env,
+    )
+    manager.set_deferred_validation_boundaries(True)
+    scratch = manager._group_finite_scratch["policy"]
+
+    manager.compute(update_history=True)
+
+    assert scratch.data_ptr() == manager._group_finite_scratch["policy"].data_ptr()
+    assert torch.equal(
+        scratch,
+        torch.tensor(
+            [
+                [True, True, True, True],
+                [True, True, False, False],
+                [True, True, True, True],
+                [True, True, False, False],
+            ]
+        ),
+    )
+    assert manager.finite_valid("policy").tolist() == [True, False, True, False]
 
 
 def test_concatenated_nan_sanitize_does_not_mutate_term_owned_input(

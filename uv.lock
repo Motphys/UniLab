@@ -5270,10 +5270,10 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "unilab-rl", marker = "extra == 'uni-rl'", specifier = "==1.4.13" },
-    { name = "unisim-core", specifier = ">=1.7.18" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = ">=1.7.18" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = ">=1.7.18" },
+    { name = "unilab-rl", marker = "extra == 'uni-rl'", specifier = "==1.4.14" },
+    { name = "unisim-core", specifier = ">=1.7.21" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = ">=1.7.21" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = ">=1.7.21" },
     { name = "viser", specifier = ">=1.0.26" },
     { name = "wandb" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
@@ -5288,12 +5288,12 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "unilab-rl", specifier = "==1.4.13" },
+    { name = "unilab-rl", specifier = "==1.4.14" },
 ]
 
 [[package]]
 name = "unilab-rl"
-version = "1.4.13"
+version = "1.4.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "hydra-core" },
@@ -5309,20 +5309,20 @@ dependencies = [
     { name = "torch", version = "2.14.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "wandb" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/09/d0/f6b099b16712123fffa9488188fc25b27ce4b8405dbfe10b73dfc11080ba/unilab_rl-1.4.13.tar.gz", hash = "sha256:c6e41af7f1f209688cc50d641ef597f67dfdee0007a0776b642e4ca26616c74b", size = 197152, upload-time = "2026-10-13T14:54:03.466Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e9/72/d45a9ac7869be787da90711fa890d874c1c18d492179a019c936afae9c15/unilab_rl-1.4.14.tar.gz", hash = "sha256:0de9e33266f1bc70efd023a265006051572e52d44b72b91513ba5e27690adb52", size = 200659, upload-time = "2026-10-14T05:00:16.454Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/26/44/763065b734f8d8b19c76a7d74d552737e4819df04eea5b576cbb21227342/unilab_rl-1.4.13-py3-none-any.whl", hash = "sha256:6ec821da08c6bd1badd97ceb433377c9872372d2ac4df6fed7a4e9b532f51f38", size = 228443, upload-time = "2026-10-13T14:54:02.279Z" },
+    { url = "https://files.pythonhosted.org/packages/68/c3/b79b033b0260291a87d22e2d95aaabefa2081eaf789cfb1fc6ba7386124a/unilab_rl-1.4.14-py3-none-any.whl", hash = "sha256:227a7b73aa998fa0085b570a37e9f08572a5d606bd7b58d2f455f001614cfe86", size = 231841, upload-time = "2026-10-14T05:00:15.011Z" },
 ]
 
 [[package]]
 name = "unisim-core"
-version = "1.7.18"
+version = "1.7.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/7e/7dd02f284851614a258fe7b16d689cdd126bc1c7a07e55ecbeba042e2e17/unisim_core-1.7.18.tar.gz", hash = "sha256:128d6235b0316e5cb7da1aef77815351d20c5c8361145cdff95c77e445648aff", size = 675437, upload-time = "2026-10-13T14:47:22.98Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3e/cf/7d4acd46a3c62383dfa01a00564c46232ced1d46bd0d2e3db78926ee6993/unisim_core-1.7.21.tar.gz", hash = "sha256:0fe4b87989f3fa45ce10f6cc17a358ae2185463942f9033a4fda7a826eafe05a", size = 677738, upload-time = "2026-10-14T14:03:12.089Z" }
 
 [package.optional-dependencies]
 motrix = [

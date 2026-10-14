@@ -136,6 +136,7 @@ class ResetStateTransaction:
         self._packed_reset_device: torch.device | None = None
         self._packed_reset_transaction: TorchPackedResetComposer | None = None
         self._packed_state_default_installed = False
+        self._owner_tensor_write_mask: torch.Tensor | None = None
         self._tensor_write_mask: torch.Tensor | None = None
         self._tensor_root_columns: (
             tuple[tuple[int, ...], tuple[int, ...], torch.Tensor, torch.Tensor] | None
@@ -147,6 +148,8 @@ class ResetStateTransaction:
         self._tensor_root_payload_valid: torch.Tensor | None = None
         self._deferred_payload_validation = False
         self._deferred_mask_validation = False
+        self._commit_verdict_published = False
+        self._completed_tensor_has_writes = False
 
     @property
     def active(self) -> bool:
@@ -193,9 +196,15 @@ class ResetStateTransaction:
             return
         if bool(self._mask_outside_rows):
             raise ValueError("tensor reset mask attempted a write outside the active mask")
+        if self._commit_verdict_published:
+            return
         if not self._last_commit_had_writes:
             return
         if bool(self._mask_count.item()):
+            self._commit_verdict_published = True
+            return
+        if self._completed_tensor_has_writes:
+            self._commit_verdict_published = True
             return
         raise ValueError("fixed-width tensor reset commit has no selected rows")
 
@@ -276,6 +285,9 @@ class ResetStateTransaction:
                 "backend declares packed_reset without SimBackend.begin_packed_reset"
             )
         self._packed_reset_device = resolved
+        self._owner_tensor_write_mask = torch.zeros(
+            self._num_envs, dtype=torch.bool, device=resolved
+        )
         self._packed_reset_transaction = cast(
             "TorchPackedResetComposer", begin_packed_reset(device=resolved)
         )
@@ -364,10 +376,18 @@ class ResetStateTransaction:
         self._ensure_packed_state_default("begin_tensor")
         transaction.begin_state_mask(reset_mask)
         self._tensor_active_mask = reset_mask
-        self._tensor_write_mask = torch.zeros_like(reset_mask) if owner_subset else None
+        if owner_subset:
+            write_mask = self._owner_tensor_write_mask
+            assert write_mask is not None
+            write_mask.zero_()
+            self._tensor_write_mask = write_mask
+        else:
+            self._tensor_write_mask = None
         self._tensor_has_writes = False
         self._tensor_owner_subset = owner_subset
         self._requesting_terms.clear()
+        self._last_commit_had_writes = False
+        self._commit_verdict_published = False
         self._tensor_active = True
 
     def write_entity_state(
@@ -2510,8 +2530,10 @@ class ResetStateTransaction:
         self._mask_count.zero_()
         self._mask_outside_rows.zero_()
         self._tensor_has_writes = False
+        self._completed_tensor_has_writes = self._last_commit_had_writes
         self._tensor_owner_subset = False
         self._tensor_write_mask = None
+        self._commit_verdict_published = False
 
 
 __all__ = ["ResetStateTransaction"]
