@@ -18,6 +18,7 @@ from unilab.base import registry
 from unilab.base.config_adapter import BackendAdapter
 from unilab.base.config_materialization import apply_cfg_overrides
 from unilab.envs import ManagerBasedRlEnvCfg, mdp
+from unilab.tasks.locomotion.common import sensor_reward_terms
 
 ROOT_DIR = Path(__file__).parents[4]
 CONF_DIR = ROOT_DIR / "src" / "unilab" / "conf"
@@ -202,10 +203,25 @@ def test_go2_flat_owner_materializes_complete_plain_manager_cfg(
         }
         if alive_declared:
             expected_weights["alive"] = 0.0
+        if backend == "motrix":
+            expected_weights["go2_walk_pack"] = 0.0
         actual_weights = {
             name: term.weight for name, term in env_cfg.rewards.items() if term is not None
         }
         assert actual_weights == expected_weights
+        if backend == "motrix":
+            pack_cfg = env_cfg.rewards["go2_walk_pack"]
+            assert tuple(pack_cfg.reward_pack_names) == (
+                "tracking_lin_vel",
+                "tracking_ang_vel",
+                "lin_vel_z",
+                "ang_vel_xy",
+                "base_height",
+                "action_rate",
+                "similar_to_default",
+                "contact",
+                "swing_feet_z",
+            )
 
     if fixed_command:
         ranges = env_cfg.commands["twist"].ranges
@@ -284,6 +300,9 @@ def test_go2_flat_motrix_owner_uses_tensor_reset_events() -> None:
 def test_go2_flat_appo_tracking_sigma_preserves_legacy_reward_kernel(owner: str) -> None:
     registry.ensure_registries()
     _, env_cfg, _ = _materialize("appo", (owner,))
+
+    assert env_cfg.rewards["tracking_lin_vel"].func is sensor_reward_terms.root_track_lin_vel
+    assert env_cfg.rewards["lin_vel_z"].func is sensor_reward_terms.root_lin_vel_z
 
     for term_name in ("tracking_lin_vel", "tracking_ang_vel"):
         assert env_cfg.rewards[term_name].params["tracking_sigma"] == pytest.approx(0.25)

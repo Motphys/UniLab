@@ -58,6 +58,15 @@ training:
   # Backend (TensorBoard/wandb) scalar reporting interval in iterations; the
   # terminal display is unaffected. Each report is one batched event record.
   log_interval: 1
+  torch_threads:
+    enabled: false
+    # "auto" resolves per process role from host CPU count with conservative caps.
+    learner_num_threads: auto
+    collector_num_threads: auto
+    learner_num_interop_threads: 1
+    collector_num_interop_threads: 1
+    compile_threads: auto
+    set_env_vars: true
   wandb_project: unilab
   wandb_entity: null
   wandb_group: null

@@ -12,6 +12,16 @@ ENV_STEP_BREAKDOWN_TIMING_MAP = {
     "action_backend_step_ms": "env_step_action_backend_ms",
     "step_core_ms": "env_step_backend_ms",
     "update_state_ms": "env_step_update_state_ms",
+    "update_state_read_boundary_ms": "env_step_update_state_read_boundary_ms",
+    "update_state_queue_drain_ms": "env_step_update_state_queue_drain_ms",
+    "update_state_termination_ms": "env_step_update_state_termination_ms",
+    "update_state_reward_ms": "env_step_update_state_reward_ms",
+    "update_state_metrics_ms": "env_step_update_state_metrics_ms",
+    "update_state_events_ms": "env_step_update_state_events_ms",
+    "update_state_command_ms": "env_step_update_state_command_ms",
+    "update_state_observation_ms": "env_step_update_state_observation_ms",
+    "update_state_map_ms": "env_step_update_state_map_ms",
+    "update_state_publish_ms": "env_step_update_state_publish_ms",
     "reset_done_ms": "env_step_reset_done_ms",
 }
 

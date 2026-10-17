@@ -83,7 +83,14 @@ class _ParityScene:
                 values={name: torch.as_tensor(self.values[name]) for name in names}
             ),
             body_tensor_view=lambda entity, names: SimpleNamespace(
-                pos_w=torch.tensor([[[1.0, 2.0, 0.4]], [[-1.0, 0.5, 0.2]]], dtype=torch.float32)
+                pos_w=torch.tensor([[[1.0, 2.0, 0.4]], [[-1.0, 0.5, 0.2]]], dtype=torch.float32),
+                quat_w=torch.tensor(
+                    [[[0.70710678, 0.0, 0.0, -0.70710678]], [[1.0, 0.0, 0.0, 0.0]]],
+                    dtype=torch.float32,
+                ),
+                lin_vel_w=torch.tensor(
+                    [[[0.0, 2.0, 3.0]], [[0.3, -0.2, 0.5]]], dtype=torch.float32
+                ),
             ),
             joint_tensor_view=lambda entity: SimpleNamespace(
                 joint_pos=torch.tensor([[0.2, -0.1, 0.5], [-0.4, 0.3, 0.1]], dtype=torch.float32)
@@ -421,6 +428,7 @@ def test_base_reward_terms_match_go2_flat_equations() -> None:
     local_linvel = data.values["local_linvel"]
     gyro = data.values["gyro"]
     root_pos_w = torch.tensor([[[1.0, 2.0, 0.4]], [[-1.0, 0.5, 0.2]]], dtype=torch.float32)[:, 0]
+    root_lin_vel_b = torch.tensor([[-2.0, 0.0, 3.0], [0.3, -0.2, 0.5]], dtype=torch.float32)
     joint_pos = torch.tensor([[0.2, -0.1, 0.5], [-0.4, 0.3, 0.1]], dtype=torch.float32)
     default_joint_pos = torch.tensor([[0.1, -0.2, 0.5], [-0.1, 0.1, 0.0]], dtype=torch.float32)
     command = cast(Any, env).command_manager.command
@@ -431,6 +439,12 @@ def test_base_reward_terms_match_go2_flat_equations() -> None:
             sensor_reward_terms.track_lin_vel,
             tracking_sigma=sigma,
             sensor_name="local_linvel",
+            command_name="twist",
+        ),
+        "root_track_xy": _reward_value(
+            env,
+            sensor_reward_terms.root_track_lin_vel,
+            tracking_sigma=sigma,
             command_name="twist",
         ),
         "track_yaw": _reward_value(
@@ -445,6 +459,7 @@ def test_base_reward_terms_match_go2_flat_equations() -> None:
             sensor_reward_terms.lin_vel_z,
             sensor_name="local_linvel",
         ),
+        "root_lin_z": _reward_value(env, sensor_reward_terms.root_lin_vel_z),
         "ang_xy": _reward_value(
             env,
             sensor_reward_terms.ang_vel_xy,
@@ -462,8 +477,12 @@ def test_base_reward_terms_match_go2_flat_equations() -> None:
     }
     expected = {
         "track_xy": torch.exp(-(command[:, :2] - local_linvel[:, :2]).square().sum(dim=1) / sigma),
+        "root_track_xy": torch.exp(
+            -(command[:, :2] - root_lin_vel_b[:, :2]).square().sum(dim=1) / sigma
+        ),
         "track_yaw": np.exp(-np.square(command[:, 2] - gyro[:, 2]) / sigma),
         "lin_z": np.square(local_linvel[:, 2]),
+        "root_lin_z": torch.square(root_lin_vel_b[:, 2]),
         "ang_xy": np.sum(np.square(gyro[:, :2]), axis=1),
         "height": torch.square(root_pos_w[:, 2] - 0.3),
         "pose": (joint_pos - default_joint_pos).abs().sum(dim=1),

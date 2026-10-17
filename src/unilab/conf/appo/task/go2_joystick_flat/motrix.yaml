@@ -6,10 +6,39 @@ defaults:
 training:
   task_name: Go2JoystickFlat
   sim_backend: motrix
+  torch_threads:
+    enabled: true
+    collector_num_threads: 1
 algo:
   num_envs: 512
   steps_per_env: 24
-  max_iterations: 180
+  max_iterations: 160
+  algorithm:
+    entropy_coef: 0.001
+
+reward:
+  go2_walk_pack:
+    _target_: unilab.tasks.locomotion.go2.manager_terms.Go2WalkRewardPackCfg
+    func: unilab.tasks.locomotion.go2.manager_terms.Go2WalkRewardPack
+    weight: 0.0
+    tracking_sigma: 0.25
+    target_height: 0.3
+    gait_frequency: 2.0
+    contact_threshold: 0.1
+    stance_threshold: 0.6
+    swing_target_height: 0.1
+    swing_kernel: 0.01
+    swing_start: 0.6
+    reward_pack_names:
+      - tracking_lin_vel
+      - tracking_ang_vel
+      - lin_vel_z
+      - ang_vel_xy
+      - base_height
+      - action_rate
+      - similar_to_default
+      - contact
+      - swing_feet_z
 env:
   # Motrix's packed HOST_BRIDGE uses the canonical tensor selected-reset terms.
   events:

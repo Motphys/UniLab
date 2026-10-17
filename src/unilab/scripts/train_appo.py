@@ -27,6 +27,10 @@ from unilab.base.process_device import (
 )
 from unilab.rl import RslRlVecEnvAdapter
 from unilab.rl.algos.appo.runtime import resolve_appo_runtime
+from unilab.rl.runtime.offpolicy.thread_budget import (
+    apply_torch_thread_runtime,
+    resolve_torch_thread_runtime,
+)
 from unilab.training import (
     algo_config_dict,
     build_run_dir_name,
@@ -93,9 +97,14 @@ def build_appo_runner_kwargs(
     env_cfg_override: dict | None,
     collector_device: str | None,
     rl_cfg: dict[str, Any] | None = None,
+    torch_thread_runtime: dict[str, Any] | None = None,
 ) -> dict:
     if rl_cfg is None:
         rl_cfg = algo_config_dict(cfg)
+    if torch_thread_runtime is None:
+        torch_thread_runtime = resolve_torch_thread_runtime(
+            getattr(cfg.training, "torch_threads", None)
+        )
 
     routed_env_cfg_override = apply_backend_env_device_override(
         env_cfg_override,
@@ -122,6 +131,7 @@ def build_appo_runner_kwargs(
         "steps_per_env": cfg.algo.steps_per_env,
         "sim_backend": cfg.training.sim_backend,
         "seed": rl_cfg.get("seed"),
+        "torch_thread_runtime": torch_thread_runtime,
         "log_interval": int(cfg.training.log_interval),
     }
     if cfg.training.replay_queue_size is not None:
@@ -445,6 +455,10 @@ def main(cfg: DictConfig) -> None:
         if str(cfg.training.sim_backend) == "mujoco"
         else None
     )
+    torch_thread_runtime = resolve_torch_thread_runtime(
+        getattr(cfg.training, "torch_threads", None)
+    )
+    apply_torch_thread_runtime(torch_thread_runtime, role="learner")
 
     tracker = None
     if not cfg.training.play_only:
@@ -497,6 +511,7 @@ def main(cfg: DictConfig) -> None:
                     env_cfg_override=env_cfg_override,
                     collector_device=collector_device,
                     rl_cfg=rl_cfg,
+                    torch_thread_runtime=torch_thread_runtime,
                 )
             )
 

@@ -509,6 +509,46 @@ METRIC_SPECS: dict[str, MetricSpec] = {
             "Update environment-owned state.",
         ),
         _collector_ms(
+            "Perf/collector_env_step_update_state_read_boundary_ms",
+            "Invalidate and refresh state at the update-state boundary.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_queue_drain_ms",
+            "Synchronize pending backend work at the start of update-state.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_termination_ms",
+            "Compute termination and reset flags.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_reward_ms",
+            "Compute reward terms.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_metrics_ms",
+            "Compute environment metrics.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_events_ms",
+            "Apply runtime events.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_command_ms",
+            "Compute command terms.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_observation_ms",
+            "Compute observation terms.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_map_ms",
+            "Map manager observations to policy groups.",
+        ),
+        _collector_ms(
+            "Perf/collector_env_step_update_state_publish_ms",
+            "Publish mapped observations and transition outputs.",
+        ),
+        _collector_ms(
             "Perf/collector_env_step_reset_done_ms",
             "Process resets and done observations.",
         ),

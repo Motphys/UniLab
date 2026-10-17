@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
 
-from unilab.managers.manager_base import ManagerTermBaseCfg
+from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
+from unilab.managers.scene_entity_config import SceneEntityCfg
 
 from .manager_terms import SensorTermBase, _command, _real
 
@@ -25,6 +26,14 @@ if TYPE_CHECKING:
 
 def _torch_values(values: torch.Tensor) -> torch.Tensor:
     return values.to(dtype=torch.float32)
+
+
+def _quat_apply_inverse(quat_wxyz: torch.Tensor, vector_w: torch.Tensor) -> torch.Tensor:
+    quat = torch.cat((quat_wxyz[..., 0:1], -quat_wxyz[..., 1:4]), dim=-1)
+    quat_xyz = quat[..., 1:4]
+    cross = torch.linalg.cross(quat_xyz, vector_w, dim=-1)
+    second_cross = torch.linalg.cross(quat_xyz, cross, dim=-1)
+    return vector_w + 2.0 * quat[..., 0:1] * cross + 2.0 * second_cross
 
 
 class _Vec3SensorTerm(SensorTermBase):
@@ -113,6 +122,75 @@ class track_ang_vel(_CommandTrackingTerm):
         return torch.exp(-error / self._sigma)
 
 
+class _RootBodyVelocityTerm(ManagerTermBase):
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(env)
+        asset_cfg = cfg.params.get("asset_cfg", SceneEntityCfg("robot"))
+        if not isinstance(asset_cfg, SceneEntityCfg):
+            raise TypeError(f"{self.name} asset_cfg must be a SceneEntityCfg")
+        entity_cfg = env.cfg.scene.entities.get(asset_cfg.name) if env.cfg.scene else None
+        root = getattr(entity_cfg, "root_body_name", None) if entity_cfg is not None else None
+        if not isinstance(root, str) or not root:
+            raise ValueError(f"{self.name} requires an entity root_body_name")
+        self._entity_name = asset_cfg.name
+        self._root_body_name = root
+
+    @property
+    def tensor_body_names(self) -> tuple[str, ...]:
+        return (self._root_body_name,)
+
+    @property
+    def entity_name(self) -> str:
+        return self._entity_name
+
+    def _root_velocity_b(self, env: ManagerBasedRlEnv) -> torch.Tensor:
+        read_plan = getattr(env.scene, "_tensor_read_plan", None)
+        if read_plan is None:
+            raise NotImplementedError(
+                f"Manager term '{self.name}' requires the Manager packed root-body read plan"
+            )
+        step_counter = getattr(env, "step_counter", None)
+        cache = getattr(env, "_root_body_velocity_cache", None)
+        if cache is not None and cache[0] == step_counter:
+            return cache[1]
+        body = read_plan.body_tensor_view(self._entity_name, (self._root_body_name,))
+        velocity = _quat_apply_inverse(body.quat_w[:, 0, :], body.lin_vel_w[:, 0, :])
+        setattr(env, "_root_body_velocity_cache", (step_counter, velocity))
+        return velocity
+
+
+class root_track_lin_vel(_RootBodyVelocityTerm):
+    """Track commanded planar velocity at the root body origin."""
+
+    def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        super().__init__(cfg, env)
+        self._sigma = _real(
+            self.name,
+            "tracking_sigma",
+            cfg.params.get("tracking_sigma", 0.25),
+            minimum=0.0,
+            strict_minimum=True,
+        )
+        self._command_name = cfg.params.get("command_name", "twist")
+        _command(env, self.name, self._command_name)
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> torch.Tensor:
+        del params
+        linvel = self._root_velocity_b(env)
+        command = _command(env, self.name, self._command_name)
+        command_tensor = command.to(device=linvel.device, dtype=linvel.dtype)
+        error = (command_tensor[:, :2] - linvel[:, :2]).square().sum(dim=1)
+        return torch.exp(-error / self._sigma)
+
+
+class root_lin_vel_z(_RootBodyVelocityTerm):
+    """Penalize vertical root-body-origin velocity."""
+
+    def __call__(self, env: ManagerBasedRlEnv, **params: Any) -> torch.Tensor:
+        del params
+        return _torch_values(self._root_velocity_b(env)[:, 2]).square()
+
+
 class lin_vel_z(_Vec3SensorTerm):
     """Penalty for vertical (z) linear velocity."""
 
@@ -143,6 +221,8 @@ __all__ = [
     "ang_vel_xy",
     "lin_vel_z",
     "orientation",
+    "root_lin_vel_z",
+    "root_track_lin_vel",
     "track_ang_vel",
     "track_lin_vel",
 ]
