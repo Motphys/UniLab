@@ -8,7 +8,7 @@ from __future__ import annotations
 import statistics
 import sys
 import time
-from collections import defaultdict, deque
+from collections import deque
 from queue import Empty, Full
 from typing import Any, Dict
 
@@ -16,6 +16,7 @@ import torch
 from rsl_rl.utils import resolve_callable
 
 from unilab.rl.runtime.collector_timing import extract_env_step_breakdown_timing_ms
+from unilab.rl.runtime.offpolicy.thread_budget import apply_torch_thread_runtime
 from unilab.rl.runtime.seed import apply_training_seed
 
 
@@ -59,9 +60,6 @@ def compute_timeout_bootstrap_correction(
 ) -> torch.Tensor:
     """Compute ``gamma * V(final_observation)`` for current timeout rows."""
     corrections = torch.zeros_like(timeout_mask, dtype=torch.float32)
-    if not bool(torch.any(timeout_mask)):
-        return corrections
-
     from tensordict import TensorDict
 
     # An env can keep its authoritative state on CPU while policy inference
@@ -79,6 +77,36 @@ def compute_timeout_bootstrap_correction(
         bootstrap = critic(critic_td).squeeze(-1).to(device=timeout_mask.device)
     corrections[mask.to(device=corrections.device)] = float(gamma) * bootstrap
     return corrections
+
+
+def write_rollout_bootstrap_observations(
+    write_buf: dict[str, torch.Tensor],
+    last_obs: torch.Tensor,
+    last_critic: torch.Tensor | None,
+) -> None:
+    write_buf["last_obs"].copy_(last_obs, non_blocking=False)
+    if last_critic is not None:
+        write_buf["last_critic"].copy_(last_critic, non_blocking=False)
+
+
+def timeout_bootstrap_mask(terminated: torch.Tensor, truncated: torch.Tensor) -> torch.Tensor:
+    if terminated.shape != truncated.shape:
+        raise ValueError("APPO terminated/truncated tensors must have the same shape")
+    return torch.logical_and(truncated, ~terminated)
+
+
+def advance_rollout_observations(
+    next_obs: torch.Tensor,
+    next_critic: torch.Tensor | None,
+    collector_device: str | torch.device,
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    actor_obs = next_obs.to(device=collector_device, dtype=torch.float32)
+    critic_obs = (
+        next_critic.to(device=collector_device, dtype=torch.float32)
+        if next_critic is not None
+        else None
+    )
+    return actor_obs, critic_obs
 
 
 def appo_collector_fn(
@@ -99,9 +127,12 @@ def appo_collector_fn(
     metrics_queue: Any,
     collector_device: str = "cpu",
     env_cfg_override: dict | None = None,
+    actor_weight_sync_lock=None,
+    critic_weight_sync_lock=None,
     seed: int | None = None,
     nan_guard_cfg=None,
     nan_guard_factory=None,
+    torch_thread_runtime=None,
 ):
     """Entry point for the APPO collector subprocess.
 
@@ -115,6 +146,7 @@ def appo_collector_fn(
 
     from unilab.rl.runtime.ipc import SharedWeightSync, TensorRolloutRingBuffer
 
+    apply_torch_thread_runtime(torch_thread_runtime, role="collector", torch_module=torch)
     apply_training_seed(seed, torch_runtime=True, cuda=True)
 
     # Connect to shared memory
@@ -129,10 +161,16 @@ def appo_collector_fn(
     )
     ring_buffer.attach_sync_primitives(*sync_primitives)  # (write_ptr, read_ptr)
     actor_weight_sync = SharedWeightSync(
-        actor_weight_param_shapes, create=False, shm_name=actor_weight_sync_name
+        actor_weight_param_shapes,
+        create=False,
+        shm_name=actor_weight_sync_name,
+        lock=actor_weight_sync_lock,
     )
     critic_weight_sync = SharedWeightSync(
-        critic_weight_param_shapes, create=False, shm_name=critic_weight_sync_name
+        critic_weight_param_shapes,
+        create=False,
+        shm_name=critic_weight_sync_name,
+        lock=critic_weight_sync_lock,
     )
 
     # Create environment through the injected factory (see unilab.rl.contracts.env)
@@ -219,7 +257,14 @@ def appo_collector_fn(
     ep_lengths: deque[int] = deque(maxlen=100)
     current_ep_rewards = torch.zeros(num_envs, dtype=torch.float32, device=obs_t.device)
     current_ep_lengths = torch.zeros(num_envs, dtype=torch.int64, device=obs_t.device)
-    ep_reward_components = defaultdict(list)
+    reward_component_names = tuple(
+        getattr(getattr(env, "algo_capabilities", None), "reward_component_names", ())
+    )
+    reward_component_sums = (
+        torch.zeros(len(reward_component_names), dtype=torch.float32, device=obs_t.device)
+        if reward_component_names
+        else None
+    )
 
     # Episode completion counters (reset after each metrics report)
     ep_timeouts = 0
@@ -264,11 +309,11 @@ def appo_collector_fn(
                     log_probs_torch.reshape(num_envs), non_blocking=False
                 )
 
-                # Move once to the environment's authoritative device. This is
-                # the only action transfer; there is no host carrier.
-                action_env = actions_torch.to(
-                    device=env.device, dtype=torch.float32, copy=True
-                ).contiguous()
+                # Move only when the actor and environment devices differ. The
+                # ring-buffer write above is already the durable action copy.
+                action_env = actions_torch.to(device=env.device, dtype=torch.float32)
+                if not action_env.is_contiguous():
+                    action_env = action_env.contiguous()
                 if action_env.shape != (num_envs, action_dim):
                     raise ValueError(f"APPO action shape must be {(num_envs, action_dim)}")
                 t_env = time.perf_counter()
@@ -302,13 +347,33 @@ def appo_collector_fn(
                 if not state.reward.is_floating_point():
                     raise TypeError("APPO reward tensor must be floating-point")
 
-                reward_t = state.reward.to(device=obs_t.device, dtype=torch.float32).reshape(
-                    num_envs
-                )
-                truncated_t = state.truncated.to(device=obs_t.device).float()
-                combined_done_t = (
-                    (state.terminated | state.truncated).to(device=obs_t.device).float()
-                )
+                reward_t = state.reward
+                if reward_t.device != obs_t.device or reward_t.dtype != torch.float32:
+                    reward_t = reward_t.to(device=obs_t.device, dtype=torch.float32)
+                reward_t = reward_t.reshape(num_envs)
+                reward_components = state.info.get("reward_components")
+                if reward_component_sums is not None:
+                    if not isinstance(reward_components, torch.Tensor):
+                        raise TypeError(
+                            "APPO env reward_components must be torch.Tensor when "
+                            "reward component names are declared"
+                        )
+                    if (
+                        reward_components.device != reward_component_sums.device
+                        or reward_components.dtype != torch.float32
+                    ):
+                        reward_components = reward_components.to(
+                            device=reward_component_sums.device, dtype=torch.float32
+                        )
+                    reward_component_sums.add_(reward_components.sum(dim=0))
+                truncated_t = state.truncated
+                if truncated_t.device != obs_t.device:
+                    truncated_t = truncated_t.to(device=obs_t.device)
+                truncated_t = truncated_t.float()
+                combined_done = state.terminated | state.truncated
+                if combined_done.device != obs_t.device:
+                    combined_done = combined_done.to(device=obs_t.device)
+                combined_done_t = combined_done.float()
                 final_observation = state.final_observation
                 final_obs = (
                     final_observation["obs"]
@@ -320,7 +385,9 @@ def appo_collector_fn(
                     if final_observation is not None and "critic" in final_observation
                     else None
                 )
-                timeout_mask = torch.logical_and(combined_done_t > 0.5, truncated_t > 0.5)
+                timeout_mask = timeout_bootstrap_mask(state.terminated, state.truncated)
+                if timeout_mask.device != obs_t.device:
+                    timeout_mask = timeout_mask.to(device=obs_t.device)
                 environment_rewards = reward_t.clone()
                 if bool(torch.any(timeout_mask)):
                     bootstrap_critic = final_critic if final_critic is not None else next_critic_t
@@ -351,52 +418,51 @@ def appo_collector_fn(
                     ep_completions += int(done_rows.numel())
                     ep_timeouts += int(torch.sum(truncated_t[done_rows] > 0.5).item())
 
-                log_info = state.info.get("log", {})
-                for k, v in log_info.items():
-                    if k.startswith("reward/"):
-                        ep_reward_components[k.removeprefix("reward/")].append(v)
+                obs_t, critic_obs_t = advance_rollout_observations(
+                    next_obs_t, next_critic_t, collector_device
+                )
+                obs_td["policy"].copy_(obs_t)
 
-                if metrics_queue is not None:
-                    try:
-                        msg: dict[str, Any] = {"total_steps": total_steps}
-                        if ep_rewards:
-                            msg["return_mean_ep100"] = statistics.mean(ep_rewards)
-                            msg["mean_episode_length"] = (
-                                statistics.mean(ep_lengths) if ep_lengths else 0.0
-                            )
-                        if ep_completions > 0:
-                            msg["timeout_rate"] = ep_timeouts / ep_completions
-                            ep_timeouts = 0
-                            ep_completions = 0
-                        collector_timing_ms = {
-                            "mlp_infer_ms": ema_mlp_infer_ms,
-                            "env_step_ms": ema_env_step_ms,
-                            **ema_env_step_breakdown_ms,
-                        }
-                        if latest_rollout_ms is not None:
-                            collector_timing_ms["rollout_ms"] = latest_rollout_ms
-                        msg["collector_timing_ms"] = collector_timing_ms
-                        if ep_reward_components:
-                            msg["reward_components"] = {
-                                k: statistics.mean(v) for k, v in ep_reward_components.items() if v
-                            }
-                            ep_reward_components.clear()
-                        put_latest_metrics(metrics_queue, msg, worker_name="APPOWorker")
-                    except Exception as e:
-                        print(
-                            f"[APPOWorker] metrics build error: {type(e).__name__}: {e}",
-                            file=sys.stderr,
-                        )
-
-                obs_t = next_obs_t.to(device=collector_device, dtype=torch.float32)
-                obs_td = TensorDict({"policy": obs_t}, batch_size=num_envs, device=collector_device)
-                if next_critic_t is not None:
-                    critic_obs_t = next_critic_t.to(device=collector_device, dtype=torch.float32)
-                else:
-                    critic_obs_t = None
-
+            write_rollout_bootstrap_observations(write_buf, obs_t, critic_obs_t)
             ring_buffer.signal_write_done()  # atomic increment, non-blocking
             latest_rollout_ms = (time.perf_counter() - t_rollout_start) * 1000
+
+            if metrics_queue is not None:
+                try:
+                    msg: dict[str, Any] = {"total_steps": total_steps}
+                    if ep_rewards:
+                        msg["return_mean_ep100"] = statistics.mean(ep_rewards)
+                        msg["mean_episode_length"] = (
+                            statistics.mean(ep_lengths) if ep_lengths else 0.0
+                        )
+                    if ep_completions > 0:
+                        msg["timeout_rate"] = ep_timeouts / ep_completions
+                        ep_timeouts = 0
+                        ep_completions = 0
+                    collector_timing_ms = {
+                        "mlp_infer_ms": ema_mlp_infer_ms,
+                        "env_step_ms": ema_env_step_ms,
+                        **ema_env_step_breakdown_ms,
+                    }
+                    if latest_rollout_ms is not None:
+                        collector_timing_ms["rollout_ms"] = latest_rollout_ms
+                    msg["collector_timing_ms"] = collector_timing_ms
+                    if reward_component_sums is not None:
+                        component_means = (
+                            (reward_component_sums.detach() / float(steps_per_env * num_envs))
+                            .cpu()
+                            .tolist()
+                        )
+                        msg["reward_components"] = dict(
+                            zip(reward_component_names, component_means, strict=True)
+                        )
+                        reward_component_sums.zero_()
+                    put_latest_metrics(metrics_queue, msg, worker_name="APPOWorker")
+                except Exception as e:
+                    print(
+                        f"[APPOWorker] metrics build error: {type(e).__name__}: {e}",
+                        file=sys.stderr,
+                    )
 
     except Exception:
         stop_event.set()

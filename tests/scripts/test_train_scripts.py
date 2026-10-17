@@ -169,6 +169,19 @@ def test_appo_runner_kwargs_forward_algorithm_seed():
     assert kwargs["seed"] == 37
 
 
+def test_appo_runner_kwargs_forwards_torch_thread_runtime():
+    mod = _train_appo()
+    cfg = _appo_cfg(["training.torch_threads.collector_num_threads=1"])
+
+    kwargs = mod.build_appo_runner_kwargs(
+        cfg,
+        env_cfg_override={"reward_config": {}},
+        collector_device="cpu",
+    )
+
+    assert kwargs["torch_thread_runtime"]["collector"]["num_threads"] == 1
+
+
 def test_appo_runner_kwargs_default_load_run_does_not_resume(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

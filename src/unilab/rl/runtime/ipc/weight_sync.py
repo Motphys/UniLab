@@ -50,6 +50,10 @@ class SharedWeightSync:
         return self._shm.name
 
     @property
+    def lock(self):
+        return self._lock
+
+    @property
     def version(self) -> int:
         return int(self._version_arr[0])
 

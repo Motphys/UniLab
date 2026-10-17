@@ -25,6 +25,7 @@ from unilab.rl.logging import OffPolicyLogger
 from unilab.rl.logging.metrics_drain import RewardComponentWindow, drain_collector_metrics
 from unilab.rl.runtime.ipc import AsyncRunner, SharedWeightSync, TensorRolloutRingBuffer
 from unilab.rl.runtime.nan_guard import NanGuardCfg
+from unilab.rl.runtime.offpolicy.thread_budget import torch_thread_env
 from unilab.rl.runtime.seed import apply_training_seed, derive_worker_seed
 
 
@@ -65,6 +66,7 @@ class APPORunner(AsyncRunner):
         resume_path: str | None = None,
         nan_guard_cfg: NanGuardCfg | None = None,
         nan_guard_factory: Any | None = None,
+        torch_thread_runtime: dict | None = None,
         log_interval: int = 1,
     ):
         super().__init__(
@@ -84,6 +86,7 @@ class APPORunner(AsyncRunner):
         self.resume_path = resume_path
         self.nan_guard_cfg = nan_guard_cfg
         self.nan_guard_factory = nan_guard_factory
+        self.torch_thread_runtime = torch_thread_runtime
         self.log_interval = max(1, int(log_interval))
         self.env_factory = env_factory
         if self.staging_pool_size < 1:
@@ -274,8 +277,10 @@ class APPORunner(AsyncRunner):
             "action_dim": self.action_dim,
             "critic_dim": self.critic_dim,
             "actor_weight_sync_name": actor_weight_sync.name,
+            "actor_weight_sync_lock": actor_weight_sync.lock,
             "actor_weight_param_shapes": actor_weight_param_shapes,
             "critic_weight_sync_name": critic_weight_sync.name,
+            "critic_weight_sync_lock": critic_weight_sync.lock,
             "critic_weight_param_shapes": critic_weight_param_shapes,
             "metrics_queue": metrics_queue,
             "collector_device": self.collector_device,
@@ -283,11 +288,13 @@ class APPORunner(AsyncRunner):
             "seed": derive_worker_seed(self.seed, worker_index=0),
             "nan_guard_cfg": self.nan_guard_cfg,
             "nan_guard_factory": self.nan_guard_factory,
+            "torch_thread_runtime": self.torch_thread_runtime,
         }
-        self._start_collector(
-            target_fn=appo_collector_fn,
-            kwargs={"stop_event": self._stop_event, **collector_kwargs},
-        )
+        with torch_thread_env(self.torch_thread_runtime, role="collector"):
+            self._start_collector(
+                target_fn=appo_collector_fn,
+                kwargs={"stop_event": self._stop_event, **collector_kwargs},
+            )
 
         env_steps_per_sync = self.steps_per_env * self.num_envs
 

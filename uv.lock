@@ -5268,9 +5268,9 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "unisim-core", specifier = "==1.7.24" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==1.7.24" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==1.7.24" },
+    { name = "unisim-core", specifier = "==1.7.25" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==1.7.25" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==1.7.25" },
     { name = "viser", specifier = ">=1.0.26" },
     { name = "wandb", specifier = ">=0.22.3" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
@@ -5289,13 +5289,13 @@ dev = [
 
 [[package]]
 name = "unisim-core"
-version = "1.7.24"
+version = "1.7.25"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e3/61/4b1e29c99c42f6b0c49255555a4e2dfb1f0e6ef6e3f34e4241a422c19184/unisim_core-1.7.24.tar.gz", hash = "sha256:575e11c9d4b3b37d7440fb23df49ed6cf02fd17ef21c76980cea4276ecd8bc44", size = 674180, upload-time = "2026-10-16T09:18:01.464Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3e/23/6e1c97957ff1207ba35f82585d0a2e5f8804eacbe6b554a8e9128456141a/unisim_core-1.7.25.tar.gz", hash = "sha256:f4cd1a525053d0db8028a4fa3cac030d94af5fbfc2f4a9c85c39b6a86396c056", size = 674273, upload-time = "2026-10-17T08:13:56.182Z" }
 
 [package.optional-dependencies]
 motrix = [

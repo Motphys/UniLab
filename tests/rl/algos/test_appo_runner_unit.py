@@ -142,6 +142,7 @@ class _FakeTensorRolloutRingBuffer:
 class _FakeWeightSync:
     def __init__(self) -> None:
         self.name = "fake-weight-sync"
+        self.lock = object()
 
     @classmethod
     def from_state_dict(
@@ -240,6 +241,13 @@ def test_appo_runner_uses_explicit_runtime_context(
         sim_backend="motrix",
         num_envs=2,
         steps_per_env=4,
+        torch_thread_runtime={
+            "enabled": True,
+            "set_env_vars": False,
+            "compile_threads": 1,
+            "collector": {"num_threads": 1, "num_interop_threads": 1},
+            "learner": {"num_threads": 2, "num_interop_threads": 1},
+        },
     )
     monkeypatch.setattr(runner, "_start_collector", capture_start_collector)
 
@@ -249,6 +257,9 @@ def test_appo_runner_uses_explicit_runtime_context(
     assert "sim_backend" not in captured_collector
     assert captured_collector["env_factory"] is fake_env_factory
     assert captured_collector["env_cfg_override"] == {"reward_config": {"scales": {"alive": 1.0}}}
+    assert captured_collector["torch_thread_runtime"]["collector"]["num_threads"] == 1
+    assert captured_collector["actor_weight_sync_lock"] is not None
+    assert captured_collector["critic_weight_sync_lock"] is not None
 
 
 def test_appo_runner_restores_resume_checkpoint(

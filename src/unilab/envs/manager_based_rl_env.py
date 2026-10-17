@@ -1584,7 +1584,15 @@ class ManagerBasedRlEnv(TorchEnv):
         with self.scene._scoped_state_reads():
             read_plan = self.scene._tensor_read_plan
             if read_plan is not None:
-                read_plan.refresh()
+                capabilities = self._backend.get_tensor_capabilities()
+                if (
+                    self._reset_state.last_commit_had_writes
+                    and capabilities.mask_selected_reset
+                    and not capabilities.mask_selected_reset_full_refresh
+                ):
+                    read_plan.refresh_selected()
+                else:
+                    read_plan.refresh()
             self.command_manager.compute_reset(dt=0.0, reset_mask=reset_mask)
             self.command_manager.post_compute_reset()
             reset_timing.update(getattr(self.command_manager, "last_post_compute_timing_ms", {}))

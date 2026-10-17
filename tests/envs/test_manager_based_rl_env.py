@@ -2897,6 +2897,57 @@ def test_scene_read_plan_pairs_reset_with_selected_packed_transfer() -> None:
         env.close()
 
 
+def test_host_bridge_reset_uses_selected_post_reset_read() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.actions = {
+        "tilt": _TensorBodyActionCfg(
+            entity_name="robot",
+            top_body_name="platform",
+            ball_body_name="ball",
+        )
+    }
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
+    )
+    cfg.events = {"joint_state": EventTermCfg(func=_write_reset_joint_state, mode="reset")}
+    backend = _ScenePlanBackend(2)
+    device_capabilities = backend.get_tensor_capabilities()
+
+    def host_bridge_capabilities() -> TensorLifecycleCapabilities:
+        return replace(
+            device_capabilities,
+            execution=TensorExecution.HOST_BRIDGE,
+            packed_host_bridge=True,
+            data_plane=TensorDataPlane.HOST_BRIDGE,
+            mask_selected_reset=True,
+        )
+
+    backend.get_tensor_capabilities = host_bridge_capabilities  # type: ignore[method-assign]
+    backend.tensor_execution = lambda: TensorExecution.HOST_BRIDGE  # type: ignore[method-assign]
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        assert env.scene._tensor_read_plan is not None
+        assert env.scene._tensor_read_plan.host_plan is not None
+
+        env.reset()
+        full_reads_after_initial_reset = backend.full_reads
+        selected_reads_after_initial_reset = backend.selected_reads
+
+        env.reset(torch.tensor([False, True], dtype=torch.bool))
+
+        assert backend.full_reads == full_reads_after_initial_reset
+        assert backend.selected_reads == selected_reads_after_initial_reset + 1
+        assert backend.set_state_calls[-1][0].tolist() == [1]
+    finally:
+        if env.scene._tensor_read_plan is not None:
+            env.scene._tensor_read_plan.close()
+            env.scene._tensor_read_plan = None
+        env.close()
+
+
 def test_reset_randomization_commits_through_packed_boundary() -> None:
     cfg = _make_cfg(include_optional_managers=False)
     cfg.observations = {

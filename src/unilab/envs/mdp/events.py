@@ -2036,21 +2036,6 @@ def _tensor_root_reset_kernel(
     output[:, 7:13] += velocity_delta
 
 
-_TensorRootResetFn = Any
-_tensor_root_reset_compiled: _TensorRootResetFn | None = None
-
-
-def _bind_tensor_root_reset() -> _TensorRootResetFn:
-    global _tensor_root_reset_compiled
-    if _tensor_root_reset_compiled is not None:
-        return _tensor_root_reset_compiled
-    if not (hasattr(torch, "compile") and hasattr(torch.compiler, "is_compiling")):
-        _tensor_root_reset_compiled = _tensor_root_reset_kernel
-        return _tensor_root_reset_compiled
-    _tensor_root_reset_compiled = torch.compile(_tensor_root_reset_kernel, dynamic=True)
-    return _tensor_root_reset_compiled
-
-
 def reset_root_state_uniform_tensor(
     env: ManagerBasedRlEnv,
     reset_mask: torch.Tensor,
@@ -2069,7 +2054,6 @@ def reset_root_state_uniform_tensor(
     asset = cast("Entity", env.scene[asset_cfg.name])
     device = torch.device(env.device)
     asset.data.default_root_state_torch(device)
-    num_envs = env.num_envs
     bounds_key = (
         (asset_cfg.name, tuple(sorted(pose_range.items())), tuple(sorted(velocity_range.items())))
         if velocity_range is not None
@@ -2085,8 +2069,9 @@ def reset_root_state_uniform_tensor(
         env._tensor_reset_bounds_key = bounds_key
         pose_bounds_tensor = new_pose_bounds
         velocity_bounds_tensor = new_velocity_bounds
+    reset_rows = torch.nonzero(reset_mask, as_tuple=False).flatten()
     reset_unit = torch.rand(
-        (num_envs, 2 * len(_SE3_KEYS)),
+        (reset_rows.shape[0], 2 * len(_SE3_KEYS)),
         dtype=torch.float32,
         device=device,
         generator=env.torch_rng.generator,
@@ -2100,8 +2085,18 @@ def reset_root_state_uniform_tensor(
     pose_delta, velocity_delta = torch.split(deltas, len(_SE3_KEYS), dim=1)
     default_tensor = asset.data.default_root_state_torch(device)
     origins = env.scene.env_origins_torch(device)
-    root_state = torch.empty_like(default_tensor)
-    _bind_tensor_root_reset()(default_tensor, origins, pose_delta, velocity_delta, root_state)
+    default_rows = default_tensor.index_select(0, reset_rows)
+    origin_rows = origins.index_select(0, reset_rows) if origins is not None else None
+    reset_rows_state = torch.empty_like(default_rows)
+    _tensor_root_reset_kernel(
+        default_rows,
+        origin_rows,
+        pose_delta,
+        velocity_delta,
+        reset_rows_state,
+    )
+    root_state = default_tensor.clone()
+    root_state.index_copy_(0, reset_rows, reset_rows_state)
     asset.write_root_state_tensor_to_sim(root_state, reset_mask)
 
 
