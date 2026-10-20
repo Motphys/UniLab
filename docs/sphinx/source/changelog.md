@@ -13,6 +13,25 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased / 未发布
+
+### Performance / 性能
+
+- The packed reset composer production path no longer pays full-width staging
+  work that cannot affect the commit: default state staging is deferred until
+  the first staged-state consumer, a state write covering every qpos/qvel
+  column skips the default fill entirely, and the fused motion reset submits
+  one root+joint `write_state_mask` payload assembled in reusable buffers
+  instead of two writes with per-call contiguous copies. A per-step owner
+  transaction with no writes performs no composer staging at all
+  ([#2465](https://github.com/Motphys/UniLab/issues/2465)).
+  packed reset composer 生产路径不再承担不影响提交结果的全宽 staging 开销：
+  默认 state staging 延迟到首个 staged-state 消费者才执行；单次写覆盖全部
+  qpos/qvel 列时完全跳过默认填充；融合 motion reset 改为在可复用 buffer 中
+  组装一次 root+joint `write_state_mask` 载荷，取代两次写入与逐次
+  contiguous 拷贝。无写入的每步 owner transaction 不再执行任何 composer
+  staging（#2465）。
+
 ## 1.4.0 (2026-10-20)
 
 ### Breaking changes / 破坏性变更

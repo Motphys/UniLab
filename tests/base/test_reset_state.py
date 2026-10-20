@@ -216,11 +216,13 @@ class _RecordingPackedTensorResetBackend(_PackedTensorResetBackend):
     def __init__(self) -> None:
         super().__init__()
         self.state_write_payloads: list[tuple[torch.Tensor, torch.Tensor]] = []
+        self.begin_state_mask_calls: list[torch.Tensor] = []
 
     def bind_packed_reset(self, *, device=None):
         composer = super().bind_packed_reset(device=device)
         write_state = composer.write_state
         write_state_mask = composer.write_state_mask
+        begin_state_mask = composer.begin_state_mask
 
         def record_state_write(rows, *, qpos_values=None, qvel_values=None, **kwargs):
             if qpos_values is not None and qvel_values is not None:
@@ -237,8 +239,13 @@ class _RecordingPackedTensorResetBackend(_PackedTensorResetBackend):
                 mask, qpos_values=qpos_values, qvel_values=qvel_values, **kwargs
             )
 
+        def record_begin_state_mask(mask):
+            self.begin_state_mask_calls.append(mask.clone())
+            return begin_state_mask(mask)
+
         composer.write_state = record_state_write
         composer.write_state_mask = record_state_write_mask
+        composer.begin_state_mask = record_begin_state_mask
         return composer
 
 
@@ -881,22 +888,19 @@ def test_packed_motion_root_state_payloads_remain_contiguous() -> None:
             term_name="motion_reset",
         )
 
-    assert len(backend.state_write_payloads) == 2
-    root_qpos_payload, root_qvel_payload = backend.state_write_payloads[0]
-    joint_qpos_payload, joint_qvel_payload = backend.state_write_payloads[1]
-    assert tuple(root_qpos_payload.shape) == (2, 7)
-    assert tuple(root_qvel_payload.shape) == (2, 6)
-    assert tuple(joint_qpos_payload.shape) == (2, 2)
-    assert tuple(joint_qvel_payload.shape) == (2, 2)
-    assert all(
-        payload.dtype is torch.float32 and payload.is_contiguous()
-        for payload in (
-            root_qpos_payload,
-            root_qvel_payload,
-            joint_qpos_payload,
-            joint_qvel_payload,
-        )
-    )
+    # Root and joint payloads fuse into one composer write; with 7 root + 2
+    # joint columns covering all 9 qpos and 8 qvel columns, the deferred
+    # default fill is skipped entirely.
+    assert len(backend.state_write_payloads) == 1
+    qpos_payload, qvel_payload = backend.state_write_payloads[0]
+    assert tuple(qpos_payload.shape) == (2, 9)
+    assert tuple(qvel_payload.shape) == (2, 8)
+    assert qpos_payload.dtype is torch.float32 and qpos_payload.is_contiguous()
+    assert qvel_payload.dtype is torch.float32 and qvel_payload.is_contiguous()
+    torch.testing.assert_close(qpos_payload[:, 2], torch.tensor([0.3, 0.6]))
+    torch.testing.assert_close(qpos_payload[:, 7:], torch.tensor([[0.1, 0.2], [0.3, 0.4]]))
+    torch.testing.assert_close(qvel_payload[:, 6:], torch.tensor([[1.0, 2.0], [3.0, 4.0]]))
+    assert backend.begin_state_mask_calls == []
     assert len(backend.tensor_reset_calls) == 1
     _, qpos, qvel, _ = backend.tensor_reset_calls[0]
     torch.testing.assert_close(qpos[:, 2], torch.tensor([0.3, 0.6]))
@@ -1000,3 +1004,223 @@ def test_host_commit_promotes_public_packed_reset_baseline() -> None:
     assert isinstance(randomization, TensorResetRandomizationPayload)
     torch.testing.assert_close(randomization.body_mass[:, 0], torch.tensor([6.0, 6.0]))
     torch.testing.assert_close(randomization.body_mass[:, 1], torch.tensor([9.0, 10.0]))
+
+
+def test_partial_state_writes_stage_defaults_once() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    reset_mask = torch.tensor([False, True, False, True])
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    root_state[:, 3] = 1.0
+    root_state[1, 0] = 0.5
+    root_state[3, 0] = 0.7
+
+    with transaction.scoped_device_event_tensor(reset_mask):
+        transaction.write_root_state_tensor(reset_mask, layout, root_state, term_name="root")
+        transaction.write_joint_state_mask(
+            reset_mask,
+            np.array([8], dtype=np.int64),
+            np.array([7], dtype=np.int64),
+            torch.tensor([[0.0], [0.9], [0.0], [1.1]]),
+            torch.tensor([[0.0], [2.9], [0.0], [3.1]]),
+            term_name="joints",
+        )
+
+    # Deferred staging fires exactly once, with the active mask, at the first
+    # partial write; the second write reuses the staged defaults.
+    assert len(backend.begin_state_mask_calls) == 1
+    torch.testing.assert_close(backend.begin_state_mask_calls[0], reset_mask)
+    assert len(backend.state_write_payloads) == 2
+    committed_rows, qpos, qvel, randomization = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_rows, torch.tensor([1, 3]))
+    assert randomization is None
+    torch.testing.assert_close(qpos[:, 0], torch.tensor([0.5, 0.7]))
+    torch.testing.assert_close(qpos[:, 8], torch.tensor([0.9, 1.1]))
+    np.testing.assert_allclose(qpos[:, 7], [backend.qpos[7], backend.qpos[7]], rtol=0, atol=1e-7)
+    torch.testing.assert_close(qvel[:, 7], torch.tensor([2.9, 3.1]))
+    np.testing.assert_allclose(qvel[:, :6], np.tile(backend.qvel[:6], (2, 1)), rtol=0, atol=1e-7)
+
+
+def test_full_coverage_motion_write_skips_default_staging() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    reset_mask = torch.tensor([False, True, False, True])
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    root_state[:, 3] = 1.0
+    root_state[:, 0] = torch.tensor([0.1, 0.2, 0.3, 0.4])
+    joint_position = torch.tensor([[0.0, 0.0], [0.5, 0.6], [0.0, 0.0], [0.7, 0.8]])
+    joint_velocity = torch.tensor([[0.0, 0.0], [1.5, 1.6], [0.0, 0.0], [1.7, 1.8]])
+
+    with transaction.scoped_device_event_tensor(reset_mask):
+        transaction.write_motion_state_tensor(
+            reset_mask,
+            layout,
+            np.array([7, 8], dtype=np.int64),
+            np.array([6, 7], dtype=np.int64),
+            root_state,
+            joint_position,
+            joint_velocity,
+            term_name="motion_reset",
+        )
+
+    assert backend.begin_state_mask_calls == []
+    committed_rows, qpos, qvel, randomization = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_rows, torch.tensor([1, 3]))
+    assert randomization is None
+    torch.testing.assert_close(qpos[:, 0], torch.tensor([0.2, 0.4]))
+    torch.testing.assert_close(qpos[:, 7:], torch.tensor([[0.5, 0.6], [0.7, 0.8]]))
+    torch.testing.assert_close(qvel[:, 6:], torch.tensor([[1.5, 1.6], [1.7, 1.8]]))
+
+
+def test_reset_to_default_after_full_coverage_write_restores_defaults() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    reset_mask = torch.tensor([False, True, False, True])
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    root_state[:, 3] = 1.0
+    root_state[:, 0] = 9.0
+    joint_position = torch.full((4, 2), 9.0)
+    joint_velocity = torch.full((4, 2), 9.0)
+
+    with transaction.scoped_device_event_tensor(reset_mask):
+        transaction.write_motion_state_tensor(
+            reset_mask,
+            layout,
+            np.array([7, 8], dtype=np.int64),
+            np.array([6, 7], dtype=np.int64),
+            root_state,
+            joint_position,
+            joint_velocity,
+            term_name="motion_reset",
+        )
+        transaction.reset_to_default(reset_mask, term_name="default")
+
+    # The default reset still clobbers the earlier full-coverage write.
+    assert len(backend.begin_state_mask_calls) == 1
+    assert len(backend.state_write_payloads) == 1
+    committed_rows, qpos, qvel, randomization = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_rows, torch.tensor([1, 3]))
+    assert randomization is None
+    np.testing.assert_allclose(qpos, np.tile(backend.qpos, (2, 1)), rtol=0, atol=1e-7)
+    np.testing.assert_allclose(qvel, np.tile(backend.qvel, (2, 1)), rtol=0, atol=1e-7)
+
+
+def test_partial_write_after_full_coverage_write_does_not_leak_stale_state() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    root_state[:, 3] = 1.0
+    root_state[:, 0] = 9.0
+
+    first_mask = torch.tensor([False, True, False, True])
+    with transaction.scoped_device_event_tensor(first_mask):
+        transaction.write_motion_state_tensor(
+            first_mask,
+            layout,
+            np.array([7, 8], dtype=np.int64),
+            np.array([6, 7], dtype=np.int64),
+            root_state,
+            torch.full((4, 2), 9.0),
+            torch.full((4, 2), 9.0),
+            term_name="motion_reset",
+        )
+
+    # The next lifecycle writes one column of a row the first lifecycle fully
+    # wrote: deferred staging must still fill every unwritten column with the
+    # backend defaults, not the stale staged values from the first lifecycle.
+    second_mask = torch.tensor([False, True, False, False])
+    with transaction.scoped_device_event_tensor(second_mask):
+        transaction.write_joint_state_mask(
+            second_mask,
+            np.array([8], dtype=np.int64),
+            np.array([7], dtype=np.int64),
+            torch.tensor([[0.0], [0.9], [0.0], [0.0]]),
+            torch.tensor([[0.0], [2.9], [0.0], [0.0]]),
+            term_name="joints",
+        )
+
+    committed_rows, qpos, qvel, randomization = backend.tensor_reset_calls[-1]
+    torch.testing.assert_close(committed_rows, torch.tensor([1]))
+    assert randomization is None
+    np.testing.assert_allclose(qpos[0, :8], backend.qpos[:8], rtol=0, atol=1e-7)
+    np.testing.assert_allclose(qpos[0, 8], [0.9], rtol=0, atol=1e-7)
+    np.testing.assert_allclose(qvel[0, :7], backend.qvel[:7], rtol=0, atol=1e-7)
+    np.testing.assert_allclose(qvel[0, 7], [2.9], rtol=0, atol=1e-7)
+
+
+def test_tensor_dr_only_commit_stages_defaults_at_commit() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    _bind_device_mass(transaction)
+    reset_mask = torch.tensor([False, True, False, True])
+
+    with transaction.scoped_device_event_tensor(reset_mask):
+        transaction.write_randomization_tensor_mask(
+            RESET_TERM_BODY_MASS,
+            reset_mask,
+            np.array([0], dtype=np.int32),
+            torch.full((4, 1), 9.0),
+            term_name="randomize_rigid_body_mass",
+        )
+
+    # With no state write, the deferred default fill happens at commit so the
+    # published rows still carry the backend default qpos/qvel.
+    assert len(backend.begin_state_mask_calls) == 1
+    torch.testing.assert_close(backend.begin_state_mask_calls[0], reset_mask)
+    committed_rows, qpos, qvel, randomization = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_rows, torch.tensor([1, 3]))
+    np.testing.assert_allclose(qpos, np.tile(backend.qpos, (2, 1)), rtol=0, atol=1e-7)
+    np.testing.assert_allclose(qvel, np.tile(backend.qvel, (2, 1)), rtol=0, atol=1e-7)
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+    torch.testing.assert_close(randomization.body_mass, torch.tensor([[9.0, 4.0], [9.0, 4.0]]))
+
+
+def test_owner_scope_without_writes_never_stages_state() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+
+    with transaction.scoped_device_owner_tensor(torch.ones(4, dtype=torch.bool)):
+        pass
+
+    assert backend.begin_state_mask_calls == []
+    assert backend.state_write_payloads == []
+    assert backend.tensor_reset_calls == []
+    assert not transaction.last_commit_had_writes
+
+
+def test_owner_write_stages_defaults_once_with_active_mask() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    active_mask = torch.tensor([False, True, True, False])
+    owner_mask = torch.tensor([False, True, False, False])
+
+    with transaction.scoped_device_owner_tensor(active_mask):
+        transaction.write_joint_state_mask(
+            owner_mask,
+            np.array([7], dtype=np.int32),
+            np.array([6], dtype=np.int32),
+            torch.tensor([[0.0], [0.7], [0.9], [0.0]]),
+            torch.tensor([[0.0], [1.7], [1.9], [0.0]]),
+            term_name="owner",
+        )
+
+    assert len(backend.begin_state_mask_calls) == 1
+    torch.testing.assert_close(backend.begin_state_mask_calls[0], active_mask)
+    committed_rows, qpos, qvel, randomization = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_rows, torch.tensor([1]))
+    assert randomization is None
+    np.testing.assert_allclose(qpos[0, :7], backend.qpos[:7], rtol=0, atol=1e-7)
+    np.testing.assert_allclose(qpos[0, 7:], [0.7, backend.qpos[8]], rtol=0, atol=1e-7)
+    np.testing.assert_allclose(qvel[0, :6], backend.qvel[:6], rtol=0, atol=1e-7)
+    np.testing.assert_allclose(qvel[0, 6:], [1.7, backend.qvel[7]], rtol=0, atol=1e-7)

@@ -155,6 +155,20 @@ class ResetStateTransaction:
         self._tensor_joint_columns: (
             tuple[tuple[int, ...], tuple[int, ...], torch.Tensor, torch.Tensor] | None
         ) = None
+        self._tensor_state_default_pending = False
+        self._tensor_motion_stage: (
+            tuple[
+                tuple[int, ...],
+                tuple[int, ...],
+                tuple[int, ...],
+                tuple[int, ...],
+                torch.Tensor,
+                torch.Tensor,
+                torch.Tensor,
+                torch.Tensor,
+            ]
+            | None
+        ) = None
 
     @property
     def active(self) -> bool:
@@ -304,9 +318,12 @@ class ResetStateTransaction:
                 "fixed-width tensor reset mask must live on the declared reset device "
                 f"{device}; got {reset_mask.device}"
             )
-        transaction = self._require_packed_transaction()
+        self._require_packed_transaction()
         self._ensure_packed_state_default("begin_tensor")
-        transaction.begin_state_mask(reset_mask)
+        # Default state staging is deferred to the first staged-state consumer:
+        # a lifecycle with no state write (the per-step owner path) or one
+        # whose write covers every state column never pays the full-width fill.
+        self._tensor_state_default_pending = True
         self._tensor_active_mask = reset_mask
         if owner_subset:
             write_mask = self._owner_tensor_write_mask
@@ -1095,7 +1112,13 @@ class ResetStateTransaction:
         if self._mask_is_empty(reset_mask):
             return
         self._requesting_terms.add(term_name)
-        self._require_packed_transaction().begin_state_mask(reset_mask)
+        if self._tensor_state_default_pending:
+            # The deferred begin-time fill already covers this term's mask
+            # (validated against the active mask above); staging once with the
+            # active mask is equivalent to filling defaults twice.
+            self._stage_tensor_state_defaults()
+        else:
+            self._require_packed_transaction().begin_state_mask(reset_mask)
         self._tensor_has_writes = True
 
     def write_joint_state(
@@ -1228,6 +1251,11 @@ class ResetStateTransaction:
             self._record_tensor_write_mask(reset_mask)
             if self._mask_is_empty(reset_mask):
                 return
+            self._stage_tensor_state_defaults()
+        elif self._tensor_write_covers_state(pos_columns, vel_columns):
+            self._tensor_state_default_pending = False
+        else:
+            self._stage_tensor_state_defaults()
         transaction.write_state_mask(
             reset_mask,
             qpos_columns=pos_columns,
@@ -1334,6 +1362,10 @@ class ResetStateTransaction:
             layout, term_name=term_name
         )
         transaction = self._require_packed_transaction()
+        if self._tensor_write_covers_state(qpos_columns_t, qvel_columns_t):
+            self._tensor_state_default_pending = False
+        else:
+            self._stage_tensor_state_defaults()
         transaction.write_state_mask(
             effective_mask,
             qpos_columns=qpos_columns_t,
@@ -1393,6 +1425,95 @@ class ResetStateTransaction:
             raise RuntimeError("owner tensor reset has no packed actual-write mask")
         write_mask.logical_or_(reset_mask)
 
+    def _stage_tensor_state_defaults(self) -> None:
+        """Fill staged state with backend defaults once per tensor lifecycle."""
+        if not self._tensor_state_default_pending:
+            return
+        active_mask = self._tensor_active_mask
+        assert active_mask is not None
+        self._require_packed_transaction().begin_state_mask(active_mask)
+        self._tensor_state_default_pending = False
+
+    def _tensor_write_covers_state(
+        self,
+        qpos_columns: np.ndarray | torch.Tensor,
+        qvel_columns: np.ndarray | torch.Tensor,
+    ) -> bool:
+        """Whether one non-owner write overwrites every staged state column.
+
+        Columns are unique (``_validate_columns``) and in range, so matching
+        the state width means every active row is fully rewritten and the
+        deferred default fill is redundant. Owner-subset lifecycles commit a
+        union of per-term masks, so they always keep staged defaults.
+        """
+        if self._tensor_owner_subset:
+            return False
+        assert self._default_qpos is not None and self._default_qvel is not None
+        return int(qpos_columns.shape[0]) == int(self._default_qpos.size) and int(
+            qvel_columns.shape[0]
+        ) == int(self._default_qvel.size)
+
+    def _tensor_motion_stage_for_layout(
+        self,
+        layout: RootStateLayout,
+        qpos_indices: np.ndarray,
+        qvel_indices: np.ndarray,
+        *,
+        term_name: str,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Fused root+joint columns and reusable full-width staging buffers."""
+        assert self._default_qpos is not None and self._default_qvel is not None
+        root_qpos, root_qvel = self._validate_root_layout(layout, term_name=term_name)
+        joint_qpos = self._validate_columns(
+            np.asarray(qpos_indices, dtype=np.intp),
+            width=self._default_qpos.size,
+            capability="tensor joint qpos indices",
+            term_name=term_name,
+        )
+        joint_qvel = self._validate_columns(
+            np.asarray(qvel_indices, dtype=np.intp),
+            width=self._default_qvel.size,
+            capability="tensor joint qvel indices",
+            term_name=term_name,
+        )
+        key = (
+            tuple(int(index) for index in root_qpos),
+            tuple(int(index) for index in root_qvel),
+            tuple(int(index) for index in joint_qpos),
+            tuple(int(index) for index in joint_qvel),
+        )
+        cached = self._tensor_motion_stage
+        if cached is not None and cached[:4] == key:
+            return cached[4], cached[5], cached[6], cached[7]
+        # The fused write must keep one value per column: overlapping root and
+        # joint columns would silently pick an arbitrary value downstream.
+        if np.intersect1d(root_qpos, joint_qpos).size or np.intersect1d(root_qvel, joint_qvel).size:
+            raise ValueError(
+                f"EventManager term '{term_name}' tensor mask motion root and joint columns overlap"
+            )
+        device = self._packed_reset_device
+        assert device is not None
+        qpos_columns = torch.as_tensor(
+            np.asarray(key[0] + key[2], dtype=np.intp), dtype=torch.int64, device=device
+        )
+        qvel_columns = torch.as_tensor(
+            np.asarray(key[1] + key[3], dtype=np.intp), dtype=torch.int64, device=device
+        )
+        qpos_stage = torch.empty(
+            (self._num_envs, qpos_columns.numel()), dtype=torch.float32, device=device
+        )
+        qvel_stage = torch.empty(
+            (self._num_envs, qvel_columns.numel()), dtype=torch.float32, device=device
+        )
+        self._tensor_motion_stage = (
+            *key,
+            qpos_columns,
+            qvel_columns,
+            qpos_stage,
+            qvel_stage,
+        )
+        return qpos_columns, qvel_columns, qpos_stage, qvel_stage
+
     def write_motion_state_tensor(
         self,
         reset_mask: torch.Tensor,
@@ -1445,30 +1566,36 @@ class ResetStateTransaction:
             joint_velocity=joint_velocity,
             term_name=term_name,
         )
-        root_qpos_columns, root_qvel_columns = self._tensor_root_columns_for_layout(
-            layout, term_name=term_name
-        )
         transaction = self._require_packed_transaction()
         if self._tensor_owner_subset:
             # An owner-subset motion write publishes only its requested rows.
             # With no requested rows it remains a full-width dispatch side
             # effect (RNG/packet/carrier work) and must not claim a backend
             # state commit.
+            self._tensor_root_columns_for_layout(layout, term_name=term_name)
             self._mask_count.copy_(effective_mask.sum())
             return
-        transaction.write_state_mask(
-            effective_mask,
-            qpos_columns=root_qpos_columns,
-            qpos_values=root_state[:, :7].contiguous(),
-            qvel_columns=root_qvel_columns,
-            qvel_values=root_state[:, 7:13].contiguous(),
+        qpos_stage_columns, qvel_stage_columns, qpos_stage, qvel_stage = (
+            self._tensor_motion_stage_for_layout(
+                layout, qpos_indices, qvel_indices, term_name=term_name
+            )
         )
+        root_qpos_width = qpos_stage.shape[1] - joint_position.shape[1]
+        root_qvel_width = qvel_stage.shape[1] - joint_velocity.shape[1]
+        qpos_stage[:, :root_qpos_width] = root_state[:, :7]
+        qpos_stage[:, root_qpos_width:] = joint_position
+        qvel_stage[:, :root_qvel_width] = root_state[:, 7:13]
+        qvel_stage[:, root_qvel_width:] = joint_velocity
+        if self._tensor_write_covers_state(qpos_stage_columns, qvel_stage_columns):
+            self._tensor_state_default_pending = False
+        else:
+            self._stage_tensor_state_defaults()
         transaction.write_state_mask(
             effective_mask,
-            qpos_columns=qpos_columns,
-            qpos_values=joint_position,
-            qvel_columns=qvel_columns,
-            qvel_values=joint_velocity,
+            qpos_columns=qpos_stage_columns,
+            qpos_values=qpos_stage,
+            qvel_columns=qvel_stage_columns,
+            qvel_values=qvel_stage,
         )
         self._tensor_has_writes = True
 
@@ -1490,6 +1617,8 @@ class ResetStateTransaction:
         )
         self._validate_quaternions(positions[:, 3:7], term_name=term_name)
         qpos_columns, _ = self._validate_root_layout(layout, term_name=term_name)
+        if self._tensor_active:
+            self._stage_tensor_state_defaults()
         self._require_packed_transaction().write_state(
             self._packed_rows(ids),
             qpos_columns=qpos_columns,
@@ -1520,6 +1649,8 @@ class ResetStateTransaction:
         )
         qpos_columns, qvel_columns = self._validate_root_layout(layout, term_name=term_name)
         if ids.numel():
+            if self._tensor_active:
+                self._stage_tensor_state_defaults()
             transaction = self._require_packed_transaction()
             device = self._packed_reset_device
             assert device is not None
@@ -1558,6 +1689,8 @@ class ResetStateTransaction:
         """
         ids = self._prepare_state_write(env_ids, capability="root-pose", term_name=term_name)
         qpos_columns, _ = self._validate_root_layout(layout, term_name=term_name)
+        if self._tensor_active:
+            self._stage_tensor_state_defaults()
         transaction = self._require_packed_transaction()
         device = self._packed_reset_device
         assert device is not None
@@ -1716,6 +1849,12 @@ class ResetStateTransaction:
                 assert commit_mask is not None
             if not self._commit_has_rows(commit_mask):
                 return None
+            if self._tensor_state_default_pending:
+                # No state write consumed the deferred begin-time fill (e.g. a
+                # DR-only commit): stage defaults now so the commit publishes
+                # them, matching eager begin-time staging.
+                transaction.begin_state_mask(commit_mask)
+                self._tensor_state_default_pending = False
             try:
                 started = time.perf_counter()
                 result = transaction.commit_mask(commit_mask)
@@ -2470,6 +2609,7 @@ class ResetStateTransaction:
         self._tensor_has_writes = False
         self._tensor_owner_subset = False
         self._tensor_write_mask = None
+        self._tensor_state_default_pending = False
 
 
 __all__ = ["ResetStateTransaction"]
