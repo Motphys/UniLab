@@ -1,4 +1,6 @@
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,6 +20,16 @@ class ExperimentReportTests(unittest.TestCase):
 
     def test_trailing_mean_retains_startup(self):
         self.assertEqual(rolling_mean([1.0, 3.0, 5.0], window=2), [1.0, 2.0, 4.0])
+
+    def test_rejects_student_report_in_teacher_comparison(self):
+        report = json.loads((ROOT / "results/rma/baseline/seed123.json").read_text())
+        report["policy"] = "student"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "baseline").mkdir()
+            (root / "baseline/seed123.json").write_text(json.dumps(report))
+            with self.assertRaisesRegex(ValueError, "Unexpected evaluation protocol"):
+                load_evaluations(root)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
 
 - 导入本地 RMA 增量层及精选实验数据；数据汇总严格匹配 6 份 JSON 和 3000 行训练 CSV。
 - `uv run --no-sync python scripts/report_rma.py`：生成汇总 CSV 与两张静态图；图表已人工查看。
-- `uv run --no-sync python -m unittest discover -s tests/rma -p 'test_*.py'`：33 项通过，格式化后重跑仍通过。
+- `uv run --no-sync python -m unittest discover -s tests/rma -p 'test_*.py'`：34 项通过，包含教师比较中拒绝学生报告的回归检查。
 - `cmake -S deploy_cpp -B build/rma -DCMAKE_BUILD_TYPE=Release`：配置成功。
 - `cmake --build build/rma -j2`：构建成功。
 - `ctest --test-dir build/rma --output-on-failure`：2/2 通过（并发一致性和 mock 控制）。
@@ -39,4 +39,5 @@ Pyright 报告上游现有框架文件的 10 项错误和 3 项警告，包括�
 `results/rma/forward_v1/config_snapshot` 是训练完成后从仍在使用的工作副本采集的配置，
 并非训练开始时自动保存的不可变快照；不能据此补造完整历史溯源。
 发布副本的 `base.yaml` 仅清除了行尾空白，未修改 YAML 参数；原运行文件的哈希另有记录。
-原运行配置、CSV、checkpoint 与来源 SHA256 记录见 `results/rma/provenance.json`。
+原运行配置、CSV 与来源 SHA256 记录见 `results/rma/provenance.json`；
+checkpoint SHA256 见 `results/rma/forward_v1/checkpoint_metadata.json`。

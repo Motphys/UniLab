@@ -13,10 +13,14 @@ def load_evaluations(root):
         for seed in (123, 456, 789):
             report = json.loads((root / label / f"seed{seed}.json").read_text())
             diagnostics = report["diagnostics"]
-            if report["seed"] != seed or diagnostics["mean_command"] != [0.5, 0.0, 0.0]:
+            if (
+                report["policy"] != "teacher"
+                or report["seed"] != seed
+                or diagnostics["mean_command"] != [0.5, 0.0, 0.0]
+            ):
                 raise ValueError(f"Unexpected evaluation protocol: {label}, seed {seed}")
             if report["total_transitions"] != 8000:
-                raise ValueError("Comparison expects 8 environments x 1000 control steps")
+                raise ValueError("Comparison expects 8000 total transitions per evaluation")
             records.append(
                 {
                     "model": label,
@@ -103,7 +107,7 @@ def build_report(root):
     )
     axes[1].set(
         xlabel="Completed PPO updates",
-        ylabel="Completed episode return",
+        ylabel="Mean completed episode return per update",
         title="Only updates containing completed episodes are shown",
     )
     for axis in axes:
