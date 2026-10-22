@@ -1074,6 +1074,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 if self._collector_ready:
                     raise RuntimeError("Collector sent duplicate ready signal")
                 self._collector_ready = True
+                # The ready signal marks the end of cold-path startup on both
+                # sides: learner compile/capture ran before the training loop
+                # and collector env construction precedes this publish. Open
+                # the live terminal display only now so startup output cannot
+                # interleave with Live redraws.
+                logger.start()
                 continue
             if not self._collector_ready:
                 raise RuntimeError(
@@ -1678,7 +1684,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             f"Replay learner lightweight: batched event write (log_interval={self.log_interval})"
         )
         self._active_logger = logger
-        logger.start()
         try:
             self._shutdown_recorder.set_phase(owner="learner", phase="startup/dp_init")
             # --- inference coordination queues ---
