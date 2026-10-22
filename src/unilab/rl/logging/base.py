@@ -289,7 +289,7 @@ class BaseTrainingLogger:
             return
         self._stop_live()
 
-        elapsed = time.time() - self._start_time
+        elapsed = time.time() - self._start_time if self._start_time else 0.0
         if not self._no_print:
             summary = (
                 f"[bold green]Training complete[/]\n"
