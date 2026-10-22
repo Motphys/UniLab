@@ -1506,6 +1506,13 @@ def test_mps_learner_cpu_env_resolves_cpu_ring_with_device_copy_staging(
         "ring_device": "cpu",
         "learner_device": "mps",
         "staging_policy": "cpu_ring_explicit_learner_device_copy",
+        "transport_table": placement.transport_spec.manifest(),
+    }
+    assert manifest["inference_timing"] == {
+        "timer_kind": "synchronized_wall_clock",
+        "has_timing_events": False,
+        "persistent_timing_event_count": 0,
+        "classification": "capability",
     }
     assert _FakePipeline.close_calls == 1
 
@@ -1559,7 +1566,7 @@ def test_mps_learner_serves_cpu_ring_inference_with_device_copy(
     runner.algo_type = "dummy_mps_sac"
     runner.learner = SimpleNamespace(actor=actor)
     runner.inference_epoch = 0
-    runner._inference_forward_timer = device_runner_module.build_device_timer("cpu")
+    runner._inference_forward_timer = device_runner_module.build_device_timer("mps")
     runner.inference_placement = InferencePlacement(
         mode=InferenceTransport.HOST,
         env_device="cpu",
