@@ -55,7 +55,7 @@ def main():
         "--task",
         choices=RMA_TASKS,
         default=DEFAULT_TASK,
-        help="Original RMA task or experimental forward-walking curriculum",
+        help="Original RMA task or an isolated forward-walking experiment",
     )
     parser.add_argument(
         "--log-dir",
@@ -67,6 +67,8 @@ def main():
         parser.error("iterations and num-envs must be positive")
     if args.phase == "student" and args.checkpoint is None:
         parser.error("Student training requires a trained teacher checkpoint")
+    if args.output.exists():
+        parser.error(f"Output already exists: {args.output}. Choose a new --output to keep it.")
     torch.manual_seed(42)
     cfg = RMAConfig()
     model, adaptation = ActorCriticRMA(cfg).to(args.device), AdaptationModule(cfg).to(args.device)

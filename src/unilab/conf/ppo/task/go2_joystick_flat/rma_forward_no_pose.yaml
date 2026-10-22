@@ -1,0 +1,9 @@
+# @package _global_
+# EXP-003: disable only the default-pose deviation penalty.
+defaults:
+  - /task/go2_joystick_flat/rma_forward
+  - _self_
+
+reward:
+  similar_to_default:
+    weight: 0.0

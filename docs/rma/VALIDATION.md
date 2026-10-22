@@ -6,14 +6,18 @@
 
 - 导入本地 RMA 增量层及精选实验数据；数据汇总严格匹配 6 份 JSON 和 3000 行训练 CSV。
 - `uv run --no-sync python scripts/report_rma.py`：生成汇总 CSV 与两张静态图；图表已人工查看。
-- `uv run --no-sync python -m unittest discover -s tests/rma -p 'test_*.py'`：39 项通过，包含追踪开关不改变动作、终止状态对齐与控制映射检查。
+- `uv run --no-sync python -m unittest discover -s tests/rma -p 'test_*.py'`：41 项通过，包含追踪开关不改变动作、终止状态对齐、控制映射、单变量配置及旧模型防覆盖检查。
 - `cmake -S deploy_cpp -B build/rma -DCMAKE_BUILD_TYPE=Release`：配置成功。
 - `cmake --build build/rma -j2`：构建成功。
 - `ctest --test-dir build/rma --output-on-failure`：3/3 通过（并发一致性、mock 控制和 12 个非零 one-hot 动作的执行器映射）。
 - `make check` 中的 ruff format/check、`mypy src/unilab`：通过。
 
 核心测试与报告脚本使用现有 WSL Python 环境。C++ 为 GNU 11.4.0、CMake 生成的 Release 构建。
-没有追加 Go2 长训，没有更改用户运行目录的策略参数或仿真配置。
+没有追加 Go2 长训，没有更改用户运行目录的原模型或基线仿真配置。
+新增独立任务 `rma_forward_no_pose`，只关闭默认站姿偏离惩罚；Hydra 完整解析对比只差这一项。
+在原 1.3.3 运行目录中完成 2 环境 × 24 步 × 1 次更新的 CPU 训练冒烟测试，checkpoint 与日志保存成功。
+随后 2 环境 × 3 步追踪评估成功；惩罚分项为 0，新任务 YAML 已存入快照，原基线模型 SHA256 不变。
+这仅验证实验入口；正式 3000 次更新的 EXP-003 尚未运行，没有性能改善结论。
 
 原 1.3.3 运行目录中已执行一次真实追踪评估：`teacher_forward_v1.pt`、种子 123、8 环境 × 1000 步，
 生成 8000 行 CSV、独立 JSON 与三张图。全程速度/RMSE 与此前该模型同种子的报告一致。

@@ -6,7 +6,8 @@ import torch
 
 DEFAULT_TASK = "go2_joystick_flat/rma"
 FORWARD_TASK = "go2_joystick_flat/rma_forward"
-RMA_TASKS = (DEFAULT_TASK, FORWARD_TASK)
+NO_POSE_TASK = "go2_joystick_flat/rma_forward_no_pose"
+RMA_TASKS = (DEFAULT_TASK, FORWARD_TASK, NO_POSE_TASK)
 
 
 def command_overrides(command):

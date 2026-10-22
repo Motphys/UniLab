@@ -38,7 +38,7 @@ uv run --no-sync python scripts/evaluate_rma.py \
 |---|---|
 | `transitions.csv` | 每一步、每个环境一行：目标/实际速度、12 维动作、关节相对角度/角速度、奖励分项、回合编号及终止标记 |
 | `run_config.json` | 命令参数、checkpoint SHA256、可获取的 Git 信息、关键源码 SHA256、实际控制周期、关节顺序和 scale/offset |
-| `task_source_snapshot/*.yaml` | 当次运行目录的四份任务源配置；不是完整物化 Hydra 配置，也不包含资产或依赖 |
+| `task_source_snapshot/*.yaml` | 当次运行目录的任务源配置，包含可用的消融任务；不是完整物化 Hydra 配置，也不包含资产或依赖 |
 | `summary.json` | 原评估结果，以及动作范围、动作接近边界比例、全程和启动窗口外的速度误差 |
 
 1000 步 × 8 环境应得到 8000 行数据，另加一行 CSV 表头。
@@ -110,6 +110,10 @@ uv run --no-sync python scripts/plot_evaluation_trace.py \
 训练初始化、指令范围、PPO 参数、控制器、训练预算和评估协议保持一致。
 新模型使用新文件名，保留旧模型；同样协议下比较实际速度与 RMSE。
 不要同一轮又加训练量、又改奖励、又换控制器，那样无法判断是谁产生作用。
+
+首个独立消融现已准备为 [EXP-003](../../experiments/rma/EXP-003_no_pose_penalty.md)：
+仅将 `similar_to_default.weight` 从 -0.1 设为 0.0，从头训练并使用新输出文件。
+完整命令、日志位置和评估协议见该记录；这是待执行的实验，不是已验证的性能提升。
 
 ## GitHub：数据、Issue、PR 各自放什么
 

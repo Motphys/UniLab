@@ -134,6 +134,7 @@ class EvaluationTrace:
             "src/unilab/conf/ppo/task/go2_joystick_flat/mujoco.yaml",
             "src/unilab/conf/ppo/task/go2_joystick_flat/rma.yaml",
             "src/unilab/conf/ppo/task/go2_joystick_flat/rma_forward.yaml",
+            "src/unilab/conf/ppo/task/go2_joystick_flat/rma_forward_no_pose.yaml",
         )
         metadata["runtime_source_sha256"] = {
             name: hashlib.sha256((root / name).read_bytes()).hexdigest()
