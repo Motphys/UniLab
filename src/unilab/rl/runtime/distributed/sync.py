@@ -42,6 +42,7 @@ class DpParameterSync:
         backend: str = "nccl",
         device: str | None = None,
         timeout_s: int = 120,
+        gradient_wire_dtype: str = "float32",
     ) -> None:
         if int(world_size) < 2:
             raise ValueError(f"DpParameterSync requires world_size >= 2, got {world_size}")
@@ -53,6 +54,9 @@ class DpParameterSync:
         self.backend = str(backend)
         self.device = None if device is None else torch.device(device)
         self.timeout_s = int(timeout_s)
+        if gradient_wire_dtype not in {"float32", "bfloat16"}:
+            raise ValueError("gradient_wire_dtype must be 'float32' or 'bfloat16'")
+        self.gradient_wire_dtype = gradient_wire_dtype
         self._key_order: tuple[str, ...] | None = None
         self._statistics_schema: dict[str, str] = {}
         self._gradient_sync_time_sec = 0.0
@@ -142,34 +146,49 @@ class DpParameterSync:
                 )
 
         gradient_numel = sum(parameter.numel() for parameter in params)
+        # Compression is opt-in and only affects sufficiently large FP32 groups.
+        # Small groups (including temperature) keep their original precision.
+        wire_dtype = (
+            torch.bfloat16
+            if self.gradient_wire_dtype == "bfloat16"
+            and dtype == torch.float32
+            and gradient_numel >= 1024
+            else dtype
+        )
         buffer_key = tuple(id(parameter) for parameter in params)
         packed = self._gradient_buffers.get(buffer_key)
         if (
             packed is None
             or packed.numel() != gradient_numel
             or packed.device != device
-            or packed.dtype != dtype
+            or packed.dtype != wire_dtype
         ):
-            packed = torch.empty(gradient_numel, device=device, dtype=dtype)
+            packed = torch.empty(gradient_numel, device=device, dtype=wire_dtype)
             self._gradient_buffers[buffer_key] = packed
         offset = 0
+        packed_views: list[torch.Tensor] = []
+        gradients: list[torch.Tensor] = []
         for parameter in params:
             width = parameter.numel()
             gradient = parameter.grad
             assert gradient is not None
-            packed[offset : offset + width].copy_(gradient.detach().reshape(-1))
+            packed_views.append(packed[offset : offset + width].view_as(parameter))
+            gradients.append(gradient.detach())
             offset += width
-
+        if wire_dtype != dtype:
+            torch._foreach_copy_(packed_views, gradients)
+        else:
+            for packed_view, gradient in zip(packed_views, gradients):
+                packed_view.copy_(gradient)
         dist.all_reduce(packed, op=dist.ReduceOp.SUM)
-        packed.div_(self.world_size)
-
-        offset = 0
-        for parameter in params:
-            width = parameter.numel()
-            gradient = parameter.grad
-            assert gradient is not None
-            gradient.copy_(packed[offset : offset + width].view_as(parameter))
-            offset += width
+        if wire_dtype != dtype:
+            # Divide after restoring FP32 to avoid another BF16 rounding.
+            torch._foreach_copy_(gradients, packed_views)
+            torch._foreach_mul_(gradients, 1.0 / self.world_size)
+        else:
+            packed.div_(self.world_size)
+            for gradient, packed_view in zip(gradients, packed_views):
+                gradient.copy_(packed_view)
 
         if timing_events is not None:
             timing_events[1].record()

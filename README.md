@@ -100,8 +100,26 @@ uv run eval --algo sac --task g1_walk_flat --sim isaacgym --load-run -1
 
 # Train the g1 motion-tracking task with mjwarp and replay it with Genesis physics.
 uv run --extra mjwarp train --algo flashsac --task g1_motion_tracking --sim mjwarp
+# Two GPUs; disable peer access and enable NCCL shared memory on hosts that need it.
+CUDA_VISIBLE_DEVICES=0,1 NCCL_P2P_DISABLE=1 NCCL_SHM_DISABLE=0 \
+  uv run --extra mjwarp train --algo flashsac --task g1_motion_tracking --sim mjwarp
 uv run --extra genesis eval --algo flashsac --task g1_motion_tracking --sim genesis --load-run -1
 ```
+
+To use MPS, start one service per selected GPU before training, append
+`training.cuda_process_sharing=mps` to the training command, and stop those
+services manually after training. For example, for GPUs 0 and 1:
+
+```bash
+uv run uni-cumps start --gpus 0 --name train-gpu0 --daemon
+uv run uni-cumps start --gpus 1 --name train-gpu1 --daemon
+# Run training, then stop only these services after its processes exit.
+uv run uni-cumps stop --name train-gpu0
+uv run uni-cumps stop --name train-gpu1
+```
+
+Run these management commands without a conflicting GPU mask. For more options,
+use `uv run uni-cumps --help`. See [execution contracts](docs/flashsac_dp.md).
 
 The flags keep algorithm, task, and simulator choices visible. Resume, W&B,
 Hydra overrides, playback, backend setup, and the full command matrix belong in

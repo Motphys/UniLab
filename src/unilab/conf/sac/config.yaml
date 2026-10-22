@@ -70,6 +70,7 @@ training:
   # process sharing and fails closed if the host daemon is not already valid.
   # Manage an explicit user-owned daemon with `uni-cumps`.
   cuda_process_sharing: null
+  dp_gradient_wire_dtype: float32
   nan_guard:
     enabled: true
     buffer_size: 100

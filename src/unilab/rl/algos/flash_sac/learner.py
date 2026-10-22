@@ -222,6 +222,7 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         use_compile: bool | None = None,
         compile_full_objectives: bool | None = None,
         use_whole_cycle_cuda_graph: bool | None = None,
+        dp_whole_cycle_cuda_graph: bool = False,
         actor_normalize_parameters: bool = True,
         critic_normalize_parameters: bool = True,
         actor_config: Mapping[str, Any] | None = None,
@@ -288,6 +289,12 @@ class FlashSACLearner(WholeCycleLearnerMixin):
             device_gated=self._device_type == "cuda" and self.use_compile,
         )
         self._gradient_sync: Callable[[Iterable[torch.Tensor]], None] | None = None
+        self._dp_whole_cycle_cuda_graph = bool(dp_whole_cycle_cuda_graph)
+        self._gradient_graph_hooks: tuple[Callable[[], None], ...] | None = None
+        self._gradient_loss_flag = torch.empty(
+            (), device=device, dtype=torch.float32, requires_grad=True
+        )
+        self._gradient_loss_flag.grad = torch.zeros_like(self._gradient_loss_flag)
         self._actor_spec = (
             FlashSACActorSpec.from_config(actor_config) if actor_config is not None else None
         )
@@ -455,7 +462,13 @@ class FlashSACLearner(WholeCycleLearnerMixin):
     @property
     def use_update_cycle(self) -> bool:
         """Whether this learner owns the whole-cycle update orchestration."""
-        return bool(self._compile_full_update_cycle and self._gradient_sync is None)
+        return bool(
+            self._compile_full_update_cycle
+            and (
+                self._gradient_sync is None
+                or (self._dp_whole_cycle_cuda_graph and self._gradient_graph_hooks is not None)
+            )
+        )
 
     def _whole_cycle_optimizers(self) -> tuple[optim.Optimizer, ...]:
         return (self.critic_optimizer, self.actor_optimizer, self.temperature_optimizer)
@@ -473,11 +486,45 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         return self.target_critic, self.critic
 
     def set_gradient_sync(self, sync: Callable[[Iterable[torch.Tensor]], None] | None) -> None:
-        """Attach DP reduction and permanently leave the whole-cycle graph."""
-        if sync is not None and self._compile_full_update_cycle:
+        """Attach DP reduction; graph collectives require explicit opt-in hooks."""
+        if sync != self._gradient_sync:
+            self._reset_update_cycle_graph()
+            self._gradient_graph_hooks = None
+        if (
+            sync is not None
+            and self._compile_full_update_cycle
+            and not self._dp_whole_cycle_cuda_graph
+        ):
             self._compile_full_update_cycle = False
             self._reset_update_cycle_graph()
         self._gradient_sync = sync
+
+    def set_gradient_graph_hooks(
+        self,
+        begin_capture: Callable[[], None],
+        end_capture: Callable[[], None],
+        before_replay: Callable[[], None],
+    ) -> None:
+        """Bind graph lifetime to the distributed synchronizer's lifetime."""
+        hooks = (begin_capture, end_capture, before_replay)
+        if hooks != self._gradient_graph_hooks:
+            self._reset_update_cycle_graph()
+        self._gradient_graph_hooks = hooks
+
+    def _sync_loss_gradients(self, parameters: Iterable[torch.Tensor], loss: torch.Tensor) -> None:
+        """Reduce loss validity with gradients so all ranks gate each step alike."""
+        if (
+            self._gradient_sync is None
+            or self._device_type != "cuda"
+            or self._host_finite_checks
+            or self.scaler is not None
+        ):
+            self._sync_gradients(parameters)
+            return
+        sentinel = self._gradient_loss_flag
+        assert sentinel.grad is not None
+        sentinel.grad.copy_(torch.logical_not(torch.isfinite(loss.detach()).all()))
+        self._sync_gradients((*parameters, sentinel))
 
     def _compile_training_methods(self) -> None:
         compile_fn = get_torch_compile_for_device(self.device, warn=True)
@@ -530,6 +577,9 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         found_inf = self._optimizer_found_inf
         found_inf.copy_(torch.logical_not(torch.isfinite(loss.detach()).all()))
         if self._gradient_sync is not None:
+            if self.scaler is None:
+                assert self._gradient_loss_flag.grad is not None
+                found_inf.copy_(self._gradient_loss_flag.grad > 0)
             gradients = [
                 parameter.grad
                 for group in optimizer.param_groups
@@ -719,13 +769,13 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         if self._finite_check_ok(critic_loss, read_metrics):
             if self.scaler is not None:
                 self.scaler.scale(critic_loss).backward()
-                self._sync_gradients(self.critic.parameters())
+                self._sync_loss_gradients(self.critic.parameters(), critic_loss)
                 self.scaler.unscale_(self.critic_optimizer)
                 self.scaler.step(self.critic_optimizer)
                 self.scaler.update()
             else:
                 critic_loss.backward()
-                self._sync_gradients(self.critic.parameters())
+                self._sync_loss_gradients(self.critic.parameters(), critic_loss)
                 self._arm_optimizer_finite_gate(self.critic_optimizer, critic_loss)
                 self._stage_update_cycle_lr(self.critic_optimizer)
                 self.critic_optimizer.step()
@@ -786,13 +836,13 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         if self._finite_check_ok(actor_loss, read_metrics):
             if self.scaler is not None:
                 self.scaler.scale(actor_loss).backward()
-                self._sync_gradients(self.actor.parameters())
+                self._sync_loss_gradients(self.actor.parameters(), actor_loss)
                 self.scaler.unscale_(self.actor_optimizer)
                 self.scaler.step(self.actor_optimizer)
                 self.scaler.update()
             else:
                 actor_loss.backward(inputs=list(self.actor.parameters()))
-                self._sync_gradients(self.actor.parameters())
+                self._sync_loss_gradients(self.actor.parameters(), actor_loss)
                 self._arm_optimizer_finite_gate(self.actor_optimizer, actor_loss)
                 self._stage_update_cycle_lr(self.actor_optimizer)
                 self.actor_optimizer.step()
@@ -805,7 +855,7 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         self._zero_optimizer_gradients(self.temperature_optimizer)
         if self._finite_check_ok(temp_loss, read_metrics):
             temp_loss.backward(inputs=list(self.temperature.parameters()))
-            self._sync_gradients(self.temperature.parameters())
+            self._sync_loss_gradients(self.temperature.parameters(), temp_loss)
             self._arm_optimizer_finite_gate(self.temperature_optimizer, temp_loss)
             self._stage_update_cycle_lr(self.temperature_optimizer)
             self.temperature_optimizer.step()
@@ -965,6 +1015,8 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         policy_frequency: int,
     ) -> tuple[int, ...]:
         del saved_groups
+        if self._gradient_graph_hooks is not None:
+            self._gradient_graph_hooks[0]()
         return (updates_per_step, policy_frequency)
 
     def _prepare_update_cycle_capture(self, *capture_state: Any) -> None:
@@ -976,7 +1028,11 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         self._fill_update_cycle_lr_specs(zero=False)
 
     def _finish_update_cycle_capture(self, saved_groups: Sequence[dict[str, Any]]) -> None:
-        self._restore_optimizer_groups(self._whole_cycle_optimizers(), saved_groups)
+        try:
+            self._restore_optimizer_groups(self._whole_cycle_optimizers(), saved_groups)
+        finally:
+            if self._gradient_graph_hooks is not None:
+                self._gradient_graph_hooks[1]()
 
     @property
     def _update_cycle_capture_error_mode(self) -> str:
@@ -984,7 +1040,8 @@ class FlashSACLearner(WholeCycleLearnerMixin):
 
     @property
     def _whole_cycle_capture_fallback(self) -> bool:
-        return True
+        # Mixed eager/graph collectives across ranks can deadlock or diverge.
+        return not (self._gradient_sync is not None and self._dp_whole_cycle_cuda_graph)
 
     def _whole_cycle_capture_failure_message(self) -> str:
         return (
@@ -1031,12 +1088,15 @@ class FlashSACLearner(WholeCycleLearnerMixin):
             return
         assert self._update_cycle_graph is not None
         self._fill_update_cycle_lr_specs(zero=False)
+        if self._gradient_graph_hooks is not None:
+            self._gradient_graph_hooks[2]()
         self._update_cycle_graph.replay()
         self._advance_update_cycle_schedulers()
         self._pending_cycle_metric_values = self._update_cycle_graph_metric_values
 
     def _reset_update_cycle_graph(self) -> None:
         """Invalidate captured storage after checkpoint or DP state changes."""
+        self._update_cycle_capture_failed = False
         self._update_cycle_graph = None
         self._update_cycle_graph_cache_key = None
         self._update_cycle_static_batch = None

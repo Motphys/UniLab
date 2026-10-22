@@ -325,6 +325,9 @@ def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
             rank=dp_rank,
             rendezvous_path=resolve_dp_rendezvous_path(cast(str, log_dir), rank=dp_rank),
             device=rank_device,
+            gradient_wire_dtype=str(
+                OmegaConf.select(cfg, "training.dp_gradient_wire_dtype", default="float32")
+            ),
         )
 
     torch_thread_runtime = resolve_torch_thread_runtime(

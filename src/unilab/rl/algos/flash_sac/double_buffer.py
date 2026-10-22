@@ -129,6 +129,7 @@ def build_double_buffer_runner(
         "use_compile": cfg.algo.algo_params.use_compile,
         "compile_full_objectives": _algo_param(cfg.algo, "compile_full_objectives", None),
         "use_whole_cycle_cuda_graph": _algo_param(cfg.algo, "use_whole_cycle_cuda_graph", None),
+        "dp_whole_cycle_cuda_graph": _algo_param(cfg.algo, "dp_whole_cycle_cuda_graph", False),
         "actor_normalize_parameters": bool(
             _algo_param(cfg.algo, "actor_normalize_parameters", True)
         ),

@@ -234,6 +234,10 @@ def test_daemon_liveness_uses_pid_and_start_time() -> None:
 def test_start_daemon_uses_explicit_directories_and_records_identity(
     linux_host: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    def reject_default(_name: str) -> Path:
+        raise AssertionError("explicit paths must not touch the default runtime root")
+
+    monkeypatch.setattr(mps, "_default_runtime_root", reject_default)
     monkeypatch.setattr(mps.shutil, "which", lambda _name: "/fake/bin/nvidia-cuda-mps-control")
     pipe_dir = linux_host / "explicit-pipe"
     log_dir = linux_host / "explicit-log"

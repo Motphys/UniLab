@@ -29,6 +29,29 @@ architecture changes.
 
 ## Architecture contracts
 
+- FlashSAC owner YAML enables DP whole-cycle CUDA graphs by default; they require
+  synchronizer lifecycle hooks. Explicit
+  `algo.algo_params.dp_whole_cycle_cuda_graph=false` disables DP capture;
+  `algo.algo_params.use_whole_cycle_cuda_graph=false` disables it for all ranks.
+  Capture failure must raise on DP; rank-local eager fallback can hang
+  collectives. Release graphs before closing the process group. On the compiled
+  CUDA path without GradScaler, loss validity
+  travels with gradients so nonfinite losses with finite derivatives skip the
+  same optimizer and target update on every rank.
+- `training.dp_gradient_wire_dtype` defaults to `float32`. Optional `bfloat16`
+  compresses FP32 groups with at least 1024 elements, restores FP32 before
+  averaging, and changes numerical precision independently of AMP. Do not claim
+  convergence equivalence from short throughput runs. Distributed communication
+  remains in `rl/runtime/distributed`, never downstream task packages.
+- Training without `CUDA_VISIBLE_DEVICES` defaults to one rank;
+  an explicit list selects one rank per GPU. Preserve empty/-1
+  masks as CUDA-disabled requests. Put generic minimal launch examples under
+  README Train and evaluate, and leave Ecosystem focused on downstream projects.
+- CUDA MPS remains manually managed through `uni-cumps`. Start services before
+  training and stop only the services you own after clients exit. The default
+  `training.cuda_process_sharing=null` uses independent contexts; explicit `mps`
+  validates existing services. Do not add automatic MPS lifecycle here.
+
 - UniLab provides environments and adapters, and now also owns the RL
   algorithm and training-execution stack in `unilab.rl` (merged from the
   unilab_rl repo @ 3654e4b). Its layers: `contracts` (env injection and

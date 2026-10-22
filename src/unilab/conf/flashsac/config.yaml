@@ -60,6 +60,7 @@ algo:
     amp_dtype: auto
     use_compile: true
     compile_full_objectives: true
+    dp_whole_cycle_cuda_graph: true
     use_whole_cycle_cuda_graph: true
 
 training:
@@ -92,6 +93,8 @@ training:
   # process sharing and fails closed if the host daemon is not already valid.
   # Manage an explicit user-owned daemon with `uni-cumps`.
   cuda_process_sharing: null
+  # Optional lossy gradient communication, independent of learner AMP.
+  dp_gradient_wire_dtype: float32
   nan_guard:
     enabled: true
     buffer_size: 100
