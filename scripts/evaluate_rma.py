@@ -33,6 +33,17 @@ def main():
         help="Report commanded/actual velocity and weighted reward terms",
     )
     p.add_argument(
+        "--trace-dir",
+        type=Path,
+        help="Opt in to per-transition CSV and JSON in a unique subdirectory of this parent",
+    )
+    p.add_argument(
+        "--trace-warmup-steps",
+        type=int,
+        default=100,
+        help="Exclude this many initial steps per episode from the additional trace window summary",
+    )
+    p.add_argument(
         "--backend",
         choices=["pytorch", "tensorrt"],
         default="pytorch",
@@ -60,6 +71,8 @@ def main():
     args = p.parse_args()
     if args.steps < 1 or args.num_envs < 1:
         p.error("steps and num-envs must be positive")
+    if args.trace_warmup_steps < 0:
+        p.error("trace-warmup-steps must be nonnegative")
     if not math.isfinite(args.render_speed) or args.render_speed <= 0:
         p.error("render-speed must be finite and positive")
     if args.command is not None and not all(math.isfinite(x) for x in args.command):
@@ -94,6 +107,7 @@ def main():
     steps = range(args.steps)
     playback = None
     runtime = None
+    trace = None
     backend_action_errors, backend_max_abs_error = [], 0.0
     diagnostics = EvaluationDiagnostics() if args.diagnostics else None
     try:
@@ -102,6 +116,16 @@ def main():
 
             runtime = TensorRTWorker(args.tensorrt_worker, args.engine, cfg)
         obs, critic, priv = env.reset()
+        if args.trace_dir is not None:
+            from unilab_rma.evaluation_trace import EvaluationTrace
+
+            trace = EvaluationTrace(
+                args.trace_dir,
+                raw,
+                vars(args),
+                args.checkpoint,
+                warmup_steps=args.trace_warmup_steps,
+            )
         history = HistoryBuffer(args.num_envs, cfg, args.device)
         history.push(obs)
         # The default path retains the original range iterator: no renderer,
@@ -113,6 +137,8 @@ def main():
             steps = playback
         with torch.no_grad():
             for _ in steps:
+                if trace is not None:
+                    trace_before = critic
                 if diagnostics is not None:
                     diagnostics.record_state(critic)
                 tracking.append((critic[:, 49:51] - obs[:, 42:44]).square().sum(-1).mean().item())
@@ -133,7 +159,11 @@ def main():
                     action = deployed_action
                 if args.policy == "student":
                     action_errors.append((action - teacher_action).square().mean().item())
-                (obs, critic, priv), reward, term, trunc, _ = env.step(action)
+                (obs, critic, priv), reward, term, trunc, terminal = env.step(action)
+                if trace is not None:
+                    trace.record(
+                        trace_before, action, terminal[1], reward, term, trunc, raw.reward_manager
+                    )
                 if diagnostics is not None:
                     diagnostics.record_rewards(raw.reward_manager)
                 returns += reward
@@ -195,6 +225,8 @@ def main():
                     ),
                 }
             )
+        if trace is not None:
+            report = trace.finish(report)
         print(json.dumps(report, indent=2))
     finally:
         try:
@@ -205,7 +237,11 @@ def main():
                 if runtime is not None:
                     runtime.close()
             finally:
-                raw.close()
+                try:
+                    if trace is not None:
+                        trace.close()
+                finally:
+                    raw.close()
 
 
 if __name__ == "__main__":

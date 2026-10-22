@@ -10,7 +10,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "rsl_rl"))
 from unilab_rma import ActorCriticRMA, AdaptationModule, AdaptationTrainer, HistoryBuffer, RMAConfig
-from unilab_rma.deployment import DeploymentPolicy
+from unilab_rma.deployment import DeploymentPolicy, go2_control_layout
 from unilab_rma.env_adapter import UniLabRMAEnv
 from unilab_rma.ppo import gae
 from unilab_rma.runner import train_student, train_teacher
@@ -132,6 +132,22 @@ class CoreTests(unittest.TestCase):
             override = {"scene": {"model_file": "scene.xml", "entities": {"robot": {}}}}
             prepare_scene(override, p)
             self.assertEqual(override["scene"]["entities"]["robot"]["geom_names"], ["foot"])
+
+    def test_export_control_layout_matches_current_task_names(self):
+        from hydra import compose, initialize_config_dir
+
+        with initialize_config_dir(config_dir=str(ROOT / "src/unilab/conf/ppo"), version_base=None):
+            config = compose(config_name="config", overrides=["task=go2_joystick_flat/rma"])
+        robot = config.env.scene.entities.robot
+        layout = go2_control_layout()
+        joint_names = list(robot.joint_names)
+        actuators = list(robot.actuator_names)
+        self.assertEqual(
+            layout["action_to_actuator_indices"],
+            [actuators.index(name.removesuffix("_joint")) for name in joint_names],
+        )
+        self.assertEqual(layout["action_joint_order"], ["FL", "FR", "RL", "RR"])
+        self.assertEqual(layout["scene_actuator_order"], ["FR", "FL", "RR", "RL"])
 
     def test_adapter_preserves_pre_reset_state(self):
         class Raw:

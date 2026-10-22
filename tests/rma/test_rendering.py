@@ -147,7 +147,12 @@ class EvaluationRenderingTests(unittest.TestCase):
     def test_default_does_not_import_rendering_and_keeps_transition_count(self):
         raw, env = PlaybackEnv(), SyntheticEnv()
         with patch.dict(
-            sys.modules, {"unilab_rma.rendering": None, "unilab_rma.tensorrt_runtime": None}
+            sys.modules,
+            {
+                "unilab_rma.rendering": None,
+                "unilab_rma.tensorrt_runtime": None,
+                "unilab_rma.evaluation_trace": None,
+            },
         ):
             metrics = self.evaluate(raw, env)
         self.assertEqual(metrics["total_transitions"], 3)
@@ -196,6 +201,35 @@ class EvaluationRenderingTests(unittest.TestCase):
             build.call_args.kwargs,
             {"task": "go2_joystick_flat/rma_forward", "command": [0.5, 0.0, 0.0]},
         )
+
+    def test_trace_preserves_actions_and_metrics_and_writes_separate_json(self):
+        raw, env = PlaybackEnv(), SyntheticEnv()
+        expected = self.evaluate(raw, env)
+        raw2, env2 = PlaybackEnv(), SyntheticEnv()
+        names = [f"joint_{i}" for i in range(12)]
+        term = SimpleNamespace(
+            cfg=SimpleNamespace(entity_name="robot", clip=None),
+            target_names=names,
+            target_ids=list(range(12)),
+            scale=0.25,
+            offset=torch.zeros(1, 12),
+        )
+        raw2.action_manager = SimpleNamespace(get_term=lambda name: term)
+        raw2.scene = {"robot": SimpleNamespace(joint_names=names)}
+        raw2.reward_manager = SimpleNamespace(
+            step_reward_names=("tracking_lin_vel",),
+            get_active_iterable_terms=lambda index: [("tracking_lin_vel", [0.5])],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            actual = self.evaluate(raw2, env2, "--trace-dir", directory)
+            trace = actual.pop("trace")
+            self.assertEqual(actual, expected)
+            self.assertEqual(trace["full"]["transitions"], 3)
+            saved = json.loads((Path(trace["directory"]) / "summary.json").read_text())
+            self.assertEqual(saved["total_transitions"], 3)
+            self.assertTrue(raw2.closed)
+            for left, right in zip(env.actions, env2.actions, strict=True):
+                self.assertTrue(torch.equal(left, right))
 
     def test_reset_failure_still_closes_environment(self):
         raw, env = PlaybackEnv(), SyntheticEnv()

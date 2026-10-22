@@ -70,6 +70,7 @@ docs/                使用说明、接口契约与复现边界
 ## 复现与依赖
 
 完整说明见 [复现指南](REPRODUCING.md) 和 [验证记录](VALIDATION.md)。
+逐步记录、画图与 Issue/PR 的分工见 [实验操作指南](EXPERIMENT_WORKFLOW.md)。
 
 已发布的实测数据基于本地 UniLab 1.3.3 工作副本、MuJoCo CPU 物理环境和 PyTorch。
 本 fork 基线为 UniLab 1.3.4，基线 commit 与关键文件差异见 [provenance.json](../../results/rma/provenance.json)。

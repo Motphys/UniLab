@@ -1,6 +1,7 @@
 // Timing/IO framework. MOCK ROBOT ONLY: no Unitree SDK commands are sent.
 // C++17, TensorRT 10 optional, static FP32 IO with optional internal FP16 engine.
 #include "DoubleBuffer.hpp"
+#include "ControlMapping.hpp"
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -45,7 +46,7 @@ struct ControlConfig {
     }
 };
 // Joint -> actuator index, based on copied YAML; verify against materialized scene before real use.
-constexpr std::array<int,12> jointToAct{3,4,5,0,1,2,9,10,11,6,7,8};
+constexpr auto jointToAct=rma::policyToActuator;
 
 int main(int argc,char** argv){
     try {
@@ -159,8 +160,10 @@ int main(int argc,char** argv){
                         for(int i=0;i<12;++i){
                             if(!std::isfinite(action[i])) throw std::runtime_error("Non-finite model action");
                             action[i]=std::clamp(action[i],-1.f,1.f);
-                            cmd.target[i]=cfg.q0[i]+.25f*action[i];
                             maxActionAbs=std::max(maxActionAbs,std::abs(action[i]));
+                        }
+                        cmd.target=rma::actuatorTargets(cfg.q0,action);
+                        for(int i=0;i<12;++i){
                             maxTargetOffset=std::max(maxTargetOffset,std::abs(cmd.target[i]-cfg.q0[i]));
                         }
                         if(commands.tryWrite(cmd)){

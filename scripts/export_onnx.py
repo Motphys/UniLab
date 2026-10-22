@@ -11,7 +11,7 @@ import json
 import numpy as np
 import torch
 from unilab_rma import RMAConfig
-from unilab_rma.deployment import DeploymentPolicy
+from unilab_rma.deployment import DeploymentPolicy, go2_control_layout
 
 
 def main():
@@ -86,7 +86,9 @@ def main():
             ["gait_phase", 4],
         ],
         "joint_order": ["FL", "FR", "RL", "RR"],
-        "action_actuator_order": ["FR", "FL", "RR", "RL"],
+        "action_actuator_order": ["FL", "FR", "RL", "RR"],
+        "action_actuator_order_note": "Legacy alias for action output order, NOT scene storage order",
+        **go2_control_layout(),
         "per_leg_order": ["hip", "thigh", "calf"],
         "onnx_max_abs_error": maximum,
         "default_angles": "must read matching scene home keyframe in actuator order; not supplied by source-only copy",

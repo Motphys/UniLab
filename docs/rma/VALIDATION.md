@@ -6,14 +6,24 @@
 
 - 导入本地 RMA 增量层及精选实验数据；数据汇总严格匹配 6 份 JSON 和 3000 行训练 CSV。
 - `uv run --no-sync python scripts/report_rma.py`：生成汇总 CSV 与两张静态图；图表已人工查看。
-- `uv run --no-sync python -m unittest discover -s tests/rma -p 'test_*.py'`：34 项通过，包含教师比较中拒绝学生报告的回归检查。
+- `uv run --no-sync python -m unittest discover -s tests/rma -p 'test_*.py'`：39 项通过，包含追踪开关不改变动作、终止状态对齐与控制映射检查。
 - `cmake -S deploy_cpp -B build/rma -DCMAKE_BUILD_TYPE=Release`：配置成功。
 - `cmake --build build/rma -j2`：构建成功。
-- `ctest --test-dir build/rma --output-on-failure`：2/2 通过（并发一致性和 mock 控制）。
+- `ctest --test-dir build/rma --output-on-failure`：3/3 通过（并发一致性、mock 控制和 12 个非零 one-hot 动作的执行器映射）。
 - `make check` 中的 ruff format/check、`mypy src/unilab`：通过。
 
 核心测试与报告脚本使用现有 WSL Python 环境。C++ 为 GNU 11.4.0、CMake 生成的 Release 构建。
 没有追加 Go2 长训，没有更改用户运行目录的策略参数或仿真配置。
+
+原 1.3.3 运行目录中已执行一次真实追踪评估：`teacher_forward_v1.pt`、种子 123、8 环境 × 1000 步，
+生成 8000 行 CSV、独立 JSON 与三张图。全程速度/RMSE 与此前该模型同种子的报告一致。
+逐行验证分项 rate 之和乘 0.02 与实际 reward 的最大误差约 `7.98e-09`。
+完整压缩 CSV、摘要、配置记录及图见 `results/rma/diagnostics/EXP-002/seed123/`。
+这只验证 1.3.3 中的新增评估入口，不等于 1.3.4 真实训练完成兼容。
+
+使用旧学生权重重新导出 ONNX，12 组输入数值检查通过，最大误差 `2.682209e-07`。
+导出元数据已区分策略关节顺序与场景执行器存储顺序；C++ 输出边界已按映射散射。
+ONNX 权重图本身未加排列；尚未用真实机器人或 TensorRT 机器人闭环验证本次修正。
 
 ## 完整门禁尚未通过
 

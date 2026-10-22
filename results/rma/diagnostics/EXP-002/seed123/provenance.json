@@ -1,0 +1,12 @@
+{
+  "evaluation_only": true,
+  "source_runtime": "existing local UniLab 1.3.3, NOT the 1.3.4 fork runtime",
+  "source_trace_directory": "/home/abc/my_unilab/runs/rma/evaluations/EXP-002/seed123/eval_hhlzyanz",
+  "rows": 8000,
+  "uncompressed_transitions_sha256": "cb49a7842ac278a026e50b68e32ded5a5049a4906388d5c93d071c9d5a52798b",
+  "source_run_config_sha256": "218ec48c5d484046f280ac4588f688527ec37ba201212f9d5ad84ea898e50a06",
+  "summary_directory_normalization": "absolute trace.directory made relative to source runtime",
+  "per_transition_max_abs_reward_minus_sum_weighted_rates_times_dt": 7.981434464732207e-09,
+  "mapping_note": "runtime target order FL FR RL RR; scene storage order FR FL RR RL",
+  "validation_scope": "one evaluation seed; no new training or real robot/TensorRT control execution"
+}
