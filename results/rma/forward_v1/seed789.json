@@ -1,0 +1,62 @@
+{
+  "policy": "teacher",
+  "seed": 789,
+  "completed_episodes": 8,
+  "mean_completed_episode_return": 11.019422739744186,
+  "mean_completed_episode_length_steps": 589.125,
+  "mean_step_reward": 0.01871223668009043,
+  "planar_velocity_rmse_m_per_s": 0.49402653605180963,
+  "unfinished_episodes": 8,
+  "mean_unfinished_episode_return": 7.692810535430908,
+  "student_latent_mse_vs_teacher": null,
+  "student_action_rmse_vs_teacher": null,
+  "terminations": 0,
+  "total_transitions": 8000,
+  "command_override": [
+    0.5,
+    0.0,
+    0.0
+  ],
+  "task": "go2_joystick_flat/rma_forward",
+  "diagnostics": {
+    "velocity_axes": [
+      "vx_m_per_s",
+      "vy_m_per_s",
+      "yaw_rate_rad_per_s"
+    ],
+    "velocity_frame": "robot body; clean critic local_linvel xy and gyro z",
+    "initial_command_env0": [
+      0.5,
+      0.0,
+      0.0
+    ],
+    "mean_command": [
+      0.5,
+      0.0,
+      0.0
+    ],
+    "mean_measured_velocity": [
+      0.012253768285125432,
+      -0.004161755626676729,
+      0.028055764691391885
+    ],
+    "tracking_rmse_by_axis": [
+      0.49195942077463545,
+      0.045145834817094645,
+      0.0914933536134219
+    ],
+    "mean_absolute_yaw_rate_rad_per_s": 0.04815842404206481,
+    "weighted_reward_terms_before_dt": {
+      "tracking_lin_vel": 0.7709526063203812,
+      "tracking_ang_vel": 0.19463158410787582,
+      "lin_vel_z": -0.0030863634385796105,
+      "ang_vel_xy": -0.013372091561352136,
+      "base_height": -0.01578838027827442,
+      "action_rate": -0.0033247425880035737,
+      "similar_to_default": -0.2310179681405425,
+      "contact": 0.17744999327510597,
+      "swing_feet_z": 0.059167224429547784
+    },
+    "reward_terms_note": "weighted terms BEFORE control-dt scaling; not per-step rewards"
+  }
+}

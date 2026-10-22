@@ -1,0 +1,91 @@
+{
+  "captured_date": "2026-10-22",
+  "fork_base_commit": "c19b8810059e3c495dc5394a5652d3c82c00f70f",
+  "runtime_upstream_commit": null,
+  "runtime_upstream_commit_note": "Source-only copy has no Git history; provenance is not inferred from the fork.",
+  "python_version": "3.10.12",
+  "installed_distributions": {
+    "torch": "2.14.0+cu130",
+    "mujoco": "3.11.0",
+    "unilab": "1.3.3",
+    "unisim-core": "1.7.11",
+    "hydra-core": "1.3.2",
+    "numpy": "2.2.6",
+    "tensorboard": "2.21.0",
+    "matplotlib": "3.10.8"
+  },
+  "pasted_evaluation_source_sha256": "84c5a993f2a6a18f881e76c9b1486da67ad89c488bae4fde127f8dd382179239",
+  "original_run_config_sha256": "8fa159eab801ec3dc9762e932a6a720c5c9751def83ee8ca8d6e0d1985e7aa0f",
+  "training_csv_sha256": "70323752806b1fa8eb91d34ead7191ba5ef46d1d94935f59db85b84fd072bead",
+  "source_files": {
+    "deploy_cpp/CMakeLists.txt": "3fcf0e81fef555bb345342c3d924dbfd97fe0748a8e6197dcdc22372fb934520",
+    "deploy_cpp/include/DoubleBuffer.hpp": "4575b644ebc89f50ed0a797d1f418283b3f4776714025de8cd2ba63f841d3be5",
+    "deploy_cpp/include/TensorRTPolicy.hpp": "fb680179702c6bd22b38c8064b77b7d01e80d1c39d8666ec6628736bd4e1f85e",
+    "deploy_cpp/src/main_control_loop.cpp": "d77b818d82b7a6287959466ddbd47c98aac51471d1e5894d60624bbd77caff99",
+    "deploy_cpp/src/policy_worker.cpp": "15e9b2db30ae9ca5ced8c6205a935fb1d7617f7a9a42b374ad41be401311fc61",
+    "deploy_cpp/tests/test_double_buffer.cpp": "c1d03877210b98e9b7f4d3e3d504b80724045ccd34e8d12f542f30ba1d232314",
+    "legged_gym/go2_config.py": "0467cd077796f4a145dac705494499f123118a9a949175cc2007ab839b81323a",
+    "requirements-rma-export.txt": "aef2ad3cdb35f8b9bf3589c6c2b5ecd61a2bc73daf3ea8892c8acdb68fac80a4",
+    "rsl_rl/unilab_rma/__init__.py": "56669c007abd163bbce11c4d800a837fae984bb2b27b4b384f74c82dc9c7d448",
+    "rsl_rl/unilab_rma/actor_critic_rma.py": "f74d2bdf5d4a3d4a3be8141a907220560b1d72319f211578e7efe622dec74966",
+    "rsl_rl/unilab_rma/adaptation_module.py": "92765e6f59dd1b72c4c68cada421080ecc616451fbad93dd061f7ba89b93ae98",
+    "rsl_rl/unilab_rma/deployment.py": "e6d4fe648b4949b442949dcaa24efdb7fb5f5f435c5c1befde931a52be78093b",
+    "rsl_rl/unilab_rma/env_adapter.py": "3b29df75056b3303162020b64b037b100f45597de072339909cd3f72e1f831fc",
+    "rsl_rl/unilab_rma/evaluation_diagnostics.py": "c1feff8ab3324e8ba1383ebcab2eb2b040bade7b2b410e83d9eec9e9fa54e345",
+    "rsl_rl/unilab_rma/ppo.py": "c2590bbe9e36189d194abfafc0725b326affcfcc67079443cb22e8ed1c4eb2aa",
+    "rsl_rl/unilab_rma/rendering.py": "013e872caee921468038c924c513512d991a9a61f075217137684cd9c3f13f12",
+    "rsl_rl/unilab_rma/runner.py": "546fa942db91e09dd14cebea7380467086924cfa7de973df72c4bfe8068f5961",
+    "rsl_rl/unilab_rma/scene_contract.py": "754f2da4dffcf5458f4e7fb165d76f1559b428c81a830a339147323300b904ed",
+    "rsl_rl/unilab_rma/tensorrt_runtime.py": "42e62f60fa9f1769315569f36665761340fc584ca4d10594f6deb03e6af30309",
+    "rsl_rl/unilab_rma/training_log.py": "5888af17cda42d74c8382a0f96e916a6eb43300eca2fd5ae04a741fca776afd8",
+    "scripts/evaluate_rma.py": "b746723ecce0d502afbd5be91a168c25ed4be702d381fddd7d519b3bf773ab8f",
+    "scripts/export_onnx.py": "934f3c19c08f1e0c79495c628c2b38ff7cb7632ef2e7a322f89264a64e4b1ffa",
+    "scripts/train_rma.py": "655cfa468e37863c67134e3033d8e88b7faeee095be8144eccbcbaf2d977586f",
+    "src/unilab/conf/ppo/task/go2_joystick_flat/rma.yaml": "f8fa2851e1ee6e0d4a078d5e027367244e245c5ec990d4d56b8da731143da3d1",
+    "src/unilab/conf/ppo/task/go2_joystick_flat/rma_forward.yaml": "ae040ad352f95f15e45fa100552a804e36dcf0ebd5e41fab4982dc385289450c",
+    "src/unilab/envs/mdp/rma.py": "0982d710cfb241f964d61caa02d067772aa9c7e07f90f5c04c1b36acf4c7f67f",
+    "tests/rma/test_core.py": "adb36921915fdb56dadb75e794a1e38c8ba1ce1cb12750b3f9694a193cdf8993",
+    "tests/rma/test_evaluation_diagnostics.py": "edf008b98d3e21876fb68a10bfe9e676e183ab5b2dc8edcc624c9fa6b574479a",
+    "tests/rma/test_rendering.py": "b5654caf76ed98b38b76b6b0776aa4e7af4e292a3ce64dc71db22ad99eb5c904",
+    "tests/rma/test_tensorrt_runtime.py": "fce1af68a21300bcbd4a6c1d4bd6058f0154c7e8edf847df30eea3d0dc527c0b",
+    "tests/rma/test_training_log.py": "58fa0815ad2584890b3a9e122be8c8d6352e59e68aa49798e036422c10f8f919"
+  },
+  "runtime_vs_fork_critical_files": [
+    {
+      "path": "src/unilab/base/config_adapter.py",
+      "runtime_sha256": "f4413d76698aaf482342a1702501da15be2da1b512c7b75751054e88110a0668",
+      "fork_sha256": "49e3f91bde6793d834f84d05f5181ceba2ef2eeb4648617ca5852513e56e349c",
+      "same_normalized_text": false
+    },
+    {
+      "path": "src/unilab/base/torch_env.py",
+      "runtime_sha256": "01ee0affc9c59639cf17b4964ca017f6923f0ddf0c3d84bbf8fa94242960bf69",
+      "fork_sha256": "d031525a2e249338e179090a912a644abb0d23df2e8f085b80bac99e5de859a7",
+      "same_normalized_text": false
+    },
+    {
+      "path": "src/unilab/envs/mdp/__init__.py",
+      "runtime_sha256": "cf55efd845258f22dabd7f89697ab05d959ea4f3cdf5d876d724d391fbd39350",
+      "fork_sha256": "10c56d6d249e3652d941ffd4d241323d52413aad03b77b67fcc8750fd2928024",
+      "same_normalized_text": true
+    },
+    {
+      "path": "src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml",
+      "runtime_sha256": "1f91628cc0201affda56c1b7363469224100ad5d59c2421826d44cc58d399dce",
+      "fork_sha256": "a51b5058f74834c300f7e6418842bd0805609f8f9f9ce1aed225291e661541c6",
+      "same_normalized_text": false
+    },
+    {
+      "path": "src/unilab/conf/ppo/task/go2_joystick_flat/mujoco.yaml",
+      "runtime_sha256": "57d4fa8552601cdc151f5dc3e9dee48dbb0281e25f6e4138225414ec9450ddc9",
+      "fork_sha256": "883be3da09c95fcef79d9ce9354c86b946f8d14b9e16db59c6cee6be81c3cfba",
+      "same_normalized_text": true
+    },
+    {
+      "path": "src/unilab/tasks/locomotion/common/manager_terms.py",
+      "runtime_sha256": "477a4842f04263be08648051d266abeb011a73731a96e89537e3203dfb5b3db3",
+      "fork_sha256": "f0526f4c4f27ca4a91a5e2b5ff31424bb3ed7057f0649f2688f55d36c07eeda6",
+      "same_normalized_text": false
+    }
+  ]
+}

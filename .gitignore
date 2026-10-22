@@ -1,5 +1,15 @@
 # Python
 __pycache__/
+
+# RMA experiment runtime/build artifacts. Curated small reports live in results/rma/.
+build/
+build-*/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.plan
+events.out.tfevents.*
 dist/
 .eggs/
 *.egg-info/

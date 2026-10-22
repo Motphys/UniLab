@@ -1,0 +1,20 @@
+# @package _global_
+# Experimental forward-walking curriculum. Original rma task is unchanged.
+# Same policy I/O, dynamics, action scale and randomization as the RMA baseline.
+defaults:
+  - /task/go2_joystick_flat/rma
+  - _self_
+
+env:
+  commands:
+    twist:
+      ranges:
+        lin_vel_x: [0.3, 0.6]
+        lin_vel_y: [0.0, 0.0]
+        ang_vel_z: [0.0, 0.0]
+
+reward:
+  tracking_lin_vel:
+    weight: 2.0
+  swing_feet_z:
+    weight: 0.25

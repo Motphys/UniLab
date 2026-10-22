@@ -1,0 +1,4 @@
+# Install inside the original, working UniLab environment.
+onnx>=1.16,<2
+onnxruntime<1.20; python_version < '3.11'
+onnxruntime>=1.20; python_version >= '3.11'

@@ -1,0 +1,60 @@
+# @package _global_
+defaults:
+  - /task/go2_joystick_flat/mujoco
+  - _self_
+
+# Existing non-RMA configs remain unchanged. train_rma.py composes this overlay.
+env:
+  policy_observation_group: policy
+  critic_observation_group: critic
+  scene:
+    entities:
+      robot:
+        body_names: [FL_calf, base]
+        # train_rma.py fills exact named robot geoms from the restored XML assets.
+        geom_names: []
+  observations:
+    privileged:
+      terms:
+        parameters:
+          func: unilab.envs.mdp.rma.privileged_parameters
+  events:
+    randomize_leg_mass: null
+    rma_base_load:
+      func: unilab.envs.mdp.rma.RMABaseMass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: [base]
+        operation: add
+        distribution: uniform
+        mass_distribution_params: [0.0, 5.0]
+        recompute_inertia: false
+    rma_friction:
+      func: unilab.envs.mdp.rma.RMAFriction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: ['.*']
+        ranges: [0.4, 1.25]
+        axes: [0]
+        shared_random: true
+        operation: abs
+  auto_reset: false
+
+algo:
+  obs_groups:
+    actor: [policy]
+    critic: [critic]
+
+rma:
+  obs_dim: 49
+  critic_dim: 52
+  privileged_dim: 2
+  history_length: 50
+  latent_dim: 8
+  action_dim: 12

@@ -1,0 +1,438 @@
+algo:
+  algo: ppo
+  algo_log_name: rsl_rl_ppo
+  seed: 1
+  num_envs: 1024
+  num_steps_per_env: 24
+  max_iterations: 151
+  save_interval: 100
+  obs_groups:
+    actor:
+    - policy
+    critic:
+    - critic
+  experiment_name: test
+  run_name: ''
+  resume: false
+  load_run: '-1'
+  checkpoint: -1
+  resume_path: null
+  actor:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims:
+    - 512
+    - 256
+    - 128
+    activation: elu
+    obs_normalization: true
+    distribution_cfg:
+      class_name: rsl_rl.modules.distribution.GaussianDistribution
+      init_std: 0.5
+      std_type: scalar
+  critic:
+    class_name: rsl_rl.models.MLPModel
+    hidden_dims:
+    - 512
+    - 256
+    - 128
+    activation: elu
+    obs_normalization: true
+  algorithm:
+    class_name: rsl_rl.algorithms:PPO
+    value_loss_coef: 1.0
+    use_clipped_value_loss: true
+    clip_param: 0.2
+    entropy_coef: 0.001
+    num_learning_epochs: 5
+    num_mini_batches: 4
+    learning_rate: 0.0003
+    schedule: adaptive
+    gamma: 0.99
+    lam: 0.95
+    desired_kl: 0.01
+    max_grad_norm: 1.0
+training:
+  task_name: Go2JoystickFlat
+  dp_collector_cpu_ids: null
+  device: null
+  logger: tensorboard
+  log_interval: 1
+  wandb_project: unilab
+  wandb_entity: null
+  wandb_group: null
+  wandb_job_type: null
+  wandb_name: null
+  wandb_tags: []
+  wandb_notes: null
+  wandb_mode: null
+  sim_backend: mujoco
+  nan_guard:
+    enabled: true
+    buffer_size: 100
+    max_envs_to_dump: 5
+    output_dir: null
+  play_only: false
+  no_play: false
+  sim2sim_strict: true
+  play_render_mode: auto
+  play_env_num: 16
+  render_spacing: 1.0
+  play_steps: 200
+  cam_distance: 6.0
+  cam_elevation: -20.0
+  cam_azimuth: 90.0
+  cam_lookat: null
+  cam_tracking: false
+  cam_tracking_env_idx: 0
+  cam_tracking_extra_envs: 2
+  log_root: null
+  num_timesteps: null
+  log_dir: null
+interactive:
+  action_mode: zero
+  policy_obs_mode: auto
+  show_target_bodies: false
+  show_reward_debug: false
+  target_show_axes: false
+  target_body_names: ''
+  target_max_bodies: 0
+  target_marker_radius: 0.02
+  target_axis_length: 0.08
+  target_marker_alpha: 0.75
+  reward_debug_show_velocity: false
+  reward_debug_lin_vel_scale: 0.08
+  reward_debug_ang_vel_scale: 0.05
+  reward_debug_show_connectors: false
+  reward_debug_show_global_anchor: false
+  camera_follow_body: true
+  camera_focus_body_name: ''
+  camera_height_offset: 0.15
+  camera_distance: null
+  camera_elevation: null
+  camera_azimuth: null
+  use_env_visual_model: true
+  speed: 1.0
+  start_paused: false
+  keyboard: false
+  keyboard_step_lin: 0.1
+  keyboard_step_ang: 0.2
+viser:
+  port: 8080
+  env_idx: 0
+  display_mode: all
+  max_envs: 16
+env:
+  scene:
+    model_file: src/unilab/assets/robots/go2/scene_flat.xml
+    default_keyframe_name: home
+    entities:
+      robot:
+        root_body_name: base
+        body_names:
+        - FL_calf
+        - base
+        joint_names:
+        - FL_hip_joint
+        - FL_thigh_joint
+        - FL_calf_joint
+        - FR_hip_joint
+        - FR_thigh_joint
+        - FR_calf_joint
+        - RL_hip_joint
+        - RL_thigh_joint
+        - RL_calf_joint
+        - RR_hip_joint
+        - RR_thigh_joint
+        - RR_calf_joint
+        actuator_names:
+        - FR_hip
+        - FR_thigh
+        - FR_calf
+        - FL_hip
+        - FL_thigh
+        - FL_calf
+        - RR_hip
+        - RR_thigh
+        - RR_calf
+        - RL_hip
+        - RL_thigh
+        - RL_calf
+        geom_names: []
+  sim_dt: 0.01
+  ctrl_dt: 0.02
+  max_episode_seconds: 20.0
+  observations:
+    policy:
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: gyro
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
+            operation: add
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params:
+            sensor_name: upvector
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
+            operation: add
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
+            operation: add
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+          noise:
+            _target_: unilab.managers._noise.UniformNoiseCfg
+            n_min: -0.2
+            n_max: 0.2
+            operation: add
+        actions:
+          func: unilab.envs.mdp.last_action
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params:
+            command_name: twist
+        gait_phase:
+          func: unilab.tasks.locomotion.common.manager_terms.quadruped_gait_phase
+          params:
+            frequency: 2.0
+    critic:
+      terms:
+        base_ang_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: gyro
+        projected_gravity:
+          func: unilab.envs.mdp.projected_gravity_from_sensor
+          params:
+            sensor_name: upvector
+        joint_pos:
+          func: unilab.envs.mdp.joint_pos_rel
+        joint_vel:
+          func: unilab.envs.mdp.joint_vel_rel
+        actions:
+          func: unilab.envs.mdp.last_action
+        command:
+          func: unilab.envs.mdp.generated_commands
+          params:
+            command_name: twist
+        gait_phase:
+          func: unilab.tasks.locomotion.common.manager_terms.quadruped_gait_phase
+          params:
+            frequency: 2.0
+        base_lin_vel:
+          func: unilab.envs.mdp.builtin_sensor
+          params:
+            sensor_name: local_linvel
+    privileged:
+      terms:
+        parameters:
+          func: unilab.envs.mdp.rma.privileged_parameters
+  actions:
+    joint_pos:
+      _target_: unilab.envs.mdp.JointPositionActionCfg
+      entity_name: robot
+      actuator_names:
+      - .*
+      scale: 0.25
+      use_default_offset: true
+  commands:
+    twist:
+      _target_: unilab.envs.mdp.UniformVelocityCommandCfg
+      entity_name: robot
+      resampling_time_range:
+      - 20.0
+      - 20.0
+      heading_command: false
+      heading_control_stiffness: 0.5
+      rel_standing_envs: 0.0
+      rel_heading_envs: 0.0
+      rel_world_envs: 0.0
+      rel_forward_envs: 0.0
+      init_velocity_prob: 0.0
+      ranges:
+        lin_vel_x:
+        - 0.3
+        - 0.6
+        lin_vel_y:
+        - 0.0
+        - 0.0
+        ang_vel_z:
+        - 0.0
+        - 0.0
+  events:
+    reset_scene_to_default:
+      func: unilab.envs.mdp.reset_scene_to_default
+      mode: reset
+    reset_root_state_uniform:
+      func: unilab.envs.mdp.reset_root_state_uniform
+      mode: reset
+      params:
+        pose_range:
+          x:
+          - -0.5
+          - 0.5
+          'y':
+          - -0.5
+          - 0.5
+          z:
+          - 0.0
+          - 0.0
+          roll:
+          - 0.0
+          - 0.0
+          pitch:
+          - 0.0
+          - 0.0
+          yaw:
+          - -3.141592653589793
+          - 3.141592653589793
+        velocity_range:
+          x:
+          - -0.5
+          - 0.5
+          'y':
+          - -0.5
+          - 0.5
+          z:
+          - -0.5
+          - 0.5
+          roll:
+          - -0.5
+          - 0.5
+          pitch:
+          - -0.5
+          - 0.5
+          yaw:
+          - -0.5
+          - 0.5
+    randomize_leg_mass: null
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range:
+        - 31.5
+        - 38.5
+        kd_range:
+        - 0.45
+        - 0.55
+        operation: abs
+    rma_base_load:
+      func: unilab.envs.mdp.rma.RMABaseMass
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names:
+          - base
+        operation: add
+        distribution: uniform
+        mass_distribution_params:
+        - 0.0
+        - 5.0
+        recompute_inertia: false
+    rma_friction:
+      func: unilab.envs.mdp.rma.RMAFriction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names:
+          - .*
+        ranges:
+        - 0.4
+        - 1.25
+        axes:
+        - 0
+        shared_random: true
+        operation: abs
+  terminations:
+    time_out:
+      func: unilab.envs.mdp.time_out
+      time_out: true
+    bad_orientation:
+      func: unilab.envs.mdp.bad_orientation
+      params:
+        limit_angle: 1.0471975511965976
+  policy_observation_group: policy
+  critic_observation_group: critic
+  auto_reset: false
+reward:
+  tracking_lin_vel:
+    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
+    weight: 2.0
+    params:
+      std: 0.5
+      command_name: twist
+  tracking_ang_vel:
+    func: unilab.tasks.locomotion.common.manager_terms.track_ang_vel_z_exp
+    weight: 0.2
+    params:
+      std: 0.5
+      command_name: twist
+  lin_vel_z:
+    func: unilab.tasks.locomotion.common.manager_terms.lin_vel_z_l2
+    weight: -5.0
+  ang_vel_xy:
+    func: unilab.tasks.locomotion.common.manager_terms.ang_vel_xy_l2
+    weight: -0.1
+  base_height:
+    func: unilab.tasks.locomotion.common.manager_terms.base_height_l2
+    weight: -100.0
+    params:
+      target_height: 0.3
+  action_rate:
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.005
+  similar_to_default:
+    func: unilab.tasks.locomotion.common.manager_terms.joint_deviation_l1
+    weight: -0.1
+  contact:
+    func: unilab.tasks.locomotion.common.manager_terms.feet_phase_contact
+    weight: 0.24
+    params:
+      frequency: 2.0
+      sensor_names:
+      - FL_foot_contact
+      - FR_foot_contact
+      - RL_foot_contact
+      - RR_foot_contact
+      contact_threshold: 0.1
+      stance_threshold: 0.6
+  swing_feet_z:
+    func: unilab.tasks.locomotion.common.manager_terms.feet_phase_swing_height
+    weight: 0.25
+    params:
+      frequency: 2.0
+      sensor_names:
+      - FL_pos
+      - FR_pos
+      - RL_pos
+      - RR_pos
+      target_height: 0.1
+      kernel: 0.01
+      swing_start: 0.6
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0
+rma:
+  obs_dim: 49
+  critic_dim: 52
+  privileged_dim: 2
+  history_length: 50
+  latent_dim: 8
+  action_dim: 12

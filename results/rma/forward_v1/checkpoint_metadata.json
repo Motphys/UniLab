@@ -1,0 +1,20 @@
+{
+  "checkpoint": "teacher_forward_v1.pt",
+  "sha256": "5454f899a358932d7208aaf52e82937e1db51f3f71609f1a79204bcc2f6a8fb9",
+  "format": "unilab-rma-v1",
+  "phase": "teacher",
+  "completed_iterations": 3000,
+  "model_config": {
+    "obs_dim": 49,
+    "critic_dim": 52,
+    "privileged_dim": 2,
+    "history_length": 50,
+    "latent_dim": 8,
+    "action_dim": 12,
+    "hidden": [
+      256,
+      128
+    ]
+  },
+  "weights_included": false
+}

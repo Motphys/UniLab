@@ -1,0 +1,35 @@
+{
+  "arguments": {
+    "phase": "teacher",
+    "checkpoint": null,
+    "output": "runs/rma/teacher_forward_v1.pt",
+    "iterations": 3000,
+    "num_envs": 64,
+    "device": "cuda",
+    "task": "go2_joystick_flat/rma_forward",
+    "log_dir": null
+  },
+  "model_config": {
+    "obs_dim": 49,
+    "critic_dim": 52,
+    "privileged_dim": 2,
+    "history_length": 50,
+    "latent_dim": 8,
+    "action_dim": 12,
+    "hidden": [
+      256,
+      128
+    ]
+  },
+  "horizon": 24,
+  "seed": 42,
+  "torch_version": "2.14.0+cu130",
+  "requested_policy_device": "cuda",
+  "environment_device": "cpu",
+  "sim_backend": "mujoco",
+  "output": "runs/rma/teacher_forward_v1.pt",
+  "phase": "teacher",
+  "log_directory": "runs/rma/teacher_forward_v1_logs/20261022_180845_or3cyhd9",
+  "iteration_numbering": "one-based completed updates",
+  "publication_note": "Only absolute output/log paths were made relative; other fields unchanged."
+}

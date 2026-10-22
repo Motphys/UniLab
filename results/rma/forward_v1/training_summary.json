@@ -1,0 +1,37 @@
+{
+  "iterations": 3000,
+  "total_transitions": 4608000,
+  "wall_seconds": 1133.6835723489999,
+  "reward_blocks": [
+    {
+      "first_iteration": 1,
+      "last_iteration": 500,
+      "mean_step_reward": 0.0209264800529927
+    },
+    {
+      "first_iteration": 501,
+      "last_iteration": 1000,
+      "mean_step_reward": 0.02189977381750941
+    },
+    {
+      "first_iteration": 1001,
+      "last_iteration": 1500,
+      "mean_step_reward": 0.02167243344336748
+    },
+    {
+      "first_iteration": 1501,
+      "last_iteration": 2000,
+      "mean_step_reward": 0.021493670616298914
+    },
+    {
+      "first_iteration": 2001,
+      "last_iteration": 2500,
+      "mean_step_reward": 0.021966765146702528
+    },
+    {
+      "first_iteration": 2501,
+      "last_iteration": 3000,
+      "mean_step_reward": 0.021465577770024537
+    }
+  ]
+}

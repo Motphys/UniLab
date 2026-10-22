@@ -6,6 +6,9 @@
 
 <p align="center">语言：简体中文 | <a href="README.md">English</a></p>
 
+> **本 fork 的 Go2 RMA 运动控制实验**：[查看项目展示与实验记录](docs/rma/README.md)。
+> 包含教师/学生代码、真实评估数据、训练曲线和 C++ mock 部署；当前前进速度跟踪尚未达标。
+
 <p align="center">
   <a href="https://github.com/unilabsim/UniLab/actions/workflows/ci.yml"><img src="https://github.com/unilabsim/UniLab/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://unilabsim.github.io"><img src="https://img.shields.io/badge/project-page-brightgreen" alt="Project Page"></a>
