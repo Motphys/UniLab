@@ -100,8 +100,8 @@ uv run eval --algo sac --task g1_walk_flat --sim isaacgym --load-run -1
 
 # Train the g1 motion-tracking task with mjwarp and replay it with Genesis physics.
 uv run --extra mjwarp train --algo flashsac --task g1_motion_tracking --sim mjwarp
-# Two GPUs; disable peer access and enable NCCL shared memory on hosts that need it.
-CUDA_VISIBLE_DEVICES=0,1 NCCL_P2P_DISABLE=1 NCCL_SHM_DISABLE=0 \
+# Two GPUs
+CUDA_VISIBLE_DEVICES=0,1 \
   uv run --extra mjwarp train --algo flashsac --task g1_motion_tracking --sim mjwarp
 uv run --extra genesis eval --algo flashsac --task g1_motion_tracking --sim genesis --load-run -1
 ```

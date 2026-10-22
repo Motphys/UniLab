@@ -93,8 +93,8 @@ uv run eval --algo sac --task g1_walk_flat --sim isaacgym --load-run -1
 
 # 使用 mjwarp 训练并用 genesis 物理 回放 g1动作跟踪 任务
 uv run --extra mjwarp train --algo flashsac --task g1_motion_tracking --sim mjwarp
-# 双卡；在需要的主机上禁用 P2P、启用 NCCL 共享内存。
-CUDA_VISIBLE_DEVICES=0,1 NCCL_P2P_DISABLE=1 NCCL_SHM_DISABLE=0 \
+# 双卡
+CUDA_VISIBLE_DEVICES=0,1 \
   uv run --extra mjwarp train --algo flashsac --task g1_motion_tracking --sim mjwarp
 uv run --extra genesis eval --algo flashsac --task g1_motion_tracking --sim genesis --load-run -1
 ```
