@@ -25,6 +25,7 @@ from unilab.base.process_device import (
     configure_backend_process_device,
     pin_genesis_device_before_cuda_init,
 )
+from unilab.interruption import graceful_keyboard_interrupt
 from unilab.rl import RslRlVecEnvAdapter
 from unilab.rl.algos.appo.resolution import resolve_appo_runtime
 from unilab.rl.runtime.tf32 import apply_tf32_matmul_from_cfg
@@ -316,6 +317,7 @@ def play_appo(
     return cast("str | None", play_video_path)
 
 
+@graceful_keyboard_interrupt
 @hydra.main(version_base="1.3", config_path="../conf/appo", config_name="config")
 def main(cfg: DictConfig) -> None:
     # Genesis/Quadrants binds the first CUDA_VISIBLE_DEVICES entry, and even

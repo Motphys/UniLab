@@ -9,6 +9,7 @@ clear. New code should import from canonical owner modules instead
 from unisim.backend.base import log_playback_plan
 
 from unilab.base.config_adapter import EnvConfigAdapter, create_env
+from unilab.interruption import graceful_keyboard_interrupt
 from unilab.training.common import (
     assert_offpolicy_task_choice_matches_algo,
     ensure_registries,
@@ -55,6 +56,7 @@ __all__ = [
     "get_latest_checkpoint",
     "get_latest_run",
     "get_log_root",
+    "graceful_keyboard_interrupt",
     "is_viser_play_render_mode",
     "log_playback_plan",
     "nonfatal_play_step",

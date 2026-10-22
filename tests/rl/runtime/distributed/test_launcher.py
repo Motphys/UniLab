@@ -74,6 +74,17 @@ class _FakePopen:
         return self.returncode
 
 
+class _FakeTorchrun:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[str], dict[str, str]]] = []
+        self.exception: BaseException | None = None
+
+    def __call__(self, argv: list[str], env: dict[str, str]) -> None:
+        self.calls.append((list(argv), dict(env)))
+        if self.exception is not None:
+            raise self.exception
+
+
 @pytest.fixture()
 def fake_popen(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
@@ -91,23 +102,24 @@ def fake_popen(monkeypatch: pytest.MonkeyPatch):
     return _FakePopen
 
 
+@pytest.fixture()
+def fake_torchrun(monkeypatch: pytest.MonkeyPatch):
+    torchrun = _FakeTorchrun()
+    monkeypatch.setattr(launcher, "_run_torchrun_process", torchrun)
+    return torchrun
+
+
 # ---------------------------------------------------------------------------
 # launch_torchrun_workers
 # ---------------------------------------------------------------------------
 
 
-def test_launch_torchrun_workers_builds_standard_single_node_command(
+def test_launch_torchrun_workers_builds_standard_elastic_arguments(
+    fake_torchrun,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ):
-    captured: dict[str, object] = {}
-
-    def fake_run(command, *, env, check):
-        captured.update(command=list(command), env=dict(env), check=check)
-        return type("Result", (), {"returncode": 0})()
-
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b")
-    monkeypatch.setattr(launcher.subprocess, "run", fake_run)
     monkeypatch.delenv("NCCL_P2P_DISABLE", raising=False)
     monkeypatch.delenv("NCCL_SHM_DISABLE", raising=False)
     script = tmp_path / "train_rsl_rl.py"
@@ -119,29 +131,28 @@ def test_launch_torchrun_workers_builds_standard_single_node_command(
         log_dir="/tmp/ppo_gpux2",
     )
 
-    command = captured["command"]
+    assert len(fake_torchrun.calls) == 1
+    command, launch_env = fake_torchrun.calls[0]
     assert isinstance(command, list)
-    assert command[:3] == [sys.executable, "-m", "torch.distributed.run"]
+    assert command[0] == "--standalone"
     assert "--standalone" in command
     assert "--nnodes=1" in command
     assert "--nproc_per_node=2" in command
     assert command[-1:] == ["task=go2_joystick_flat/mujoco"]
-    launch_env = captured["env"]
     assert isinstance(launch_env, dict)
     assert launch_env["CUDA_VISIBLE_DEVICES"] == "GPU-a,GPU-b"
     assert launch_env["NCCL_P2P_DISABLE"] == "1"
     assert launch_env["NCCL_SHM_DISABLE"] == "1"
     assert launch_env[UNILAB_DP_LOG_DIR] == "/tmp/ppo_gpux2"
-    assert captured["check"] is False
+    assert fake_torchrun.exception is None
 
 
-def test_launch_torchrun_workers_propagates_failure(monkeypatch: pytest.MonkeyPatch):
+def test_launch_torchrun_workers_propagates_failure(
+    fake_torchrun,
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b")
-    monkeypatch.setattr(
-        launcher.subprocess,
-        "run",
-        lambda *args, **kwargs: type("Result", (), {"returncode": 7})(),
-    )
+    fake_torchrun.exception = RuntimeError("exit code 7")
 
     with pytest.raises(RuntimeError, match="exit code 7"):
         launch_torchrun_workers(
@@ -152,18 +163,52 @@ def test_launch_torchrun_workers_propagates_failure(monkeypatch: pytest.MonkeyPa
         )
 
 
+def test_launch_torchrun_workers_interrupt_returns_quiet_exit_status(
+    fake_torchrun,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b")
+    fake_torchrun.exception = SystemExit(130)
+
+    with pytest.raises(SystemExit) as exit_info:
+        launch_torchrun_workers(
+            world_size=2,
+            script_path="scripts/train_rsl_rl.py",
+            argv=[],
+            log_dir="/tmp/ppo_gpux2",
+        )
+
+    assert exit_info.value.code == 130
+    assert "Training interrupted by Ctrl+C." not in capsys.readouterr().err
+
+
+def test_torchrun_signal_exception_returns_quiet_exit_status(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+):
+    from torch.distributed.elastic.multiprocessing import SignalException
+
+    def interrupt(argv: list[str]) -> None:
+        del argv
+        raise SignalException("torchrun interrupted", sigval=signal.SIGINT)
+
+    monkeypatch.setattr(launcher, "_run_torchrun_elastic", interrupt)
+    env = {"UNILAB_TORCHRUN_TEST_ENV": "1"}
+
+    with pytest.raises(SystemExit) as exit_info:
+        launcher._run_torchrun_process(["--standalone"], env)
+
+    assert exit_info.value.code == 130
+    assert "UNILAB_TORCHRUN_TEST_ENV" not in os.environ
+    assert "Training interrupted by Ctrl+C." in capsys.readouterr().err
+
+
 def test_launch_torchrun_workers_preserves_explicit_nccl_transport(
+    fake_torchrun,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    captured: dict[str, str] = {}
-
-    def fake_run(*args, env, **kwargs):
-        del args, kwargs
-        captured.update(env)
-        return type("Result", (), {"returncode": 0})()
-
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b")
-    monkeypatch.setattr(launcher.subprocess, "run", fake_run)
     monkeypatch.setenv("NCCL_P2P_DISABLE", "0")
     monkeypatch.setenv("NCCL_SHM_DISABLE", "0")
 
@@ -174,8 +219,8 @@ def test_launch_torchrun_workers_preserves_explicit_nccl_transport(
         log_dir="/tmp/ppo_gpux2",
     )
 
-    assert captured["NCCL_P2P_DISABLE"] == "0"
-    assert captured["NCCL_SHM_DISABLE"] == "0"
+    assert fake_torchrun.calls[0][1]["NCCL_P2P_DISABLE"] == "0"
+    assert fake_torchrun.calls[0][1]["NCCL_SHM_DISABLE"] == "0"
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +324,7 @@ def test_supervisor_error_exit_terminates_live_children(
 
 
 def test_supervisor_ctrl_c_forwards_sigint_for_cooperative_rank_cleanup(
-    fake_popen, monkeypatch: pytest.MonkeyPatch
+    fake_popen, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,2")
     previous_sigint = signal.getsignal(signal.SIGINT)
@@ -293,6 +338,8 @@ def test_supervisor_ctrl_c_forwards_sigint_for_cooperative_rank_cleanup(
     assert all(child.signals == [signal.SIGINT] for child in fake_popen.instances)
     assert all(child.returncode == -signal.SIGINT for child in fake_popen.instances)
     assert signal.getsignal(signal.SIGINT) == previous_sigint
+    captured = capsys.readouterr()
+    assert "data-parallel rank subprocess(es) failed" not in captured.err
 
 
 def test_supervisor_watchdog_sigterms_rank_zero_on_child_death(
