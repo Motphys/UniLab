@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from importlib.metadata import version as package_version
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -302,7 +303,7 @@ def test_worker_version_probe_reports_missing_packages() -> None:
         Path(sys.executable), ("torch", "unisim-not-a-real-package")
     )
 
-    assert versions["torch"] == torch.__version__
+    assert versions["torch"] == package_version("torch")
     assert versions["unisim-not-a-real-package"] == "not-installed"
 
 

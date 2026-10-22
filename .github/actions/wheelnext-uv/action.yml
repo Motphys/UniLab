@@ -1,0 +1,12 @@
+name: Install wheel-variant uv
+description: Install the pinned WheelNext-enabled uv build for this repository.
+runs:
+  using: composite
+  steps:
+    - name: Download uv-wheelnext
+      shell: bash
+      run: |
+        install_dir="${RUNNER_TEMP:-/tmp}/uv-wheelnext"
+        scripts/tools/install_uv_wheelnext.sh "$install_dir"
+        echo "$install_dir" >> "$GITHUB_PATH"
+        echo "PATH=$install_dir:$PATH" >> "$GITHUB_ENV"

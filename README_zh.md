@@ -57,13 +57,15 @@ learner，而无需重写任务的 environment 生命周期。
 
 ## 快速开始
 
-推荐使用 [`uv`](https://docs.astral.sh/uv/) 完成源码工作流。以下是运行策略 demo 的
-最短路径：
+推荐使用钉住、支持
+[WheelNext](https://astral.sh/blog/wheel-variants) 的 uv 构建完成源码工作流。
+以下是运行策略 demo 的最短路径：
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
 
 make setup
 # 首次运行会从 Hugging Face 下载 checkpoint 和 asset。

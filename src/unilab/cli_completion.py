@@ -485,6 +485,7 @@ def _demo_completions(
 
 
 _CUDA_MPS_SUBCOMMANDS: tuple[str, ...] = ("status", "doctor", "start", "stop", "env")
+_UNILAB_SUBCOMMANDS: tuple[str, ...] = ("doctor",)
 _CUDA_MPS_FLAGS: dict[str, tuple[str, ...]] = {
     "status": ("--json",),
     "doctor": ("--gpus", "--json"),
@@ -512,6 +513,13 @@ def _uni_cumps_completions(
         available = tuple(flag for flag in _CUDA_MPS_FLAGS[subcommand] if flag not in used_options)
         return _matching(available, current)
     return []
+
+
+def _unilab_completions(words: Sequence[str], cword: int, current: str) -> list[str]:
+    tokens = [word for word in words[3:cword] if word != ""]
+    if tokens:
+        return []
+    return _matching(_UNILAB_SUBCOMMANDS, current)
 
 
 def complete_words(
@@ -574,6 +582,8 @@ def complete_words(
             previous=previous,
             used_options=used_options,
         )
+    if command == "unilab":
+        return _unilab_completions(words, cword, current)
     if command == "uni-cumps":
         return _uni_cumps_completions(
             words=words,

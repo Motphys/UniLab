@@ -5,8 +5,11 @@
 ## 环境要求
 
 - Python `>=3.10,<3.14`，来自 `pyproject.toml`。
-- `uv`，用于依赖同步和命令执行。
-- Git 和 `curl`，用于克隆仓库及下载 runtime asset。
+- `uv-wheelnext 0.9.14`，即本仓库钉住、支持 WheelNext 的 uv 构建，用于依赖
+  同步和命令执行。当前稳定版 uv 默认还不能正确选择这批 PyTorch wheel-variant
+  metadata。
+- Git、`curl`、`tar` 与 SHA-256 工具，用于克隆仓库、安装钉版 uv 并下载
+  runtime asset。
 - 使用 `mujoco` extra 时：MuJoCo 物理后端运行在 `mjbatch` 原生 batch 引擎上，
   当前从钉住的集成 fork（`unilabsim/mjbatch`）源码构建。uv 以隔离构建
   （scikit-build-core + nanobind）编译该 git 源码，需要 C++17 工具链和
@@ -24,14 +27,13 @@
 ## 克隆与同步
 
 ```bash
-# Linux / macOS：
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows PowerShell：
-# powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
+
+# Linux / macOS；Windows 请使用 WSL 或下载匹配的 WheelNext archive。
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
+
 # 推荐的主环境解释器：
 uv python install 3.13
 ```
@@ -63,13 +65,14 @@ Python、CUDA 或系统库的隔离环境，但进入环境后仍建议继续使
 ```bash
 conda create -n unilab python=3.13
 conda activate unilab
-pip install uv
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
 make setup
 ```
 
-ROCm / XPU 仍走下方专用的 `make` 路径。
+在该 Conda 环境中，也必须让同一个 WheelNext `uv` 保持在 `PATH` 最前。
 
 从源码 checkout 使用 pip 时，这是备用路径。请先安装 package，再显式添加所需 runtime：
 
@@ -87,8 +90,9 @@ pip install "mujoco~=3.11.0" "mjbatch @ git+https://github.com/unilabsim/mjbatch
 editable install 会指向源码 checkout；常规安装会把 package 和任务配置
 （`unilab/conf/`）复制进环境。两种方式都支持在任意目录运行 `train` / `eval` / `demo`，
 日志与 checkpoint 写入当前工作目录。`mjbatch` 引擎针对钉住的
-`mujoco==3.11.0` 构建；MJWarp、Genesis、平台相关 torch index、ROCm / XPU
-profile 请优先使用上面的 uv 路径。机器人 mesh 和纹理不会打进 wheel，而是在 cold path 从
+`mujoco==3.11.0` 构建；MJWarp 与 Genesis 请优先使用上面的 uv 路径。纯 pip
+不会选择 WheelNext 加速器 variants，CUDA、ROCm 与 XPU 环境请使用钉版 uv。
+机器人 mesh 和纹理不会打进 wheel，而是在 cold path 从
 `unilabsim/unilab-robots` 数据集下载。请确保安装位置可写，或从源码 checkout 使用
 `uv run unilab-pull-assets` 预拉取。
 
@@ -162,10 +166,8 @@ RL 栈已包含在基础发行版中。
 会拒绝导入（见「安装错误特征对照表」中的 watchdog 行）。因此切换本地
 MuJoCo 版本需要对应版本的 `mjbatch` 构建，而不是修改 UniLab 配置：
 
-1. 在 `pyproject.toml`（并同步镜像 `pyproject.rocm.toml`）中提升 `mujoco`
-   边界和 `mjbatch` 源码钉版；
-2. 重新锁定（`uv lock`，ROCm lockfile 通过 `make sync-rocm`）并重新同步
-   （`uv sync --extra mujoco`）。
+1. 在 `pyproject.toml` 中提升 `mujoco` 边界和 `mjbatch` 源码钉版；
+2. 重新锁定（`uv lock`）并重新同步（`uv sync --extra mujoco`）。
 
 fork 的构建在编译期钉住 `mujoco==3.11.0`，因此隔离构建总是针对匹配的 mujoco
 编译。在 fork 的最终分发身份确定之前（PyPI package 还是 git 钉版——roadmap
@@ -182,81 +184,61 @@ fork 的构建在编译期钉住 `mujoco==3.11.0`，因此隔离构建总是针�
 | `error: [Errno 2] No such file or directory: 'c++'`（或 `c++: No such file or directory`） | 缺少编译器，无法从钉住的 git 源码构建 `mjbatch` | 安装 C++ 工具链（见「环境要求」）后重试 `uv sync --extra mujoco` |
 | `mjbatch was built against MuJoCo <version> but <other> is installed` | 版本 watchdog：引擎的编译期 mujoco 钉版与已安装的 mujoco 不一致 | 用 `uv sync --extra mujoco` 恢复 lock 钉住的组合；更换 mujoco 版本需要重建 `mjbatch`（见「切换本地 MuJoCo 版本」） |
 
-## 平台配置档
+## 加速器 Variants
 
-Linux CUDA 和 macOS 使用默认的 `pyproject.toml`。默认的 Linux torch
-wheel 来源是在 `pyproject.toml` 中配置的 PyTorch `cu130` 索引。
+UniLab 使用单一的 wheel-variant-aware `uv.lock`。同步时，WheelNext provider
+插件会探测宿主，并从 lock 记录的 variants 中选择 CPU、CUDA、ROCm 或 XPU Torch
+wheel。没有需要激活的加速器配置档，也不需要交换任何 tracked
+`pyproject.toml` / `uv.lock` 文件。见
+{doc}`/adr/ADR-0020-wheel-variant-dependency-path`。
 
 在 Apple Silicon macOS 上，使用 `make setup` 安装 MuJoCo 训练路径。MuJoCo 回放
-使用官方 MuJoCo wheel 自带的 `mjpython` application。可用时 Torch 会自动选择 `mps` device；为保持配置可移植，
-没有 CUDA 时，`cuda` alias 会解析到 MPS。
+使用官方 MuJoCo wheel 自带的 `mjpython` application。可用时 Torch 会自动选择
+`mps` device；为了保持配置可移植，没有 CUDA 时，`cuda` alias 会解析到 MPS。
 
-在 Windows 上，如果没有 GNU `make` 和 Bash，请使用上面的直接 `uv sync` 命令。
+在 Windows 上，请使用 WSL 或下载匹配的 WheelNext uv archive 完成依赖同步。
 `mjbatch` 引擎不提供 Windows wheel（官方的 `mujoco.dll` 不带 import
 library），因此 MuJoCo 物理后端在 Windows 上仍不可用；纯 `mujoco`
-（MJCF 转换、其他后端的回放渲染）仍可安装。如果要使用 Makefile，请另行安装
-GNU Make 和 Bash（例如通过 Chocolatey 或 WSL）。
+（MJCF 转换、其他后端的回放渲染）仍可安装。
 
-ROCm 和 Intel XPU 有各自显式的 Makefile 目标：
+加速器说明：
 
-```bash
-make sync-rocm
-make sync-xpu
-```
-
-`make sync-rocm` 会将 `pyproject.rocm.toml` 复制为 `pyproject.toml` 并同步
-ROCm 配置档。`make sync-xpu` 会同步 scoped 后端依赖但不安装默认的 torch 包，然后通过 `uv pip` 安装 XPU 版本的 torch wheel。
-
-ROCm 说明：
-
-- `make sync-rocm` 要求 ROCm `>= 7.1`，并按仓库的 ROCm 依赖文件安装对应的 PyTorch
-  wheel。
-- 它会把 `pyproject.rocm.toml` / `uv.rocm.lock` 激活为当前的 `pyproject.toml` /
-  `uv.lock`，因此之后可以直接运行裸 `uv run ...`。
-- 切回默认 CUDA / macOS 配置档时，运行 `git restore -- pyproject.toml uv.lock`，然
-  后重新执行 `make setup`；提交任何非 ROCm 依赖改动前先确认当前配置档。
-- 训练配置里的设备字段仍沿用 `cuda` 语义，不要改成 `rocm`。
-- 如果手工安装了 ROCm wheel，但项目仍使用默认依赖配置档，验证时使用
-  `uv run --no-sync`（或 `UV_NO_SYNC=1 make ...`）；自动同步会重新安装默认配置档的
-  CUDA wheel。
+- 必须使用钉版的 `uv-wheelnext 0.9.14`。用 `uv --version` 确认；当前稳定版
+  uv 尚不能正确消费这批 variant metadata。
+- 宿主仍需要兼容的加速器内核驱动。ROCm Torch wheel 自带用户态，宿主 ROCm
+  用户态版本不必与 wheel 完全一致。`rocm7.0` Torch variant 已在 8 卡 MI300X、
+  兼容 `6.19` AMD 内核驱动的主机上验证。
+- Intel XPU 主机需要 Level Zero 驱动栈。Ubuntu 24.04+ 需安装
+  `intel-opencl-icd` 与 `libze-intel-gpu1`；off-policy 训练可按需设置
+  `training.use_amp=true`。
+- 训练设备字段在 ROCm/HIP 上仍沿用 Torch 的 `cuda` 拼写；不要改成 `rocm`。
+- 同步后或 GPU 行为异常时，运行 `uv run unilab doctor`。它会检测 AMD
+  内核/ROCm 管理接口，报告当前 Torch 构建，并在 AMD 主机误装 CUDA 或 CPU
+  Torch wheel 时 fail closed。
 - 安装 ROCm PyTorch 且 GPU 可用时，声明并接受 `cuda` buffer 的
   `HOST_BRIDGE` 后端会在训练 learner 解析到 CUDA 时让 Manager/TorchEnv
-  tensor 使用当前 GPU：默认的 `training.collector_tensor_device=auto` 跟随 learner
-  设备，显式
-  `training.collector_tensor_device=cuda` 也可对其他 learner 设备强制同样的路由。
-  直接构造环境仍为 CPU。host-bridge 物理仿真仍在 CPU 上，通过 packed 传输连接
-  GPU observation、action、reward 与 reset。CUDA-only 物理后端仍不支持 ROCm。见
+  tensor 使用当前 GPU：默认 `training.collector_tensor_device=auto` 跟随
+  learner 设备，显式 `training.collector_tensor_device=cuda` 也可对其他
+  learner 设备强制同样的路由。直接构造环境仍为 CPU。host-bridge 物理仿真仍在
+  CPU 上，通过 packed 传输连接 GPU observation、action、reward 与 reset。
+  CUDA-only 物理后端仍不支持 ROCm。见
   {doc}`/adr/ADR-0012-sole-tensor-manager-and-scoped-backends`。
-- 从 PyPI 安装（不克隆仓库）时，`make sync-rocm` 不适用；先从 PyTorch ROCm 索引
-  安装仓库验证过的 torch build，再安装 `unilab`。发布的依赖范围是
-  `torch>=2.9,<2.15`，pip 会保留已安装的 ROCm build，不会替换为 CUDA wheel：
+- 下游应用使用同一个 WheelNext uv 构建。在新项目环境中，
+  `uv pip install unilab` 会选择 accelerator-aware Torch variant；纯 pip 只是
+  CPU/plain-wheel fallback。
 
-  ```bash
-  pip install torch==2.14.0 --index-url https://download.pytorch.org/whl/rocm7.2
-  pip install unilab
-  ```
+## 软件包镜像与 Variants
 
-Intel XPU 说明：
-
-- 保持使用 `uv run --no-sync ...`，避免把默认的 Linux 依赖重新同步回来。
-- Ubuntu 24.04+ 上还需要系统驱动包 `intel-opencl-icd` 和 `libze-intel-gpu1`。
-- off-policy 训练可按需加 `training.use_amp=true`。
-
-## 软件包镜像
-
-如需使用本地软件包镜像，请在同步前设置 uv 索引：
-
-```bash
-export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-uv sync --extra mujoco \
-  --index-url https://pypi.tuna.tsinghua.edu.cn/simple
-```
+当前 wheel-variant 路径必须解析 WheelNext variant metadata index。同步这个
+lock 时不要用普通 PyPI 镜像替换默认 index；待稳定 uv / PyPI variant metadata
+集成后再重新评估镜像支持。
 
 ## 冒烟检查
 
 同步完成后，通过顶层 CLI 运行一次小型检查：
 
 ```bash
+uv run unilab doctor
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
   algo.max_iterations=1 \
   algo.num_envs=16 \

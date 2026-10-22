@@ -188,7 +188,7 @@ def test_package_versions_record_missing_dependencies_without_hiding_them(
 ) -> None:
     def fake_version(name: str) -> str:
         if name == "torch":
-            return "2.14.0+cu130"
+            return "2.10.0+rocm7.0"
         raise bench.PackageNotFoundError(name)
 
     monkeypatch.setattr(bench, "version", fake_version)
@@ -196,7 +196,7 @@ def test_package_versions_record_missing_dependencies_without_hiding_them(
     versions = bench._package_versions()
 
     assert versions == {name: "not-installed" for name in bench.FIXATION_PACKAGE_NAMES} | {
-        "torch": "2.14.0+cu130"
+        "torch": "2.10.0+rocm7.0"
     }
 
 

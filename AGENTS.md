@@ -90,6 +90,10 @@ policy-I/O or network-shape field changes.
 
 ## Validation
 
+Dependency work and repository gates must use the pinned WheelNext-enabled uv
+0.9.14 build from `scripts/tools/install_uv_wheelnext.sh`; stable uv cannot
+consume the current variant lock.
+
 Use the smallest relevant check while iterating, then run the complete gate for
 the final change:
 
@@ -98,9 +102,6 @@ make check                 # formatting and type checks
 make test                  # non-slow tests
 make test-all              # required before creating/updating a PR
 ```
-
-Dependency pin changes must keep the ROCm track in sync: apply the same bump
-to `pyproject.rocm.toml` and regenerate `uv.rocm.lock` in the same PR.
 
 Use focused tests for contract, IPC/runner, config, backend, asset, or docs
 changes. Docs-only validation is defined in `docs/sphinx/AGENTS.md`. Record the

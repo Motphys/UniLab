@@ -27,6 +27,22 @@ def _warn_once(device_type: str, reason: str) -> None:
         print(message, file=sys.stderr)
 
 
+def configure_torch_compile_compat() -> None:
+    """Avoid the Torch 2.10 CUDA shape-padding benchmark during graph warmup."""
+    version = torch.__version__.split("+", 1)[0].split(".")[:2]
+    try:
+        release = tuple(int(component) for component in version)
+    except ValueError:
+        return
+    if release != (2, 10):
+        return
+    try:
+        from torch._inductor import config as inductor_config
+    except ImportError:
+        return
+    inductor_config.shape_padding = False
+
+
 def get_torch_compile_for_device(
     device: torch.device | str, *, warn: bool = False
 ) -> Callable[..., Any] | None:
@@ -55,6 +71,8 @@ def get_torch_compile_for_device(
         if warn:
             _warn_once(device_type, reason)
         return None
+    if device_type == "cuda":
+        configure_torch_compile_compat()
     return cast(Callable[..., Any], compile_fn)
 
 

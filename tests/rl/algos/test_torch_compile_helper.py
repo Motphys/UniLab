@@ -70,6 +70,17 @@ def test_torch_compile_cuda_returns_available_compile_without_warning(monkeypatc
     assert capsys.readouterr().err == ""
 
 
+def test_torch_210_cuda_compile_disables_shape_padding(monkeypatch) -> None:
+    from torch._inductor import config as inductor_config
+
+    monkeypatch.setattr(torch, "__version__", "2.10.0+test")
+    monkeypatch.setattr(inductor_config, "shape_padding", inductor_config.shape_padding)
+
+    compile_helper.configure_torch_compile_compat()
+
+    assert inductor_config.shape_padding is False
+
+
 def test_torch_compile_device_helper_supports_mps_without_triton(monkeypatch) -> None:
     def fake_compile(fn: Callable[..., Any], **kwargs: Any) -> Callable[..., Any]:
         return fn

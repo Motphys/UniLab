@@ -6,6 +6,8 @@ extras. Training inside the container supports the current tensor Manager
 runtimes: `--sim mujoco` and `--sim mjwarp`. macOS Docker is not a primary
 path, and ROCm uses a separate image (see below) rather than this CUDA
 `Dockerfile`.
+The CUDA image forces the NVIDIA variant provider to CUDA `12.8` so a no-GPU
+image build still resolves the CUDA Torch wheel.
 
 ## Build
 
@@ -60,11 +62,11 @@ mounted repository's `logs/` directory.
 
 ## ROCm Containers
 
-ROCm containers use AMD's ROCm PyTorch image and the `make sync-rocm` workflow
-instead of the repository's CUDA `Dockerfile`. Inside the container, run
-`make sync-rocm` first to activate the ROCm profile, then use `uv run ...` for
-training. The container typically needs the AMD device mounts `/dev/kfd` and
-`/dev/dri`, plus `--group-add=video` and `--ipc=host`.
+A ROCm container can use AMD's ROCm base image with the repository's normal
+wheel-variant workflow. Inside the container, install the pinned
+WheelNext-enabled uv build, run `uv sync --extra mujoco`, and then use
+`uv run ...` for training. The container typically needs the AMD device mounts
+`/dev/kfd` and `/dev/dri`, plus `--group-add=video` and `--ipc=host`.
 
 A minimal example using AMD's ROCm PyTorch image:
 

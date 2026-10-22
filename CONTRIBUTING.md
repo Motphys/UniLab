@@ -5,15 +5,14 @@ Languages: English | [简体中文](docs/sphinx/source/zh_CN/4-developer_guide/4
 ## Development Environment Setup
 
 1. Fork and clone the repository.
-2. Install dependencies for your platform:
-   - macOS (MPS, installs PyPI torch wheels): `make setup-motrix` (or `make setup-mujoco`)
-   - Linux default (installs PyTorch cu130 wheels; requires an NVIDIA GPU/driver supported by current PyTorch cu130 wheels): `make setup`
-   - Linux AMD / ROCm workstation: `make sync-rocm`, then run commands with `uv run --no-sync ...`
-   - For direct uv setup, use `uv sync --extra mujoco --extra motrix`; replace it
-     with `--extra mujoco` or `--extra motrix` for a single backend
-   - Physics adapters are supplied by the production PyPI package
-     `unisim-core>=0.1.14` (import namespace `unisim`).
-3. Create a branch such as `git checkout -b docs/improve-readme` or `git checkout -b fix/backend-bug`.
+2. Install the pinned WheelNext-enabled uv build:
+   `scripts/tools/install_uv_wheelnext.sh .uv-wheelnext`
+3. Put that build first on `PATH` and install dependencies:
+   `export PATH="$PWD/.uv-wheelnext:$PATH" && make setup`
+   The variant-aware lock selects the CPU, CUDA, ROCm, or XPU Torch wheel.
+4. Physics adapters are supplied by the production PyPI package
+   `unisim-core==2.1.1` (import namespace `unisim`).
+5. Create a branch such as `git checkout -b docs/improve-readme` or `git checkout -b fix/backend-bug`.
 
 ## Development Rules
 
@@ -34,7 +33,7 @@ Languages: English | [简体中文](docs/sphinx/source/zh_CN/4-developer_guide/4
 
 ```bash
 make format         # ruff format + ruff check --fix
-make sync-rocm      # Linux AMD / ROCm >= 7.1: sync deps and install torch==2.11.0+rocm7.2
+uv run unilab doctor # Check the installed Torch build for an AMD/ROCm mismatch
 make type           # mypy src/unilab + pyright
 make check          # format + type (required before code-related commits)
 make test           # non-slow tests

@@ -64,13 +64,15 @@ rewriting the task's environment lifecycle.
 
 ## Quick start
 
-The supported source workflow uses [`uv`](https://docs.astral.sh/uv/). This is
-the shortest path to a policy demo:
+The supported source workflow uses the pinned
+[WheelNext-enabled uv](https://astral.sh/blog/wheel-variants) build. This is the
+shortest path to a policy demo:
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
 
 make setup
 # Downloads the checkpoint and assets from Hugging Face on first run.

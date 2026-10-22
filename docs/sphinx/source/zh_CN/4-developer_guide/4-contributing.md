@@ -5,25 +5,19 @@
 
 ## 环境
 
-按平台安装依赖。setup target 也会安装仓库检查所需的可选仿真器 extra：
-
-- macOS（MPS，PyPI torch wheel）：`make setup`（或 `uv sync --extra mujoco`）
-- Linux NVIDIA（PyTorch cu130 wheel）：`make setup`
-- Linux AMD / ROCm：`make sync-rocm`，随后用 `uv run ...` 运行命令。要切回默认
-  CUDA / macOS profile，执行 `git restore -- pyproject.toml uv.lock` 后重新
-  `make setup`。
-- Linux Intel XPU：`make sync-xpu`
-- 如果更喜欢直接使用 uv，完整默认环境为 `uv sync --extra mujoco`；
-  RL 栈已内置。
+安装钉住、支持 WheelNext 的 uv 构建，将其放到 `PATH` 最前，然后运行常规
+setup target。variant-aware lock 会按宿主选择 CPU、CUDA、ROCm 或 XPU Torch
+wheel：
 
 ```bash
-# 选择一条核心安装路径：
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
 make setup
-make sync-rocm
-make sync-xpu
 ```
 
 请使用 `uv run` 运行命令。不要在 `uv run` 之外直接调用 `python`。
+安装完成后，`uv run unilab doctor` 会检查当前 Torch 二进制构建与宿主 AMD/ROCm
+接口是否不匹配。
 
 ## 开发规则
 
@@ -55,6 +49,7 @@ make sync-xpu
 
 ```bash
 make format
+uv run unilab doctor
 make type
 make check
 make test
