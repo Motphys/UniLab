@@ -1292,6 +1292,48 @@ def test_offpolicy_supervisor_constructor_sees_parent_mask(
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "GPU-a"
 
 
+def test_offpolicy_mps_request_normalizes_index_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _offpolicy()
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+    monkeypatch.setattr(
+        mod,
+        "resolve_mps_visibility_entries",
+        lambda entries: tuple(f"GPU-{entry}" for entry in entries),
+    )
+
+    mod._normalize_mps_cuda_visibility("mps")
+
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "GPU-0,GPU-1"
+
+
+def test_offpolicy_unconfigured_sharing_keeps_index_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _offpolicy()
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+
+    def forbidden(entries):
+        raise AssertionError(f"unexpected resolve for entries: {entries}")
+
+    monkeypatch.setattr(mod, "resolve_mps_visibility_entries", forbidden)
+    mod._normalize_mps_cuda_visibility(None)
+
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "0,1"
+
+
+def test_offpolicy_mps_request_keeps_uuid_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    mod = _offpolicy()
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-a,GPU-b")
+
+    mod._normalize_mps_cuda_visibility("mps")
+
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "GPU-a,GPU-b"
+
+
 def test_offpolicy_default_device_preferred_cpu():
     mock_torch = MagicMock()
     assert _offpolicy().default_device(mock_torch, preferred="cpu") == "cpu"

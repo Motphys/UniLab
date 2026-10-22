@@ -105,13 +105,19 @@ uv run --extra genesis eval --algo flashsac --task g1_motion_tracking --sim gene
 ```bash
 uv run uni-cumps start --gpus 0 --name train-gpu0 --daemon
 uv run uni-cumps start --gpus 1 --name train-gpu1 --daemon
+CUDA_VISIBLE_DEVICES=0,1 \
+  uv run --extra mjwarp train --algo flashsac --task g1_motion_tracking --sim mjwarp \
+  training.cuda_process_sharing=mps
 # 执行训练，等训练进程退出后，仅关闭上述服务。
 uv run uni-cumps stop --name train-gpu0
 uv run uni-cumps stop --name train-gpu1
 ```
 
-管理命令应在没有冲突的 GPU mask 时执行。更多选项见 `uv run uni-cumps --help`。
-执行约定见[运行指南](docs/flashsac_dp.md)。
+请求 `mps` 后，每个 rank 会自动绑定本 GPU 已登记的服务（索引形式的
+`CUDA_VISIBLE_DEVICES` 会在 CUDA 初始化前被规范为 per-GPU MPS 服务要求的 GPU
+UUID）；`uni-cumps env` 仅供外部启动器使用——训练前不要 `eval` 它，它会把可见性
+钉到单张卡上。管理命令应在没有冲突的 GPU mask 时执行。更多选项见
+`uv run uni-cumps --help`。执行约定见[运行指南](docs/flashsac_dp.md)。
 
 这些 flag 会让 algorithm、task 和 simulator 选择保持可见。续训、W&B、Hydra override、
 回放、后端安装和完整命令矩阵属于

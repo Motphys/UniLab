@@ -54,6 +54,7 @@ from unilab.training.cuda_mps_cli import (
 from unilab.training.cuda_process_sharing import (
     CudaProcessSharingEvidence,
     probe_cuda_process_sharing,
+    resolve_mps_visibility_entries,
 )
 from unilab.training.dp_config import apply_dp_rank_config
 from unilab.training.experiment import ExperimentTracker
@@ -109,6 +110,27 @@ def _prepare_rank_zero_dp_visibility(world_size: int) -> None:
 
 
 _DP_PARENT_VISIBLE_ENTRIES: tuple[str, ...] | None = None
+
+
+def _normalize_mps_cuda_visibility(requested: Any) -> None:
+    """Rewrite index visibility entries to UUIDs for an explicit MPS request.
+
+    Per-GPU MPS daemons (``uni-cumps``) expose a single-device namespace, so a
+    one-entry numeric mask fails CUDA initialization on nonzero ranks with
+    "No CUDA GPUs are available"; UUID entries survive that remapping.  The
+    rewrite must precede rank-0 visibility slicing, the DP supervisor's
+    per-rank mask derivation, and any CUDA initialization in this process.
+    """
+
+    if not (isinstance(requested, str) and requested.strip().lower() == "mps"):
+        return
+    raw = os.environ.get("CUDA_VISIBLE_DEVICES")
+    entries = tuple(entry.strip() for entry in (raw or "").split(",") if entry.strip())
+    if not entries:
+        return
+    normalized = resolve_mps_visibility_entries(entries)
+    if normalized != entries:
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(normalized)
 
 
 def _build_dp_rank_supervisor(world_size: int, log_dir: str) -> DpRankSupervisor:
@@ -672,6 +694,7 @@ def main(cfg: DictConfig) -> None:
     world_size = current_dp_world_size()
     if world_size == 1 and rank == 0:
         world_size = _requested_dp_world_size()
+    _normalize_mps_cuda_visibility(getattr(cfg.training, "cuda_process_sharing", None))
     if world_size > 1:
         if rank == 0:
             selected_visible_entries(world_size=world_size)
