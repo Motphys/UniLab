@@ -6,18 +6,19 @@
 ## 克隆与同步
 
 ```bash
-# 0. 如果尚未安装 uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # 1. 克隆仓库
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
+
+# 2. 安装钉版的 WheelNext uv 构建
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
 ```
 
-为你的平台选择且仅选择一条依赖安装命令：
+variant-aware lock 会按宿主选择 CPU、CUDA、ROCm 或 XPU Torch wheel。使用以下
+命令同步 MuJoCo 路径：
 
 ```bash
-# Linux CUDA 或 macOS
 make setup
 
 # 不安装 shell 自动补全：
@@ -26,11 +27,6 @@ make setup
 # 如果未安装 make：
 # uv sync --extra mujoco && uv run --no-sync unilab-complete install
 
-# Linux AMD / ROCm
-# make sync-rocm
-
-# Linux Intel Arc / iGPU
-# make sync-xpu
 ```
 
 ## 第一次成功

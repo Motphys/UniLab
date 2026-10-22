@@ -159,8 +159,7 @@ re-export，禁止带独立签名/默认值/转换逻辑的第二层实现。
   与可 pickle env factory。
 - `tests/test_library_import_boundary.py`：内部 DAG 守卫。
 - `tests/rl/`：迁移后的 RL 单测（contracts/adapters/algos/runtime/logging）。
-- `pyproject.toml`、`pyproject.rocm.toml`、`uv.lock`、`uv.rocm.lock`：单一 distribution 与
-  空 `uni_rl` extra。
+- 默认/ROCm 依赖 profile 与对应 lock：单一 distribution 与空 `uni_rl` extra。
 - Roadmap issue #2372、#1623、#1586；来源仓库 unilab_rl @ `3654e4b`（1.4.15）。
 
 ## Related Documents

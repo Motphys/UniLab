@@ -26,6 +26,10 @@ optional `--profile`. Route-defining values must use the CLI flags; Hydra
 overrides after the command are for fields such as `algo.max_iterations`,
 `algo.num_envs`, and `training.no_play`.
 
+`unilab doctor` is an installation diagnostic rather than a training route. It
+reports the installed Torch binary variant, checks AMD kernel/ROCm management
+interfaces, and exits non-zero when an AMD host has a CUDA or CPU Torch wheel.
+
 The `uni-cumps` command owns the explicit user-space daemon lifecycle for
 CUDA MPS. It reports read-only host status and topology diagnostics, starts and
 stops only UniLab-recorded user-owned daemons, and prints launcher environment
@@ -48,13 +52,6 @@ uv run uni-cumps stop --name <name>
 See the tensor runtime production guide for ownership, concurrency, and topology
 limits. Training still requests MPS explicitly with
 `training.cuda_process_sharing=mps`.
-
-### Per-Environment Invocation
-
-The CLI prefix depends on the install flavor:
-
-- ROCm: run `make sync-rocm` once, then use `uv run ...`.
-- Intel XPU: use `uv run --no-sync ...`.
 
 ## Tab Completion
 

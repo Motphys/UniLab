@@ -38,9 +38,8 @@ its build-time `mujoco` version, refusing to import against any other version
 requires an `mjbatch` build against the requested version:
 
 1. bump the `mujoco` bound and the `mjbatch` source pin in
-   `pyproject.toml` (and mirror `pyproject.rocm.toml`),
-2. re-lock (`uv lock`, plus the ROCm lockfile via `make sync-rocm`) and
-   re-sync (`uv sync --extra mujoco`).
+   `pyproject.toml`,
+2. re-lock (`uv lock`) and re-sync (`uv sync --extra mujoco`).
 
 The fork's build pins `mujoco==3.11.0` at build time, so the isolated build
 always compiles against the matching mujoco. The engine is currently consumed

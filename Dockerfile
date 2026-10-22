@@ -8,6 +8,7 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ENV UV_LINK_MODE=copy
 ENV UV_COMPILE_BYTECODE=1
+ENV NV_VARIANT_PROVIDER_FORCE_CUDA_DRIVER_VERSION=12.8
 ENV PATH="/root/.local/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -28,11 +29,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-
 WORKDIR /workspace/UniLab
 
 COPY . /workspace/UniLab
+
+RUN scripts/tools/install_uv_wheelnext.sh /root/.local/bin
 
 RUN uv sync --dev --extra mujoco --extra mjwarp \
     && uv cache clean \

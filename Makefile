@@ -10,18 +10,6 @@ setup: sync
 install-completion:
 	uv run --no-sync unilab-complete install
 
-.PHONY: sync-rocm
-sync-rocm:
-	@cp pyproject.rocm.toml pyproject.toml
-	@if [ -f uv.rocm.lock ]; then cp uv.rocm.lock uv.lock; fi
-	uv sync --extra mujoco
-	cp uv.lock uv.rocm.lock
-
-.PHONY: sync-xpu
-sync-xpu:
-	uv sync --extra mujoco --no-install-package torch
-	uv pip install torch==2.7.0 --torch-backend xpu
-
 .PHONY: format
 format:
 	uv run ruff format

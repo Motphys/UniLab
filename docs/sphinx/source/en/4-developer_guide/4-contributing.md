@@ -5,26 +5,19 @@ architecture details live in {doc}`1-architecture/1-overview`.
 
 ## Environment
 
-Install dependencies for your platform. The setup targets also install the
-optional simulator extras used by the repository's checks:
-
-- macOS (MPS, PyPI torch wheel): `make setup` (or `uv sync --extra mujoco`)
-- Linux with NVIDIA (PyTorch cu130 wheel): `make setup`
-- Linux AMD / ROCm: `make sync-rocm`, then run commands with `uv run ...`. To
-  return to the default CUDA / macOS profile, `git restore -- pyproject.toml
-  uv.lock` and re-run `make setup`.
-- Linux Intel XPU: `make sync-xpu`
-- If you prefer direct uv commands, the full default setup is
-  `uv sync --extra mujoco`; the RL stack is built in.
+Install the pinned WheelNext-enabled uv build, put it first on `PATH`, then run
+the normal setup target. The variant-aware lock selects the CPU, CUDA, ROCm, or
+XPU Torch wheel for the host:
 
 ```bash
-# Choose one core setup path:
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
 make setup
-make sync-rocm
-make sync-xpu
 ```
 
 Use `uv run` for commands. Do not invoke `python` directly outside `uv run`.
+After setup, `uv run unilab doctor` checks for an AMD/ROCm mismatch between the
+installed Torch binary build and the host interfaces.
 
 ## Development Rules
 
@@ -64,6 +57,7 @@ Use `uv run` for commands. Do not invoke `python` directly outside `uv run`.
 
 ```bash
 make format
+uv run unilab doctor
 make type
 make check
 make test

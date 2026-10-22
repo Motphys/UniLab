@@ -67,9 +67,10 @@ to you.
 ## Quick Install And Smoke Run
 
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
 uv sync --extra mujoco
 uv run demo dance
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco \

@@ -4,6 +4,8 @@
 工具，以及 scoped 的 MuJoCo 与 MJWarp 后端 extra。容器内训练支持当前 tensor
 Manager runtime：`--sim mujoco` 与 `--sim mjwarp`。macOS Docker 目前不作为主要
 路径，ROCm 则使用另外的镜像（见下文），而不是这个 CUDA `Dockerfile`。
+CUDA 镜像强制 NVIDIA variant provider 使用 CUDA `12.8`，因此无 GPU 的镜像构建
+也会解析 CUDA Torch wheel。
 
 ## 构建
 
@@ -55,10 +57,10 @@ uv run eval --algo ppo --task go2_joystick_flat --sim mujoco --load-run -1
 
 ## ROCm 容器
 
-ROCm 容器应使用 AMD 的 ROCm PyTorch 镜像以及 `make sync-rocm` 工作流，而不是仓库
-的 CUDA `Dockerfile`。进入容器后先运行 `make sync-rocm` 激活 ROCm profile，再用
-`uv run ...` 训练。容器通常需要挂载 AMD 设备 `/dev/kfd` 和 `/dev/dri`，并加上
-`--group-add=video` 和 `--ipc=host`。
+ROCm 容器可以使用 AMD 的 ROCm 基础镜像，并运行仓库常规的 wheel-variant
+工作流。进入容器后安装钉住的 WheelNext uv 构建，执行
+`uv sync --extra mujoco`，再用 `uv run ...` 训练。容器通常需要挂载 AMD 设备
+`/dev/kfd` 和 `/dev/dri`，并加上 `--group-add=video` 和 `--ipc=host`。
 
 使用 AMD ROCm PyTorch 镜像的最小示例：
 

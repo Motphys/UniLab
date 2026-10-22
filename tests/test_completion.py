@@ -16,6 +16,7 @@ def _write_completion_fixture(root: Path) -> None:
         "\n".join(
             [
                 "[project.scripts]",
+                'unilab = "unilab.diagnostics:main"',
                 'train = "unilab.cli:train_main"',
                 'eval = "unilab.cli:eval_main"',
                 'demo = "unilab.cli:demo_main"',
@@ -82,6 +83,16 @@ def test_uv_run_command_position_includes_project_scripts_and_run_paths(tmp_path
 
     assert "demo" in complete_words(["uv", "run", "d"], 2, metadata)
     assert complete_words(["uv", "run", "s"], 2, metadata) == ["scripts/"]
+
+
+def test_unilab_command_completes_doctor(tmp_path: Path) -> None:
+    _write_completion_fixture(tmp_path)
+    metadata = build_metadata(tmp_path)
+
+    assert "unilab" in complete_words(["uv", "run", "uni"], 2, metadata)
+    assert complete_words(["uv", "run", "unilab", ""], 3, metadata) == ["doctor"]
+    assert complete_words(["uv", "run", "unilab", "d"], 3, metadata) == ["doctor"]
+    assert complete_words(["uv", "run", "unilab", "doctor", ""], 4, metadata) == []
 
 
 def test_uv_run_path_completion_is_hierarchical(tmp_path: Path) -> None:

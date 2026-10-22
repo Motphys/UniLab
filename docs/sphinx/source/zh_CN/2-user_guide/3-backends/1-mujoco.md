@@ -33,10 +33,8 @@ uv 的 prefer-locked 语义保证普通 relock 不会漂移。`mjbatch` 引擎�
 （fail-closed，不会静默出错行为）。因此切换版本需要对应版本的 `mjbatch`
 构建：
 
-1. 在 `pyproject.toml`（并同步镜像 `pyproject.rocm.toml`）中提升 `mujoco`
-   边界和 `mjbatch` 源码钉版；
-2. 重新锁定（`uv lock`，ROCm lockfile 通过 `make sync-rocm`）并重新同步
-   （`uv sync --extra mujoco`）。
+1. 在 `pyproject.toml` 中提升 `mujoco` 边界和 `mjbatch` 源码钉版；
+2. 重新锁定（`uv lock`）并重新同步（`uv sync --extra mujoco`）。
 
 fork 的构建在编译期钉住 `mujoco==3.11.0`，因此隔离构建总是针对匹配的 mujoco
 编译。引擎当前从钉住的集成 fork 消费；其最终分发身份（PyPI package 还是

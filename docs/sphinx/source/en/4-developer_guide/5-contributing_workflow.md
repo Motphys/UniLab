@@ -79,11 +79,11 @@ Use Conventional Commit titles. State whether the change affects MuJoCo, Motrix,
 another backend, macOS, Linux, or training behavior. A documentation-only change
 uses its focused docs checks as well as the repository gate required for its PR.
 
-Dependency maintenance is dual-track: a change to `pyproject.toml` dependency
-pins must apply the same bump to `pyproject.rocm.toml` and `uv.rocm.lock` in
-the same PR. For a published-dependency transition the upstream release must
-exist on PyPI before the bump lands; see the tensor-runtime transition
-subsection below.
+Dependency maintenance uses the single wheel-variant-aware `uv.lock`. A change
+to `pyproject.toml` dependency pins must regenerate that lock in the same PR
+with the pinned WheelNext-enabled uv build. For a published-dependency
+transition the upstream release must exist on PyPI before the bump lands; see
+the tensor-runtime transition subsection below.
 
 ## Architecture Decisions
 
@@ -118,7 +118,8 @@ be true:
    this repository) with its complete repository gate.
 4. The required MJBatch executor API is available in a published `mjbatch-uni`
    version supported by the UniSim adapter contract.
-5. The default and ROCm lock profiles resolve only registry packages.
+5. The single wheel-variant lock resolves only registry packages and published
+   variant metadata.
 6. Focused CPU CI and the manually gated single-GPU CUDA profile pass on the
    exact transition commit.
 

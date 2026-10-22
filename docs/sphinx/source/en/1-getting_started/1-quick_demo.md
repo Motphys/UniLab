@@ -6,18 +6,19 @@ This page mirrors the README Quick Demo and uses the first-level UniLab CLI:
 ## Clone And Sync
 
 ```bash
-# 0. If uv is not installed
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # 1. Clone the repository
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
+
+# 2. Install the pinned WheelNext-enabled uv build
+scripts/tools/install_uv_wheelnext.sh .uv-wheelnext
+export PATH="$PWD/.uv-wheelnext:$PATH"
 ```
 
-Choose exactly one dependency setup command for your platform:
+The variant-aware lock selects the CPU, CUDA, ROCm, or XPU Torch wheel for the
+host. Sync the MuJoCo path with:
 
 ```bash
-# Linux CUDA or macOS
 make setup
 
 # Without shell completion setup:
@@ -26,11 +27,6 @@ make setup
 # If make is not installed:
 # uv sync --extra mujoco && uv run --no-sync unilab-complete install
 
-# Linux AMD / ROCm
-# make sync-rocm
-
-# Linux Intel Arc / iGPU
-# make sync-xpu
 ```
 
 ## First Success

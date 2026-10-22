@@ -34,7 +34,7 @@ Repository evidence at decision time:
 
 - Numba production imports: `src/unilab/tasks/motion_tracking/common/kernels.py`
   and `src/unilab/base/cpu_runtime.py`.
-- Direct Numba requirements: `pyproject.toml` and `pyproject.rocm.toml`.
+- Direct Numba requirements: the default and ROCm dependency profiles.
 - NumPy is imported by 62 production Python files across Manager, env, task,
   utility, terrain, training, and visualization owners.
 - ADR-0012 requires Torch carriers for the Manager public lifecycle and allows
@@ -150,7 +150,7 @@ and NumPy conversion exists only inside the adapter-private boundary above.
 - `src/unilab/envs/manager_based_rl_env.py`
 - `src/unilab/managers/`
 - `pyproject.toml`
-- `pyproject.rocm.toml`
+- The retired ROCm dependency-profile file
 - `tests/tasks/test_package_boundary.py`
 
 ## Related Documents

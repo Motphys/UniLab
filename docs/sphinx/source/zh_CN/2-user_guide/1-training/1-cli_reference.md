@@ -25,6 +25,10 @@ CLI 会根据 `--algo`、`--task`、`--sim` 以及可选的 `--profile` 构造�
 路径。定义路由的取值必须使用 CLI flag；命令之后的 Hydra override 用于设置诸如
 `algo.max_iterations`、`algo.num_envs` 和 `training.no_play` 等字段。
 
+`unilab doctor` 是安装诊断，而不是训练路由。它会报告当前 Torch 二进制变体，
+检测 AMD 内核/ROCm 管理接口，并在 AMD 主机误装 CUDA 或 CPU Torch wheel 时返回
+非零状态。
+
 `uni-cumps` 负责 CUDA MPS 的显式用户态 daemon 生命周期。它提供只读
 host/topology 诊断，只启动和停止 UniLab record 记录的 user-owned daemon，并输出
 launcher 环境而不修改调用方 shell：
@@ -45,13 +49,6 @@ uv run uni-cumps stop --name <name>
 
 ownership、并发和拓扑限制见 tensor runtime 生产指南。训练仍必须显式设置
 `training.cuda_process_sharing=mps`。
-
-### 各环境的调用方式
-
-CLI 前缀取决于安装方案：
-
-- ROCm：先执行一次 `make sync-rocm`，之后使用 `uv run ...`。
-- Intel XPU：使用 `uv run --no-sync ...`。
 
 ## Tab 自动补全
 

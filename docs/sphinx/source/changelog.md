@@ -13,6 +13,28 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased
+
+### Breaking changes / 破坏性变更
+
+- ROCm installation now uses the same wheel-variant-aware `uv sync` path as
+  CPU, CUDA, and XPU. The ROCm dependency-profile files and dedicated Makefile
+  target are removed; the required installer is the pinned
+  experimental `uv-wheelnext 0.9.14` build. The lock records Torch 2.10 CPU,
+  CUDA, ROCm, and XPU variants, and `unisim-core` now resolves from the
+  published 2.1.1 wheel
+  ([#2500](https://github.com/Motphys/UniLab/issues/2500),
+  ADR-0020).
+  On Torch 2.10, the CUDA compile helper disables Inductor shape-padding
+  benchmarking before whole-cycle CUDA graph warmup.
+  ROCm 安装改为与 CPU、CUDA、XPU 共用同一条 wheel-variant-aware 的
+  `uv sync` 路径。ROCm 依赖 profile 文件与专用 Makefile target 已移除；
+  所需安装器为钉住的实验版
+  `uv-wheelnext 0.9.14`。lock 记录 Torch 2.10 的 CPU、CUDA、ROCm 与 XPU
+  variants，`unisim-core` 改为由已发布的 2.1.1 wheel 解析（#2500）。
+  在 Torch 2.10 上，CUDA compile helper 会在 whole-cycle CUDA graph warmup 前
+  禁用 Inductor shape-padding benchmark。
+
 ## 1.5.0 (2026-10-22)
 
 ### Breaking changes / 破坏性变更
