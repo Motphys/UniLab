@@ -63,6 +63,10 @@ NCCL_SHM_DISABLE=0` to disable P2P and enable shared memory.
 MPS remains manually managed. Start one service per selected GPU with
 `uv run uni-cumps start --gpus 0 --name train-gpu0 --daemon` (repeat for GPU 1
 with its own name), then append `training.cuda_process_sharing=mps` to training.
+An `mps` request binds each rank to its GPU's recorded service automatically and
+normalizes index-form visibility entries to GPU UUIDs before CUDA initializes
+(per-GPU MPS servers reject one-entry numeric masks above index 0), so
+`uni-cumps env` is not needed for training.
 After training clients exit, stop each service with
 `uv run uni-cumps stop --name train-gpu0`. The default `null` uses independent
 CUDA contexts. Training does not start or stop services. README documents the
