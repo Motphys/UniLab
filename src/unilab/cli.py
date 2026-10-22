@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Sequence
 
 from unilab.demo import run_demo
+from unilab.interruption import run_process_with_graceful_interrupt
 
 SUPPORTED_ALGOS = ("ppo", "appo", "sac", "flashsac")
 SUPPORTED_SIMS = (
@@ -560,7 +561,7 @@ def _run_train_eval(mode: str, argv: Sequence[str] | None = None) -> int:
         render_mode=args.render_mode,
     )
     try:
-        return subprocess.run(command, check=False).returncode
+        return run_process_with_graceful_interrupt(command)
     except KeyboardInterrupt:
         # Ctrl+C is delivered to both this routing process and the child
         # playback/training process.  The child owns its renderer cleanup;

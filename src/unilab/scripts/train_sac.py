@@ -3,9 +3,11 @@
 import hydra
 from omegaconf import DictConfig
 
+from unilab.interruption import graceful_keyboard_interrupt
 from unilab.scripts.train_offpolicy import main as _offpolicy_main
 
 
+@graceful_keyboard_interrupt
 @hydra.main(version_base="1.3", config_path="../conf/sac", config_name="config")
 def main(cfg: DictConfig) -> None:
     _offpolicy_main(cfg)

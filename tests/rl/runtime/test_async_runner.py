@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
 import signal
 from typing import Any
 from unittest.mock import MagicMock
@@ -10,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import unilab.rl.runtime.async_runner as async_runner_module
-from unilab.rl.runtime.async_runner import AsyncRunner
+from unilab.rl.runtime.async_runner import AsyncRunner, _collector_entry_wrapper
 from unilab.rl.runtime.ipc.collector_error import format_collector_death
 
 _SPAWN_CTX = mp.get_context("spawn")
@@ -179,6 +180,59 @@ def test_close_handles_multiple_resources():
     r.close()
     for res in resources:
         res.cleanup.assert_called_once()
+
+
+class _DeadCollectorProcess:
+    def __init__(self, exitcode: int) -> None:
+        self.exitcode = exitcode
+
+    def is_alive(self) -> bool:
+        return False
+
+
+def test_collector_entry_ignores_terminal_ctrl_c_and_restores_handler():
+    previous_handler = signal.getsignal(signal.SIGINT)
+    observed: list[int] = []
+
+    def target(**kwargs):
+        del kwargs
+        observed.append(signal.getsignal(signal.SIGINT))
+
+    _collector_entry_wrapper(
+        target,
+        None,
+        {"stop_event": _SPAWN_CTX.Event(), "_parent_pid": os.getpid()},
+    )
+
+    assert observed == [signal.SIG_IGN]
+    assert signal.getsignal(signal.SIGINT) == previous_handler
+
+
+@pytest.mark.parametrize("exitcode", [-signal.SIGINT, 130])
+def test_close_treats_ctrl_c_collector_exit_as_cancellation(
+    exitcode: int,
+    capsys: pytest.CaptureFixture[str],
+):
+    runner = _make_runner()
+    runner._collector_process = _DeadCollectorProcess(exitcode)
+    resource = MagicMock(spec=["cleanup"])
+    runner._shared_resources.append(resource)
+
+    runner.close()
+
+    assert runner._stop_event.is_set()
+    assert runner._close_complete
+    resource.cleanup.assert_called_once()
+    assert "Collector exited" not in capsys.readouterr().err
+
+
+def test_close_still_reports_real_collector_failure(capsys: pytest.CaptureFixture[str]):
+    runner = _make_runner()
+    runner._collector_process = _DeadCollectorProcess(1)
+
+    runner.close()
+
+    assert "Collector exited with code 1" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------

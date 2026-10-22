@@ -55,10 +55,7 @@ def launch_torchrun_workers(
     launch_env.setdefault("NCCL_P2P_DISABLE", "1")
     launch_env.setdefault("NCCL_SHM_DISABLE", "1")
     launch_env[UNILAB_DP_LOG_DIR] = str(log_dir)
-    command = [
-        sys.executable,
-        "-m",
-        "torch.distributed.run",
+    argv = [
         "--standalone",
         "--nnodes=1",
         f"--nproc_per_node={world_size}",
@@ -70,9 +67,38 @@ def launch_torchrun_workers(
         "CUDA_VISIBLE_DEVICES entries.",
         flush=True,
     )
-    completed = subprocess.run(command, env=launch_env, check=False)
-    if completed.returncode != 0:
-        raise RuntimeError(f"torchrun workers failed with exit code {completed.returncode}")
+    _run_torchrun_process(argv, launch_env)
+
+
+def _run_torchrun_process(argv: list[str], env: dict[str, str]) -> None:
+    """Run torch elastic in-process so Ctrl+C is a cancellation, not a crash."""
+    missing = object()
+    previous_env = {key: os.environ.get(key, missing) for key in env}
+    try:
+        os.environ.update(env)
+        # Keep torch imports lazy: importing this launcher must not pull the
+        # distributed runtime into lightweight package initialization paths.
+        from torch.distributed.elastic.multiprocessing import SignalException
+
+        try:
+            _run_torchrun_elastic(argv)
+        except SignalException as exc:
+            if exc.sigval == signal.SIGINT:
+                print("Training interrupted by Ctrl+C.", file=sys.stderr, flush=True)
+                raise SystemExit(128 + signal.SIGINT) from None
+            raise
+    finally:
+        for key, previous in previous_env.items():
+            if previous is missing:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = str(previous)
+
+
+def _run_torchrun_elastic(argv: list[str]) -> None:
+    from torch.distributed.run import parse_args, run
+
+    run(parse_args(argv))
 
 
 def _current_entry_command() -> list[str]:
@@ -88,6 +114,10 @@ def _current_entry_command() -> list[str]:
 
 def _sigterm_system_exit(signum: int, _frame: Any) -> None:
     raise SystemExit(f"data-parallel rank 0 received signal {signum}")
+
+
+def _is_interrupt_exit(exitcode: object) -> bool:
+    return exitcode in (128 + signal.SIGINT, -signal.SIGINT)
 
 
 def _signal_process_group(child: subprocess.Popen, signum: int) -> None:
@@ -142,6 +172,7 @@ class DpRankSupervisor:
         self._watchdog: threading.Thread | None = None
         self._previous_signal_handlers: dict[int, Any] = {}
         self._shutdown_requested = False
+        self._interrupt_requested = False
 
     def __enter__(self) -> DpRankSupervisor:
         if self._world_size <= 1:
@@ -199,7 +230,9 @@ class DpRankSupervisor:
             failed = [
                 (rank, child.returncode)
                 for rank, child in enumerate(self._children, start=1)
-                if child.returncode is not None and child.returncode != 0
+                if child.returncode is not None
+                and child.returncode != 0
+                and not (self._interrupt_requested and _is_interrupt_exit(child.returncode))
             ]
             if exc_type is None and not failed:
                 # Normal rank-0 completion: give sibling ranks a grace window to
@@ -257,6 +290,7 @@ class DpRankSupervisor:
         self._previous_signal_handlers.clear()
 
     def _handle_sigint(self, signum: int, frame: Any) -> None:
+        self._interrupt_requested = True
         self._request_children_shutdown()
         previous = self._previous_signal_handlers.get(signal.SIGINT, signal.default_int_handler)
         if previous == signal.SIG_IGN:
