@@ -38,4 +38,5 @@ Pyright 报告上游现有框架文件的 10 项错误和 3 项警告，包括�
 发布的运动指标是已有本地 1.3.3 运行副本产生的结果，不是当前 1.3.4 分支重跑的结果。
 `results/rma/forward_v1/config_snapshot` 是训练完成后从仍在使用的工作副本采集的配置，
 并非训练开始时自动保存的不可变快照；不能据此补造完整历史溯源。
+发布副本的 `base.yaml` 仅清除了行尾空白，未修改 YAML 参数；原运行文件的哈希另有记录。
 原运行配置、CSV、checkpoint 与来源 SHA256 记录见 `results/rma/provenance.json`。
