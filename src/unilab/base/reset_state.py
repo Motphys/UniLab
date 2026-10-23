@@ -153,6 +153,7 @@ class ResetStateTransaction:
         self._tensor_root_columns: (
             tuple[tuple[int, ...], tuple[int, ...], torch.Tensor, torch.Tensor] | None
         ) = None
+        self._tensor_root_velocity: torch.Tensor | None = None
         self._tensor_joint_columns: (
             tuple[tuple[int, ...], tuple[int, ...], torch.Tensor, torch.Tensor] | None
         ) = None
@@ -324,6 +325,7 @@ class ResetStateTransaction:
         self._requesting_terms.clear()
         self._last_commit_had_writes = False
         self._tensor_active = True
+        self._ensure_tensor_root_velocity_scratch()
 
     def write_entity_state(
         self,
@@ -1343,7 +1345,7 @@ class ResetStateTransaction:
             qpos_columns=qpos_columns_t,
             qpos_values=root_state[:, :7].contiguous(),
             qvel_columns=qvel_columns_t,
-            qvel_values=root_state[:, 7:13].contiguous(),
+            qvel_values=self._encode_tensor_root_velocity(root_state),
         )
         self._tensor_has_writes = True
 
@@ -1465,7 +1467,7 @@ class ResetStateTransaction:
             qpos_columns=root_qpos_columns,
             qpos_values=root_state[:, :7].contiguous(),
             qvel_columns=root_qvel_columns,
-            qvel_values=root_state[:, 7:13].contiguous(),
+            qvel_values=self._encode_tensor_root_velocity(root_state),
         )
         transaction.write_state_mask(
             effective_mask,
@@ -1863,6 +1865,37 @@ class ResetStateTransaction:
                 f"EventManager term '{term_name}' tensor root state contains NaN or Inf"
             )
         self._validate_tensor_root_quaternions(root_state[:, 3:7], term_name=term_name)
+
+    def _ensure_tensor_root_velocity_scratch(self) -> None:
+        """Keep the encoded root-velocity carrier at one stable device address."""
+        device = self._packed_reset_device
+        assert device is not None
+        scratch = self._tensor_root_velocity
+        if (
+            scratch is not None
+            and scratch.shape == (self._num_envs, 6)
+            and scratch.dtype is torch.float32
+            and scratch.device == device
+        ):
+            return
+        self._tensor_root_velocity = torch.empty(
+            (self._num_envs, 6), dtype=torch.float32, device=device
+        )
+
+    def _encode_tensor_root_velocity(self, root_state: torch.Tensor) -> torch.Tensor:
+        """Encode community world-frame velocity for generalized free-root qvel.
+
+        Free-root linear velocity is world-frame already. Angular velocity is
+        public world-frame input but generalized ``qvel`` stores it in the root
+        body frame. The full-width carrier avoids masking this conversion to a
+        selected-row allocation while preserving one masked state write.
+        """
+        self._ensure_tensor_root_velocity_scratch()
+        velocity = self._tensor_root_velocity
+        assert velocity is not None
+        velocity[:, :3] = root_state[:, 7:10]
+        velocity[:, 3:6] = quat_apply_inverse(root_state[:, 3:7], root_state[:, 10:13])
+        return velocity.contiguous()
 
     def _validate_tensor_root_quaternions(self, values: torch.Tensor, *, term_name: str) -> None:
         norms = torch.linalg.vector_norm(values, dim=-1)

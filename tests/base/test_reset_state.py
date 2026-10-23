@@ -775,6 +775,149 @@ def test_packed_root_state_payloads_remain_contiguous() -> None:
     np.testing.assert_allclose(backend.qvel[[0, 2]], original_qvel[[0, 2]])
 
 
+def test_packed_root_state_encodes_world_angular_velocity_in_root_frame() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    reset_mask = torch.tensor([False, True, False, True])
+    original_qvel = backend.qvel.copy()
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    quaternion = torch.tensor(
+        [torch.sqrt(torch.tensor(0.5)), 0.0, 0.0, torch.sqrt(torch.tensor(0.5))],
+        dtype=torch.float32,
+    )
+    root_state[:, 3:7] = quaternion
+    root_state[1, 7:10] = torch.tensor([1.0, 2.0, 3.0])
+    root_state[3, 7:10] = torch.tensor([4.0, 5.0, 6.0])
+    root_state[1, 10:13] = torch.tensor([1.0, 0.0, 0.0])
+    root_state[3, 10:13] = torch.tensor([0.0, 0.0, 2.0])
+
+    with transaction.scoped_device_event_tensor(reset_mask):
+        transaction.write_root_state_tensor(reset_mask, layout, root_state, term_name="root_reset")
+
+    assert len(backend.state_write_payloads) == 1
+    _, encoded_velocity = backend.state_write_payloads[0]
+    torch.testing.assert_close(encoded_velocity[:, :3], root_state[[1, 3], 7:10])
+    torch.testing.assert_close(
+        encoded_velocity[:, 3:6],
+        torch.tensor([[0.0, -1.0, 0.0], [0.0, 0.0, 2.0]]),
+        rtol=0,
+        atol=2e-7,
+    )
+    _, _, committed_qvel, _ = backend.tensor_reset_calls[0]
+    torch.testing.assert_close(committed_qvel[:, :6], encoded_velocity, rtol=0, atol=0)
+    np.testing.assert_allclose(backend.qvel[[0, 2]], original_qvel[[0, 2]], rtol=0, atol=1e-7)
+
+
+def test_packed_motion_tensor_encodes_world_angular_velocity_in_root_frame() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    reset_mask = torch.tensor([True, False, True, False])
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    quaternion = torch.tensor(
+        [torch.sqrt(torch.tensor(0.5)), 0.0, 0.0, torch.sqrt(torch.tensor(0.5))],
+        dtype=torch.float32,
+    )
+    root_state[:, 3:7] = quaternion
+    root_state[[0, 2], 7:10] = torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+    root_state[[0, 2], 10:13] = torch.tensor([[1.0, 0.0, 0.0], [0.0, 0.0, 2.0]])
+    joint_position = torch.zeros((4, 2), dtype=torch.float32)
+    joint_velocity = torch.zeros((4, 2), dtype=torch.float32)
+
+    with transaction.scoped_device_event_tensor(reset_mask):
+        transaction.write_motion_state_tensor(
+            reset_mask,
+            layout,
+            np.array([7, 8], dtype=np.int64),
+            np.array([6, 7], dtype=np.int64),
+            root_state,
+            joint_position,
+            joint_velocity,
+            term_name="motion_reset",
+        )
+
+    assert len(backend.state_write_payloads) == 2
+    _, encoded_velocity = backend.state_write_payloads[0]
+    torch.testing.assert_close(encoded_velocity[:, :3], root_state[[0, 2], 7:10])
+    torch.testing.assert_close(
+        encoded_velocity[:, 3:6],
+        torch.tensor([[0.0, -1.0, 0.0], [0.0, 0.0, 2.0]]),
+        rtol=0,
+        atol=2e-7,
+    )
+    assert len(backend.tensor_reset_calls) == 1
+
+
+def test_packed_tensor_reset_stays_off_host_and_reuses_velocity_scratch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    quaternion = torch.tensor(
+        [torch.sqrt(torch.tensor(0.5)), 0.0, 0.0, torch.sqrt(torch.tensor(0.5))],
+        dtype=torch.float32,
+    )
+    root_state[:, 3:7] = quaternion
+    root_state[:, 10] = 1.0
+
+    def fail_host_call(*_args, **_kwargs):
+        raise AssertionError("fused tensor reset must not cross a Torch host boundary")
+
+    with (
+        transaction.scoped_device_event_tensor(torch.ones(4, dtype=torch.bool)),
+        monkeypatch.context() as patches,
+    ):
+        patches.setattr(torch.Tensor, "cpu", fail_host_call)
+        patches.setattr(torch.Tensor, "numpy", fail_host_call)
+        patches.setattr(torch.Tensor, "item", fail_host_call)
+        patches.setattr(torch.Tensor, "tolist", fail_host_call)
+        transaction.write_root_state_tensor(
+            torch.ones(4, dtype=torch.bool), layout, root_state, term_name="root_reset"
+        )
+        scratch = transaction._tensor_root_velocity
+        transaction.write_root_state_tensor(
+            torch.ones(4, dtype=torch.bool), layout, root_state, term_name="root_reset_2"
+        )
+        assert transaction._tensor_root_velocity is scratch
+
+    assert len(backend.tensor_reset_calls) == 1
+
+
+def test_packed_motion_tensor_reset_preserves_owner_subset_write_boundary() -> None:
+    backend = _RecordingPackedTensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    active_mask = torch.tensor([False, True, True, False])
+    owner_mask = torch.tensor([False, False, True, False])
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    root_state[:, 3] = 1.0
+    joint_position = torch.zeros((4, 2), dtype=torch.float32)
+    joint_velocity = torch.zeros((4, 2), dtype=torch.float32)
+
+    with transaction.scoped_device_owner_tensor(active_mask):
+        transaction.write_motion_state_tensor(
+            owner_mask,
+            layout,
+            np.array([7, 8], dtype=np.int64),
+            np.array([6, 7], dtype=np.int64),
+            root_state,
+            joint_position,
+            joint_velocity,
+            term_name="owner_motion_reset",
+        )
+
+    assert backend.state_write_payloads == []
+    assert backend.tensor_reset_calls == []
+    assert not transaction.last_commit_had_writes
+
+
 @pytest.mark.parametrize(
     ("root_state", "error", "match"),
     [
