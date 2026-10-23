@@ -1,0 +1,12 @@
+# @package _global_
+# Native 1.3.4 profile: denominator is tracking_sigma, NOT std squared.
+# Effective width 0.35 m/s corresponds to 0.35**2 = 0.1225.
+# The 1.3.3 experiment profile is in experiments/rma/runtime_1_3_3/.
+defaults:
+  - /task/go2_joystick_flat/rma_forward
+  - _self_
+
+reward:
+  tracking_lin_vel:
+    params:
+      tracking_sigma: 0.1225

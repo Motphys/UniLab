@@ -1,0 +1,11 @@
+# @package _global_
+# EXP-005: working 1.3.3 runtime ONLY. Baseline std=0.5 -> std=0.35.
+# Inherit rma_forward, not rma_forward_no_pose: keep pose penalty at -0.1.
+defaults:
+  - /task/go2_joystick_flat/rma_forward
+  - _self_
+
+reward:
+  tracking_lin_vel:
+    params:
+      std: 0.35

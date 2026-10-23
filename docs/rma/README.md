@@ -11,6 +11,8 @@
 当前第一项任务是定位“策略原地踏步但没有向前移动”的原因。
 
 **不知道下一步做什么时，先看 [项目工作流与当前步骤](PROJECT_WORKFLOW.md)。**
+当前运行副本的目标映射已修复；先建立修复后基线，再执行
+[std 单变量实验与修改教程](../../experiments/rma/EXP-005_tracking_width.md)。
 
 ```mermaid
 flowchart LR
