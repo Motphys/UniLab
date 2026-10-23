@@ -21,6 +21,7 @@ from unisim.backend.base import (
 
 from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend_factory import create_backend
+from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -434,6 +435,51 @@ def test_root_qvel_body_angular_contract_reads_back_world_velocity(backend_type:
 
     angular_velocity = backend.get_sensor_view("track_angvel_w_pelvis").detach().cpu().numpy()
     np.testing.assert_allclose(angular_velocity[0], [1.0, 0.0, 0.0], atol=2e-6)
+
+
+@pytest.mark.parametrize("backend_type", ["mujoco", "motrix"])
+def test_fused_tensor_root_reset_reads_back_world_angular_velocity(
+    backend_type: str,
+) -> None:
+    _require_backend(backend_type)
+    backend = _create_backend_for_test(
+        backend_type,
+        SceneCfg(model_file=_G1_SCENE),
+        1,
+        SIM_DT,
+        base_name="pelvis",
+        add_body_sensors=True,
+    )
+    backend.materialize()
+    try:
+        layout = backend.get_root_state_layout("pelvis")
+        qvel_indices = np.asarray(layout.qvel_indices)
+        reset = ResetStateTransaction(backend)
+        reset.declare_packed_reset_device(torch.device("cpu"))
+        root_state = torch.zeros((1, 13), dtype=torch.float32)
+        half_sqrt = float(np.sqrt(0.5))
+        root_state[:, 3:7] = torch.tensor([half_sqrt, 0.0, 0.0, half_sqrt])
+        root_state[:, 10:13] = torch.tensor([[1.0, 0.0, 0.0]])
+        reset_mask = torch.ones(1, dtype=torch.bool)
+
+        with reset.scoped_device_event_tensor(reset_mask):
+            reset.write_root_state_tensor(
+                reset_mask,
+                layout,
+                root_state,
+                term_name="fused_root_reset_contract",
+            )
+
+        generalized_qvel = backend.get_state_views(("qvel",))["qvel"].detach().cpu().numpy()
+        np.testing.assert_allclose(
+            generalized_qvel[0, qvel_indices[3:6]],
+            [0.0, -1.0, 0.0],
+            atol=2e-6,
+        )
+        world_angular = backend.get_sensor_view("track_angvel_w_pelvis").detach().cpu().numpy()
+        np.testing.assert_allclose(world_angular[0], [1.0, 0.0, 0.0], atol=2e-6)
+    finally:
+        backend.close()
 
 
 def test_mujoco_root_layout_resolves_a_nonfirst_free_joint(tmp_path: Path) -> None:
