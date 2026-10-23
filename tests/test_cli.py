@@ -727,6 +727,9 @@ def _register_play_interactive_demo(monkeypatch: pytest.MonkeyPatch) -> str:
 
 def test_demo_registry_contains_expected_entries() -> None:
     assert set(demo.DEMO_REGISTRY) == {
+        "a1-bimanual",
+        "a1-left-arm",
+        "a1-right-arm",
         "dance",
         "teaser",
     }
@@ -736,6 +739,26 @@ def test_demo_registry_contains_expected_entries() -> None:
         assert spec.entry == "eval"
         assert spec.sim == "mujoco"
         assert spec.algo == "ppo"
+    for name in ("a1-bimanual", "a1-left-arm", "a1-right-arm"):
+        spec = demo.DEMO_REGISTRY[name]
+        assert spec.entry == "robot_arm"
+        assert spec.sim == "mujoco"
+
+
+def test_robot_arm_demo_dispatches_without_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unilab import robot_arm_demo
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        robot_arm_demo,
+        "run_robot_arm_demo",
+        lambda demo_name: calls.append(demo_name) or 0,
+    )
+
+    assert demo.run_demo(demo_name="a1-left-arm") == 0
+    assert calls == ["a1-left-arm"]
 
 
 def test_demo_eval_entry_passes_checkpoint_as_load_run_override(
