@@ -13,6 +13,90 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.5.1 (2026-10-23)
+
+### Added / 新增
+
+- FlashSAC data-parallel learners now capture and replay the whole update
+  cycle, including NCCL reductions, by default on supported compiled CUDA
+  execution. Runner synchronizer hooks coordinate capture and replay, a
+  packed loss-validity sentinel keeps optimizer and target updates rank
+  consistent, and DP capture failure fails closed instead of allowing one rank
+  to fall back to eager collectives. Set
+  `algo.algo_params.dp_whole_cycle_cuda_graph=false` to disable DP capture, or
+  `algo.algo_params.use_whole_cycle_cuda_graph=false` to disable capture on all
+  ranks. `training.dp_gradient_wire_dtype=bfloat16` additionally opts into
+  lossy BF16 communication for sufficiently large FP32 gradient groups; FP32
+  remains the default and long-run convergence equivalence has not been
+  established
+  ([#2499](https://github.com/Motphys/UniLab/pull/2499)).
+  FlashSAC 数据并行 learner 在受支持的编译 CUDA 执行路径上，现在默认捕获并回放
+  包含 NCCL reduction 的完整 update cycle。Runner synchronizer hook 协调捕获与
+  回放；打包的 loss-validity sentinel 保证 optimizer 与 target update 在各 rank
+  一致；DP 捕获失败会 fail closed，而不是允许单个 rank 回退到 eager collectives。
+  设置 `algo.algo_params.dp_whole_cycle_cuda_graph=false` 可关闭 DP 捕获；
+  `algo.algo_params.use_whole_cycle_cuda_graph=false` 可在所有 rank 关闭捕获。
+  `training.dp_gradient_wire_dtype=bfloat16` 可额外为足够大的 FP32 gradient
+  group 选择有损 BF16 通信；FP32 仍为默认，且尚未证明长时间训练收敛等价
+  （[#2499](https://github.com/Motphys/UniLab/pull/2499)）。
+
+### Changed / 变更
+
+- Multi-GPU topology remains explicit and simple: omit
+  `CUDA_VISIBLE_DEVICES` for one rank, or provide one entry per selected GPU.
+  README now shows minimal two-GPU FlashSAC training and the manually managed
+  CUDA MPS flow. An explicit `training.cuda_process_sharing=mps` request
+  normalizes numeric GPU entries to host UUIDs before rank derivation and CUDA
+  initialization, so the documented per-GPU MPS launch no longer fails on the
+  second rank; `uni-cumps env` is reserved for external launchers
+  ([#2499](https://github.com/Motphys/UniLab/pull/2499),
+  [#2505](https://github.com/Motphys/UniLab/pull/2505)).
+  多 GPU 拓扑保持显式且简单：省略 `CUDA_VISIBLE_DEVICES` 使用一个 rank；为每张
+  选择的 GPU 提供一个条目则启用对应 rank。README 现在展示最小双卡 FlashSAC
+  训练和手动管理的 CUDA MPS 流程。显式 `training.cuda_process_sharing=mps`
+  请求会在 rank 派生和 CUDA 初始化前把数字 GPU 条目规范化为主机 UUID，因此
+  文档中的 per-GPU MPS 启动不再在第二个 rank 失败；`uni-cumps env` 仅保留给
+  外部启动器使用（[#2499](https://github.com/Motphys/UniLab/pull/2499)、
+  [#2505](https://github.com/Motphys/UniLab/pull/2505)）。
+
+### Fixed / 修复
+
+- PPO, APPO, SAC, and FlashSAC entrypoints now handle `Ctrl+C` cooperatively:
+  runner and collector cleanup finishes, the first interrupt returns shell
+  status `130` without a traceback, and a second interrupt forces termination.
+  Actual worker and rank failures remain loud
+  ([#2503](https://github.com/Motphys/UniLab/pull/2503)).
+  PPO、APPO、SAC 与 FlashSAC 入口现在协作处理 `Ctrl+C`：runner 与 collector
+  清理完成后，第一次中断以 shell status `130` 退出且不输出 traceback；第二次
+  中断强制终止。真实的 worker/rank 失败仍会完整暴露
+  （[#2503](https://github.com/Motphys/UniLab/pull/2503)）。
+- The off-policy live terminal display now starts at the collector-ready
+  handshake, preventing learner compilation, CUDA graph capture, and collector
+  startup messages from interleaving with live redraws
+  ([#2507](https://github.com/Motphys/UniLab/pull/2507)).
+  off-policy live 终端显示现在延迟到 collector-ready handshake，避免 learner
+  编译、CUDA graph 捕获和 collector 启动消息与 live 刷新交错
+  （[#2507](https://github.com/Motphys/UniLab/pull/2507)）。
+- Off-policy runners initialize the learner inference timer on every supported
+  device and record the effective `cuda_events` or synchronized wall-clock
+  implementation in the runtime manifest. This fixes macOS MPS SAC/FlashSAC
+  training failing at the first inference request
+  ([#2509](https://github.com/Motphys/UniLab/pull/2509)).
+  off-policy runner 会在每个受支持的 learner 设备上初始化推理计时器，并把实际
+  使用的 `cuda_events` 或同步 wall-clock 实现记录到 runtime manifest。该修复解决
+  macOS MPS SAC/FlashSAC 训练在第一次推理请求时失败的问题
+  （[#2509](https://github.com/Motphys/UniLab/pull/2509)）。
+- Fused community 13-D root-state and motion-state resets now rotate world-frame
+  angular velocity into the generalized free-root/body frame before tensor
+  submission, while linear velocity remains world-frame. Rotated roots with
+  nonzero angular velocity therefore initialize the intended physical state
+  without reintroducing host-boundary work
+  ([#2513](https://github.com/Motphys/UniLab/pull/2513)).
+  融合 community 13-D root-state 与 motion-state reset 现在会在 tensor 提交前把
+  world-frame 角速度旋转到 generalized free-root/body frame，线速度仍保持
+  world-frame。带非零角速度的旋转 root 因此能初始化为预期物理状态，且没有重新
+  引入 host-boundary 开销（[#2513](https://github.com/Motphys/UniLab/pull/2513)）。
+
 ## 1.5.0 (2026-10-22)
 
 ### Breaking changes / 破坏性变更
