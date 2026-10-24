@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-24",
+  "experiment": "EXP-006",
+  "source_runtime": "WSL UniLab source-only runtime; not the GitHub fork runtime",
+  "runtime_git_commit": null,
+  "source_directory": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123",
+  "scope": "single nominal initial condition, single environment, 1000 steps, seed 123; not a robustness study",
+  "copied_files": {
+    "comparison.json": {
+      "sha256": "a69d97bb857b25def179725e081584ad3f92ab5036a27c54d7608d4f0570a674",
+      "source": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/plots/comparison.json"
+    },
+    "plots/velocity_comparison.png": {
+      "sha256": "94dadd3224174e703b939262f9eacfe0dc51adf384757b20272d67b6a5a2410d",
+      "source": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/plots/velocity_comparison.png"
+    },
+    "plots/action_near_bounds.png": {
+      "sha256": "139465896411105d413684d272b7f1627c75f8bd06ef57aa39294e52ea421331",
+      "source": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/plots/action_near_bounds.png"
+    },
+    "plots/genesis_stability.png": {
+      "sha256": "aaf8933006d13016fd2ac4ad53e6be30128e5de3266be2783d886501cbea552a",
+      "source": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/plots/genesis_stability.png"
+    },
+    "mujoco/run_config.json": {
+      "sha256": "779c17c1bf1ac1cf576a85a4397aab4a0fc6232b9a084d584503845260f9563a",
+      "source": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/mujoco/eval_3wq40pkr/run_config.json"
+    },
+    "mujoco/summary.json": {
+      "sha256": "1bceeb223d0c896526d4a332669f3a45bec05d1a11f5fad21f4d44daca9c9616",
+      "source": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/mujoco/eval_3wq40pkr/summary.json"
+    },
+    "analysis_snapshot/compare_sim2sim_traces.py": {
+      "sha256": "622ff08d7908967063a4205315afd4954cfb2f8a74644932b9b33bf46fd6caae",
+      "source": "/home/abc/my_unilab/scripts/compare_sim2sim_traces.py"
+    },
+    "analysis_snapshot/NOMINAL_COMPARISON.md": {
+      "sha256": "6501a8e3c73eafdf1aa4d9a51a4b896619ae77c0081a4ed11f8f959fd21b6fb1",
+      "source": "/home/abc/my_unilab/scripts/tools/genesis_feasibility/NOMINAL_COMPARISON.md"
+    }
+  },
+  "raw_data": {
+    "mujoco": {
+      "source": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/mujoco/eval_3wq40pkr/transitions.csv",
+      "file": "traces/mujoco.csv.gz",
+      "rows": 1000,
+      "uncompressed_sha256": "1db4bb6f3453c954072acce0f869ff4ae8e0840a32988de5b59ded04be2ed1fe",
+      "compressed_sha256": "c4131d016c5b6b4fd118ce9b7dc3237590dd57ee90ea01c237de28e5178e4449"
+    },
+    "genesis": {
+      "source": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/genesis.csv",
+      "file": "traces/genesis.csv.gz",
+      "rows": 1000,
+      "uncompressed_sha256": "816205aff6e1557a4480d9d533bab1c819577aad448b26e4ff71410cba9cbe97",
+      "compressed_sha256": "3df965b79f2fd8b0ea3ca1278dbcd4cb662260a5db6fa14a77b7a0ef51e9dc6e"
+    }
+  },
+  "model_files": {
+    "student_mapping_v1_500.pt": {
+      "sha256": "33f62de2201d0dae7969ffca4aefe482239fd6ad02550749332cbd5b7a9f0218",
+      "bytes": 8356877,
+      "included_in_git": false
+    },
+    "student_mapping_v1_500.onnx": {
+      "sha256": "5dd0c739f3b2343551050b588bb94151898169311e161c5fe7ec73fb1d686f80",
+      "bytes": 2845225,
+      "included_in_git": false
+    }
+  },
+  "runtime_source_sha256": {
+    "scripts/train_rma.py": "a324025d073a5e726fdcc7133d620e67277f27bb2e0e919a22e6f5bdc4f89b7b",
+    "scripts/evaluate_rma.py": "80f42d5a9171d80e9a5f2684e9cf5f31236fd0ffddf8c11ef1e9d7ccc52ae431",
+    "scripts/sim2sim_genesis_go2.py": "89838e8d7b330863a816532a06a68962ee71812211ea15437baa987dc8a69c87",
+    "scripts/compare_sim2sim_traces.py": "622ff08d7908967063a4205315afd4954cfb2f8a74644932b9b33bf46fd6caae",
+    "scripts/run_genesis_go2.sh": "377f4c334e04657cd190da81d96428142b69abcbfe4bab5893567af5aa58896f",
+    "scripts/tools/genesis_feasibility/NOMINAL_COMPARISON.md": "6501a8e3c73eafdf1aa4d9a51a4b896619ae77c0081a4ed11f8f959fd21b6fb1"
+  }
+}

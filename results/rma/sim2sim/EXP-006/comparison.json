@@ -1,0 +1,71 @@
+{
+  "command": [
+    0.5,
+    0.0,
+    0.0
+  ],
+  "mujoco": {
+    "samples": 1000,
+    "mean_velocity": [
+      0.5520572142675519,
+      0.02310534722799457,
+      -0.08643446249634144
+    ],
+    "rmse_by_axis": [
+      0.10183338166805582,
+      0.04847269512295537,
+      0.16515393788608937
+    ],
+    "planar_rmse_m_s": 0.11278138053080795,
+    "fall_or_termination_count": 0,
+    "near_bound_fraction": [
+      0.016,
+      0.124,
+      0.118,
+      0.003,
+      0.013,
+      0.258,
+      0.03,
+      0.014,
+      0.044,
+      0.122,
+      0.155,
+      0.417
+    ]
+  },
+  "genesis": {
+    "samples": 1000,
+    "mean_velocity": [
+      0.4867710067454318,
+      0.027043490791460498,
+      0.03830585028952919
+    ],
+    "rmse_by_axis": [
+      0.16554040927260974,
+      0.05645601348660588,
+      0.15112661729348884
+    ],
+    "planar_rmse_m_s": 0.17490256876599314,
+    "fall_or_termination_count": 0,
+    "near_bound_fraction": [
+      0.002,
+      0.096,
+      0.116,
+      0.0,
+      0.01,
+      0.261,
+      0.011,
+      0.005,
+      0.032,
+      0.125,
+      0.12,
+      0.449
+    ]
+  },
+  "measurement": "Both use post-action IMU-site velocity; yaw rate is rad/s",
+  "limitation": "Nominal interface-aligned comparison; contact solvers remain different. No universal pass threshold.",
+  "sources": {
+    "mujoco": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/mujoco/eval_3wq40pkr/transitions.csv",
+    "genesis": "/home/abc/my_unilab/runs/rma/evaluations/sim2sim_nominal_v2_seed123/genesis.csv"
+  }
+}
