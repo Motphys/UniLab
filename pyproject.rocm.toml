@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "unilab"
-version = "1.5.0"
+version = "1.5.1"
 description = "Universal Lab for Robot Learning"
 readme = "README.md"
 license = "Apache-2.0"
@@ -23,7 +23,7 @@ classifiers = [
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "unisim-core==2.1.0",
+    "unisim-core==2.1.1",
     "prettytable>=3.10",
     "torch==2.14.0",
     "triton-rocm==3.8.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
@@ -72,7 +72,7 @@ mujoco = [
     "mujoco~=3.11.0",
     "mjbatch-uni~=0.2.5",
 ]
-motrix = ["unisim-core[motrix]==2.1.0"]
+motrix = ["unisim-core[motrix]==2.1.1"]
 
 [dependency-groups]
 # The RL stack (APPO/off-policy/multi-GPU) is merged into unilab itself
