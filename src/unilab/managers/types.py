@@ -293,6 +293,9 @@ class ManagerBasedRlEnv(Protocol):
     def command_manager(self) -> ManagerCommandManager: ...
 
     @property
+    def observation_manager(self) -> Any: ...
+
+    @property
     def event_manager(self) -> ManagerEventManager: ...
 
     @property

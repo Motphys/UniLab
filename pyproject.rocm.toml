@@ -73,6 +73,10 @@ mujoco = [
     "mjbatch-uni~=0.2.5",
 ]
 motrix = ["unisim-core[motrix]==2.1.1"]
+# Branch-local ROCm integration against sibling ray-contract checkouts. Keep
+# this extra aligned with pyproject.toml; the default runtime still resolves the
+# published unisim-core pin. uni-ray never becomes a runtime dependency.
+ray-local = ["uni-ray"]
 
 [dependency-groups]
 # The RL stack (APPO/off-policy/multi-GPU) is merged into unilab itself
@@ -90,6 +94,12 @@ torch = [
 ]
 triton-rocm = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+]
+unisim-core = [
+    { path = "../unisim", editable = true, marker = "extra == 'ray-local'" },
+]
+uni-ray = [
+    { path = "../uni_ray", editable = true, marker = "extra == 'ray-local'" },
 ]
 
 [tool.uv]

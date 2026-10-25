@@ -362,6 +362,23 @@ class ObservationManager(ManagerBase):
                 mod.reset(reset_mask)
         return {}
 
+    def bind_read_phase(self) -> None:
+        """Bind class terms after the scene's packed tensor read plan exists."""
+        for group_cfg in self._group_obs_class_term_cfgs.values():
+            for term_cfg in group_cfg:
+                binder = getattr(term_cfg.func, "bind_read_phase", None)
+                if not callable(binder):
+                    continue
+                binder()
+
+    def close(self) -> None:
+        """Forward close to class terms that own external resources."""
+        for group_cfg in self._group_obs_class_term_cfgs.values():
+            for term_cfg in group_cfg:
+                closer = getattr(term_cfg.func, "close", None)
+                if callable(closer):
+                    closer()
+
     def _check_and_handle_nans(
         self,
         tensor: torch.Tensor,
@@ -787,6 +804,16 @@ class ObservationManager(ManagerBase):
             return values
         raise TypeError("ObservationManager results must be torch.Tensor carriers")
 
+    def _deferred_term_width(self, term_cfg: ObservationTermCfg) -> int:
+        """Resolve the fixed width of a term that binds after the read phase."""
+        width = getattr(term_cfg.func, "observation_width", None)
+        if isinstance(width, bool) or not isinstance(width, int) or width <= 0:
+            raise TypeError(
+                f"ObservationManager term '{term_cfg.func}' with deferred read binding "
+                "must declare a positive integer observation_width"
+            )
+        return width
+
     def _prepare_terms(self) -> None:
         self._group_obs_term_names: dict[str, list[str]] = dict()
         self._group_obs_term_dim: dict[str, list[tuple[int, ...]]] = dict()
@@ -878,30 +905,34 @@ class ObservationManager(ManagerBase):
                 if hasattr(term_cfg.func, "reset") and callable(term_cfg.func.reset):
                     self._group_obs_class_term_cfgs[group_name].append(term_cfg)
 
-                initial_obs = term_cfg.func(self._env, **term_cfg.params)
-                if not isinstance(initial_obs, torch.Tensor):
-                    raise TypeError(
-                        f"ObservationManager term '{group_name}/{term_name}' returned "
-                        f"{type(initial_obs).__name__}, expected torch.Tensor."
-                    )
-                if initial_obs.dtype != torch.float32 or initial_obs.device != self._device:
-                    raise TypeError(
-                        f"ObservationManager term '{group_name}/{term_name}' must return "
-                        f"float32 observations on {self._device}; got "
-                        f"{initial_obs.dtype} on {initial_obs.device}."
-                    )
-                if initial_obs.ndim < 2 or initial_obs.shape[0] != self.num_envs:
-                    raise ValueError(
-                        f"ObservationManager term '{group_name}/{term_name}' returned shape "
-                        f"{initial_obs.shape}, expected (num_envs, ...) with "
-                        f"num_envs={self.num_envs}."
-                    )
-                obs_dims = tuple(initial_obs.shape)
+                deferred_bind = callable(getattr(term_cfg.func, "bind_read_phase", None))
+                if not deferred_bind:
+                    initial_obs = term_cfg.func(self._env, **term_cfg.params)
+                    if not isinstance(initial_obs, torch.Tensor):
+                        raise TypeError(
+                            f"ObservationManager term '{group_name}/{term_name}' returned "
+                            f"{type(initial_obs).__name__}, expected torch.Tensor."
+                        )
+                    if initial_obs.dtype != torch.float32 or initial_obs.device != self._device:
+                        raise TypeError(
+                            f"ObservationManager term '{group_name}/{term_name}' must return "
+                            f"float32 observations on {self._device}; got "
+                            f"{initial_obs.dtype} on {initial_obs.device}."
+                        )
+                    if initial_obs.ndim < 2 or initial_obs.shape[0] != self.num_envs:
+                        raise ValueError(
+                            f"ObservationManager term '{group_name}/{term_name}' returned shape "
+                            f"{initial_obs.shape}, expected (num_envs, ...) with "
+                            f"num_envs={self.num_envs}."
+                        )
+                    obs_dims = tuple(initial_obs.shape)
+                else:
+                    obs_dims = (self.num_envs, self._deferred_term_width(term_cfg))
 
                 if term_cfg.scale is not None:
                     scale = torch.as_tensor(term_cfg.scale, dtype=torch.float32)
                     self._scale_tensors[id(term_cfg)] = (
-                        scale.broadcast_to(initial_obs.shape).clone().to(device=self._device)
+                        scale.broadcast_to(obs_dims).clone().to(device=self._device)
                     )
 
                 if term_cfg.noise is not None and isinstance(

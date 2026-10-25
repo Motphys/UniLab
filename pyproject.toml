@@ -113,6 +113,11 @@ genesis = ["genesis-world==1.3.3"]
 superdex = [
     "unisim-core[superdex]==2.1.1 ; python_version >= '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
+# Branch-local integration against sibling ray-contract checkouts. The exact
+# published UniSim pin remains the default; the local path source overrides it
+# only when this optional extra is selected. uni-ray never becomes a runtime
+# dependency and is imported only by UniSim's public caster factory.
+ray-local = ["uni-ray"]
 
 [dependency-groups]
 # The RL stack (APPO/off-policy/multi-GPU) is merged into unilab itself
@@ -128,6 +133,12 @@ explicit = true
 # cu130 carries torch>=2.12 CUDA wheels for linux/win; macOS resolves from PyPI.
 torch = [
     { index = "r2-cu130", marker = "sys_platform=='linux' or sys_platform=='win32'" },
+]
+unisim-core = [
+    { path = "../unisim", editable = true, marker = "extra == 'ray-local'" },
+]
+uni-ray = [
+    { path = "../uni_ray", editable = true, marker = "extra == 'ray-local'" },
 ]
 [tool.uv]
 exclude-dependencies = ["torchvision"]

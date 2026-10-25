@@ -24,6 +24,10 @@ def _project_scripts(path: Path) -> dict[str, str]:
     return dict(project["project"]["scripts"])
 
 
+def _project(path: Path) -> dict:
+    return tomllib.loads(path.read_text(encoding="utf-8"))
+
+
 def test_rocm_profile_preserves_non_substituted_runtime_dependencies() -> None:
     default_dependencies = _dependencies(ROOT / "pyproject.toml")
     rocm_dependencies = _dependencies(ROOT / "pyproject.rocm.toml")
@@ -55,3 +59,19 @@ def test_rocm_lock_contains_profile_runtime_dependencies() -> None:
     assert "prettytable" in packages
     assert "prettytable" in root_dependencies
     assert "numba" not in root_dependencies
+
+
+def test_ray_local_optional_dependencies_stay_branch_local() -> None:
+    for path in (ROOT / "pyproject.toml", ROOT / "pyproject.rocm.toml"):
+        project = _project(path)
+        extras = project["project"]["optional-dependencies"]
+        assert extras["ray-local"] == ["uni-ray"]
+        assert "uni-ray" not in _dependencies(path)
+
+        sources = project["tool"]["uv"]["sources"]
+        assert sources["unisim-core"] == [
+            {"path": "../unisim", "editable": True, "marker": "extra == 'ray-local'"}
+        ]
+        assert sources["uni-ray"] == [
+            {"path": "../uni_ray", "editable": True, "marker": "extra == 'ray-local'"}
+        ]

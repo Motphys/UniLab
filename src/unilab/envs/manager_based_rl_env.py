@@ -427,12 +427,14 @@ class ManagerBasedRlEnv(TorchEnv):
                     env_ids=self._all_env_rows if self.event_manager.uses_startup_rows else None,
                 )
         self._compile_tensor_read_plan()
+        self.observation_manager.bind_read_phase()
         self.command_manager.bind_read_phase()
         self._validate_manager_tensor_runtime()
 
     def _compile_tensor_read_plan(self) -> None:
         """Compile the scene's only packed tensor read phase."""
         specs: list[SceneTensorReadSpec] = []
+        specs.extend(self._observation_ray_read_specs())
         specs.extend(self._action_tensor_read_specs())
         specs.extend(self._observation_tensor_read_specs())
         specs.extend(self._task_tensor_state_read_specs())
@@ -507,6 +509,10 @@ class ManagerBasedRlEnv(TorchEnv):
                         )
                     )
                 term = term_cfg.func
+                if getattr(term, "ray_pattern", None) is not None:
+                    # Ray terms already declared a pose-only body request above.
+                    # They must not also add the legacy four-field body-state set.
+                    continue
                 body_names = term_cfg.params.get("tensor_body_names")
                 if body_names is None:
                     body_names = getattr(term, "tensor_body_names", None)
@@ -530,6 +536,30 @@ class ManagerBasedRlEnv(TorchEnv):
                         f"'{name}' requires an entity_name parameter"
                     )
                 specs.append(SceneTensorReadSpec(entity=entity_name, body_names=tuple(body_names)))
+        return specs
+
+    def _observation_ray_read_specs(self) -> list[SceneTensorReadSpec]:
+        """Collect pose-only blocks needed by tensor ray observations."""
+        specs: list[SceneTensorReadSpec] = []
+        for group_name, terms in self.observation_manager.active_terms.items():
+            for name in terms:
+                term_cfg = self.observation_manager.get_term_cfg(group_name, name)
+                ray_pattern = getattr(term_cfg.func, "ray_pattern", None)
+                if ray_pattern is None:
+                    continue
+                if not isinstance(ray_pattern, mdp.RayPatternCfg):
+                    raise TypeError(
+                        "ManagerBasedRlEnv ray declaration for observation term "
+                        f"'{group_name}/{name}' must be RayPatternCfg; got "
+                        f"{type(ray_pattern).__name__}"
+                    )
+                specs.append(
+                    SceneTensorReadSpec(
+                        entity=ray_pattern.entity_name,
+                        body_names=tuple(ray_pattern.body_names),
+                        body_fields=("pos_w", "quat_w"),
+                    )
+                )
         return specs
 
     def _manager_term_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
@@ -1725,6 +1755,7 @@ class ManagerBasedRlEnv(TorchEnv):
         self._sim_step_counter = self.step_counter * self._cfg.sim_substeps
 
     def close(self) -> None:
+        self.observation_manager.close()
         read_plan = self.scene.read_plan
         if read_plan is not None:
             read_plan.close()
