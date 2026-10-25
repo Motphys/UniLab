@@ -142,12 +142,11 @@ class RayScan(ManagerTermBase):
             (torch.cos(angles), torch.sin(angles), torch.zeros_like(angles)), dim=-1
         ).contiguous()
         self._origins = torch.zeros(
-            (self._env.num_envs, self.ray_pattern.num_rays, 3),
+            (self.ray_pattern.num_rays, 3),
             dtype=torch.float32,
             device=self._device,
         )
-        self._origins[:, :, 2] = self.ray_pattern.pattern_center_height
-        self._origins = self._origins.contiguous()
+        self._origins[:, 2] = self.ray_pattern.pattern_center_height
         self._bound = True
 
     def __call__(self, env: ManagerBasedRlEnv) -> torch.Tensor:

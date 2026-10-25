@@ -70,6 +70,19 @@ class _FakeCaster:
     def trace_tensor(self, origins, directions, max_distance, env_ids=None, outputs=None):
         self.traces += 1
         self.last_inputs = (origins, directions, max_distance)
+        if origins.shape != directions.shape:
+            raise ValueError(
+                f"origin and direction tensor batches must have the same shape: "
+                f"{tuple(origins.shape)} != {tuple(directions.shape)}"
+            )
+        if origins.ndim != 2 or origins.shape[-1] != 3:
+            raise ValueError(
+                f"shared ray tensors must have shape [num_rays, 3]: {tuple(origins.shape)}"
+            )
+        if origins.shape[0] != self.num_rays:
+            raise ValueError(f"expected {self.num_rays} rays, got {origins.shape[0]}")
+        if not origins.is_contiguous() or not directions.is_contiguous():
+            raise ValueError("shared ray tensors must be contiguous")
         values = self.values
         if values is None:
             values = torch.arange(8, dtype=torch.float32).reshape(2, 4)
@@ -231,6 +244,27 @@ def test_ray_scan_copies_reused_caster_output_into_term_owned_carrier(monkeypatc
     source[0, 0] = 99.0
     third = term(term._env)
     assert third[0, 0].item() == source[0, 0].item()
+    term.close()
+
+
+def test_ray_scan_publishes_matching_shared_ray_batches(monkeypatch) -> None:
+    caster, term = _bind(monkeypatch)
+
+    term(term._env)
+
+    origins, directions, max_distance = caster.last_inputs
+    assert origins.shape == directions.shape == (4, 3)
+    assert origins.is_contiguous() and directions.is_contiguous()
+    assert origins.dtype == directions.dtype == torch.float32
+    assert origins.device == directions.device == torch.device("cpu")
+    torch.testing.assert_close(
+        origins,
+        torch.tensor(
+            [[0.0, 0.0, term.ray_pattern.pattern_center_height]] * 4,
+            dtype=torch.float32,
+        ),
+    )
+    assert max_distance == term.ray_pattern.max_distance
     term.close()
 
 
