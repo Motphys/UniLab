@@ -220,6 +220,9 @@ _TENSOR_BODY_SENSOR_FIELDS: tuple[tuple[str, str], ...] = (
     ("ang_vel_w", "track_angvel_w_"),
 )
 _TRACKED_BODY_SENSOR_PREFIXES = {field: prefix for field, prefix in _TENSOR_BODY_SENSOR_FIELDS}
+_TRACKED_BODY_SENSOR_PREFIX_TUPLE = tuple(
+    prefix for _, prefix in _TENSOR_BODY_SENSOR_FIELDS
+)
 _TENSOR_SENSOR_WIDTHS = {"pos_w": 3, "quat_w": 4, "lin_vel_w": 3, "ang_vel_w": 3}
 
 
@@ -279,6 +282,7 @@ class SceneTensorReadPlan:
         sensor_names: Mapping[str, tuple[str, ...]],
         body_names: Mapping[str, tuple[str, ...]],
         host_plan: HostBridgeTransferPlan | None,
+        attribution_diagnostics: bool = False,
     ) -> None:
         self._scene = scene
         self._device = torch.device(device)
@@ -286,6 +290,7 @@ class SceneTensorReadPlan:
         self._sensor_names = MappingProxyType(dict(sensor_names))
         self._body_names = MappingProxyType(dict(body_names))
         self._host_plan_value = host_plan
+        self._attribution_diagnostics = attribution_diagnostics
         self._packet_names = self._aggregate_packet_names()
         self._aggregate_body_views: dict[str, EntityTensorBodyStateView] = {}
         self._joint_column_indices: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
@@ -660,22 +665,45 @@ class SceneTensorReadPlan:
                 ) from exc
         else:
             try:
-                state_started = time.perf_counter()
+                state_started = (
+                    time.perf_counter() if self._attribution_diagnostics else None
+                )
                 # Every sensor must cross its public backend boundary. Genesis,
                 # Newton, and Isaac workers may project derived values into
                 # stable adapter-owned storage here; only a fresh call proves
                 # that storage reflects the current post-step/post-reset state.
                 raw = dict(backend.get_state_views(("qpos", "qvel"), device=self._device))
-                state_ms = (time.perf_counter() - state_started) * 1000.0
-                sensor_started = time.perf_counter()
+                state_ms = (
+                    (time.perf_counter() - state_started) * 1000.0
+                    if state_started is not None
+                    else 0.0
+                )
+                tracked_started = time.perf_counter() if self._attribution_diagnostics else None
                 for name in self._packet_names:
-                    view = backend.get_sensor_view(name, device=self._device)
-                    raw[name] = view
-                sensor_ms = (time.perf_counter() - sensor_started) * 1000.0
-                self._direct_read_timing = {
-                    "state_read_ms": state_ms,
-                    "sensor_projection_ms": sensor_ms,
-                }
+                    if name.startswith(_TRACKED_BODY_SENSOR_PREFIX_TUPLE):
+                        raw[name] = backend.get_sensor_view(name, device=self._device)
+                tracked_ms = (
+                    (time.perf_counter() - tracked_started) * 1000.0
+                    if tracked_started is not None
+                    else 0.0
+                )
+                named_started = time.perf_counter() if self._attribution_diagnostics else None
+                for name in self._packet_names:
+                    if not name.startswith(_TRACKED_BODY_SENSOR_PREFIX_TUPLE):
+                        raw[name] = backend.get_sensor_view(name, device=self._device)
+                named_ms = (
+                    (time.perf_counter() - named_started) * 1000.0
+                    if named_started is not None
+                    else 0.0
+                )
+                if self._attribution_diagnostics:
+                    self._direct_read_timing = {
+                        "state_read_ms": state_ms,
+                        "tracked_sensor_projection_ms": tracked_ms,
+                        "named_sensor_projection_ms": named_ms,
+                        "sensor_projection_ms": tracked_ms + named_ms,
+                        "sensor_projection_call_count": float(len(self._packet_names)),
+                    }
             except (AttributeError, KeyError, TypeError, ValueError, NotImplementedError) as exc:
                 raise type(exc)(
                     "Manager scene device-resident tensor read on backend "
@@ -4214,6 +4242,8 @@ class EntityScene(Mapping[str, Entity]):
         self,
         device: str | torch.device,
         specs: Sequence[SceneTensorReadSpec],
+        *,
+        attribution_diagnostics: bool = False,
     ) -> "SceneTensorReadPlan":
         """Compile the scene's only packed tensor read layout for one device.
 
@@ -4301,6 +4331,7 @@ class EntityScene(Mapping[str, Entity]):
             sensor_names=per_entity_sensors,
             body_names=expanded_bodies,
             host_plan=host_plan,
+            attribution_diagnostics=attribution_diagnostics,
         )
 
     @staticmethod

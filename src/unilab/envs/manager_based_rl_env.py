@@ -439,7 +439,15 @@ class ManagerBasedRlEnv(TorchEnv):
         specs.extend(self._manager_term_tensor_read_specs())
         specs.extend(self._command_tensor_read_specs())
         self.scene.read_plan = (
-            self.scene.compile_tensor_reads(self.device, specs) if specs else None
+            self.scene.compile_tensor_reads(
+                self.device,
+                specs,
+                attribution_diagnostics=bool(
+                    getattr(self.cfg, "genesis_attribution_diagnostics", False)
+                ),
+            )
+            if specs
+            else None
         )
 
     def _action_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
@@ -1211,8 +1219,17 @@ class ManagerBasedRlEnv(TorchEnv):
                 timing["update_state_backend_state_read_ms"] = read_timing.get(
                     "state_read_ms", 0.0
                 )
+                timing["update_state_backend_tracked_sensor_projection_ms"] = (
+                    read_timing.get("tracked_sensor_projection_ms", 0.0)
+                )
+                timing["update_state_backend_named_sensor_projection_ms"] = read_timing.get(
+                    "named_sensor_projection_ms", 0.0
+                )
                 timing["update_state_backend_sensor_projection_ms"] = read_timing.get(
                     "sensor_projection_ms", 0.0
+                )
+                timing["update_state_backend_sensor_projection_call_count"] = read_timing.get(
+                    "sensor_projection_call_count", 0.0
                 )
             return self._update_state_in_read_phase(state)
 

@@ -262,6 +262,8 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     # its own device.
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
+    if cfg.genesis_attribution_diagnostics:
+        result["attribution_diagnostics"] = True
     result["newton_use_cuda_graph"] = cfg.newton_use_cuda_graph
     return result
 

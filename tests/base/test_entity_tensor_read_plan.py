@@ -314,7 +314,7 @@ def test_device_resident_scene_plan_reuses_aggregate_body_views() -> None:
 def test_device_resident_scene_plan_refreshes_every_sensor_boundary() -> None:
     backend = _SceneTensorBackend(device_resident=True)
     scene = _scene(backend)
-    plan = scene.compile_tensor_reads("cpu", _specs())
+    plan = scene.compile_tensor_reads("cpu", _specs(), attribution_diagnostics=True)
 
     plan.refresh()
     calls_after_first_refresh = backend.sensor_view_calls
@@ -333,9 +333,29 @@ def test_device_resident_scene_plan_refreshes_every_sensor_boundary() -> None:
     # Genesis/Newton derived sensors are stable outputs, not native-live arrays.
     assert backend.sensor_view_calls == calls_after_first_refresh + len(plan.packet_names)
     assert plan.transfer_stats == {}
-    assert set(plan.last_timing) == {"state_read_ms", "sensor_projection_ms"}
+    assert set(plan.last_timing) == {
+        "state_read_ms",
+        "tracked_sensor_projection_ms",
+        "named_sensor_projection_ms",
+        "sensor_projection_ms",
+        "sensor_projection_call_count",
+    }
     assert plan.last_timing["state_read_ms"] >= 0.0
+    assert plan.last_timing["tracked_sensor_projection_ms"] >= 0.0
+    assert plan.last_timing["named_sensor_projection_ms"] >= 0.0
     assert plan.last_timing["sensor_projection_ms"] >= 0.0
+    assert plan.last_timing["sensor_projection_call_count"] == len(plan.packet_names)
+    plan.close()
+
+
+def test_device_resident_read_attribution_is_opt_in() -> None:
+    backend = _SceneTensorBackend(device_resident=True)
+    scene = _scene(backend)
+    plan = scene.compile_tensor_reads("cpu", _specs())
+
+    plan.refresh()
+
+    assert plan.last_timing == {}
     plan.close()
 
 

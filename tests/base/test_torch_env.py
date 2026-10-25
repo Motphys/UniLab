@@ -706,6 +706,12 @@ def test_backend_runtime_diagnostics_serialize_tensor_runtime_state() -> None:
     assert env.get_backend_runtime_diagnostics() == {
         "available": True,
         "backend_type": "mjwarp",
+        "tensor_profile": {
+            "execution": "host_bridge",
+            "data_plane": "host_bridge",
+            "process_topology": "in_process",
+            "torch_devices": ("cpu",),
+        },
         "diagnostics": {
             "cuda_graph": {
                 "requested": True,

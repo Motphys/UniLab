@@ -872,6 +872,7 @@ def test_env_cfg_genesis_fields_validate_and_reach_factory() -> None:
         genesis_constraint_solver="cg",
         genesis_friction_cone="pyramidal",
         genesis_solver_iterations=30,
+        genesis_attribution_diagnostics=True,
     )
     cfg.validate()
     kwargs = env_backend_kwargs(cfg)
@@ -881,10 +882,13 @@ def test_env_cfg_genesis_fields_validate_and_reach_factory() -> None:
         kwargs["genesis_constraint_solver"],
         kwargs["genesis_friction_cone"],
         kwargs["genesis_solver_iterations"],
-    ) == (1, "implicitfast", "cg", "pyramidal", 30)
+        kwargs["attribution_diagnostics"],
+    ) == (1, "implicitfast", "cg", "pyramidal", 30, True)
     with pytest.raises(ValueError, match="genesis_device_id must be a non-negative integer"):
         EnvCfg(genesis_device_id=-1).validate()
     with pytest.raises(ValueError, match="genesis_integrator must be a non-empty string"):
         EnvCfg(genesis_integrator="").validate()
     with pytest.raises(ValueError, match="genesis_solver_iterations must be a positive integer"):
         EnvCfg(genesis_solver_iterations=-1).validate()
+    with pytest.raises(ValueError, match="genesis_attribution_diagnostics must be bool"):
+        EnvCfg(genesis_attribution_diagnostics=1).validate()  # type: ignore[arg-type]
