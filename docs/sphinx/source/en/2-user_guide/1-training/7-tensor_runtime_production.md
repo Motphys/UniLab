@@ -413,6 +413,40 @@ used soak artifact schema `0.2.0` and older UniLab, unilab-rl, and UniSim
 commits before current schema-v1 consumer enforcement. Reproduce from the exact
 checked-out head with the command above when current-head evidence is required.
 
+## Genesis Collector Attribution Benchmark
+
+The #457 Genesis optimization lane uses the frozen FlashSAC G1
+motion-tracking owner rather than the benchmark's generic environment default.
+`--cases production` selects 2,048 environments from the owner, fixes both
+seeds to 457, enables only this benchmark's opt-in Genesis attribution
+diagnostics, and rejects a numeric `--num-envs` override. It fails closed
+unless UniSim negotiates the exact-CUDA `DEVICE_RESIDENT / DIRECT` profile;
+native Genesis `gs.metal` and `gs.amdgpu` engine support is not treated as a
+silent CPU, portable, or substitute-backend fallback.
+
+```bash
+CUDA_VISIBLE_DEVICES=0 uv run --extra genesis \
+  scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
+  --cases production \
+  --warmup-steps 10 \
+  --measure-steps 100 \
+  --tail-steps 20 \
+  --replay-capacity-steps 64 \
+  --out-json /absolute/path/issue457-collector.json \
+  --out-csv /absolute/path/issue457-collector.csv
+```
+
+The result envelope uses schema `unilab.offpolicy-collector-active/2`.
+`env_step_ms`, `replay_ms`, and `bookkeeping_ms` are the only additive active
+phases. Construction, first-transition setup, warmup, and teardown are outside
+active throughput; the tail is a subset of the active window; backend and
+Manager attribution children are non-additive diagnostics. The JSON records
+p50/p95, reset counts, package/GPU/git provenance, Genesis environment
+variables, the negotiated tensor profile, and the `unisim-core` distribution
+origin. Keep the JSON, CSV, and console log together in external immutable
+artifact storage; `scripts/benchmark/outputs/` remains intentionally
+untracked. No throughput result implies training-convergence quality.
+
 ## Optional Phase-Local Probe
 
 `g1_flashsac_backend.py` is a diagnostic probe, not the canonical end-to-end

@@ -53,8 +53,15 @@ materialize 冷路径补偿——热路径从不解析 XML：
 
 ## 前置条件
 
-- Linux x86_64，装有 NVIDIA GPU 与驱动。可行性探针只验证了 `gs.gpu`
-  通道；CPU backend 不是已验证的支持通道。
+- Manager tensor 运行时要求 Linux x86_64、NVIDIA GPU 与驱动。UniSim 已
+  审查的 Genesis tensor profile 是 exact `gs.cuda` + Torch CUDA + Genesis
+  zero-copy（`DEVICE_RESIDENT`、in-process、`DIRECT`）。
+- Genesis 1.3.3 引擎本身在 Apple Silicon 上原生支持 `gs.metal`，在
+  Linux HIP 上原生支持 `gs.amdgpu`；direct-engine G1 throughput 工作
+  （UniLab PR #2518 / discussion #2517）已证明这两条引擎 lane。它们
+  **不是** UniSim Genesis adapter tensor 生命周期支持声明。在 macOS 或
+  ROCm 上，exact-CUDA tensor 请求会在 backend 构造前 fail closed；不会
+  静默使用 CPU、portable Genesis、MPS、HIP 或其他后端。
 - 仓库钉定的 torch 窗口（x86_64 上为 torch 2.8）：探针中
   IMUSensor + contact-force 传感器组合在 torch 2.7 下崩溃（REPORT
   §3.4/§8）。

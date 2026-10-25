@@ -129,6 +129,18 @@ def fake_genesis(monkeypatch: pytest.MonkeyPatch):
 
         for name, original in factories.items():
             monkeypatch.setattr(torch, name, cuda_free_factory(original))
+
+        class FakeCudaEvent:
+            def record(self, stream: object) -> None:
+                del stream
+
+            def synchronize(self) -> None:
+                return None
+
+            def wait(self, stream: object) -> None:
+                del stream
+
+        monkeypatch.setattr(torch.cuda, "Event", lambda *args, **kwargs: FakeCudaEvent())
         monkeypatch.setattr(
             torch.cuda,
             "current_stream",
