@@ -43,6 +43,8 @@ def validate_result(result: Mapping[str, Any]) -> None:
         "case_profile",
         "num_envs_source",
         "num_envs",
+        "sim_dt",
+        "ctrl_dt",
         "seed",
         "resolved_config_sha256",
     ):
@@ -55,6 +57,8 @@ def validate_result(result: Mapping[str, Any]) -> None:
             or case["runtime_sim_backend"] != "genesis"
             or int(case["num_envs"]) != 2048
             or case["num_envs_source"] != "owner"
+            or float(case["sim_dt"]) != 0.006666666666666667
+            or float(case["ctrl_dt"]) != 0.02
         ):
             raise ValueError("production Genesis collector profile is not frozen")
 

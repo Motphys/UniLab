@@ -295,6 +295,7 @@ def test_production_case_resolves_from_owner_and_freezes_profile() -> None:
     assert cfg.algo.num_envs == 2048
     assert cfg.env.sim_dt == pytest.approx(0.006666666666666667)
     assert cfg.env.ctrl_dt == pytest.approx(0.02)
+    assert cfg.algo.num_envs == bench.PRODUCTION_NUM_ENVS
 
     with pytest.raises(ValueError, match="requires its 2048-env owner value"):
         bench._validate_production_cfg(cfg, num_envs_source="cli")

@@ -395,6 +395,8 @@ class CollectorCase:
     env_steps_per_sync: int
     case_profile: str = "generic"
     num_envs_source: str = "cli"
+    sim_dt: float = 0.0
+    ctrl_dt: float = 0.0
     # Exact environment shape and term-set fixation for Gate UP evidence.
     seed: int = 0
     env_seed: int | None = None
@@ -879,6 +881,8 @@ def _build_case(
         env_steps_per_sync=int(cfg.training.env_steps_per_sync),
         case_profile="production" if production else "generic",
         num_envs_source="owner" if production else "cli",
+        sim_dt=float(cfg.env.sim_dt),
+        ctrl_dt=float(cfg.env.ctrl_dt),
         seed=int(cfg.algo.seed),
         env_seed=(
             int(cfg.env.seed)
@@ -1147,7 +1151,8 @@ def _run_active_window_case(
             current_ep_rewards += rewards
             current_ep_lengths += 1
             reset_indices = terminal_mask.nonzero(as_tuple=False).flatten()
-            reset_rows_samples.append(float(reset_indices.numel()))
+            if record:
+                reset_rows_samples.append(float(reset_indices.numel()))
             if reset_indices.numel() > 0:
                 ep_rewards.extend(current_ep_rewards[reset_indices].detach().cpu().tolist())
                 ep_lengths.extend(current_ep_lengths[reset_indices].detach().cpu().tolist())
