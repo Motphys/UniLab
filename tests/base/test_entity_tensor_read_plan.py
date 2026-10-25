@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import MethodType
+from types import MethodType, SimpleNamespace
 from typing import cast
 
 import numpy as np
@@ -219,6 +219,13 @@ class _SceneTensorBackend:
                 backend.selected_reads += 1
                 return backend._packet()
 
+            def get_body_pose_views(self):
+                return SimpleNamespace(
+                    body_names=("robot/hip",),
+                    pos_w=backend.body_blocks["body_pos_w"],
+                    quat_w=backend.body_blocks["body_quat_w"],
+                )
+
             def write_control(self, ctrl) -> None:
                 return None
 
@@ -239,7 +246,6 @@ class _SceneTensorBackend:
         packet.update(self.sensors)
         if self.device_resident:
             return packet
-        packet.update(self.body_blocks)
         return packet
 
 

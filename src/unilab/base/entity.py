@@ -449,7 +449,14 @@ class SceneTensorReadPlan:
         """Publish one full-batch packet for the current read phase."""
         self._require_not_closed()
         if self._host_plan_value is not None:
-            packet = self._read_packet(self._host_plan_value.read_state_sensors)
+            if self._packet_body_blocks:
+
+                def reader() -> dict[str, torch.Tensor]:
+                    return self._read_host_body_blocks(selected=False)
+
+            else:
+                reader = self._host_plan_value.read_state_sensors
+            packet = self._read_packet(reader)
         else:
             packet = self._read_device_resident_packet()
         self._publish_packet(packet)
@@ -463,7 +470,14 @@ class SceneTensorReadPlan:
         """
         self._require_not_closed()
         if self._host_plan_value is not None:
-            packet = self._read_packet(self._host_plan_value.read_selected_state_sensors)
+            if self._packet_body_blocks:
+
+                def reader() -> dict[str, torch.Tensor]:
+                    return self._read_host_body_blocks(selected=True)
+
+            else:
+                reader = self._host_plan_value.read_selected_state_sensors
+            packet = self._read_packet(reader)
         else:
             packet = self._read_device_resident_packet()
         self._publish_packet(packet)
@@ -478,6 +492,22 @@ class SceneTensorReadPlan:
         post-step and post-reset packets cannot republish stale projections.
         """
         return self._read_packet(None)
+
+    def _read_host_body_blocks(self, *, selected: bool) -> dict[str, torch.Tensor]:
+        """Expose packed body blocks as views of the single host-bridge packet."""
+        host_plan = self._host_plan_value
+        assert host_plan is not None
+        source = (
+            host_plan.read_selected_state_sensors() if selected else host_plan.read_state_sensors()
+        )
+        packet = dict(source)
+        poses = host_plan.get_body_pose_views()
+        for field in _TENSOR_POSE_BODY_FIELDS:
+            packet_name = _TENSOR_BODY_PACKET_FIELDS[field]
+            value = getattr(poses, field)
+            if value is not None:
+                packet[packet_name] = value.reshape(value.shape[0], -1)
+        return packet
 
     def invalidate(self) -> None:
         """Drop phase values after an in-phase simulation mutation."""
