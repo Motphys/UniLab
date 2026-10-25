@@ -220,9 +220,7 @@ _TENSOR_BODY_SENSOR_FIELDS: tuple[tuple[str, str], ...] = (
     ("ang_vel_w", "track_angvel_w_"),
 )
 _TRACKED_BODY_SENSOR_PREFIXES = {field: prefix for field, prefix in _TENSOR_BODY_SENSOR_FIELDS}
-_TRACKED_BODY_SENSOR_PREFIX_TUPLE = tuple(
-    prefix for _, prefix in _TENSOR_BODY_SENSOR_FIELDS
-)
+_TRACKED_BODY_SENSOR_PREFIX_TUPLE = tuple(prefix for _, prefix in _TENSOR_BODY_SENSOR_FIELDS)
 _TENSOR_SENSOR_WIDTHS = {"pos_w": 3, "quat_w": 4, "lin_vel_w": 3, "ang_vel_w": 3}
 
 
@@ -665,9 +663,7 @@ class SceneTensorReadPlan:
                 ) from exc
         else:
             try:
-                state_started = (
-                    time.perf_counter() if self._attribution_diagnostics else None
-                )
+                state_started = time.perf_counter() if self._attribution_diagnostics else None
                 # Every sensor must cross its public backend boundary. Genesis,
                 # Newton, and Isaac workers may project derived values into
                 # stable adapter-owned storage here; only a fresh call proves

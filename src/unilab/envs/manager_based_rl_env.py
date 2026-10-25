@@ -1216,11 +1216,9 @@ class ManagerBasedRlEnv(TorchEnv):
             timing["update_state_read_boundary_ms"] = boundary_ms
             if read_plan is not None:
                 read_timing = read_plan.last_timing
-                timing["update_state_backend_state_read_ms"] = read_timing.get(
-                    "state_read_ms", 0.0
-                )
-                timing["update_state_backend_tracked_sensor_projection_ms"] = (
-                    read_timing.get("tracked_sensor_projection_ms", 0.0)
+                timing["update_state_backend_state_read_ms"] = read_timing.get("state_read_ms", 0.0)
+                timing["update_state_backend_tracked_sensor_projection_ms"] = read_timing.get(
+                    "tracked_sensor_projection_ms", 0.0
                 )
                 timing["update_state_backend_named_sensor_projection_ms"] = read_timing.get(
                     "named_sensor_projection_ms", 0.0

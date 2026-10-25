@@ -638,9 +638,7 @@ def _backend_runtime_diagnostics(env: Any) -> dict[str, dict[str, bool | str | N
     }
 
 
-def _backend_tensor_profile(
-    env: Any, *, require_attribution: bool = False
-) -> dict[str, Any]:
+def _backend_tensor_profile(env: Any, *, require_attribution: bool = False) -> dict[str, Any]:
     """Record and fail closed on the negotiated public tensor profile."""
 
     get_diagnostics = getattr(env, "get_backend_runtime_diagnostics", None)
@@ -675,7 +673,9 @@ def _backend_tensor_profile(
     if require_attribution and not bool(
         diagnostics.get("attribution_diagnostics", {}).get("enabled", False)
     ):
-        raise RuntimeError("Genesis production collector benchmark requires attribution diagnostics")
+        raise RuntimeError(
+            "Genesis production collector benchmark requires attribution diagnostics"
+        )
     return profile
 
 
@@ -1234,9 +1234,7 @@ def _run_active_window_case(
         tail_active_steps_per_sec=tail_rate,
         reset_rows_total=int(sum(reset_rows_samples)),
         reset_vector_step_count=sum(value > 0.0 for value in reset_rows_samples),
-        reset_rows_per_vector_step=(
-            _stats(reset_rows_samples) if reset_rows_samples else None
-        ),
+        reset_rows_per_vector_step=(_stats(reset_rows_samples) if reset_rows_samples else None),
         phase_ms_per_vector_step=phase_stats,
         phase_pct=phase_pct,
         notes=[],
@@ -1418,9 +1416,7 @@ def _runtime_fixation() -> dict[str, Any]:
         "git": {
             "unilab": _git_fixation(ROOT_DIR),
             "unisim": (
-                _git_fixation(unisim_repository)
-                if (unisim_repository / ".git").exists()
-                else None
+                _git_fixation(unisim_repository) if (unisim_repository / ".git").exists() else None
             ),
         },
         "unisim_source": _distribution_source("unisim-core"),
@@ -2560,9 +2556,7 @@ def main() -> int:
     if production:
         effective_num_envs = None
     seed_overrides = [] if seed is None else [f"algo.seed={seed}", f"env.seed={seed}"]
-    production_overrides = (
-        ["env.genesis_attribution_diagnostics=true"] if production else []
-    )
+    production_overrides = ["env.genesis_attribution_diagnostics=true"] if production else []
 
     hardware_info = _get_benchmark_hardware_info()
     print(f"Device: {get_device_info_line()}")
