@@ -12,6 +12,7 @@ def test_default_matrix_covers_requested_backends_and_env_counts() -> None:
 
     assert benchmark._parse_backends(args.backends) == ["genesis", "mjbatch", "motrixsim"]
     assert benchmark._parse_backends("mjwarp") == ["mjwarp"]
+    assert benchmark._parse_backends("newton") == ["newton"]
     assert benchmark.parse_sizes(args.batch_sizes) == [1024, 2048, 4096, 8192]
     assert benchmark.TASK == "g1_walk_flat"
 
@@ -252,6 +253,30 @@ def test_mjwarp_initializes_keyframe_and_synchronizes_step_block(
     np.testing.assert_array_equal(data.qpos.value, [[1, 2], [1, 2]])
     np.testing.assert_array_equal(data.qvel.value, [[3, 4], [3, 4]])
     np.testing.assert_array_equal(data.ctrl.value, [[5, 6], [5, 6]])
+
+
+def test_newton_converts_quaternion_and_actuator_targets() -> None:
+    model = SimpleNamespace(
+        nq=7,
+        nv=6,
+        nu=2,
+        actuator_trnid=np.array([[0], [1]]),
+        actuator_biasprm=np.array([[0, 1, 0], [0, 0, 1]]),
+        jnt_qposadr=np.array([3, 4]),
+        jnt_dofadr=np.array([2, 3]),
+    )
+
+    qpos, qvel, target_q, target_qd = benchmark._newton_state_and_targets(
+        model,
+        np.array([0, 0, 0, 1, 2, 3, 4]),
+        np.zeros(6),
+        np.array([0.5, -0.5]),
+    )
+
+    np.testing.assert_array_equal(qpos, [0, 0, 0, 2, 3, 4, 1])
+    np.testing.assert_array_equal(qvel, np.zeros(6))
+    np.testing.assert_array_equal(target_q, [0, 0, 0, 0.5, 0, 0, 0])
+    np.testing.assert_array_equal(target_qd, [0, 0, 0, -0.5, 0, 0])
 
 
 def test_benchmark_reports_physics_throughput_and_cleans_up(

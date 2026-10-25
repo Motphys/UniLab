@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
-"""Compare pure G1 physics throughput on Genesis, MJWarp, mjbatch, and MotrixSim.
+"""Compare G1 physics throughput on Genesis, MJWarp, Newton, mjbatch, and MotrixSim.
 
 This calls each engine directly and excludes controls, state/sensor copies,
 observations, rewards, and resets from the measured region. All engines load the
@@ -11,6 +11,7 @@ Run on Apple Silicon (Metal) or Linux with NVIDIA CUDA / AMD ROCm:
         scripts/benchmark/physics/benchmark_g1_physics_throughput.py
 
 Add `--backends mjwarp` and the `mjwarp` extra to include MuJoCo Warp on CUDA.
+Add `--backends newton` and the `newton` extra to include Newton on CUDA.
 """
 
 from __future__ import annotations
@@ -73,10 +74,18 @@ except Exception as exc:
 else:
     _MJWARP_IMPORT_ERROR = None
 
+try:
+    import newton
+except Exception as exc:
+    newton = None
+    _NEWTON_IMPORT_ERROR: Exception | None = exc
+else:
+    _NEWTON_IMPORT_ERROR = None
+
 
 TASK = "g1_walk_flat"
 BACKENDS = ("genesis", "mjbatch", "motrixsim")
-SUPPORTED_BACKENDS = (*BACKENDS, "mjwarp")
+SUPPORTED_BACKENDS = (*BACKENDS, "mjwarp", "newton")
 DEFAULT_BATCH_SIZES = (1024, 2048, 4096, 8192)
 SIM_DT = 1.0 / 150.0
 DEFAULT_NSTEP = 20
@@ -129,6 +138,11 @@ def _require_backend(backend: str) -> None:
             mj_warp if mj_warp is not None and warp is not None else None,
             _MJWARP_IMPORT_ERROR,
             "mjwarp",
+        ),
+        "newton": (
+            newton if newton is not None and warp is not None else None,
+            _NEWTON_IMPORT_ERROR,
+            "newton",
         ),
     }[backend]
     if module is None:
@@ -295,6 +309,98 @@ def _build_mjwarp(
     return PhysicsRun(step, warp.synchronize, _noop, "cuda", 0)
 
 
+def _newton_state_and_targets(
+    model: mujoco.MjModel,
+    qpos: np.ndarray,
+    qvel: np.ndarray,
+    ctrl: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    if not np.allclose(qvel, 0.0):
+        raise ValueError("Newton benchmark requires the zero-velocity stand keyframe")
+    newton_qpos = np.array(qpos, dtype=np.float32, copy=True)
+    newton_qpos[3:7] = np.roll(newton_qpos[3:7], -1)
+    target_q = np.zeros(model.nq, dtype=np.float32)
+    target_qd = np.zeros(model.nv, dtype=np.float32)
+    for actuator_id in range(model.nu):
+        joint_id = int(model.actuator_trnid[actuator_id, 0])
+        bias = model.actuator_biasprm[actuator_id]
+        if abs(float(bias[1])) > 1e-8:
+            target_q[model.jnt_qposadr[joint_id]] = ctrl[actuator_id]
+        elif abs(float(bias[2])) > 1e-8:
+            target_qd[model.jnt_dofadr[joint_id]] = ctrl[actuator_id]
+        else:
+            raise ValueError("Newton benchmark requires position or velocity actuators")
+    return newton_qpos, np.asarray(qvel, dtype=np.float32), target_q, target_qd
+
+
+def _build_newton(
+    xml_path: str,
+    model: mujoco.MjModel,
+    qpos: np.ndarray,
+    qvel: np.ndarray,
+    ctrl: np.ndarray,
+    batch_size: int,
+    nstep: int,
+) -> PhysicsRun:
+    if newton is None or warp is None:
+        _require_backend("newton")
+    if not warp.get_device().is_cuda:
+        raise RuntimeError("Newton throughput benchmark requires a CUDA device")
+    device = warp.get_device().alias
+    template = newton.ModelBuilder()
+    newton.solvers.SolverMuJoCo.register_custom_attributes(template)
+    template.add_mjcf(xml_path, ctrl_direct=False)
+    builder = newton.ModelBuilder()
+    builder.replicate(template, batch_size)
+    previous_layout = newton.use_coord_layout_targets
+    newton.use_coord_layout_targets = True
+    try:
+        newton_model = builder.finalize(device=device)
+    finally:
+        newton.use_coord_layout_targets = previous_layout
+    solver = newton.solvers.SolverMuJoCo(
+        newton_model,
+        separate_worlds=True,
+        nconmax=320,
+        njmax=512,
+        solver="newton",
+        integrator="implicitfast",
+        use_mujoco_cpu=False,
+        use_mujoco_contacts=True,
+        update_data_interval=1,
+    )
+    state_in = newton_model.state()
+    state_out = newton_model.state()
+    control = newton_model.control()
+    contacts = newton.Contacts(solver.get_max_contact_count(), 0, device=device)
+    newton_qpos, newton_qvel, target_q, target_qd = _newton_state_and_targets(
+        model, qpos, qvel, ctrl
+    )
+    state_in.joint_q.assign(
+        np.ascontiguousarray(np.broadcast_to(newton_qpos, (batch_size, model.nq))).reshape(-1)
+    )
+    state_in.joint_qd.assign(
+        np.ascontiguousarray(np.broadcast_to(newton_qvel, (batch_size, model.nv))).reshape(-1)
+    )
+    control.joint_target_q.assign(
+        np.ascontiguousarray(np.broadcast_to(target_q, (batch_size, model.nq))).reshape(-1)
+    )
+    control.joint_target_qd.assign(
+        np.ascontiguousarray(np.broadcast_to(target_qd, (batch_size, model.nv))).reshape(-1)
+    )
+    newton.eval_fk(newton_model, state_in.joint_q, state_in.joint_qd, state_in)
+    solver.reset(state_in, flags=0)
+
+    def step() -> None:
+        nonlocal state_in, state_out
+        for _ in range(nstep):
+            state_in.clear_forces()
+            solver.step(state_in, state_out, control, contacts, SIM_DT)
+            state_in, state_out = state_out, state_in
+
+    return PhysicsRun(step, warp.synchronize, _noop, "cuda", 0)
+
+
 def _benchmark(
     backend: str,
     xml_path: str,
@@ -311,6 +417,8 @@ def _benchmark(
         run = _build_mjbatch(model, qpos, qvel, ctrl, batch_size, nstep, nthread)
     elif backend == "mjwarp":
         run = _build_mjwarp(model, qpos, qvel, ctrl, batch_size, nstep)
+    elif backend == "newton":
+        run = _build_newton(xml_path, model, qpos, qvel, ctrl, batch_size, nstep)
     else:
         run = _build_motrixsim(xml_path, batch_size, nstep, nthread)
 
@@ -346,6 +454,7 @@ def _package_versions() -> dict[str, str]:
         "motrixsim-core",
         "mujoco-warp",
         "warp-lang",
+        "newton",
     ):
         try:
             versions[package] = importlib.metadata.version(package)
@@ -426,12 +535,14 @@ def main(argv: list[str] | None = None) -> int:
                 "genesis": "implicitfast",
                 "mjbatch": "implicitfast (MJCF)",
                 "mjwarp": "implicitfast (MJCF)",
+                "newton": "implicitfast",
                 "motrixsim": "engine default (MJCF integrator unsupported)",
             },
             "solver_settings": {
                 "genesis": "RigidOptions defaults",
                 "mjbatch": "MJCF/MuJoCo defaults",
                 "mjwarp": "eager kernels; njmax=256; nconmax=256; sync per nstep block",
+                "newton": "SolverMuJoCo Newton; njmax=512; nconmax=320; sync per nstep block",
                 "motrixsim": "UniSim production max_iterations=3",
             },
             "initial_state": "stand keyframe; keyframe ctrl held",
