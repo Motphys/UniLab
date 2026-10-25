@@ -124,6 +124,48 @@ def test_cuda_tensor_backends_are_opt_in() -> None:
         assert bench._resolve_backend_selection(backend="mjwarp", all_backends=False) == ("mjwarp",)
 
 
+def test_genesis_benchmark_fails_closed_on_non_exact_tensor_profile() -> None:
+    class UnsupportedBackend:
+        backend_type = "genesis"
+
+        def get_tensor_execution(self):
+            return SimpleNamespace(value="unsupported")
+
+        def get_tensor_capabilities(self):
+            return SimpleNamespace(
+                data_plane=SimpleNamespace(value="direct"),
+                process_topology=SimpleNamespace(value="in_process"),
+                torch_devices=("cpu",),
+            )
+
+    with pytest.raises(RuntimeError, match="exact-CUDA DEVICE_RESIDENT/DIRECT"):
+        bench._backend_tensor_profile(SimpleNamespace(_backend=UnsupportedBackend()))
+
+
+def test_collector_result_records_lifecycle_and_tensor_profile() -> None:
+    result = _make_result()
+    result.construction_ms = 11.0
+    result.collector_setup_ms = 12.0
+    result.warmup_ms = 13.0
+    result.teardown_ms = 14.0
+    result.backend_tensor_profile = {
+        "backend_type": "genesis",
+        "execution": "device_resident",
+        "data_plane": "direct",
+        "process_topology": "in_process",
+        "torch_devices": ("cuda",),
+    }
+
+    payload = bench._result_to_dict(result)
+
+    assert payload["construction_ms"] == 11.0
+    assert payload["collector_setup_ms"] == 12.0
+    assert payload["warmup_ms"] == 13.0
+    assert payload["teardown_ms"] == 14.0
+    assert payload["backend_tensor_profile"]["execution"] == "device_resident"
+    assert payload["backend_tensor_profile"]["data_plane"] == "direct"
+
+
 def test_resolve_case_specs_deduplicates_explicit_specs() -> None:
     specs = bench._resolve_case_specs(
         "sac/g1_walk_flat/mujoco,sac/g1_walk_flat/mujoco,flashsac/g1_walk_flat/mujoco",
@@ -313,6 +355,11 @@ def test_write_csv_includes_all_phase_columns(tmp_path) -> None:
 
     header = out_csv.read_text(encoding="utf-8").splitlines()[0]
     assert "bookkeeping_ms" in header
+    assert "construction_ms" in header
+    assert "collector_setup_ms" in header
+    assert "warmup_ms" in header
+    assert "teardown_ms" in header
+    assert "backend_tensor_reset_state_publication_ms" in header
     assert "env_step_overhead_ms" in header
     assert "physics_pct" in header
     assert "env_step_overhead_pct" in header

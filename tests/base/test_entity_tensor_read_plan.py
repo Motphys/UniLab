@@ -333,7 +333,9 @@ def test_device_resident_scene_plan_refreshes_every_sensor_boundary() -> None:
     # Genesis/Newton derived sensors are stable outputs, not native-live arrays.
     assert backend.sensor_view_calls == calls_after_first_refresh + len(plan.packet_names)
     assert plan.transfer_stats == {}
-    assert plan.last_timing == {}
+    assert set(plan.last_timing) == {"state_read_ms", "sensor_projection_ms"}
+    assert plan.last_timing["state_read_ms"] >= 0.0
+    assert plan.last_timing["sensor_projection_ms"] >= 0.0
     plan.close()
 
 

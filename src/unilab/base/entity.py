@@ -8,6 +8,7 @@ public :class:`~unisim.backend.base.SimBackend` contract.
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -301,6 +302,7 @@ class SceneTensorReadPlan:
         self._packet: Mapping[str, torch.Tensor] = MappingProxyType({})
         self._refreshed = False
         self._closed = False
+        self._direct_read_timing: dict[str, float] = {}
 
     @property
     def scene(self) -> "EntityScene":
@@ -620,7 +622,7 @@ class SceneTensorReadPlan:
     def last_timing(self) -> dict[str, float]:
         self._require_open()
         if self._host_plan_value is None:
-            return {}
+            return dict(self._direct_read_timing)
         return dict(self._host_plan_value.last_timing)
 
     def close(self) -> None:
@@ -658,14 +660,22 @@ class SceneTensorReadPlan:
                 ) from exc
         else:
             try:
+                state_started = time.perf_counter()
                 # Every sensor must cross its public backend boundary. Genesis,
                 # Newton, and Isaac workers may project derived values into
                 # stable adapter-owned storage here; only a fresh call proves
                 # that storage reflects the current post-step/post-reset state.
                 raw = dict(backend.get_state_views(("qpos", "qvel"), device=self._device))
+                state_ms = (time.perf_counter() - state_started) * 1000.0
+                sensor_started = time.perf_counter()
                 for name in self._packet_names:
                     view = backend.get_sensor_view(name, device=self._device)
                     raw[name] = view
+                sensor_ms = (time.perf_counter() - sensor_started) * 1000.0
+                self._direct_read_timing = {
+                    "state_read_ms": state_ms,
+                    "sensor_projection_ms": sensor_ms,
+                }
             except (AttributeError, KeyError, TypeError, ValueError, NotImplementedError) as exc:
                 raise type(exc)(
                     "Manager scene device-resident tensor read on backend "

@@ -100,6 +100,8 @@ ENV_STEP_TIMING_KEYS = (
     "update_state_ms",
     "update_state_cpu_ms",
     "update_state_read_boundary_ms",
+    "update_state_backend_state_read_ms",
+    "update_state_backend_sensor_projection_ms",
     "update_state_prelude_ms",
     "update_state_queue_drain_ms",
     "update_state_termination_ms",
@@ -226,6 +228,17 @@ ENV_STEP_TIMING_KEYS = (
     "set_state_tensor_mask_ms",
     "set_state_tensor_commit_forward_ms",
     "set_state_tensor_host_cache_refresh_ms",
+    # Genesis device-resident internals. Times are auxiliary sub-timings of
+    # step_core/reset; *_count fields are event counts, not milliseconds.
+    "backend_tensor_control_upload_ms",
+    "backend_tensor_control_h2d_count",
+    "backend_tensor_physics_ms",
+    "backend_tensor_state_publication_ms",
+    "backend_tensor_state_d2d_copy_count",
+    "backend_tensor_state_sync_count",
+    "backend_tensor_reset_validation_ms",
+    "backend_tensor_reset_apply_ms",
+    "backend_tensor_reset_state_publication_ms",
 )
 ENV_STEP_COUNT_KEYS = (
     "reset_done_count",
@@ -251,6 +264,11 @@ ENV_STEP_TIMING_CSV_FIELDS = (
     ("apply_action_ms", "apply_action_ms"),
     ("step_core_ms", "step_core_ms"),
     ("update_state_ms", "update_state_ms"),
+    ("update_state_backend_state_read_ms", "update_state_backend_state_read_ms"),
+    (
+        "update_state_backend_sensor_projection_ms",
+        "update_state_backend_sensor_projection_ms",
+    ),
     ("reset_done_ms", "reset_done_ms"),
     ("env_step_internal_gap_ms", "env_step_internal_gap_ms"),
     ("reset_done_terminal_obs_ms", "reset_done_terminal_obs_ms"),
@@ -279,6 +297,12 @@ ENV_STEP_TIMING_CSV_FIELDS = (
     ("reset_done_motion_reset_publish_ms", "reset_done_motion_reset_publish_ms"),
     ("reset_done_reset_commit_ms", "reset_done_reset_commit_ms"),
     ("reset_done_reset_validation_ms", "reset_done_reset_validation_ms"),
+    ("backend_tensor_reset_validation_ms", "backend_tensor_reset_validation_ms"),
+    ("backend_tensor_reset_apply_ms", "backend_tensor_reset_apply_ms"),
+    (
+        "backend_tensor_reset_state_publication_ms",
+        "backend_tensor_reset_state_publication_ms",
+    ),
     ("reset_done_command_refresh_ms", "reset_done_command_refresh_ms"),
     ("reset_done_command_post_compute_ms", "reset_done_command_post_compute_ms"),
     ("reset_done_motion_robot_refresh_ms", "reset_done_motion_robot_refresh_ms"),
@@ -384,6 +408,13 @@ class CollectorResult:
     phase_ms_per_vector_step: dict[str, TimingStats]
     phase_pct: dict[str, float]
     notes: list[str]
+    # Lifecycle phases are intentionally outside total_active_ms. Construction
+    # includes backend materialization and the initial reset; setup includes the
+    # first transition/JIT drain; teardown closes the collector-owned backend.
+    construction_ms: float = 0.0
+    collector_setup_ms: float = 0.0
+    warmup_ms: float = 0.0
+    teardown_ms: float = 0.0
     # Aggregate rate over the final measured steps. This mirrors the runner
     # tail contract while remaining explicitly diagnostic, not acceptance.
     tail_step_count: int = 0
@@ -409,6 +440,7 @@ class CollectorResult:
     backend_runtime_diagnostics: dict[str, dict[str, bool | str | None]] = field(
         default_factory=dict
     )
+    backend_tensor_profile: dict[str, Any] = field(default_factory=dict)
     # Public bounded-ingress ordering evidence collected after the active window.
     replay_ingress_diagnostics: dict[str, int | float] = field(default_factory=dict)
     # Context-only actor forward time; actions used by the measured collector
@@ -569,6 +601,37 @@ def _backend_runtime_diagnostics(env: Any) -> dict[str, dict[str, bool | str | N
         }
         for name, diagnostic in diagnostics().items()
     }
+
+
+def _backend_tensor_profile(env: Any) -> dict[str, Any]:
+    """Record and fail closed on the negotiated public tensor profile."""
+
+    backend = getattr(env, "_backend", None)
+    if backend is None:
+        return {}
+    execution = backend.get_tensor_execution()
+    capabilities = backend.get_tensor_capabilities()
+    profile = {
+        "backend_type": str(backend.backend_type),
+        "execution": execution.value,
+        "data_plane": capabilities.data_plane.value,
+        "process_topology": capabilities.process_topology.value,
+        "torch_devices": tuple(capabilities.torch_devices),
+    }
+    if profile["backend_type"] == "genesis" and (
+        execution.value != "device_resident"
+        or capabilities.data_plane.value != "direct"
+        or capabilities.process_topology.value != "in_process"
+        or not any(str(device).startswith("cuda") for device in capabilities.torch_devices)
+    ):
+        raise RuntimeError(
+            "Genesis production collector benchmark requires the UniSim adapter's "
+            f"exact-CUDA DEVICE_RESIDENT/DIRECT profile; negotiated {execution.value}/"
+            f"{capabilities.data_plane.value}. Genesis 1.3.3 natively supports metal, "
+            "amdgpu, and cuda engines, but this benchmark must not silently use "
+            "portable Genesis, CPU, or another backend."
+        )
+    return profile
 
 
 def _runtime_sim_backend(sim: str) -> str:
@@ -859,11 +922,13 @@ def _run_active_window_case(
     tail_steps: int = DEFAULT_TAIL_STEPS,
     policy_inference_context: TimingStats | None = None,
     policy_inference_context_evidence: dict[str, Any] | None = None,
+    construction_ms: float = 0.0,
 ) -> CollectorResult:
     from unilab.rl.contracts.observations import split_obs_dict
     from unilab.rl.runtime.ipc.replay_buffer import ReplayBuffer
     from unilab.rl.runtime.offpolicy.worker import timeout_bootstrap_mask
 
+    setup_started = time.perf_counter()
     replay_buffer = ReplayBuffer(
         capacity=case.replay_capacity_rows,
         obs_dim=case.obs_dim,
@@ -876,8 +941,10 @@ def _run_active_window_case(
 
     env_device = env.device
     backend_runtime_diagnostics = _backend_runtime_diagnostics(env)
+    backend_tensor_profile = _backend_tensor_profile(env)
     actions = torch.zeros((case.num_envs, case.action_dim), dtype=torch.float32, device=env_device)
     state = env.step(actions)
+    collector_setup_ms = (time.perf_counter() - setup_started) * 1000.0
     obs, critic = split_obs_dict(state.obs)
     current_ep_rewards = torch.zeros(case.num_envs, dtype=torch.float32, device=env_device)
     current_ep_lengths = torch.zeros(case.num_envs, dtype=torch.int64, device=env_device)
@@ -898,6 +965,7 @@ def _run_active_window_case(
     numpy_random_call_samples: list[float] = []
     random_profiler = _NumpyRandomProfiler() if profile_numpy_random else None
     total_active_ns = 0
+    warmup_active_ns = 0
     total_steps = int(warmup_steps) + int(measure_steps)
     if total_steps <= 0 or measure_steps <= 0:
         raise ValueError("measure_steps must be > 0 and warmup_steps must be >= 0")
@@ -939,6 +1007,8 @@ def _run_active_window_case(
                 state.info.get("update_state_timing", {}) if isinstance(state.info, dict) else {}
             )
             physics_ms = _optional_timing_ms(_timing, "backend_physics_ms")
+            if physics_ms is None:
+                physics_ms = _optional_timing_ms(_timing, "backend_tensor_physics_ms")
             env_step_timing_values = {
                 key: _optional_timing_ms(_update_state_timing, key)
                 if key in UPDATE_STATE_DETAIL_TIMING_KEYS
@@ -1036,6 +1106,8 @@ def _run_active_window_case(
                 for key, value in env_step_timing_values.items():
                     if value is not None:
                         env_step_timing_samples.setdefault(key, []).append(value)
+            else:
+                warmup_active_ns += int((env_step_ms + replay_ms + bookkeeping_ms) * 1e6)
     finally:
         if random_profiler is not None:
             random_profiler.uninstall()
@@ -1080,6 +1152,9 @@ def _run_active_window_case(
         phase_ms_per_vector_step=phase_stats,
         phase_pct=phase_pct,
         notes=[],
+        construction_ms=construction_ms,
+        collector_setup_ms=collector_setup_ms,
+        warmup_ms=warmup_active_ns / 1.0e6,
         env_step_timing_ms_per_vector_step=env_step_timing_stats,
         physics_ms_per_vector_step=physics_stats,
         env_step_overhead_ms_per_vector_step=env_step_overhead_stats,
@@ -1091,6 +1166,7 @@ def _run_active_window_case(
             _stats(numpy_random_call_samples) if numpy_random_call_samples else None
         ),
         backend_runtime_diagnostics=backend_runtime_diagnostics,
+        backend_tensor_profile=backend_tensor_profile,
         replay_ingress_diagnostics=replay_ingress_diagnostics,
         policy_inference_context=policy_inference_context,
         policy_inference_context_evidence=policy_inference_context_evidence or {},
@@ -1137,11 +1213,15 @@ def _build_and_run_case(
     ).build_task_env_cfg_override()
 
     env = None
+    result: CollectorResult | None = None
+    construction_ms = 0.0
     try:
+        construction_started = time.perf_counter()
         env, obs_dim, critic_dim, action_dim = _make_env(
             cfg,
             env_cfg_override=env_cfg_override,
         )
+        construction_ms = (time.perf_counter() - construction_started) * 1000.0
         policy_context, policy_context_evidence = _measure_policy_inference_context(
             cfg,
             obs_dim=obs_dim,
@@ -1163,7 +1243,7 @@ def _build_and_run_case(
             critic_dim=critic_dim,
             action_dim=action_dim,
         )
-        return _run_active_window_case(
+        result = _run_active_window_case(
             case,
             env=env,
             warmup_steps=warmup_steps,
@@ -1172,10 +1252,15 @@ def _build_and_run_case(
             tail_steps=tail_steps,
             policy_inference_context=policy_context,
             policy_inference_context_evidence=policy_context_evidence,
+            construction_ms=construction_ms,
         )
+        return result
     finally:
         if env is not None:
+            teardown_started = time.perf_counter()
             env.close()
+            if result is not None:
+                result.teardown_ms = (time.perf_counter() - teardown_started) * 1000.0
         _cleanup()
 
 
@@ -1275,6 +1360,10 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "tail_step_count",
         "tail_active_steps_per_sec",
         "total_active_ms",
+        "construction_ms",
+        "collector_setup_ms",
+        "warmup_ms",
+        "teardown_ms",
         "env_step_ms",
         "replay_ms",
         "bookkeeping_ms",
@@ -1315,6 +1404,10 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                     else ""
                 ),
                 "total_active_ms": result.total_active_ms,
+                "construction_ms": result.construction_ms,
+                "collector_setup_ms": result.collector_setup_ms,
+                "warmup_ms": result.warmup_ms,
+                "teardown_ms": result.teardown_ms,
             }
             for key in COLLECTOR_PHASES:
                 row[key] = result.phase_ms_per_vector_step.get(

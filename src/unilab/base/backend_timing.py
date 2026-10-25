@@ -91,6 +91,9 @@ RESET_DONE_DETAIL_TIMING_KEYS = (
     "set_state_tensor_mask_ms",
     "set_state_tensor_commit_forward_ms",
     "set_state_tensor_host_cache_refresh_ms",
+    "backend_tensor_reset_validation_ms",
+    "backend_tensor_reset_apply_ms",
+    "backend_tensor_reset_state_publication_ms",
     "tensor_reset_packed_d2h_ms",
     "tensor_reset_packed_d2h_bytes",
     "tensor_reset_packed_d2h_count",
@@ -122,6 +125,8 @@ UPDATE_STATE_DETAIL_TIMING_KEYS = (
     "update_state_motion_failure_stats_ms",
     "update_state_motion_step_sampler_ms",
     "update_state_motion_refresh_current_ms",
+    "update_state_backend_state_read_ms",
+    "update_state_backend_sensor_projection_ms",
 )
 
 BACKEND_SET_STATE_DETAIL_TIMING_KEYS = (
