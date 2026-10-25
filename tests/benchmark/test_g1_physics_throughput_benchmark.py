@@ -11,6 +11,7 @@ def test_default_matrix_covers_requested_backends_and_env_counts() -> None:
     args = benchmark.build_parser().parse_args([])
 
     assert benchmark._parse_backends(args.backends) == ["genesis", "mjbatch", "motrixsim"]
+    assert benchmark._parse_backends("mjwarp") == ["mjwarp"]
     assert benchmark.parse_sizes(args.batch_sizes) == [1024, 2048, 4096, 8192]
     assert benchmark.TASK == "g1_walk_flat"
 
@@ -205,6 +206,52 @@ def test_motrixsim_initializes_keyframe_controls_and_steps(
     assert calls[2] == ("step", data, 20)
     assert run.nthread == 4
     np.testing.assert_array_equal(data.actuator_ctrls, [[3, 4], [3, 4]])
+
+
+def test_mjwarp_initializes_keyframe_and_synchronizes_step_block(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
+
+    class Array:
+        def __init__(self):
+            self.value = None
+
+        def assign(self, value):
+            self.value = value
+
+    data = SimpleNamespace(qpos=Array(), qvel=Array(), ctrl=Array())
+    fake_mj_warp = SimpleNamespace(
+        put_model=lambda model: "warp-model",
+        make_data=lambda model, **kwargs: data,
+        step=lambda model, value: calls.append(("step", model, value)),
+    )
+    fake_warp = SimpleNamespace(
+        get_device=lambda: SimpleNamespace(is_cuda=True),
+        synchronize=lambda: calls.append(("sync",)),
+    )
+    monkeypatch.setattr(benchmark, "mj_warp", fake_mj_warp)
+    monkeypatch.setattr(benchmark, "warp", fake_warp)
+
+    run = benchmark._build_mjwarp(
+        object(),
+        np.array([1, 2]),
+        np.array([3, 4]),
+        np.array([5, 6]),
+        batch_size=2,
+        nstep=2,
+    )
+    run.step()
+    run.synchronize()
+
+    assert calls == [
+        ("step", "warp-model", data),
+        ("step", "warp-model", data),
+        ("sync",),
+    ]
+    np.testing.assert_array_equal(data.qpos.value, [[1, 2], [1, 2]])
+    np.testing.assert_array_equal(data.qvel.value, [[3, 4], [3, 4]])
+    np.testing.assert_array_equal(data.ctrl.value, [[5, 6], [5, 6]])
 
 
 def test_benchmark_reports_physics_throughput_and_cleans_up(

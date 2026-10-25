@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # pyright: reportAttributeAccessIssue=false, reportOptionalMemberAccess=false
-"""Compare pure G1 physics throughput on Genesis GPU, mjbatch, and MotrixSim.
+"""Compare pure G1 physics throughput on Genesis, MJWarp, mjbatch, and MotrixSim.
 
 This calls each engine directly and excludes controls, state/sensor copies,
 observations, rewards, and resets from the measured region. All engines load the
@@ -9,6 +9,8 @@ same owner MJCF and start from its stand keyframe with the keyframe controls hel
 Run on Apple Silicon (Metal) or Linux with NVIDIA CUDA / AMD ROCm:
     uv run --extra genesis --extra mujoco --extra motrix \
         scripts/benchmark/physics/benchmark_g1_physics_throughput.py
+
+Add `--backends mjwarp` and the `mjwarp` extra to include MuJoCo Warp on CUDA.
 """
 
 from __future__ import annotations
@@ -61,9 +63,20 @@ except Exception as exc:
 else:
     _MOTRIX_IMPORT_ERROR = None
 
+try:
+    import mujoco_warp as mj_warp
+    import warp
+except Exception as exc:
+    mj_warp = None
+    warp = None
+    _MJWARP_IMPORT_ERROR: Exception | None = exc
+else:
+    _MJWARP_IMPORT_ERROR = None
+
 
 TASK = "g1_walk_flat"
 BACKENDS = ("genesis", "mjbatch", "motrixsim")
+SUPPORTED_BACKENDS = (*BACKENDS, "mjwarp")
 DEFAULT_BATCH_SIZES = (1024, 2048, 4096, 8192)
 SIM_DT = 1.0 / 150.0
 DEFAULT_NSTEP = 20
@@ -100,8 +113,8 @@ def _validate_positive(values: list[int], name: str) -> list[int]:
 
 def _parse_backends(text: str) -> list[str]:
     backends = [part.strip() for part in text.split(",") if part.strip()]
-    if not backends or any(backend not in BACKENDS for backend in backends):
-        raise ValueError(f"backends must be selected from {','.join(BACKENDS)}")
+    if not backends or any(backend not in SUPPORTED_BACKENDS for backend in backends):
+        raise ValueError(f"backends must be selected from {','.join(SUPPORTED_BACKENDS)}")
     if len(set(backends)) != len(backends):
         raise ValueError("backends must not contain duplicates")
     return backends
@@ -112,6 +125,11 @@ def _require_backend(backend: str) -> None:
         "genesis": (gs, _GENESIS_IMPORT_ERROR, "genesis"),
         "mjbatch": (mjbatch, _MJBATCH_IMPORT_ERROR, "mujoco"),
         "motrixsim": (mtx, _MOTRIX_IMPORT_ERROR, "motrix"),
+        "mjwarp": (
+            mj_warp if mj_warp is not None and warp is not None else None,
+            _MJWARP_IMPORT_ERROR,
+            "mjwarp",
+        ),
     }[backend]
     if module is None:
         raise RuntimeError(
@@ -252,6 +270,31 @@ def _build_motrixsim(
     return PhysicsRun(lambda: model.step_n(data, nstep), _noop, _noop, "cpu", threads)
 
 
+def _build_mjwarp(
+    model: mujoco.MjModel,
+    qpos: np.ndarray,
+    qvel: np.ndarray,
+    ctrl: np.ndarray,
+    batch_size: int,
+    nstep: int,
+) -> PhysicsRun:
+    if mj_warp is None or warp is None:
+        _require_backend("mjwarp")
+    if not warp.get_device().is_cuda:
+        raise RuntimeError("MuJoCo Warp throughput benchmark requires a CUDA device")
+    warp_model = mj_warp.put_model(model)
+    data = mj_warp.make_data(model, nworld=batch_size, njmax=256, nconmax=256)
+    data.qpos.assign(np.broadcast_to(qpos, (batch_size, qpos.size)).astype(np.float32))
+    data.qvel.assign(np.broadcast_to(qvel, (batch_size, qvel.size)).astype(np.float32))
+    data.ctrl.assign(np.broadcast_to(ctrl, (batch_size, ctrl.size)).astype(np.float32))
+
+    def step() -> None:
+        for _ in range(nstep):
+            mj_warp.step(warp_model, data)
+
+    return PhysicsRun(step, warp.synchronize, _noop, "cuda", 0)
+
+
 def _benchmark(
     backend: str,
     xml_path: str,
@@ -266,6 +309,8 @@ def _benchmark(
         run = _build_genesis(xml_path, batch_size, nstep)
     elif backend == "mjbatch":
         run = _build_mjbatch(model, qpos, qvel, ctrl, batch_size, nstep, nthread)
+    elif backend == "mjwarp":
+        run = _build_mjwarp(model, qpos, qvel, ctrl, batch_size, nstep)
     else:
         run = _build_motrixsim(xml_path, batch_size, nstep, nthread)
 
@@ -294,7 +339,14 @@ def _benchmark(
 
 def _package_versions() -> dict[str, str]:
     versions = {}
-    for package in ("genesis-world", "mujoco", "mjbatch-uni", "motrixsim-core"):
+    for package in (
+        "genesis-world",
+        "mujoco",
+        "mjbatch-uni",
+        "motrixsim-core",
+        "mujoco-warp",
+        "warp-lang",
+    ):
         try:
             versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:
@@ -373,11 +425,13 @@ def main(argv: list[str] | None = None) -> int:
             "integrator": {
                 "genesis": "implicitfast",
                 "mjbatch": "implicitfast (MJCF)",
+                "mjwarp": "implicitfast (MJCF)",
                 "motrixsim": "engine default (MJCF integrator unsupported)",
             },
             "solver_settings": {
                 "genesis": "RigidOptions defaults",
                 "mjbatch": "MJCF/MuJoCo defaults",
+                "mjwarp": "eager kernels; njmax=256; nconmax=256; sync per nstep block",
                 "motrixsim": "UniSim production max_iterations=3",
             },
             "initial_state": "stand keyframe; keyframe ctrl held",
