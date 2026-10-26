@@ -65,7 +65,7 @@ def test_ray_local_optional_dependencies_stay_branch_local() -> None:
     for path in (ROOT / "pyproject.toml", ROOT / "pyproject.rocm.toml"):
         project = _project(path)
         extras = project["project"]["optional-dependencies"]
-        assert extras["ray-local"] == ["uni-ray"]
+        assert extras["ray-local"] == ["uni-ray[warp]"]
         assert "uni-ray" not in _dependencies(path)
 
         sources = project["tool"]["uv"]["sources"]

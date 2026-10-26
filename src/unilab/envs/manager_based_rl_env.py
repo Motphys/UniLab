@@ -541,6 +541,7 @@ class ManagerBasedRlEnv(TorchEnv):
     def _observation_ray_read_specs(self) -> list[SceneTensorReadSpec]:
         """Collect pose-only blocks needed by tensor ray observations."""
         specs: list[SceneTensorReadSpec] = []
+        requested_entities: set[str] = set()
         for group_name, terms in self.observation_manager.active_terms.items():
             for name in terms:
                 term_cfg = self.observation_manager.get_term_cfg(group_name, name)
@@ -553,13 +554,23 @@ class ManagerBasedRlEnv(TorchEnv):
                         f"'{group_name}/{name}' must be RayPatternCfg; got "
                         f"{type(ray_pattern).__name__}"
                     )
-                specs.append(
-                    SceneTensorReadSpec(
-                        entity=ray_pattern.entity_name,
-                        body_names=tuple(ray_pattern.body_names),
-                        body_fields=("pos_w", "quat_w"),
+                for entity_name, entity in self.scene.entities.items():
+                    if entity_name in requested_entities:
+                        continue
+                    try:
+                        body_names = tuple(entity.body_names)
+                    except NotImplementedError:
+                        continue
+                    if not body_names:
+                        continue
+                    requested_entities.add(entity_name)
+                    specs.append(
+                        SceneTensorReadSpec(
+                            entity=entity_name,
+                            body_names=body_names,
+                            body_fields=("pos_w", "quat_w"),
+                        )
                     )
-                )
         return specs
 
     def _manager_term_tensor_read_specs(self) -> list[SceneTensorReadSpec]:

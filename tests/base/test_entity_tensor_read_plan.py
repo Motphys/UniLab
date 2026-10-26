@@ -274,6 +274,18 @@ def _use_body_capable_tensor_spec(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("unilab.base.entity.TensorIOSpec", _BodyCapableTensorIOSpec)
 
 
+def _use_legacy_tensor_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expose a pre-2.2 TensorIOSpec without packed body-block parameters."""
+
+    @dataclass(frozen=True)
+    class _LegacyTensorIOSpec:
+        state_fields: tuple[str, ...]
+        sensor_names: tuple[str, ...]
+        device: object | None = None
+
+    monkeypatch.setattr("unilab.base.entity.TensorIOSpec", _LegacyTensorIOSpec)
+
+
 def _specs() -> tuple[SceneTensorReadSpec, ...]:
     return (
         SceneTensorReadSpec(entity="robot", sensor_names=("imu_gyro",)),
@@ -313,9 +325,12 @@ def test_host_bridge_scene_plan_packs_all_reads_into_one_phase_transfer(
     plan.close()
 
 
-def test_scene_plan_pose_reads_fall_back_to_canonical_sensors_on_older_host_contracts() -> None:
+def test_scene_plan_pose_reads_fall_back_to_canonical_sensors_on_older_host_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = _SceneTensorBackend()
     scene = _scene(backend)
+    _use_legacy_tensor_spec(monkeypatch)
     plan = scene.compile_tensor_reads(
         "cpu",
         (
@@ -463,9 +478,9 @@ def test_scene_plan_pose_reads_use_packed_pose_blocks_without_velocities(
     assert plan.body_fields == {"robot": ("pos_w", "quat_w")}
     assert plan.packet_names == ("body_pos_w", "body_quat_w")
     if backend.io_specs:
-        assert backend.io_specs[0].body_names == ("robot/hip",)
+        assert backend.io_specs[0].body_names == ("hip",)
         assert backend.io_specs[0].body_fields == ("pos_w", "quat_w")
-    assert plan.packet_body_axis("body_pos_w") == ("robot/hip",)
+    assert plan.packet_body_axis("body_pos_w") == ("hip",)
     plan.refresh()
 
     pose = plan.ray_pose_view("robot")

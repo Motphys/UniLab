@@ -455,7 +455,10 @@ class SceneTensorReadPlan:
                     return self._read_host_body_blocks(selected=False)
 
             else:
-                reader = self._host_plan_value.read_state_sensors
+                reader = cast(
+                    Callable[[], dict[str, torch.Tensor]],
+                    self._host_plan_value.read_state_sensors,
+                )
             packet = self._read_packet(reader)
         else:
             packet = self._read_device_resident_packet()
@@ -476,7 +479,10 @@ class SceneTensorReadPlan:
                     return self._read_host_body_blocks(selected=True)
 
             else:
-                reader = self._host_plan_value.read_selected_state_sensors
+                reader = cast(
+                    Callable[[], dict[str, torch.Tensor]],
+                    self._host_plan_value.read_selected_state_sensors,
+                )
             packet = self._read_packet(reader)
         else:
             packet = self._read_device_resident_packet()
@@ -810,8 +816,12 @@ class SceneTensorReadPlan:
             # ``reshape`` would silently materialize a contiguous copy when the
             # backend publishes one packed body block beside unrelated columns.
             value = raw.unflatten(1, (len(axis), width))
-            owner_axis = tuple(_packet_body_name(owner.name, name) for name in compiled_bodies)
-            requested_axis = tuple(_packet_body_name(owner.name, name) for name in requested)
+            if self._host_plan_value is not None:
+                owner_axis = compiled_bodies
+                requested_axis = requested
+            else:
+                owner_axis = tuple(_packet_body_name(owner.name, name) for name in compiled_bodies)
+                requested_axis = tuple(_packet_body_name(owner.name, name) for name in requested)
             if requested_axis != owner_axis or owner_axis != axis:
                 rows = self._packet_body_indices(requested_axis, axis)
                 value = value.index_select(1, rows)
@@ -4606,6 +4616,7 @@ class EntityScene(Mapping[str, Entity]):
             host_body_blocks = {"body_names", "body_fields"}.issubset(
                 inspect.signature(TensorIOSpec).parameters
             )
+            native_body_names: tuple[str, ...] = ()
             host_pose_only_blocks = host_body_blocks and all(
                 not (set(fields) - set(_TENSOR_POSE_BODY_FIELDS))
                 for fields in per_entity_body_fields.values()
@@ -4614,20 +4625,18 @@ class EntityScene(Mapping[str, Entity]):
                 packet_body_blocks = True
                 packet_names = (*sensor_packet_names, *packet_body_names)
                 host_sensor_packet_names = sensor_packet_names
-                for entity_name, body_names_value in expanded_bodies.items():
-                    if not body_names_value:
-                        continue
-                    for field in per_entity_body_fields[entity_name]:
-                        packet_name = _TENSOR_BODY_PACKET_FIELDS[field]
-                        axis = packet_body_axes.setdefault(packet_name, ())
-                        packet_body_axes[packet_name] = (
-                            *axis,
-                            *(
-                                _packet_body_name(entity_name, body_name)
-                                for body_name in body_names_value
-                                if _packet_body_name(entity_name, body_name) not in axis
-                            ),
-                        )
+                # Host-bridge body blocks use the backend's native public body
+                # namespace. Entity ownership remains available through the
+                # per-entity read-plan mappings below.
+                native_body_names = tuple(
+                    dict.fromkeys(
+                        body_name
+                        for body_names_value in expanded_bodies.values()
+                        for body_name in body_names_value
+                    )
+                )
+                for packet_name in packet_body_names:
+                    packet_body_axes[packet_name] = native_body_names
             tensor_io_options: dict[str, Any] = {
                 "state_fields": ("qpos", "qvel"),
                 "sensor_names": (
@@ -4635,10 +4644,10 @@ class EntityScene(Mapping[str, Entity]):
                 ),
                 "device": resolved_device,
             }
-            if host_pose_only_blocks:
+            if host_pose_only_blocks and any(expanded_bodies.values()):
                 tensor_io_options.update(
                     {
-                        "body_names": self._aggregate_tensor_read_body_names(expanded_bodies),
+                        "body_names": native_body_names,
                         "body_fields": ("pos_w", "quat_w"),
                     }
                 )
