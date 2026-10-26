@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 
 import torch
 from unisim.backend.base import torch_device_matches
@@ -16,27 +16,223 @@ if TYPE_CHECKING:
     from unilab.managers.types import ManagerBasedRlEnv
 
 
+def _real_sequence(value: object, name: str, width: int) -> tuple[float, ...]:
+    """Validate and normalize a finite real sequence used by ray patterns."""
+
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise TypeError(f"{name} must be a sequence of {width} real numbers")
+    values = tuple(value)
+    if len(values) != width or any(
+        isinstance(item, bool) or not isinstance(item, (int, float)) for item in values
+    ):
+        raise TypeError(f"{name} must be a sequence of {width} real numbers")
+    if any(not math.isfinite(float(item)) for item in values):
+        raise ValueError(f"{name} must be finite")
+    return tuple(float(item) for item in values)
+
+
+@dataclass(frozen=True)
+class RayRingPatternCfg:
+    """Rays on a body-local yaw arc with one shared pitch."""
+
+    num_rays: int
+    start: float
+    stop: float
+    pitch: float = 0.0
+
+    def __post_init__(self) -> None:
+        if isinstance(self.num_rays, bool) or not isinstance(self.num_rays, int):
+            raise TypeError("RayRingPatternCfg num_rays must be an integer")
+        if self.num_rays <= 0:
+            raise ValueError("RayRingPatternCfg num_rays must be positive")
+        for name, value in (("start", self.start), ("stop", self.stop), ("pitch", self.pitch)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"RayRingPatternCfg {name} must be a real number")
+            if not math.isfinite(float(value)):
+                raise ValueError(f"RayRingPatternCfg {name} must be finite")
+
+    @property
+    def ray_count(self) -> int:
+        return self.num_rays
+
+    def origins(self, device: torch.device) -> torch.Tensor:
+        return torch.zeros((self.ray_count, 3), dtype=torch.float32, device=device)
+
+    def directions(self, device: torch.device) -> torch.Tensor:
+        angles = torch.linspace(
+            self.start, self.stop, self.num_rays, dtype=torch.float32, device=device
+        )
+        pitch = float(self.pitch)
+        return torch.stack(
+            (
+                torch.cos(angles) * math.cos(pitch),
+                torch.sin(angles) * math.cos(pitch),
+                torch.full_like(angles, math.sin(pitch)),
+            ),
+            dim=-1,
+        ).contiguous()
+
+
+@dataclass(frozen=True)
+class RayGridPatternCfg:
+    """Parallel rays on an inclusive two-dimensional local grid."""
+
+    size: Sequence[float]
+    resolution: float | Sequence[float]
+    offset: Sequence[float] = (0.0, 0.0)
+    direction: Sequence[float] = (0.0, 0.0, -1.0)
+
+    def __post_init__(self) -> None:
+        size = _real_sequence(self.size, "RayGridPatternCfg size", 2)
+        if any(value <= 0.0 for value in size):
+            raise ValueError("RayGridPatternCfg size components must be positive")
+        object.__setattr__(self, "size", size)
+
+        if isinstance(self.resolution, bool) or not isinstance(
+            self.resolution, (int, float, Sequence)
+        ):
+            raise TypeError(
+                "RayGridPatternCfg resolution must be a real number or two real numbers"
+            )
+        if isinstance(self.resolution, (str, bytes)):
+            raise TypeError(
+                "RayGridPatternCfg resolution must be a real number or two real numbers"
+            )
+        if isinstance(self.resolution, Sequence):
+            resolution = _real_sequence(self.resolution, "RayGridPatternCfg resolution", 2)
+        else:
+            value = float(self.resolution)
+            if not math.isfinite(value):
+                raise ValueError("RayGridPatternCfg resolution must be finite")
+            resolution = (value, value)
+        if any(value <= 0.0 for value in resolution):
+            raise ValueError("RayGridPatternCfg resolution components must be positive")
+        object.__setattr__(self, "resolution", resolution)
+
+        object.__setattr__(
+            self,
+            "offset",
+            _real_sequence(self.offset, "RayGridPatternCfg offset", 2),
+        )
+        direction = _real_sequence(self.direction, "RayGridPatternCfg direction", 3)
+        if torch.linalg.vector_norm(torch.tensor(direction)).item() == 0.0:
+            raise ValueError("RayGridPatternCfg direction must be nonzero")
+        object.__setattr__(self, "direction", direction)
+
+    @property
+    def _counts(self) -> tuple[int, int]:
+        resolution = self.resolution
+        if not isinstance(resolution, Sequence):
+            resolution = (resolution, resolution)
+        return tuple(  # type: ignore[return-value]
+            int(math.floor(axis / step + 1.0e-9)) + 1
+            for axis, step in zip(self.size, resolution, strict=True)
+        )
+
+    @property
+    def ray_count(self) -> int:
+        count_x, count_y = self._counts
+        return count_x * count_y
+
+    def origins(self, device: torch.device) -> torch.Tensor:
+        count_x, count_y = self._counts
+        x = torch.linspace(-self.size[0] / 2.0, self.size[0] / 2.0, count_x, device=device)
+        y = torch.linspace(-self.size[1] / 2.0, self.size[1] / 2.0, count_y, device=device)
+        grid_x, grid_y = torch.meshgrid(x, y, indexing="xy")
+        origins = torch.zeros((self.ray_count, 3), dtype=torch.float32, device=device)
+        origins[:, 0] = (grid_x.flatten() + self.offset[0]).float()
+        origins[:, 1] = (grid_y.flatten() + self.offset[1]).float()
+        return origins.contiguous()
+
+    def directions(self, device: torch.device) -> torch.Tensor:
+        direction = torch.tensor(self.direction, dtype=torch.float32, device=device)
+        direction = direction / torch.linalg.vector_norm(direction)
+        return direction.expand(self.ray_count, 3).clone().contiguous()
+
+
+@dataclass(frozen=True)
+class RayCameraPatternCfg:
+    """Unit ray directions for a pinhole camera in an explicit local frame."""
+
+    width: int
+    height: int
+    fovy: float
+    forward: Sequence[float] = (1.0, 0.0, 0.0)
+    up: Sequence[float] = (0.0, 0.0, 1.0)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.width, bool) or not isinstance(self.width, int):
+            raise TypeError("RayCameraPatternCfg width must be an integer")
+        if isinstance(self.height, bool) or not isinstance(self.height, int):
+            raise TypeError("RayCameraPatternCfg height must be an integer")
+        if self.width <= 0 or self.height <= 0:
+            raise ValueError("RayCameraPatternCfg width and height must be positive")
+        if isinstance(self.fovy, bool) or not isinstance(self.fovy, (int, float)):
+            raise TypeError("RayCameraPatternCfg fovy must be a real number")
+        if not math.isfinite(float(self.fovy)) or not 0.0 < float(self.fovy) < 180.0:
+            raise ValueError("RayCameraPatternCfg fovy must be in (0, 180) degrees")
+        forward = _real_sequence(self.forward, "RayCameraPatternCfg forward", 3)
+        up = _real_sequence(self.up, "RayCameraPatternCfg up", 3)
+        forward_tensor = torch.tensor(forward, dtype=torch.float64)
+        up_tensor = torch.tensor(up, dtype=torch.float64)
+        if (
+            torch.linalg.vector_norm(forward_tensor).item() == 0.0
+            or torch.linalg.vector_norm(up_tensor).item() == 0.0
+            or abs(float(torch.dot(forward_tensor, up_tensor).item())) > 1.0e-6
+        ):
+            raise ValueError("RayCameraPatternCfg forward and up must be nonzero and orthogonal")
+        object.__setattr__(self, "forward", forward)
+        object.__setattr__(self, "up", up)
+
+    @property
+    def ray_count(self) -> int:
+        return self.width * self.height
+
+    def origins(self, device: torch.device) -> torch.Tensor:
+        return torch.zeros((self.ray_count, 3), dtype=torch.float32, device=device)
+
+    def directions(self, device: torch.device) -> torch.Tensor:
+        forward = torch.tensor(self.forward, dtype=torch.float32, device=device)
+        up = torch.tensor(self.up, dtype=torch.float32, device=device)
+        right = torch.linalg.cross(forward, up)
+        right = right / torch.linalg.vector_norm(right)
+        focal = (self.height / 2.0) / math.tan(math.radians(self.fovy) / 2.0)
+        x = ((torch.arange(self.width, device=device) + 0.5) - self.width / 2.0) / focal
+        y = ((torch.arange(self.height, device=device) + 0.5) - self.height / 2.0) / focal
+        grid_x, grid_y = torch.meshgrid(x, y, indexing="xy")
+        directions = (
+            forward[None, None, :]
+            + grid_x[..., None] * right[None, None, :]
+            - grid_y[..., None] * up[None, None, :]
+        )
+        directions = directions / torch.linalg.vector_norm(directions, dim=-1, keepdim=True)
+        return directions.reshape(-1, 3).contiguous()
+
+
+RayPattern = RayRingPatternCfg | RayGridPatternCfg | RayCameraPatternCfg
+RayAlignment = Literal["body", "yaw", "world"]
+
+
 @dataclass(frozen=True)
 class RayPatternCfg:
-    """Declare one observation-owned ray pattern.
+    """Declare one observation-owned ray pattern and its attachment frame.
 
     ``caster`` is a public UniSim ray-caster factory name, not an imported
     plugin class. ``attachment_body_name`` is a public full-scene body identity
-    from ``RayCollisionDescription.scene.body_names``; the local pattern and
-    sensor offset are transformed by that body pose.
+    from ``RayCollisionDescription.scene.body_names``. The local pattern and
+    sensor offset are transformed by the selected attachment alignment.
     """
 
     entity_name: str
     attachment_body_name: str
-    num_rays: int
-    pattern_start: float
-    pattern_stop: float
+    pattern: RayPattern
     max_distance: float
-    pattern_pitch: float = 0.0
+    alignment: RayAlignment = "body"
     caster: str = "uni_ray"
     sensor_offset: Sequence[float] = (0.0, 0.0, 0.0)
     min_distance: float = 0.0
     include_normal: bool = False
+    include_hit_point: bool = False
     allowed_geom_names: Sequence[str] | None = None
     allowed_tags: Sequence[str] | None = None
     excluded_body_names: Sequence[str] | None = None
@@ -46,14 +242,17 @@ class RayPatternCfg:
     def __post_init__(self) -> None:
         if not isinstance(self.entity_name, str) or not self.entity_name:
             raise TypeError("RayPatternCfg entity_name must be a non-empty string")
-        if isinstance(self.num_rays, bool) or not isinstance(self.num_rays, int):
-            raise TypeError("RayPatternCfg num_rays must be an integer")
-        if self.num_rays <= 0:
-            raise ValueError("RayPatternCfg num_rays must be positive")
+        if not isinstance(
+            self.pattern,
+            (RayRingPatternCfg, RayGridPatternCfg, RayCameraPatternCfg),
+        ):
+            raise TypeError(
+                "RayPatternCfg pattern must be RayRingPatternCfg, RayGridPatternCfg, "
+                "or RayCameraPatternCfg"
+            )
+        if self.alignment not in ("body", "yaw", "world"):
+            raise ValueError("RayPatternCfg alignment must be one of 'body', 'yaw', or 'world'")
         for name, value in (
-            ("pattern_start", self.pattern_start),
-            ("pattern_stop", self.pattern_stop),
-            ("pattern_pitch", self.pattern_pitch),
             ("max_distance", self.max_distance),
             ("min_distance", self.min_distance),
         ):
@@ -73,16 +272,15 @@ class RayPatternCfg:
             self.sensor_offset, Sequence
         ):
             raise TypeError("RayPatternCfg sensor_offset must be a sequence of three real numbers")
-        offset = tuple(self.sensor_offset)
-        if len(offset) != 3 or any(
-            isinstance(value, bool) or not isinstance(value, (int, float)) for value in offset
-        ):
-            raise TypeError("RayPatternCfg sensor_offset must be a sequence of three real numbers")
-        if any(not math.isfinite(float(value)) for value in offset):
-            raise ValueError("RayPatternCfg sensor_offset must be finite")
-        object.__setattr__(self, "sensor_offset", tuple(float(value) for value in offset))
+        object.__setattr__(
+            self,
+            "sensor_offset",
+            _real_sequence(self.sensor_offset, "RayPatternCfg sensor_offset", 3),
+        )
         if not isinstance(self.include_normal, bool):
             raise TypeError("RayPatternCfg include_normal must be a boolean")
+        if not isinstance(self.include_hit_point, bool):
+            raise TypeError("RayPatternCfg include_hit_point must be a boolean")
         if not isinstance(self.caster, str) or not self.caster:
             raise TypeError("RayPatternCfg caster must be a non-empty factory name")
         if not isinstance(self.caster_options, dict):
@@ -111,7 +309,7 @@ class RayPatternCfg:
 
 
 class RayScan(ManagerTermBase):
-    """Bind one tensor caster and publish a distance/normal observation carrier."""
+    """Bind one tensor caster and publish a ray observation carrier."""
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
@@ -122,7 +320,12 @@ class RayScan(ManagerTermBase):
                 f"got {type(pattern).__name__}"
             )
         self.ray_pattern = pattern
-        self.observation_width = pattern.num_rays * (4 if pattern.include_normal else 1)
+        output_width = 1
+        if pattern.include_normal:
+            output_width += 3
+        if pattern.include_hit_point:
+            output_width += 3
+        self.observation_width = pattern.pattern.ray_count * output_width
         self._device = torch.device(env.device)
         self._entity_name = pattern.entity_name
         self._caster: Any = None
@@ -130,6 +333,7 @@ class RayScan(ManagerTermBase):
         self._closed = False
         self._distance: torch.Tensor | None = None
         self._normal: torch.Tensor | None = None
+        self._hit_point: torch.Tensor | None = None
         self._observation: torch.Tensor | None = None
         self._ray_filter: RayTraceFilter | None = None
         self._outputs = RayTraceOutputs()
@@ -166,7 +370,7 @@ class RayScan(ManagerTermBase):
             caster = _create_ray_caster(
                 self.ray_pattern.caster,
                 num_envs=self._env.num_envs,
-                num_rays=self.ray_pattern.num_rays,
+                num_rays=self.ray_pattern.pattern.ray_count,
                 device=self._device,
                 collision=collision,
                 **self.ray_pattern.caster_options,
@@ -197,6 +401,11 @@ class RayScan(ManagerTermBase):
                     raise NotImplementedError(
                         f"RayScan caster '{self.ray_pattern.caster}' does not support tensor normals"
                     )
+                if self.ray_pattern.include_hit_point and not capabilities.supports_hit_point:
+                    raise NotImplementedError(
+                        f"RayScan caster '{self.ray_pattern.caster}' does not support "
+                        "tensor hit points"
+                    )
                 caster.materialize(scene)
                 caster.bind_pose_layout(tuple(scene.body_names))
             except Exception:
@@ -207,51 +416,45 @@ class RayScan(ManagerTermBase):
                 f"RayScan caster '{self.ray_pattern.caster}' read-phase binding failed: {exc}"
             ) from exc
         self._caster = caster
-        self._outputs = RayTraceOutputs(normal=self.ray_pattern.include_normal)
+        self._outputs = RayTraceOutputs(
+            normal=self.ray_pattern.include_normal,
+            hit_point=self.ray_pattern.include_hit_point,
+        )
         self._distance = torch.empty(
-            (self._env.num_envs, self.ray_pattern.num_rays),
+            (self._env.num_envs, self.ray_pattern.pattern.ray_count),
             dtype=torch.float32,
             device=self._device,
         )
-        if self.ray_pattern.include_normal:
-            self._normal = torch.empty(
-                (self._env.num_envs, self.ray_pattern.num_rays, 3),
-                dtype=torch.float32,
-                device=self._device,
-            )
+        if self.ray_pattern.include_normal or self.ray_pattern.include_hit_point:
+            output_width = 1
+            if self.ray_pattern.include_normal:
+                output_width += 3
+                self._normal = torch.empty(
+                    (self._env.num_envs, self.ray_pattern.pattern.ray_count, 3),
+                    dtype=torch.float32,
+                    device=self._device,
+                )
+            if self.ray_pattern.include_hit_point:
+                output_width += 3
+                self._hit_point = torch.empty(
+                    (self._env.num_envs, self.ray_pattern.pattern.ray_count, 3),
+                    dtype=torch.float32,
+                    device=self._device,
+                )
             self._observation = torch.empty(
-                (self._env.num_envs, self.ray_pattern.num_rays, 4),
+                (self._env.num_envs, self.ray_pattern.pattern.ray_count, output_width),
                 dtype=torch.float32,
                 device=self._device,
             )
-        angles = torch.linspace(
-            self.ray_pattern.pattern_start,
-            self.ray_pattern.pattern_stop,
-            self.ray_pattern.num_rays,
-            dtype=torch.float32,
-            device=self._device,
-        )
-        pitch = float(self.ray_pattern.pattern_pitch)
-        self._local_directions = torch.stack(
-            (
-                torch.cos(angles) * math.cos(pitch),
-                torch.sin(angles) * math.cos(pitch),
-                torch.full_like(angles, math.sin(pitch)),
-            ),
-            dim=-1,
-        ).contiguous()
-        self._local_origins = torch.zeros(
-            (self.ray_pattern.num_rays, 3),
-            dtype=torch.float32,
-            device=self._device,
-        )
-        self._local_origins[:] = torch.tensor(
+        self._local_origins = self.ray_pattern.pattern.origins(self._device)
+        self._local_origins = self._local_origins + torch.tensor(
             self.ray_pattern.sensor_offset,
             dtype=torch.float32,
             device=self._device,
         )
+        self._local_directions = self.ray_pattern.pattern.directions(self._device)
         self._ray_origins = torch.empty(
-            (self._env.num_envs, self.ray_pattern.num_rays, 3),
+            (self._env.num_envs, self.ray_pattern.pattern.ray_count, 3),
             dtype=torch.float32,
             device=self._device,
         )
@@ -301,14 +504,19 @@ class RayScan(ManagerTermBase):
         if self._observation is None:
             self._distance.copy_(result.distance)
             return self._distance
-        assert self._normal is not None
+        output_slice = 1
         self._observation[..., 0].copy_(result.distance)
-        self._normal.copy_(result.normal)
-        self._observation[..., 1:4].copy_(self._normal)
+        if self._normal is not None:
+            self._normal.copy_(result.normal)
+            self._observation[..., output_slice : output_slice + 3].copy_(self._normal)
+            output_slice += 3
+        if self._hit_point is not None:
+            self._hit_point.copy_(result.hit_point)
+            self._observation[..., output_slice : output_slice + 3].copy_(self._hit_point)
         return self._observation.reshape(self._env.num_envs, -1)
 
     def _refresh_attachment_rays(self, pose: Any) -> None:
-        """Transform the local ray pattern by the body-only attachment pose."""
+        """Transform the local ray pattern by the selected attachment frame."""
 
         assert self._attachment_body_index is not None
         assert self._local_origins is not None
@@ -318,8 +526,11 @@ class RayScan(ManagerTermBase):
         index = self._attachment_body_index
         position = pose.pos_w[:, index, :].unsqueeze(1)
         quaternion = pose.quat_w[:, index, :]
-        self._ray_origins.copy_(position + _quat_rotate_wxyz(quaternion, self._local_origins))
-        self._ray_directions.copy_(_quat_rotate_wxyz(quaternion, self._local_directions))
+        rotation = _attachment_rotation_wxyz(quaternion, self.ray_pattern.alignment)
+        self._ray_origins.copy_(
+            position + torch.einsum("bij,rj->bri", rotation, self._local_origins)
+        )
+        self._ray_directions.copy_(torch.einsum("bij,rj->bri", rotation, self._local_directions))
 
     def _resolve_pose_sources(
         self, collision: Any
@@ -454,7 +665,48 @@ class RayScan(ManagerTermBase):
         del env_ids
 
 
-__all__ = ["RayPatternCfg", "RayScan"]
+__all__ = [
+    "RayAlignment",
+    "RayCameraPatternCfg",
+    "RayGridPatternCfg",
+    "RayPatternCfg",
+    "RayRingPatternCfg",
+    "RayScan",
+]
+
+
+def _attachment_rotation_wxyz(quaternion: torch.Tensor, alignment: RayAlignment) -> torch.Tensor:
+    """Return one ``[batch, 3, 3]`` attachment rotation matrix."""
+
+    batch = quaternion.shape[0]
+    identity = torch.eye(3, dtype=quaternion.dtype, device=quaternion.device)
+    if alignment == "world":
+        return identity.unsqueeze(0).expand(batch, 3, 3)
+
+    basis = torch.eye(3, dtype=quaternion.dtype, device=quaternion.device)
+    rotated_basis = _quat_rotate_wxyz(quaternion, basis)
+    if alignment == "body":
+        return rotated_basis.transpose(1, 2)
+
+    forward = rotated_basis[:, 0, :].clone()
+    forward[:, 2] = 0.0
+    forward_norm = torch.linalg.vector_norm(forward, dim=1)
+    singular = forward_norm < 1.0e-3
+    left = rotated_basis[:, 1, :].clone()
+    left[:, 2] = 0.0
+    left_norm = torch.linalg.vector_norm(left, dim=1).clamp(min=1.0e-6)
+    left = left / left_norm.unsqueeze(1)
+    fallback = torch.stack((left[:, 1], -left[:, 0], torch.zeros_like(left[:, 0])), dim=1)
+    forward = torch.where(
+        singular.unsqueeze(1),
+        fallback,
+        forward / forward_norm.clamp(min=1.0e-6).unsqueeze(1),
+    )
+    up = torch.tensor((0.0, 0.0, 1.0), dtype=quaternion.dtype, device=quaternion.device).expand(
+        batch, 3
+    )
+    left = torch.stack((-forward[:, 1], forward[:, 0], torch.zeros_like(forward[:, 0])), dim=1)
+    return torch.stack((forward, left, up), dim=2)
 
 
 def _quat_rotate_wxyz(quaternion: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
