@@ -11,6 +11,15 @@ off-policy runtime. Construction is declared in the owner Hydra config:
         actor_config:
           builder: "some_package.actors:build_actor"
           kwargs: {hidden_dim: 256}
+          optimizer_param_groups:
+            residual_mean:
+              parameters: [residual_mean.gain, residual_mean.bias]
+              lr_multiplier: 0.1
+
+``optimizer_param_groups`` is optional. Its exact ``named_parameters()`` names
+are disjoint, unknown names fail closed, and all unassigned actor parameters
+form the default group. Multipliers scale each Adam group's learning rate (not
+its gradients) and are preserved by scheduling and checkpoint state.
 
 The builder is a dotted import path (``pkg.module:callable`` or
 ``pkg.module.callable``) resolved with :func:`importlib.import_module`, so the
@@ -52,6 +61,7 @@ incompatible with the whole-cycle CUDA graph: requesting
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -80,11 +90,21 @@ _CUSTOM_ACTOR_REQUIRED_ATTRIBUTES = (
 
 
 @dataclass(frozen=True)
+class OptimizerParamGroupSpec:
+    """Exact actor parameter names sharing one Adam LR multiplier."""
+
+    name: str
+    parameters: tuple[str, ...]
+    lr_multiplier: float
+
+
+@dataclass(frozen=True)
 class FlashSACActorSpec:
     """Spawn-safe declarative description of a custom FlashSAC actor."""
 
     builder: str
     kwargs: dict[str, Any] = field(default_factory=dict)
+    optimizer_param_groups: tuple[OptimizerParamGroupSpec, ...] = ()
 
     @classmethod
     def from_config(cls, actor_config: Any) -> "FlashSACActorSpec":
@@ -118,7 +138,43 @@ class FlashSACActorSpec:
             raise ValueError(
                 f"FlashSAC actor_config.kwargs must be JSON-serializable: {exc}"
             ) from exc
-        return cls(builder=builder.strip(), kwargs=kwargs)
+        raw_groups = actor_config.get("optimizer_param_groups") or {}
+        if not isinstance(raw_groups, Mapping):
+            raise TypeError("actor_config.optimizer_param_groups must be a mapping")
+        groups: list[OptimizerParamGroupSpec] = []
+        assigned: set[str] = set()
+        for name, group in raw_groups.items():
+            if not isinstance(name, str) or not _AUX_LOSS_NAME_PATTERN.fullmatch(name):
+                raise ValueError(f"Invalid optimizer parameter-group name {name!r}")
+            if not isinstance(group, Mapping):
+                raise TypeError(f"Optimizer parameter group {name!r} must be a mapping")
+            parameters = group.get("parameters")
+            if (
+                not isinstance(parameters, (list, tuple))
+                or not parameters
+                or not all(isinstance(parameter, str) and parameter for parameter in parameters)
+            ):
+                raise ValueError(f"Optimizer parameter group {name!r} needs exact parameter names")
+            duplicates = assigned.intersection(parameters)
+            if duplicates or len(set(parameters)) != len(parameters):
+                raise ValueError(
+                    f"Optimizer parameter names must be unique across groups: {duplicates}"
+                )
+            assigned.update(parameters)
+            multiplier = group.get("lr_multiplier")
+            if (
+                isinstance(multiplier, bool)
+                or not isinstance(multiplier, (int, float))
+                or not math.isfinite(multiplier)
+                or multiplier <= 0.0
+            ):
+                raise ValueError(f"Optimizer group {name!r} lr_multiplier must be positive")
+            groups.append(OptimizerParamGroupSpec(name, tuple(parameters), float(multiplier)))
+        return cls(
+            builder=builder.strip(),
+            kwargs=kwargs,
+            optimizer_param_groups=tuple(groups),
+        )
 
 
 def _resolve_actor_builder(path: str) -> Any:
@@ -281,6 +337,45 @@ def build_custom_actor(
     return actor
 
 
+def build_actor_optimizer_param_groups(
+    actor: nn.Module,
+    spec: FlashSACActorSpec | None,
+) -> list[dict[str, Any]]:
+    """Resolve an exhaustive, disjoint actor optimizer layout."""
+    named_parameters = dict(actor.named_parameters())
+    if spec is None or not spec.optimizer_param_groups:
+        return [
+            {"params": list(named_parameters.values()), "name": "default", "lr_multiplier": 1.0}
+        ]
+    groups: list[dict[str, Any]] = []
+    assigned: set[str] = set()
+    for group in spec.optimizer_param_groups:
+        missing = set(group.parameters).difference(named_parameters)
+        if missing:
+            raise ValueError(
+                f"Optimizer group {group.name!r} names unknown actor parameters: {sorted(missing)}"
+            )
+        assigned.update(group.parameters)
+        groups.append(
+            {
+                "params": [named_parameters[name] for name in group.parameters],
+                "name": group.name,
+                "lr_multiplier": group.lr_multiplier,
+            }
+        )
+    remaining = [name for name in named_parameters if name not in assigned]
+    if remaining:
+        groups.insert(
+            0,
+            {
+                "params": [named_parameters[name] for name in remaining],
+                "name": "default",
+                "lr_multiplier": 1.0,
+            },
+        )
+    return groups
+
+
 def build_builtin_actor_semantics(
     *,
     obs_dim: int,
@@ -320,6 +415,13 @@ def build_custom_actor_semantics(
         "kind": "custom",
         "builder": spec.builder,
         "kwargs": json.loads(json.dumps(spec.kwargs, sort_keys=True)),
+        "optimizer_param_groups": {
+            group.name: {
+                "parameters": list(group.parameters),
+                "lr_multiplier": group.lr_multiplier,
+            }
+            for group in spec.optimizer_param_groups
+        },
         "obs_dim": int(obs_dim),
         "action_dim": int(action_dim),
         "action_transform": str(action_transform_id),
@@ -360,7 +462,10 @@ def validate_actor_semantics(saved: Any, expected: Mapping[str, Any]) -> None:
             f"{saved.get('schema_version')!r} (expected {ACTOR_SEMANTICS_SCHEMA_VERSION})"
         )
     mismatches = []
-    for key in ("kind", "builder", "kwargs", "obs_dim", "action_dim", "action_transform"):
+    keys = ["kind", "builder", "kwargs", "obs_dim", "action_dim", "action_transform"]
+    if expected.get("kind") == "custom":
+        keys.append("optimizer_param_groups")
+    for key in keys:
         saved_value = saved.get(key)
         expected_value = expected.get(key)
         if key == "kwargs":

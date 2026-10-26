@@ -24,6 +24,7 @@ from unilab.rl.algos.common.normalization import EmpiricalNormalization
 from unilab.rl.algos.common.performance import resolve_learner_performance_tier
 from unilab.rl.algos.flash_sac.actor_spec import (
     FlashSACActorSpec,
+    build_actor_optimizer_param_groups,
     build_builtin_actor_semantics,
     build_custom_actor,
     build_custom_actor_semantics,
@@ -402,11 +403,19 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         optimizer_kwargs: dict[str, Any] = {"fused": _fused}
         if _fused and self._performance_tier.supports_capturable_optimizer:
             optimizer_kwargs["capturable"] = True
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=lr_peak, **optimizer_kwargs)
+        actor_param_groups = build_actor_optimizer_param_groups(self.actor, self._actor_spec)
+        self._optimizer_lr_multipliers: dict[int, tuple[float, ...]] = {}
+        for group in actor_param_groups:
+            group["lr"] = lr_peak * group["lr_multiplier"]
+        self.actor_optimizer = optim.Adam(actor_param_groups, lr=lr_peak, **optimizer_kwargs)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=lr_peak, **optimizer_kwargs)
         self.temperature_optimizer = optim.Adam(
             self.temperature.parameters(), lr=lr_peak, **optimizer_kwargs
         )
+        for optimizer in (self.actor_optimizer, self.critic_optimizer, self.temperature_optimizer):
+            self._optimizer_lr_multipliers[id(optimizer)] = tuple(
+                float(group.get("lr_multiplier", 1.0)) for group in optimizer.param_groups
+            )
         self._pending_actor_metric_values: torch.Tensor | None = None
 
         scheduler_fn = build_lr_lambda(
@@ -433,7 +442,7 @@ class FlashSACLearner(WholeCycleLearnerMixin):
         self._update_cycle_static_batch: dict[str, torch.Tensor] | None = None
         self._update_cycle_graph_metric_values: torch.Tensor | None = None
         self._update_cycle_lr_specs: list[
-            tuple[optim.Optimizer, optim.lr_scheduler.LambdaLR, torch.Tensor, int]
+            tuple[optim.Optimizer, optim.lr_scheduler.LambdaLR, torch.Tensor, int, int]
         ] = []
         self._update_cycle_lr_cursors: dict[int, int] = {}
         self._capture_update_cycle = False
@@ -603,9 +612,13 @@ class FlashSACLearner(WholeCycleLearnerMixin):
             return
         cursor = self._update_cycle_lr_cursors.get(id(optimizer), 0)
         specs = [spec for spec in self._update_cycle_lr_specs if spec[0] is optimizer]
-        if cursor >= len(specs):
+        group_count = len(optimizer.param_groups)
+        start = cursor * group_count
+        staged = specs[start : start + group_count]
+        if len(staged) != group_count:
             raise RuntimeError("FlashSAC update-cycle LR staging exhausted")
-        optimizer.param_groups[0]["lr"] = specs[cursor][2]
+        for spec in staged:
+            optimizer.param_groups[spec[4]]["lr"] = spec[2]
         self._update_cycle_lr_cursors[id(optimizer)] = cursor + 1
 
     def _maybe_normalize_obs(self, obs: torch.Tensor, *, update: bool) -> torch.Tensor:
@@ -979,20 +992,24 @@ class FlashSACLearner(WholeCycleLearnerMixin):
             (self.temperature_scheduler, self.temperature_optimizer, actor_updates),
         ):
             for offset in range(count):
-                tensor = torch.empty((), device=self.device, dtype=torch.float32)
-                self._update_cycle_lr_specs.append((optimizer, scheduler, tensor, offset))
+                for group_index in range(len(optimizer.param_groups)):
+                    tensor = torch.empty((), device=self.device, dtype=torch.float32)
+                    self._update_cycle_lr_specs.append(
+                        (optimizer, scheduler, tensor, offset, group_index)
+                    )
 
     def _fill_update_cycle_lr_specs(self, *, zero: bool) -> None:
-        for _optimizer, scheduler, tensor, offset in self._update_cycle_lr_specs:
+        for optimizer, scheduler, tensor, offset, group_index in self._update_cycle_lr_specs:
             if zero:
                 tensor.zero_()
                 continue
-            lr = self._lr_peak * self._lr_schedule_fn(scheduler.last_epoch + offset)
+            multiplier = self._optimizer_lr_multipliers[id(optimizer)][group_index]
+            lr = multiplier * self._lr_peak * self._lr_schedule_fn(scheduler.last_epoch + offset)
             tensor.fill_(float(lr))
 
     def _advance_update_cycle_schedulers(self) -> None:
         counts: dict[int, tuple[optim.lr_scheduler.LambdaLR, int]] = {}
-        for _optimizer, scheduler, _tensor, offset in self._update_cycle_lr_specs:
+        for _optimizer, scheduler, _tensor, offset, _group_index in self._update_cycle_lr_specs:
             key = id(scheduler)
             _scheduler, current = counts.get(key, (scheduler, 0))
             counts[key] = (scheduler, max(current, offset + 1))

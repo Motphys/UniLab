@@ -82,6 +82,7 @@ class TestCustomActorConstruction:
             "kind": "custom",
             "builder": _BUILDER,
             "kwargs": {"action_scale": 2.0, "aux_weight": 0.5, "hidden_dim": 8},
+            "optimizer_param_groups": {},
             "obs_dim": _OBS_DIM,
             "action_dim": _ACTION_DIM,
             "action_transform": "scaled_tanh_test_v1",
@@ -155,6 +156,69 @@ class TestCustomActorConstruction:
                 actor_config=_actor_config(),
                 actor_normalize_parameters=False,
             )
+
+
+class TestOptimizerParamGroups:
+    @staticmethod
+    def _config() -> dict[str, Any]:
+        return {
+            "builder": _BUILDER,
+            "kwargs": {"hidden_dim": 8},
+            "optimizer_param_groups": {
+                "residual_mean": {
+                    "parameters": ["mean_head.weight", "mean_head.bias"],
+                    "lr_multiplier": 0.1,
+                }
+            },
+        }
+
+    def test_multiplier_scales_adam_update_not_gradient(self) -> None:
+        learner = _make_learner(actor_config=self._config())
+        optimizer = learner.actor_optimizer
+        default = learner.actor.trunk[0].weight
+        scaled = learner.actor.mean_head.weight
+        for parameter in learner.actor.parameters():
+            parameter.grad = torch.ones_like(parameter)
+        default_before = default.detach().clone()
+        scaled_before = scaled.detach().clone()
+
+        optimizer.step()
+
+        default_delta = (default - default_before).abs().mean()
+        scaled_delta = (scaled - scaled_before).abs().mean()
+        torch.testing.assert_close(scaled_delta, default_delta * 0.1, rtol=1e-5, atol=1e-8)
+        torch.testing.assert_close(scaled.grad, torch.ones_like(scaled))
+        group = next(group for group in optimizer.param_groups if group["name"] == "residual_mean")
+        assert group["lr"] == pytest.approx(optimizer.param_groups[0]["lr"] * 0.1)
+
+        learner.actor_scheduler.step()
+        assert optimizer.param_groups[0]["lr"] > 0
+        assert group["lr"] == pytest.approx(optimizer.param_groups[0]["lr"] * 0.1)
+
+    def test_optimizer_group_checkpoint_round_trip(self) -> None:
+        learner = _make_learner(actor_config=self._config())
+        learner.update_actor(_make_batch())
+        state = learner.get_state_dict()
+
+        restored = _make_learner(actor_config=self._config())
+        restored.load_state_dict(state)
+
+        assert [group["name"] for group in restored.actor_optimizer.param_groups] == [
+            "default",
+            "residual_mean",
+        ]
+        assert (
+            restored.get_state_dict()["actor_semantics"]["optimizer_param_groups"]["residual_mean"][
+                "lr_multiplier"
+            ]
+            == 0.1
+        )
+
+    def test_unknown_parameter_fails_closed(self) -> None:
+        config = self._config()
+        config["optimizer_param_groups"]["residual_mean"]["parameters"] = ["missing.weight"]
+        with pytest.raises(ValueError, match="unknown actor parameters"):
+            _make_learner(actor_config=config)
 
 
 class TestAuxiliaryLosses:
