@@ -1580,6 +1580,93 @@ def test_mujoco_host_bridge_packed_reset_lifecycle(
         backend.close()
 
 
+def test_mujoco_tensor_ray_observation_uses_public_rich_query_contract(
+    tmp_path: Path,
+) -> None:
+    """Exercise the real MuJoCo/UniSim/uni_ray perception path end to end."""
+
+    pytest.importorskip("uni_ray", reason="local uni_ray is required")
+    pytest.importorskip("warp", reason="warp-lang is required by uni_ray")
+
+    def build(pattern: mdp.RayPatternCfg):
+        model = tmp_path / "ray-rich-query.xml"
+        model.write_text(
+            "<mujoco><worldbody><geom name='ground' type='plane' size='0 0 0.1'/>"
+            "<body name='base' pos='0 0 1'><joint name='joint' axis='0 1 0'/>"
+            "<geom name='robot_sphere' type='sphere' size='0.1'/></body>"
+            "</worldbody><actuator><motor name='motor' joint='joint' "
+            "ctrlrange='-1 1'/></actuator></mujoco>"
+        )
+        scene = SceneCfg(
+            model_file=str(model),
+            entities={
+                "robot": EntityCfg(
+                    root_body_name="base",
+                    body_names=("base",),
+                    joint_names=("joint",),
+                    actuator_names=("motor",),
+                )
+            },
+        )
+        cfg = ManagerBasedRlEnvCfg(
+            scene=scene,
+            sim_dt=0.01,
+            ctrl_dt=0.02,
+            max_episode_seconds=0.04,
+            observations={
+                "actor": ObservationGroupCfg(
+                    terms={
+                        "rays": ObservationTermCfg(
+                            func=mdp.RayScan, params={"ray_pattern": pattern}
+                        )
+                    }
+                )
+            },
+            actions={
+                "effort": mdp.JointEffortActionCfg(entity_name="robot", actuator_names=(".*",))
+            },
+            events={"default": EventTermCfg(func=mdp.reset_scene_to_default, mode="reset")},
+            rewards={"alive": RewardTermCfg(func=mdp.is_alive, weight=1.0)},
+            terminations={"time_out": TerminationTermCfg(func=mdp.time_out, time_out=True)},
+            policy_observation_group="actor",
+        )
+        backend = create_backend(
+            "mujoco", scene, 2, cfg.sim_dt, base_name="base", add_body_sensors=True
+        )
+        return ManagerBasedRlEnv(cfg, backend, 2), backend
+
+    def ray_pattern(**kwargs):
+        values = {
+            "entity_name": "robot",
+            "attachment_body_name": "base",
+            "num_rays": 2,
+            "pattern_start": 0.0,
+            "pattern_stop": 0.0,
+            "pattern_pitch": -0.5 * 3.141592653589793,
+            "max_distance": 3.0,
+            "sensor_offset": (0.0, 0.0, 0.2),
+            "include_normal": True,
+        }
+        values.update(kwargs)
+        return mdp.RayPatternCfg(**values)
+
+    near_env, near_backend = build(ray_pattern())
+    valid_env, valid_backend = build(ray_pattern(min_distance=0.15, excluded_body_names=("base",)))
+    try:
+        near = near_env.init_state().obs["obs"].reshape(2, -1, 4)
+        valid = valid_env.init_state().obs["obs"].reshape(2, -1, 4)
+        torch.testing.assert_close(near[..., 0], torch.full((2, 2), 0.1), atol=2e-5, rtol=0.0)
+        expected_normal = torch.tensor([0.0, 0.0, 1.0]).repeat(2, 2, 1)
+        torch.testing.assert_close(near[..., 1:4], expected_normal, atol=2e-5, rtol=0.0)
+        torch.testing.assert_close(valid[..., 0], torch.full((2, 2), 1.2), atol=2e-5, rtol=0.0)
+        torch.testing.assert_close(valid[..., 1:4], expected_normal, atol=2e-5, rtol=0.0)
+    finally:
+        near_env.close()
+        valid_env.close()
+        near_backend.close()
+        valid_backend.close()
+
+
 def _make_state_env(
     *,
     commands: dict[str, CommandTermCfg | None] | None = None,
