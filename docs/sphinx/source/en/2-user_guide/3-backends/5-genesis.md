@@ -52,8 +52,8 @@ compensates on the materialize cold path — hot paths never parse XML:
   reproduction of it.
 - **Actuators**: `<position kp kv>` actuators import losslessly and are
   driven with `control_dofs_position`; kp/kd reset randomization is supported
-  (the DR capability set declares only the per-env round-trip-measured terms:
-  body mass, base mass, kp, kd, plus interval body force).
+  on the device plane (the DR capability sets declare only the measured device
+  reset terms: body mass, kp, kd, plus interval body force and body torque).
 
 ## Prerequisites
 
@@ -155,6 +155,9 @@ degrading:
   `get_geom_friction` fail closed.
 - **Interval push / body-velocity-delta DR**: rejected at construction/plan
   time (`push_body_name`, push perturbation).
+- **Host-plane runtime DR**: Genesis accepts reset and interval payloads only
+  on its backend-bound CUDA/AMDGPU device. Host payloads fail closed with the
+  term and plane named; there is no NumPy or host-bridge fallback.
 - **Repeated `gs.init`** in one process (see above).
 
 ## Cross-Backend Migration (sim2sim)

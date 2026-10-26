@@ -9,8 +9,8 @@
 # stay at Genesis defaults: the MJCF option block does not declare them and
 # MuJoCo's implicit defaults (PGS solver, pyramidal cone) have no Genesis
 # equivalent. Keyframes and sensors are scanned from the MJCF once on the
-# materialize cold path; kp/kd reset randomization stays enabled because the
-# backend declares the measured RESET_TERM_KP/KD DR terms (REPORT §5.7).
+# materialize cold path; the device-plane packed reset lane declares kp/kd, so
+# PD-gain randomization follows the shared owner baseline (REPORT #1372 §5.7).
 # Playback uses Genesis native rendering: with a display, play_render_mode=auto
 # opens the interactive viewer; headless hosts fall back to offscreen camera
 # recording.

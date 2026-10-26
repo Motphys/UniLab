@@ -174,7 +174,8 @@ _OWNER_CASES = (
         1.0,
         "scene_flat.xml",
         _OFFPOLICY_REWARDS,
-        _RESET_EVENTS,
+        # Genesis commits reset randomization through its device-plane packed lane.
+        (*_RESET_EVENTS, "pd_gains"),
         True,
         id="sac-genesis",
     ),
