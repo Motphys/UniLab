@@ -565,10 +565,15 @@ class WholeCycleLearnerMixin(LearnerBaseMixin):
                             value.zero_()
 
     def _zero_optimizer_gradients(self, optimizer: optim.Optimizer) -> None:
-        """Zero gradients without the graph-skipped optimizer Python entrypoint."""
+        """Zero gradients, retaining stable buffers required by compiled backward."""
         if not self._compile_full_update_cycle:
-            optimizer.zero_grad(set_to_none=True)
-            return
+            if not getattr(self, "use_compile", False):
+                optimizer.zero_grad(set_to_none=True)
+                return
+            for group in optimizer.param_groups:
+                for parameter in group["params"]:
+                    if parameter.grad is None:
+                        parameter.grad = torch.zeros_like(parameter)
         gradients = [
             parameter.grad
             for group in optimizer.param_groups
