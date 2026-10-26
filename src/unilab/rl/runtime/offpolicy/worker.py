@@ -475,6 +475,7 @@ def _run_collector(
     max_publication_lag_since_metric = 0
     final_metrics_flushed = False
     pending_metric_flush: MetricFlush | None = None
+    latest_curriculum_metrics: dict[str, float] = {}
 
     def enqueue_collector_metrics(
         *,
@@ -495,6 +496,8 @@ def _run_collector(
             "total_steps": total_steps,
             "buffer_size": int(replay_buffer.size[0]),
         }
+        if latest_curriculum_metrics:
+            msg["curriculum_metrics"] = dict(latest_curriculum_metrics)
         if final:
             msg["metric_flush"] = "final"
         rewards_for_report = reward_history if reward_history is not None else ep_rewards
@@ -870,12 +873,14 @@ def _run_collector(
             critic_t = next_critic_t
             total_steps += num_envs
 
-            # Extract reward components from env info
-            log_info = state.info.get("log", {}) if reward_component_names else {}
+            # Extract reward components and latest curriculum state from env info.
+            log_info = state.info.get("log", {})
             if log_info:
                 for k, v in log_info.items():
                     if k.startswith("reward/"):
                         ep_reward_components[k.removeprefix("reward/")].append(v)
+                    elif k.startswith("Curriculum/") and isinstance(v, (int, float)):
+                        latest_curriculum_metrics[k] = float(v)
 
             phase_start_ns = _record_phase_ms(cycle_timing_ms, "metrics_publish_ms", phase_start_ns)
 

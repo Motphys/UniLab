@@ -81,6 +81,8 @@ def drain_collector_metrics(
                 reward_history.append(metrics["return_mean_ep100"])
             if "reward_components" in metrics:
                 reward_components.update(metrics["reward_components"])
+            if "curriculum_metrics" in metrics:
+                logger.update_curriculum_metrics(metrics["curriculum_metrics"])
             if "mean_episode_length" in metrics:
                 logger.update_mean_episode_length(metrics["mean_episode_length"])
             if "collector_timing_ms" in metrics:

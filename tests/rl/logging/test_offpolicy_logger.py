@@ -725,6 +725,9 @@ def test_offpolicy_backend_log_step_writes_one_batched_event() -> None:
     writer = _BatchedWriter()
     logger._tb_writer = writer
 
+    logger.update_curriculum_metrics(
+        {"Curriculum/voc/stage": 2.0, "Curriculum/voc/target_voc_scale": 0.5}
+    )
     logger.log_step(
         iteration=1,
         metrics={"Loss/critic": 2.0},
@@ -743,6 +746,8 @@ def test_offpolicy_backend_log_step_writes_one_batched_event() -> None:
     assert scalars["Loss/critic"] == pytest.approx(2.0)
     assert scalars["Train/mean_reward"] == pytest.approx(1.25)
     assert scalars["reward/alive"] == pytest.approx(1.0)
+    assert scalars["Curriculum/voc/stage"] == pytest.approx(2.0)
+    assert scalars["Curriculum/voc/target_voc_scale"] == pytest.approx(0.5)
     assert scalars["Perf/total_fps"] == pytest.approx(400.0)
     assert "Perf/iteration_time" in scalars
     assert "Perf/learning_time" in scalars

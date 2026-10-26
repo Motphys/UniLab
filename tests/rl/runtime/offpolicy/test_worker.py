@@ -1176,6 +1176,10 @@ def test_tensor_collector_preserves_interval_reward_component_means(
                     "reward_components": torch.tensor(
                         [[1.0, 2.0], [3.0, 4.0]], dtype=torch.float32
                     ),
+                    "log": {
+                        "Curriculum/voc/stage": 2.0,
+                        "Curriculum/voc/target_voc_scale": 0.5,
+                    },
                 },
             )
             return self.state
@@ -1246,6 +1250,10 @@ def test_tensor_collector_preserves_interval_reward_component_means(
     report = metrics_queue.get_nowait()
     assert report["reward_components"] == {"left": 2.0, "right": 3.0}
     assert report["reward_component_means"] is True
+    assert report["curriculum_metrics"] == {
+        "Curriculum/voc/stage": 2.0,
+        "Curriculum/voc/target_voc_scale": 0.5,
+    }
 
 
 def test_worker_shutdown_flushes_partial_metrics_before_abnormal_cleanup(

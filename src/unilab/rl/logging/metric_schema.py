@@ -544,6 +544,14 @@ METRIC_FAMILIES: dict[str, MetricFamilySpec] = {
             distributed_aggregation="cross-rank mean of per-rank report means",
         ),
         MetricFamilySpec(
+            prefix="Curriculum/",
+            owner="environment/curriculum",
+            unit="curriculum state",
+            aggregation="latest reset-published state",
+            step_axis=_STEP_AXIS,
+            description="Latest curriculum values published through env info['log'].",
+        ),
+        MetricFamilySpec(
             prefix="Loss/aux_",
             owner="learner",
             unit="dimensionless objective",

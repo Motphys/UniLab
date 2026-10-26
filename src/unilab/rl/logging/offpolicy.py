@@ -297,6 +297,7 @@ class OffPolicyLogger(BaseTrainingLogger):
         self._has_iteration_extra_info: bool = False
         self._collector_timing: dict[str, float] = {}
         self._collector_inference: dict[str, float] = {}
+        self._curriculum_metrics: dict[str, float] = {}
         if timing_profile not in _LEARNER_TIMING_PROFILES:
             raise ValueError("timing_profile must be 'sac_family' or 'appo'")
         self._timing_profile = timing_profile
@@ -533,6 +534,14 @@ class OffPolicyLogger(BaseTrainingLogger):
             batch_size_per_rank=self._batch_size_per_rank,
         )
 
+    def update_curriculum_metrics(self, metrics: dict[str, float]) -> None:
+        for key, value in metrics.items():
+            if not key.startswith("Curriculum/"):
+                raise ValueError(f"invalid curriculum metric key: {key}")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"curriculum metric {key} must be numeric")
+        self._curriculum_metrics.update(metrics)
+
     def update_collector_timing(self, timing_ms: dict[str, float]):
         normalized = dict(timing_ms)
         unknown = sorted(set(normalized) - set(_COLLECTOR_TIMING_SPECS))
@@ -719,6 +728,8 @@ class OffPolicyLogger(BaseTrainingLogger):
             _set_backend_scalar(scalars, "Train/mean_episode_length", self._mean_ep_length)
         if self._timeout_rate is not None:
             _set_backend_scalar(scalars, "Episode/timeout_rate", self._timeout_rate)
+        for key, value in self._curriculum_metrics.items():
+            _set_backend_scalar(scalars, key, value)
         for key, value in self._collector_timing.items():
             if key == "rollout_ms":
                 _set_backend_scalar(scalars, "Perf/collection_time", value / 1000.0)
