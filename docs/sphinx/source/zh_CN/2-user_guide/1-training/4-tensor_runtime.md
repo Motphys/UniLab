@@ -54,7 +54,8 @@ off-policy inference transport 是纯派生事实，不再是配置键：
 ring；默认合法配对中 learner 是 CPU 或 Apple MPS，CUDA learner 的配对约束
 见下文的配对契约），`cuda` 推导 CUDA ring。`cuda`
 遵循 Torch device type 语义，覆盖 NVIDIA CUDA 与 AMD ROCm。它不会放宽独立
-平台 gate：CUDA-only tensor backend 在 ROCm/HIP 上仍 fail closed，
+平台 gate：CUDA-only tensor backend 在 ROCm/HIP 上仍 fail closed；Genesis
+仅通过独立审查的 HIP/ROCm + exact `gs.amdgpu` profile 支持 ROCm。
 `training.cuda_process_sharing` 仍只开放给 NVIDIA 专属的 CUDA MPS daemon 与
 native H2D 实现。
 

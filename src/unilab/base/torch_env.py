@@ -69,10 +69,9 @@ def _cpu_time() -> float:
 
 # Backends whose ``step_tensor`` publishes an event-backed asynchronous step
 # receipt (a unisim ``CompletionToken`` carried in ``info["completion"]``).
-# Synchronous producers — host-bridge backends and device-resident backends
-# that synchronize before returning (for example genesis) — publish no
-# receipt, so consumers must accept a missing receipt without waiting.
-_EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"mjwarp"})
+# Event-backed Genesis and MJWarp CUDA paths publish a receipt per step;
+# synchronous host-bridge producers publish none.
+_EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"genesis", "mjwarp"})
 
 
 class TorchEnv(ABEnv):

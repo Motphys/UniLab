@@ -7,6 +7,7 @@ public :class:`~unisim.backend.base.SimBackend` contract.
 
 from __future__ import annotations
 
+import inspect
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -41,6 +42,7 @@ from unisim.dr.types import (
     RESET_TERM_GEOM_FRICTION,
     RESET_TERM_KD,
     RESET_TERM_KP,
+    DataPlaneName,
     IntervalRandomizationPlan,
     IntervalTermOp,
 )
@@ -206,10 +208,25 @@ class EntityTensorBodyStateView:
     """Entity-ordered world-frame Torch body state for one read phase."""
 
     body_names: tuple[str, ...]
+    pos_w: torch.Tensor | None
+    quat_w: torch.Tensor | None
+    lin_vel_w: torch.Tensor | None
+    ang_vel_w: torch.Tensor | None
+
+
+@dataclass(frozen=True)
+class SceneTensorPoseView:
+    """Ray-shaped full-batch Torch pose backed by packed scene tensor views.
+
+    This is deliberately ``RayPoseTensorView``-shaped without importing the
+    caster package. The packet-backed tensors may be row-strided column views;
+    the public caster accepts such packed-strided Torch views without requiring
+    global contiguity.
+    """
+
+    body_names: tuple[str, ...]
     pos_w: torch.Tensor
     quat_w: torch.Tensor
-    lin_vel_w: torch.Tensor
-    ang_vel_w: torch.Tensor
 
 
 _TENSOR_BODY_SENSOR_FIELDS: tuple[tuple[str, str], ...] = (
@@ -218,8 +235,30 @@ _TENSOR_BODY_SENSOR_FIELDS: tuple[tuple[str, str], ...] = (
     ("lin_vel_w", "track_linvel_w_"),
     ("ang_vel_w", "track_angvel_w_"),
 )
+_TENSOR_POSE_BODY_FIELDS = ("pos_w", "quat_w")
+_TENSOR_BODY_FIELDS = frozenset((*_TENSOR_POSE_BODY_FIELDS, "lin_vel_w", "ang_vel_w"))
+_TENSOR_BODY_FIELD_ORDER = ("pos_w", "quat_w", "lin_vel_w", "ang_vel_w")
+_TENSOR_BODY_PACKET_FIELDS = {
+    "pos_w": "body_pos_w",
+    "quat_w": "body_quat_w",
+    "lin_vel_w": "body_lin_vel_w",
+    "ang_vel_w": "body_ang_vel_w",
+}
+_TENSOR_PACKET_FIELD_WIDTHS = {
+    "body_pos_w": 3,
+    "body_quat_w": 4,
+    "body_lin_vel_w": 3,
+    "body_ang_vel_w": 3,
+}
+_PACKET_FIELD_BODY_FIELDS = {
+    packet_name: field for field, packet_name in _TENSOR_BODY_PACKET_FIELDS.items()
+}
 _TRACKED_BODY_SENSOR_PREFIXES = {field: prefix for field, prefix in _TENSOR_BODY_SENSOR_FIELDS}
 _TENSOR_SENSOR_WIDTHS = {"pos_w": 3, "quat_w": 4, "lin_vel_w": 3, "ang_vel_w": 3}
+
+
+def _packet_body_name(entity_name: str, body_name: str) -> str:
+    return f"{entity_name}/{body_name}"
 
 
 @dataclass(frozen=True)
@@ -227,14 +266,20 @@ class SceneTensorReadSpec:
     """Declare one entity's named state reads for the scene tensor phase.
 
     ``sensor_names`` are explicit backend names. ``body_names`` are entity-local
-    names; the scene owner expands them into the canonical ``track_*`` sensor
-    contract. Requests are explicit so the packed packet never grows from an
-    implicit EntityCfg namespace that is only needed by a cold-path consumer.
+    names; ``body_fields`` selects their public semantic blocks. The legacy
+    default is the exact four-field body-state set; pose-only ray consumers
+    select ``(pos_w, quat_w)`` so velocities never enter the packed transfer.
     """
 
     entity: str
     sensor_names: tuple[str, ...] = ()
     body_names: tuple[str, ...] = ()
+    body_fields: tuple[str, ...] = (
+        "pos_w",
+        "quat_w",
+        "lin_vel_w",
+        "ang_vel_w",
+    )
 
     def __post_init__(self) -> None:
         if not isinstance(self.entity, str) or not self.entity:
@@ -243,8 +288,11 @@ class SceneTensorReadSpec:
             raise TypeError("Scene tensor read sensor_names must be a sequence of strings")
         if isinstance(self.body_names, (str, bytes)):
             raise TypeError("Scene tensor read body_names must be a sequence of strings")
+        if isinstance(self.body_fields, (str, bytes)):
+            raise TypeError("Scene tensor read body_fields must be a sequence of strings")
         sensors = tuple(self.sensor_names)
         bodies = tuple(self.body_names)
+        fields = tuple(self.body_fields)
         if not sensors and not bodies:
             # Generic joint observations request the entity's packed qpos/qvel
             # packet without named sensors or body-projected state. This is a
@@ -255,8 +303,19 @@ class SceneTensorReadSpec:
                 raise TypeError(f"Scene tensor read {label} names must be non-empty strings")
             if len(set(names)) != len(names):
                 raise ValueError(f"Scene tensor read {label} names must be unique: {names}")
+        if bodies and not fields:
+            raise ValueError("Scene tensor read body_fields cannot be empty when bodies are set")
+        unknown = [field for field in fields if field not in _TENSOR_BODY_FIELDS]
+        if unknown:
+            raise ValueError(
+                f"Scene tensor read body_fields are unknown: {unknown}; "
+                f"expected={sorted(_TENSOR_BODY_FIELDS)}"
+            )
+        if len(set(fields)) != len(fields):
+            raise ValueError(f"Scene tensor read body_fields must be unique: {fields}")
         object.__setattr__(self, "sensor_names", sensors)
         object.__setattr__(self, "body_names", bodies)
+        object.__setattr__(self, "body_fields", fields)
 
 
 class SceneTensorReadPlan:
@@ -277,6 +336,11 @@ class SceneTensorReadPlan:
         entities: Mapping[str, "Entity"],
         sensor_names: Mapping[str, tuple[str, ...]],
         body_names: Mapping[str, tuple[str, ...]],
+        body_fields: Mapping[str, tuple[str, ...]],
+        packet_names: tuple[str, ...],
+        packet_sensor_owners: Mapping[str, str],
+        packet_body_axes: Mapping[str, tuple[str, ...]],
+        packet_body_blocks: bool,
         host_plan: HostBridgeTransferPlan | None,
     ) -> None:
         self._scene = scene
@@ -284,20 +348,24 @@ class SceneTensorReadPlan:
         self._entities = MappingProxyType(dict(entities))
         self._sensor_names = MappingProxyType(dict(sensor_names))
         self._body_names = MappingProxyType(dict(body_names))
+        self._body_fields = MappingProxyType(dict(body_fields))
         self._host_plan_value = host_plan
-        self._packet_names = self._aggregate_packet_names()
+        self._packet_names = packet_names
+        owners = dict(packet_sensor_owners)
+        if not packet_body_blocks:
+            for entity_name, body_names_value in self._body_names.items():
+                for body_name in body_names_value:
+                    for field, prefix in _TENSOR_BODY_SENSOR_FIELDS:
+                        if field not in self._body_fields[entity_name]:
+                            continue
+                        name = prefix + body_name
+                        owners.setdefault(name, entity_name)
+        self._packet_sensor_owners = MappingProxyType(owners)
+        self._packet_body_axes = MappingProxyType(dict(packet_body_axes))
+        self._packet_body_blocks = packet_body_blocks
         self._aggregate_body_views: dict[str, EntityTensorBodyStateView] = {}
         self._joint_column_indices: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
-        self._packet_sensor_owners: dict[str, str] = {}
-        self._packet_sensor_owners.update(
-            (name, entity_name)
-            for entity_name, names in self._sensor_names.items()
-            for name in names
-        )
-        for entity_name, body_names_value in self._body_names.items():
-            for body_name in body_names_value:
-                for _, prefix in _TENSOR_BODY_SENSOR_FIELDS:
-                    self._packet_sensor_owners.setdefault(prefix + body_name, entity_name)
+        self._packet_body_index_cache: dict[tuple[str, tuple[str, ...]], torch.Tensor] = {}
         self._packet: Mapping[str, torch.Tensor] = MappingProxyType({})
         self._refreshed = False
         self._closed = False
@@ -323,6 +391,16 @@ class SceneTensorReadPlan:
         return self._body_names
 
     @property
+    def body_fields(self) -> Mapping[str, tuple[str, ...]]:
+        """Return the semantic body blocks compiled for each entity."""
+        return self._body_fields
+
+    @property
+    def packet_body_blocks(self) -> bool:
+        """Return whether the backend publishes native packed body blocks."""
+        return self._packet_body_blocks
+
+    @property
     def host_plan(self) -> HostBridgeTransferPlan | None:
         return self._host_plan_value
 
@@ -336,11 +414,53 @@ class SceneTensorReadPlan:
         """Return the immutable backend sensor names compiled into this plan."""
         return self._packet_names
 
+    def ray_pose_view(
+        self, entity: "str | Entity", body_names: Sequence[str] | None = None
+    ) -> SceneTensorPoseView:
+        """Return a ray-shaped full-batch pose view backed by this phase packet.
+        The tensors are persistent packed views in the requested body order.
+        They are valid until the next phase refresh, invalidation, or close.
+        """
+        self._require_open()
+        owner = self._require_entity(entity)
+        requested = self._compiled_body_request(owner, body_names)
+        fields = self._packet_body_fields(
+            owner,
+            requested,
+            required_fields=_TENSOR_POSE_BODY_FIELDS,
+            capability="ray pose tensor read",
+        )
+        return SceneTensorPoseView(
+            body_names=requested,
+            pos_w=fields["pos_w"],
+            quat_w=fields["quat_w"],
+        )
+
+    def packet_body_axis(self, packet_field: str) -> tuple[str, ...]:
+        """Return immutable aggregate body identity for one packed body field."""
+        try:
+            return self._packet_body_axes[packet_field]
+        except KeyError as exc:
+            raise KeyError(
+                f"Scene tensor body field '{packet_field}' was not compiled into the "
+                f"packed read; compiled={list(self._packet_body_axes)}"
+            ) from exc
+
     def refresh(self) -> None:
         """Publish one full-batch packet for the current read phase."""
         self._require_not_closed()
         if self._host_plan_value is not None:
-            packet = self._read_packet(self._host_plan_value.read_state_sensors)
+            if self._packet_body_blocks:
+
+                def reader() -> dict[str, torch.Tensor]:
+                    return self._read_host_body_blocks(selected=False)
+
+            else:
+                reader = cast(
+                    Callable[[], dict[str, torch.Tensor]],
+                    self._host_plan_value.read_state_sensors,
+                )
+            packet = self._read_packet(reader)
         else:
             packet = self._read_device_resident_packet()
         self._publish_packet(packet)
@@ -354,7 +474,17 @@ class SceneTensorReadPlan:
         """
         self._require_not_closed()
         if self._host_plan_value is not None:
-            packet = self._read_packet(self._host_plan_value.read_selected_state_sensors)
+            if self._packet_body_blocks:
+
+                def reader() -> dict[str, torch.Tensor]:
+                    return self._read_host_body_blocks(selected=True)
+
+            else:
+                reader = cast(
+                    Callable[[], dict[str, torch.Tensor]],
+                    self._host_plan_value.read_selected_state_sensors,
+                )
+            packet = self._read_packet(reader)
         else:
             packet = self._read_device_resident_packet()
         self._publish_packet(packet)
@@ -369,6 +499,22 @@ class SceneTensorReadPlan:
         post-step and post-reset packets cannot republish stale projections.
         """
         return self._read_packet(None)
+
+    def _read_host_body_blocks(self, *, selected: bool) -> dict[str, torch.Tensor]:
+        """Expose packed body blocks as views of the single host-bridge packet."""
+        host_plan = self._host_plan_value
+        assert host_plan is not None
+        source = (
+            host_plan.read_selected_state_sensors() if selected else host_plan.read_state_sensors()
+        )
+        packet = dict(source)
+        poses = host_plan.get_body_pose_views()
+        for field in _TENSOR_POSE_BODY_FIELDS:
+            packet_name = _TENSOR_BODY_PACKET_FIELDS[field]
+            value = getattr(poses, field)
+            if value is not None:
+                packet[packet_name] = value.reshape(value.shape[0], -1)
+        return packet
 
     def invalidate(self) -> None:
         """Drop phase values after an in-phase simulation mutation."""
@@ -500,14 +646,9 @@ class SceneTensorReadPlan:
         self, entity: "str | Entity", body_names: Sequence[str] | None = None
     ) -> EntityTensorBodyStateView:
         """Return entity-local body state from canonical phase sensors."""
+        self._require_open()
         owner = self._require_entity(entity)
-        if owner._body_names is None:
-            raise owner._capability_error(
-                "scene body tensor state", "body_names were not declared in EntityCfg"
-            )
-        requested = self._scene._normalize_tensor_body_request(
-            owner, tuple(body_names) if body_names is not None else owner._body_names
-        )
+        requested = self._compiled_body_request(owner, body_names)
         missing = [name for name in requested if name not in set(self._body_names[owner.name])]
         if missing:
             raise ValueError(
@@ -519,8 +660,31 @@ class SceneTensorReadPlan:
         if aggregate is not None and aggregate.body_names == requested:
             return aggregate
 
+        compiled_fields = self._body_fields[owner.name]
+        packet_fields_available = all(
+            _TENSOR_BODY_PACKET_FIELDS[field] in self._packet for field in compiled_fields
+        )
+        if packet_fields_available:
+            fields = self._packet_body_fields(
+                owner,
+                requested,
+                required_fields=compiled_fields,
+                capability="aggregate body tensor read",
+            )
+            view = EntityTensorBodyStateView(
+                body_names=requested,
+                pos_w=fields.get("pos_w"),
+                quat_w=fields.get("quat_w"),
+                lin_vel_w=fields.get("lin_vel_w"),
+                ang_vel_w=fields.get("ang_vel_w"),
+            )
+            if requested == self._body_names[owner.name]:
+                self._aggregate_body_views[owner.name] = view
+            return view
         capabilities = self._scene._backend.get_tensor_capabilities()
-        if getattr(capabilities, "tracked_body_views", False):
+        if getattr(capabilities, "tracked_body_views", False) and set(compiled_fields) == set(
+            _TENSOR_BODY_FIELDS
+        ):
             try:
                 # A single requested body needs no four-block column projection;
                 # the per-body canonical sensors are already the exact packed
@@ -553,8 +717,9 @@ class SceneTensorReadPlan:
             self._aggregate_body_views[owner.name] = view
             return view
 
-        fields: dict[str, torch.Tensor] = {}
-        for field, prefix in _TENSOR_BODY_SENSOR_FIELDS:
+        stacked_fields: dict[str, torch.Tensor] = {}
+        for field in compiled_fields:
+            prefix = _TRACKED_BODY_SENSOR_PREFIXES[field]
             stacked = [
                 Entity._validate_tensor_sensor(
                     self._packet[prefix + body_name],
@@ -568,14 +733,122 @@ class SceneTensorReadPlan:
                 )
                 for body_name in requested
             ]
-            fields[field] = torch.stack(stacked, dim=1)
+            stacked_fields[field] = torch.stack(stacked, dim=1)
         return EntityTensorBodyStateView(
             body_names=requested,
-            pos_w=fields["pos_w"],
-            quat_w=fields["quat_w"],
-            lin_vel_w=fields["lin_vel_w"],
-            ang_vel_w=fields["ang_vel_w"],
+            pos_w=stacked_fields["pos_w"],
+            quat_w=stacked_fields["quat_w"],
+            lin_vel_w=stacked_fields["lin_vel_w"],
+            ang_vel_w=stacked_fields["ang_vel_w"],
         )
+
+    def _compiled_body_request(
+        self, owner: "Entity", body_names: Sequence[str] | None
+    ) -> tuple[str, ...]:
+        if owner._body_names is None:
+            raise owner._capability_error(
+                "scene body tensor state", "body_names were not declared in EntityCfg"
+            )
+        return self._scene._normalize_tensor_body_request(
+            owner, tuple(body_names) if body_names is not None else owner._body_names
+        )
+
+    def _packet_body_fields(
+        self,
+        owner: "Entity",
+        requested: tuple[str, ...],
+        *,
+        required_fields: tuple[str, ...],
+        capability: str,
+    ) -> dict[str, torch.Tensor]:
+        fields: dict[str, torch.Tensor] = {}
+        missing: list[str] = []
+        compiled_fields = self._body_fields[owner.name]
+        for field in required_fields:
+            if field not in compiled_fields:
+                missing.append(field)
+        if missing:
+            raise ValueError(
+                f"Entity '{owner.name}' {capability} fields {missing} were not compiled "
+                f"into the packed read; compiled={list(compiled_fields)}"
+            )
+        compiled_bodies = self._body_names[owner.name]
+        if not self._packet_body_blocks:
+            canonical_fields: dict[str, torch.Tensor] = {}
+            for field, prefix in _TENSOR_BODY_SENSOR_FIELDS:
+                if field not in required_fields:
+                    continue
+                values = tuple(self._packet.get(prefix + name) for name in requested)
+                if any(value is None for value in values):
+                    missing.append(field)
+                    continue
+                canonical_fields[field] = torch.stack(
+                    tuple(value for value in values if value is not None), dim=1
+                )
+            if missing:
+                raise ValueError(
+                    f"Entity '{owner.name}' {capability} fields {missing} were not compiled "
+                    f"into the packed read; compiled={list(compiled_fields)}"
+                )
+            return canonical_fields
+        for field in required_fields:
+            packet_name = _TENSOR_BODY_PACKET_FIELDS[field]
+            raw = self._packet.get(packet_name)
+            if raw is None:
+                missing.append(field)
+                continue
+            axis = self._packet_body_axes.get(packet_name, ())
+            if not axis:
+                missing.append(field)
+                continue
+            width = _TENSOR_PACKET_FIELD_WIDTHS[packet_name]
+            expected = (self._scene._backend.num_envs, len(axis) * width)
+            if tuple(raw.shape) != expected:
+                raise ValueError(
+                    f"Entity '{owner.name}' {capability} field '{field}' has shape "
+                    f"{tuple(raw.shape)}; expected {expected}"
+                )
+            if raw.dtype != torch.float32 or raw.device != self._device:
+                raise TypeError(
+                    f"Entity '{owner.name}' {capability} field '{field}' must be float32 "
+                    f"on {self._device}; got {raw.dtype} on {raw.device}"
+                )
+            # ``unflatten`` preserves a view for row-strided packet slices.
+            # ``reshape`` would silently materialize a contiguous copy when the
+            # backend publishes one packed body block beside unrelated columns.
+            value = raw.unflatten(1, (len(axis), width))
+            if self._host_plan_value is not None:
+                owner_axis = compiled_bodies
+                requested_axis = requested
+            else:
+                owner_axis = tuple(_packet_body_name(owner.name, name) for name in compiled_bodies)
+                requested_axis = tuple(_packet_body_name(owner.name, name) for name in requested)
+            if requested_axis != owner_axis or owner_axis != axis:
+                rows = self._packet_body_indices(requested_axis, axis)
+                value = value.index_select(1, rows)
+            fields[field] = value
+        if missing:
+            raise ValueError(
+                f"Entity '{owner.name}' {capability} fields {missing} were not compiled "
+                f"into the packed read; compiled={list(self._body_fields.get(owner.name, ()))}"
+            )
+        return fields
+
+    def _packet_body_indices(
+        self, requested: tuple[str, ...], compiled: tuple[str, ...]
+    ) -> torch.Tensor:
+        key: tuple[str, tuple[str, ...]] = ("body", compiled)
+        cached = self._packet_body_index_cache.get(key)
+        if cached is not None:
+            return cached
+        positions = {name: index for index, name in enumerate(compiled)}
+        value = torch.tensor(
+            [positions[name] for name in requested],
+            dtype=torch.int64,
+            device=self._device,
+        )
+        self._packet_body_index_cache[key] = value
+        return value
 
     def _validated_aggregate_body_view(
         self, owner: "Entity", views: Any
@@ -632,18 +905,32 @@ class SceneTensorReadPlan:
                 self._host_plan_value.close()
         finally:
             self._aggregate_body_views.clear()
+            self._packet_body_index_cache.clear()
             self._packet = MappingProxyType({})
             self._refreshed = False
             self._closed = True
 
-    def _aggregate_packet_names(self) -> tuple[str, ...]:
-        names: list[str] = []
-        for entity_names in self._sensor_names.values():
-            names.extend(entity_names)
-        for entity_names in self._body_names.values():
-            for body_name in entity_names:
-                names.extend(prefix + body_name for _, prefix in _TENSOR_BODY_SENSOR_FIELDS)
-        return tuple(dict.fromkeys(names))
+    @staticmethod
+    def _aggregate_packet_body_axes(
+        body_names: Mapping[str, tuple[str, ...]],
+        body_fields: Mapping[str, set[str] | tuple[str, ...]],
+    ) -> dict[str, tuple[str, ...]]:
+        axes: dict[str, tuple[str, ...]] = {}
+        for entity_name, names in body_names.items():
+            if not names:
+                continue
+            for field in body_fields[entity_name]:
+                packet_name = _TENSOR_BODY_PACKET_FIELDS[field]
+                axis = axes.setdefault(packet_name, ())
+                axes[packet_name] = (
+                    *axis,
+                    *(
+                        _packet_body_name(entity_name, body_name)
+                        for body_name in names
+                        if _packet_body_name(entity_name, body_name) not in axis
+                    ),
+                )
+        return axes
 
     def _read_packet(
         self, reader: Callable[[], Mapping[str, Any]] | None
@@ -663,9 +950,23 @@ class SceneTensorReadPlan:
                 # stable adapter-owned storage here; only a fresh call proves
                 # that storage reflects the current post-step/post-reset state.
                 raw = dict(backend.get_state_views(("qpos", "qvel"), device=self._device))
+                body_packet_names = tuple(
+                    name for name in self._packet_names if name not in self._packet_sensor_owners
+                )
+                body_view: Any = None
+                if body_packet_names:
+                    body_names = tuple(
+                        name.partition("/")[2] if "/" in name else name
+                        for name in self._packet_body_axes[body_packet_names[0]]
+                    )
+                    body_view = backend.get_tracked_body_views(body_names, device=self._device)
                 for name in self._packet_names:
-                    view = backend.get_sensor_view(name, device=self._device)
-                    raw[name] = view
+                    if name in self._packet_sensor_owners:
+                        raw[name] = backend.get_sensor_view(name, device=self._device)
+                    else:
+                        raw[name] = getattr(body_view, _PACKET_FIELD_BODY_FIELDS[name]).reshape(
+                            backend.num_envs, -1
+                        )
             except (AttributeError, KeyError, TypeError, ValueError, NotImplementedError) as exc:
                 raise type(exc)(
                     "Manager scene device-resident tensor read on backend "
@@ -706,17 +1007,38 @@ class SceneTensorReadPlan:
                     f"got {value.dtype} on {value.device}"
                 )
         for name in self._packet_names:
-            owner = self._packet_sensor_owners[name]
-            packet[name] = Entity._validate_tensor_sensor(
-                packet[name],
-                entity_name=owner,
-                backend_type=backend.backend_type,
-                sensor_name=name,
-                expected_width=None,
-                num_envs=num_envs,
-                device=self._device,
-                finite=False,
+            value = packet[name]
+            if name in self._packet_sensor_owners:
+                packet[name] = Entity._validate_tensor_sensor(
+                    value,
+                    entity_name=self._packet_sensor_owners[name],
+                    backend_type=backend.backend_type,
+                    sensor_name=name,
+                    expected_width=None,
+                    num_envs=num_envs,
+                    device=self._device,
+                    finite=False,
+                )
+                continue
+            if not isinstance(value, torch.Tensor):
+                raise TypeError(
+                    f"Scene tensor body field '{name}' on backend "
+                    f"'{backend.backend_type}' is {type(value).__name__}, expected torch.Tensor"
+                )
+            expected = (
+                num_envs,
+                len(self._packet_body_axes[name]) * _TENSOR_PACKET_FIELD_WIDTHS[name],
             )
+            if tuple(value.shape) != expected:
+                raise ValueError(
+                    f"Scene tensor body field '{name}' on backend "
+                    f"'{backend.backend_type}' has shape {tuple(value.shape)}; expected {expected}"
+                )
+            if value.dtype != torch.float32 or value.device != self._device:
+                raise TypeError(
+                    f"Scene tensor body field '{name}' must be float32 on {self._device}; "
+                    f"got {value.dtype} on {value.device}"
+                )
         self._packet = MappingProxyType(packet)
         self._aggregate_body_views.clear()
         self._refreshed = True
@@ -1436,6 +1758,8 @@ class Entity:
         self.root_body_name = cfg.root_body_name
         self._backend_type = backend.backend_type
         self._backend = backend
+        self._interval_operand_device_value: torch.device | None = None
+        self._interval_root_body_ids_value: torch.Tensor | None = None
         self._body_tensor_layouts: dict[tuple[str, ...], np.ndarray] = {}
         self._reset_state = reset_state
         self._reset_root_layout: RootStateLayout | None = None
@@ -3453,7 +3777,9 @@ class Entity:
             if angular
             else INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA
         )
-        supported = capabilities.supports_interval_term(term)
+        supported = capabilities.supports_interval_term(
+            term, plane=self._interval_capability_plane()
+        )
         if not supported:
             raise self._capability_error(
                 "interval root velocity delta",
@@ -3528,9 +3854,19 @@ class Entity:
             ) from exc
 
     def _interval_root_body_ids(self) -> torch.Tensor:
-        """Return the immutable root body IDs as a torch-first host int64 tensor."""
+        """Return immutable root body IDs on the backend-bound interval plane."""
         assert self._root_body_ids is not None
-        return torch.tensor(self._root_body_ids, dtype=torch.int64)
+        device = self._interval_operand_device()
+        cached = self._interval_root_body_ids_value
+        if cached is not None and cached.device == device:
+            return cached
+        cached = torch.as_tensor(
+            np.asarray(self._root_body_ids).copy(),
+            dtype=torch.int64,
+            device=device,
+        )
+        self._interval_root_body_ids_value = cached
+        return cached
 
     def _validate_root_velocity_delta(
         self,
@@ -3559,13 +3895,19 @@ class Entity:
             raise ValueError(
                 f"EventManager term '{term_name}' root velocity delta must be finite floating data"
             )
+        device = self._interval_operand_device()
+        if values.device != device:
+            raise ValueError(
+                f"EventManager term '{term_name}' root velocity delta must live on "
+                f"{device}; got {values.device}"
+            )
         assert self._root_body_ids is not None
         delta = torch.zeros(
             (self._backend.num_envs, len(self._root_body_ids), 3),
-            dtype=values.dtype,
-            device=values.device,
+            dtype=torch.float32,
+            device=device,
         )
-        delta[ids.to(device=values.device, dtype=torch.int64), 0, :] = values
+        delta[ids.to(device=device, dtype=torch.int64), 0, :] = values.to(dtype=torch.float32)
         return delta
 
     def bind_body_wrench(
@@ -3593,18 +3935,38 @@ class Entity:
             capabilities = self._backend.get_dr_capabilities()
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error("interval body wrench", str(exc)) from exc
-        if not capabilities.supports_interval_term(INTERVAL_TERM_BODY_FORCE):
+        plane = self._interval_capability_plane()
+        if not capabilities.supports_interval_term(INTERVAL_TERM_BODY_FORCE, plane=plane):
             raise self._capability_error(
                 "interval body wrench",
                 f"EventManager term '{term_name}' requested an unsupported backend capability",
             )
-        if torque and not capabilities.supports_interval_term(INTERVAL_TERM_BODY_TORQUE):
+        if torque and not capabilities.supports_interval_term(
+            INTERVAL_TERM_BODY_TORQUE, plane=plane
+        ):
             raise self._capability_error(
                 "interval body wrench",
                 f"EventManager term '{term_name}' requested an unsupported backend "
                 "capability: interval body torque",
             )
-        return torch.as_tensor(local_ids), self._body_ids[local_ids]
+        return torch.as_tensor(local_ids, device=self._interval_operand_device()), self._body_ids[
+            local_ids
+        ]
+
+    def _interval_operand_device(self) -> torch.device:
+        """Return the backend-bound device for direct interval operands."""
+
+        if self._interval_operand_device_value is not None:
+            return self._interval_operand_device_value
+        views = self._backend.get_state_views(("qpos",), device=None)
+        device = views["qpos"].device
+        self._interval_operand_device_value = device
+        return device
+
+    def _interval_capability_plane(self) -> DataPlaneName:
+        """Return the capability plane used by this entity's interval payloads."""
+
+        return "device" if self._interval_operand_device().type != "cpu" else "host"
 
     def apply_body_wrench_to_sim(
         self,
@@ -3637,7 +3999,12 @@ class Entity:
             term_name=term_name,
         )
         ops = []
-        torch_body_ids = torch.tensor(np.asarray(body_ids), dtype=torch.int64)
+        device = self._interval_operand_device()
+        torch_body_ids = torch.tensor(np.asarray(body_ids), dtype=torch.int64, device=device)
+        if force_values is not None:
+            force_values = force_values.to(device=device, dtype=torch.float32)
+        if torque_values is not None:
+            torque_values = torque_values.to(device=device, dtype=torch.float32)
         if force_values is not None:
             ops.append(
                 IntervalTermOp(INTERVAL_TERM_BODY_FORCE, force_values, body_ids=torch_body_ids)
@@ -4224,6 +4591,7 @@ class EntityScene(Mapping[str, Entity]):
         entities: dict[str, Entity] = {}
         per_entity_sensors: dict[str, tuple[str, ...]] = {}
         per_entity_bodies: dict[str, tuple[str, ...]] = {}
+        per_entity_body_fields: dict[str, set[str]] = {}
         request_owners: dict[str, str] = {}
         for spec in normalized:
             try:
@@ -4236,6 +4604,7 @@ class EntityScene(Mapping[str, Entity]):
             entities[spec.entity] = entity
             sensors = per_entity_sensors.setdefault(spec.entity, ())
             bodies = per_entity_bodies.setdefault(spec.entity, ())
+            fields = per_entity_body_fields.setdefault(spec.entity, set())
             for name in spec.sensor_names:
                 owner = request_owners.get(name)
                 if owner is not None and owner != spec.entity:
@@ -4246,6 +4615,8 @@ class EntityScene(Mapping[str, Entity]):
                 request_owners[name] = spec.entity
             per_entity_sensors[spec.entity] = (*sensors, *spec.sensor_names)
             per_entity_bodies[spec.entity] = (*bodies, *spec.body_names)
+            if spec.body_names:
+                fields.update(spec.body_fields)
 
         expanded_bodies: dict[str, tuple[str, ...]] = {}
         for entity_name, body_names in per_entity_bodies.items():
@@ -4265,17 +4636,68 @@ class EntityScene(Mapping[str, Entity]):
 
         capabilities = self._backend.get_tensor_capabilities()
         self._validate_tensor_read_capabilities(capabilities, resolved_device)
-        sensor_names = self._aggregate_tensor_read_names(
-            entities, per_entity_sensors, expanded_bodies
-        )
-
         host_plan: HostBridgeTransferPlan | None = None
-        if capabilities.execution is TensorExecution.HOST_BRIDGE:
-            spec = TensorIOSpec(
-                state_fields=("qpos", "qvel"),
-                sensor_names=sensor_names,
-                device=resolved_device,
+        host_body_blocks = False
+        host_sensor_packet_names: tuple[str, ...] | None = None
+        sensor_packet_names = self._aggregate_tensor_read_names(tuple(entities), per_entity_sensors)
+        requested_body_fields = any(expanded_bodies.values())
+        packet_body_blocks = False
+        if capabilities.execution is TensorExecution.DEVICE_RESIDENT and requested_body_fields:
+            packet_body_blocks = bool(getattr(capabilities, "tracked_body_views", False))
+        packet_names = self._aggregate_tensor_read_names(
+            tuple(entities), per_entity_sensors, expanded_bodies, per_entity_body_fields
+        )
+        packet_body_axes: dict[str, tuple[str, ...]] = {}
+        packet_body_names = tuple(
+            _TENSOR_BODY_PACKET_FIELDS[field]
+            for field in _TENSOR_BODY_FIELD_ORDER
+            if any(field in fields for fields in per_entity_body_fields.values())
+        )
+        if packet_body_blocks:
+            packet_body_axes = SceneTensorReadPlan._aggregate_packet_body_axes(
+                expanded_bodies, per_entity_body_fields
             )
+            packet_names = (*sensor_packet_names, *packet_body_names)
+        if capabilities.execution is TensorExecution.HOST_BRIDGE:
+            host_body_blocks = {"body_names", "body_fields"}.issubset(
+                inspect.signature(TensorIOSpec).parameters
+            )
+            native_body_names: tuple[str, ...] = ()
+            host_pose_only_blocks = host_body_blocks and all(
+                not (set(fields) - set(_TENSOR_POSE_BODY_FIELDS))
+                for fields in per_entity_body_fields.values()
+            )
+            if host_pose_only_blocks and any(expanded_bodies.values()):
+                packet_body_blocks = True
+                packet_names = (*sensor_packet_names, *packet_body_names)
+                host_sensor_packet_names = sensor_packet_names
+                # Host-bridge body blocks use the backend's native public body
+                # namespace. Entity ownership remains available through the
+                # per-entity read-plan mappings below.
+                native_body_names = tuple(
+                    dict.fromkeys(
+                        body_name
+                        for body_names_value in expanded_bodies.values()
+                        for body_name in body_names_value
+                    )
+                )
+                for packet_name in packet_body_names:
+                    packet_body_axes[packet_name] = native_body_names
+            tensor_io_options: dict[str, Any] = {
+                "state_fields": ("qpos", "qvel"),
+                "sensor_names": (
+                    sensor_packet_names if host_sensor_packet_names is not None else packet_names
+                ),
+                "device": resolved_device,
+            }
+            if host_pose_only_blocks and any(expanded_bodies.values()):
+                tensor_io_options.update(
+                    {
+                        "body_names": native_body_names,
+                        "body_fields": ("pos_w", "quat_w"),
+                    }
+                )
+            spec = TensorIOSpec(**tensor_io_options)
             try:
                 host_plan = self._backend.bind_host_bridge_io(spec)
             except (AttributeError, KeyError, TypeError, ValueError, NotImplementedError) as exc:
@@ -4290,6 +4712,18 @@ class EntityScene(Mapping[str, Entity]):
             entities=entities,
             sensor_names=per_entity_sensors,
             body_names=expanded_bodies,
+            body_fields={
+                name: tuple(field for field in _TENSOR_BODY_FIELD_ORDER if field in fields)
+                for name, fields in per_entity_body_fields.items()
+            },
+            packet_names=packet_names,
+            packet_sensor_owners={
+                name: entity_name
+                for entity_name, names in per_entity_sensors.items()
+                for name in names
+            },
+            packet_body_axes=packet_body_axes,
+            packet_body_blocks=packet_body_blocks,
             host_plan=host_plan,
         )
 
@@ -4343,9 +4777,10 @@ class EntityScene(Mapping[str, Entity]):
 
     @staticmethod
     def _aggregate_tensor_read_names(
-        entities: Mapping[str, "Entity"],
+        entity_names: Sequence[str],
         sensor_names: Mapping[str, tuple[str, ...]],
-        body_names: Mapping[str, tuple[str, ...]],
+        body_names: Mapping[str, tuple[str, ...]] | None = None,
+        body_fields: Mapping[str, set[str] | tuple[str, ...]] | None = None,
     ) -> tuple[str, ...]:
         aggregate: list[str] = []
 
@@ -4355,13 +4790,32 @@ class EntityScene(Mapping[str, Entity]):
                 aggregate.append(name)
 
         seen: set[str] = set()
-        for entity_name in entities:
+        for entity_name in entity_names:
             for name in sensor_names[entity_name]:
                 add(name)
-        for entity_name in entities:
-            for body_name in body_names[entity_name]:
-                for _, prefix in _TENSOR_BODY_SENSOR_FIELDS:
-                    add(prefix + body_name)
+        if body_names is not None and body_fields is not None:
+            for entity_name in entity_names:
+                fields = body_fields[entity_name]
+                if entity_name not in body_names:
+                    continue
+                for body_name in body_names[entity_name]:
+                    for field, prefix in _TENSOR_BODY_SENSOR_FIELDS:
+                        if field in fields:
+                            add(prefix + body_name)
+        return tuple(aggregate)
+
+    @staticmethod
+    def _aggregate_tensor_read_body_names(
+        body_names: Mapping[str, tuple[str, ...]],
+    ) -> tuple[str, ...]:
+        aggregate: list[str] = []
+        for entity_name, names in body_names.items():
+            if not names:
+                continue
+            for name in names:
+                packet_name = _packet_body_name(entity_name, name)
+                if packet_name not in aggregate:
+                    aggregate.append(packet_name)
         return tuple(aggregate)
 
     @contextmanager
@@ -4466,5 +4920,6 @@ __all__ = [
     "EntityTensorSensorViews",
     "EntityTensorStateView",
     "SceneTensorReadPlan",
+    "SceneTensorPoseView",
     "SceneTensorReadSpec",
 ]

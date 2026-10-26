@@ -13,6 +13,72 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased / 未发布
+
+### Added / 新增
+
+- The Manager tensor ray observation now consumes UniSim's full-scene public
+  `RayCollisionDescription`, so mesh/hfield materialization no longer requires
+  a backend-specific `uni_ray` builder, and entity-local packed pose reads are
+  aggregated onto the public full-scene body axis. `RayPatternCfg` supports
+  ring, parallel-grid, and pinhole-camera ray patterns; body, yaw-only, and
+  world alignment; body or public-site attachment with a local sensor offset;
+  `min_distance`; public geom/tag/body/ancestor filters; optional normal and
+  hit-point outputs in addition to distance; and reset-boundary per-row geometry
+  synchronization. The optional `ray` extra now resolves the published
+  `uniray[warp]==0.1.0` distribution in both CUDA and ROCm lockfiles
+  ([UniSim #472](https://github.com/unilabsim/unisim/issues/472)).
+  Manager tensor ray observation 现在消费 UniSim 公开 full-scene
+  `RayCollisionDescription`，mesh/hfield materialization 不再要求 backend-specific
+  `uni_ray` builder，并将 entity-local packed pose read 聚合到公开 full-scene body
+  轴。`RayPatternCfg` 支持 ring、平行 grid 与 pinhole-camera ray pattern，
+  body/yaw-only/world alignment、body/public-site attachment 与本地 sensor
+  offset、`min_distance`、公开 geom/tag/body/ancestor filter、可选 normal 与
+  hit-point 输出，以及 reset 边界的逐行 geometry 同步。可选 `ray` extra
+  在 CUDA 与 ROCm lockfile 中均解析已发布的 `uniray[warp]==0.1.0` 发行版
+  （[UniSim #472](https://github.com/unilabsim/unisim/issues/472)）。
+  The first facade is a minimal grouped ray sensor, not a camera: intrinsics,
+  image projection, noise, history, and scheduling remain application logic.
+  Full-scene pose aggregation covers entity-owned bodies plus the identity
+  world root; uncovered non-root bodies fail closed. MuJoCo and MJWarp
+  fixed-variant collision descriptors now publish per-row geometry through the
+  capability added by [UniSim #479](https://github.com/unilabsim/unisim/issues/479);
+  Motrix source mesh/hfield scenes follow the UniSim fail-closed boundary.
+  The real end-to-end fixture covers
+  primitive geometry, static filtering, minimum distance, attachment
+  transformation, site attachment, and normals; focused fake-caster tests cover
+  grid and pinhole ray geometry, yaw/world alignment, hit-point packing, and
+  geometry synchronization; mesh/hfield
+  numerical parity is owned by the UniSim and `uni_ray` contract suites.
+  首个 facade 是最小 grouped ray sensor，不是 camera：intrinsics、图像投影、
+  noise、history 与 scheduling 仍属于应用逻辑。full-scene pose 聚合覆盖
+  entity-owned body 与 identity world root；未覆盖的非 root body fail closed。
+  MuJoCo 与 MJWarp fixed-variant collision scene 以及 Motrix source
+  mesh/hfield scene 遵循 UniSim fail-closed 边界；fixed-variant collision
+  descriptor 通过 [UniSim #479](https://github.com/unilabsim/unisim/issues/479)
+  新增的能力发布逐行 geometry。真实端到端 fixture 覆盖
+  primitive geometry、static filtering、minimum distance、attachment
+  transformation、site attachment 与 normal；grid/pinhole ray 几何、yaw/world alignment、hit-point packing 与 geometry synchronization 由 focused fake-caster test 覆盖；mesh/hfield 数值 parity 由 UniSim 与 `uni_ray` contract suite 负责。
+
+### Changed / 变更
+
+- Genesis runtime domain randomization now follows the unified device-resident
+  `unisim-core` lifecycle. Manager interval negotiation selects the
+  backend-bound device plane, wrench payloads and body IDs enter the interval
+  plan on that device, and the packed reset device is declared before cold
+  event-term binds. The Genesis G1 walk SAC owner re-enables `pd_gains` with
+  the PPO owner because Genesis declares device-plane packed reset `kp`/`kd`;
+  host-plane runtime DR, push, velocity-delta, and other undeclared terms
+  still fail closed
+  ([#2520](https://github.com/Motphys/UniLab/issues/2520)).
+  Genesis 运行时域随机化现在遵循 `unisim-core` 统一的 device-resident 生命
+  周期。Manager interval 协商选择 backend 绑定的 device plane；wrench payload
+  与 body ID 在该设备上进入 interval plan；packed reset 设备会在冷路径
+  event-term bind 之前声明。Genesis G1 walk SAC owner 与 PPO owner 一致重新
+  启用 `pd_gains`，因为 Genesis 声明了 device-plane packed reset 的
+  `kp`/`kd`；host-plane 运行时 DR、push、velocity-delta 以及其他未声明 term
+  仍会 fail closed（[#2520](https://github.com/Motphys/UniLab/issues/2520)）。
+
 ## 1.5.1 (2026-10-23)
 
 ### Added / 新增

@@ -47,14 +47,25 @@ materialize 冷路径补偿——热路径从不解析 XML：
   contact sensor 变为 per-link net contact force 阈值（1 N）——这是对
   geom 对 `found` 语义的近似，不是复现。
 - **执行器**：`<position kp kv>` 执行器无损导入，用
-  `control_dofs_position` 驱动；kp/kd reset 随机化受支持（DR 能力集只
-  声明 per-env 往返实测的项：body mass、base mass、kp、kd，以及
-  interval body force）。
+  `control_dofs_position` 驱动；kp/kd reset 随机化在 device plane 受支持
+  （DR 能力集只声明实测的 device reset 项：body mass、kp、kd，以及
+  base-mass delta、body CoM / base-CoM delta、kp、kd；device interval 集
+  另覆盖 body force、body torque，以及世界系 root 线速度与 root 本体系
+  角速度 delta）。
 
 ## 前置条件
 
-- Linux x86_64，装有 NVIDIA GPU 与驱动。可行性探针只验证了 `gs.gpu`
-  通道；CPU backend 不是已验证的支持通道。
+- Manager tensor 运行时要求 Linux x86_64 与受支持的 GPU runtime。UniSim 已
+  审查的 Genesis tensor profile 要求 Genesis zero-copy 及以下一种 exact
+  runtime 配对：非 HIP Torch CUDA + `gs.cuda`，或 HIP/ROCm Torch +
+  `gs.amdgpu`。两者均协商 `DEVICE_RESIDENT`、in-process、`DIRECT`，并保留
+  公开 `cuda` Torch device namespace。
+- Genesis 1.3.3 引擎本身在 Apple Silicon 上原生支持 `gs.metal`，在
+  Linux HIP 上原生支持 `gs.amdgpu`；direct-engine G1 throughput 工作
+  （UniLab PR #2518 / discussion #2517）已证明这两条引擎 lane。Metal 仍在
+  UniSim Genesis adapter tensor 生命周期之外。ROCm 上的 `gs.cuda` 与非 HIP
+  CUDA 上的 `gs.amdgpu` 都因 runtime 不匹配而被拒绝；CPU、portable Genesis、
+  Metal、MPS 或替代后端不会成为静默 fallback。
 - 仓库钉定的 torch 窗口（x86_64 上为 torch 2.8）：探针中
   IMUSensor + contact-force 传感器组合在 torch 2.7 下崩溃（REPORT
   §3.4/§8）。
@@ -130,8 +141,13 @@ Genesis 的 init/destroy 循环每轮泄漏 200–450 MB host RSS（REPORT
   flat owner YAML。
 - **绝对值 geom 摩擦 DR**：上游 Genesis 只有 per-env 摩擦*比例* API，
   因此 `geom_friction` reset 随机化与 `get_geom_friction` fail-closed。
-- **interval push / body-velocity-delta DR**：在构造/plan 时拒绝
-  （`push_body_name`、push perturbation）。
+- **legacy interval push term**：不透明 `push` descriptor 在构造/plan 时
+  拒绝。请使用六轴 velocity-delta event；它通过 Genesis public state 提交
+  世界系线速度与 root 本体系角速度 delta，且不修改 qpos、control、solver
+  state 或未选中的 rows。
+- **host-plane 运行时 DR**：Genesis 只接受位于其 backend 绑定
+  CUDA/AMDGPU device 上的 reset 与 interval payload。host payload 会带上
+  term 与 plane fail-closed；没有 NumPy 或 host-bridge 回退。
 - **同进程重复 `gs.init`**（见上文）。
 
 ## 跨后端迁移（sim2sim）

@@ -16,6 +16,7 @@ from unisim.backend.base import (
     TensorExecution,
     TensorLifecycleCapabilities,
     TensorProcessTopology,
+    TrackedBodyStateViews,
 )
 
 from unilab.base.entity import EntityCfg, EntityScene, SceneTensorReadSpec
@@ -307,6 +308,18 @@ class _CudaBackend:
 
     def get_sensor_view(self, name, device=None):
         return torch.as_tensor(self.sensor_values[name], dtype=torch.float32, device=device)
+
+    def get_tracked_body_views(self, body_names, device=None):
+        names = tuple(name.rsplit("/", 1)[-1] for name in body_names)
+        if names != ("base",):
+            raise KeyError(names)
+        return TrackedBodyStateViews(
+            body_names=names,
+            pos_w=torch.as_tensor(self.body_pos, dtype=torch.float32, device=device),
+            quat_w=torch.as_tensor(self.body_quat, dtype=torch.float32, device=device),
+            lin_vel_w=torch.as_tensor(self.body_lin_vel_w, dtype=torch.float32, device=device),
+            ang_vel_w=torch.as_tensor(self.body_ang_vel_w, dtype=torch.float32, device=device),
+        )
 
     def get_joint_dof_pos_indices(self, names) -> np.ndarray:
         return np.asarray([self.joint_names.index(name) for name in names], dtype=np.int32)

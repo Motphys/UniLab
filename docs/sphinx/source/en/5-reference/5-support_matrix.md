@@ -81,7 +81,7 @@ This table is derived from UniSim's SDK-free public static inventory. It describ
 | `mjwarp` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | Unsupported | Unsupported | Unsupported | Unsupported |
 | `newton` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | Exact | Unsupported | Unsupported | Unsupported |
 | `superdex` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge with explicit ROCm Torch buffers (`cuda`) | In-process; no external Python worker | Unsupported | Unsupported | Unsupported | Exact |
-| `genesis` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | Exact | Unsupported | Unsupported | Unsupported |
+| `genesis` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported UniSim tensor profile; Genesis engine natively supports Metal, with no CPU or substitute-backend fallback | Supported: Linux ROCm with HIP Torch and exact gs.amdgpu (cuda); no CPU or substitute-backend fallback | In-process; no external Python worker | Exact | Unsupported | Unsupported | Unsupported |
 | `isaacgym` | Device-resident / external worker / cuda ipc | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | Dedicated external Python 3.8 worker; host Python paths are not inherited | Exact | Unsupported | Unsupported | Unsupported |
 | `isaacsim` | Device-resident / external worker / cuda ipc | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | Dedicated external Python 3.11 worker; host Python paths are not inherited | Exact | Unsupported | Unsupported | Unsupported |
 
@@ -116,7 +116,8 @@ Pairing contract (issue #2483, ADR-0019): with a CUDA learner on a non-ROCm Torc
 
 CUDA-only tensor backends are rejected before backend construction on CPU, MPS,
 macOS, ROCm/HIP, unavailable CUDA, malformed CUDA ordinals, and out-of-range
-device requests. They do not fall back to NumPy or a host bridge.
+device requests. Genesis instead accepts its declared HIP/ROCm + `gs.amdgpu`
+profile. Unsupported requests do not fall back to NumPy or a host bridge.
 
 Check the Torch runtime and visible ordinals in the same process environment:
 
@@ -124,17 +125,19 @@ Check the Torch runtime and visible ordinals in the same process environment:
 uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.version.hip, torch.cuda.is_available(), torch.cuda.device_count(), torch.cuda.current_device())"
 ```
 
-`torch.version.hip` must be `None` for the CUDA-only matrix. If CUDA is
-unavailable, check the NVIDIA driver/container mismatch before changing task
-configuration. If `CUDA_VISIBLE_DEVICES` is set, backend ordinals address that
-remapped namespace, not host-global physical indices.
+`torch.version.hip` must be `None` for CUDA-only backends and the Genesis
+`gs.cuda` pairing; the Genesis `gs.amdgpu` pairing requires a HIP build. If the
+GPU runtime is unavailable, check the driver/container mismatch before changing
+task configuration. If `CUDA_VISIBLE_DEVICES` is set, backend ordinals address
+that remapped namespace, not host-global physical indices.
 
-On macOS and ROCm, use a CPU-authoritative host-bridge backend. On ROCm,
-Manager/TorchEnv uses the current GPU whenever the learner device is CUDA —
-the default `training.collector_tensor_device=auto` follows the learner device —
-or when training explicitly sets `training.collector_tensor_device=cuda`, provided
-the selected HOST_BRIDGE backend declares and accepts the routed `cuda`
-`env.collector_tensor_device`; CPU learners keep CPU, torch.mps learners retain the
-owner/default CPU placement, and direct environment construction remains CPU.
+On macOS, use a CPU-authoritative host-bridge backend. ROCm supports both host
+bridges and the Genesis exact-`gs.amdgpu` device-resident profile. For a host
+bridge, Manager/TorchEnv uses the current GPU whenever the learner device is
+CUDA — the default `training.collector_tensor_device=auto` follows the learner
+device — or when training explicitly sets `training.collector_tensor_device=cuda`,
+provided the selected backend declares and accepts the routed `cuda`
+`env.collector_tensor_device`; CPU learners keep CPU, torch.mps learners retain
+the owner/default CPU placement, and direct environment construction remains CPU.
 GPU Torch buffers on a host bridge do not imply GPU physics or a
 device-resident backend lifecycle.

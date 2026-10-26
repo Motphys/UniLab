@@ -172,12 +172,27 @@ def test_sac_g1_motion_tracking_genesis_inherits_mujoco_parity() -> None:
     assert cfg.training.play_render_mode == "auto"
     assert cfg.env.genesis_device_id == 0
     assert cfg.env.genesis_integrator == "implicitfast"
-    # Genesis legacy scenes declare no model-field reset terms and no interval
-    # velocity delta; only the host-side encoder_bias bias stays enabled.
-    assert set(cfg.env.events) == {"base_com", "encoder_bias", "foot_friction", "push_robot"}
+    # Issue #2521 enables the FlashMimic-compatible device-resident subset:
+    # startup mass, inherited COM/PD reset writes, and the six-axis kick.
+    # Genesis geom friction remains intentionally fail-closed.
+    assert set(cfg.env.events) == {
+        "base_com",
+        "body_mass",
+        "encoder_bias",
+        "foot_friction",
+        "pd_gains",
+        "push_robot",
+    }
     assert cfg.env.events.foot_friction is None
-    assert cfg.env.events.base_com is None
-    assert cfg.env.events.push_robot is None
+    assert cfg.env.events.body_mass.mode == "startup"
+    assert cfg.env.events.body_mass.params.asset_cfg.body_names == ["pelvis", "torso_link"]
+    assert cfg.env.events.body_mass.params.mass_distribution_params == [0.9, 1.1]
+    assert cfg.env.events.body_mass.params.recompute_inertia is False
+    assert cfg.env.events.pd_gains.mode == "reset"
+    assert cfg.env.events.pd_gains.params.kp_range == [0.9, 1.1]
+    assert cfg.env.events.pd_gains.params.kd_range == [0.9, 1.1]
+    assert cfg.env.events.push_robot.params.velocity_range.roll == [-0.52, 0.52]
+    assert cfg.env.events.push_robot.params.velocity_range.yaw == [-0.78, 0.78]
     assert cfg.env.events.encoder_bias is not None
     assert cfg.env.scene.entities.robot.geom_names is None
     # Algo block inherits the MuJoCo owner verbatim (DENYLIST parity).

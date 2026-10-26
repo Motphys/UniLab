@@ -654,9 +654,12 @@ def test_produces_completion_receipts_follows_backend_step_receipt_contract() ->
     # Synchronous host-bridge producers (mujoco/motrix/superdex) emit no
     # receipt, so the env declares the relaxed sync semantic to unilab.rl.
     assert _StubTorchEnv().produces_completion_receipts is False
-    # The event-backed async mjwarp CUDA path publishes a receipt per step.
+    # The event-backed async Genesis and MJWarp CUDA paths publish a receipt
+    # on every step.
     backend = _backend()
     backend.backend_type = "mjwarp"
+    assert _StubTorchEnv(backend=backend).produces_completion_receipts is True
+    backend.backend_type = "genesis"
     assert _StubTorchEnv(backend=backend).produces_completion_receipts is True
 
 

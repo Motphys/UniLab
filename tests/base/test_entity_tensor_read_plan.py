@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from types import MethodType
+from dataclasses import dataclass, field
+from types import MethodType, SimpleNamespace
 from typing import cast
 
 import numpy as np
@@ -36,6 +37,7 @@ class _SceneTensorBackend:
         self.sensor_view_calls = 0
         self.aggregate_body_view_calls = 0
         self.closes = 0
+        self.io_specs: list[TensorIOSpec] = []
         self.qpos = torch.tensor([[0.1], [0.3]], dtype=torch.float32)
         self.qvel = torch.tensor([[10.0], [20.0]], dtype=torch.float32)
         self.sensors = {
@@ -48,6 +50,12 @@ class _SceneTensorBackend:
             ),
             "track_linvel_w_hip": torch.zeros((2, 3), dtype=torch.float32),
             "track_angvel_w_hip": torch.ones((2, 3), dtype=torch.float32),
+        }
+        self.body_blocks = {
+            "body_pos_w": self.sensors["track_pos_w_hip"].reshape(2, 3).contiguous(),
+            "body_quat_w": self.sensors["track_quat_w_hip"].reshape(2, 4).contiguous(),
+            "body_lin_vel_w": self.sensors["track_linvel_w_hip"].reshape(2, 3).contiguous(),
+            "body_ang_vel_w": self.sensors["track_angvel_w_hip"].reshape(2, 3).contiguous(),
         }
         self._selected_rows = torch.empty((0,), dtype=torch.int64)
 
@@ -97,6 +105,7 @@ class _SceneTensorBackend:
     def get_tracked_body_views(self, body_names=None, device=None) -> TrackedBodyStateViews:
         self.aggregate_body_view_calls += 1
         names = ("hip",) if body_names is None else tuple(body_names)
+        names = tuple(name.rsplit("/", 1)[-1] for name in names)
         if names != ("hip",):
             raise ValueError(f"unknown tracked bodies: {names}")
         target = torch.device(device) if device is not None else torch.device("cpu")
@@ -183,6 +192,8 @@ class _SceneTensorBackend:
 
     def bind_host_bridge_io(self, spec: TensorIOSpec):
         backend = self
+        if getattr(spec, "body_names", ()):
+            backend.io_specs.append(spec)
 
         class _Plan(HostBridgeTransferPlan):
             def __init__(self, plan_spec: TensorIOSpec) -> None:
@@ -208,6 +219,13 @@ class _SceneTensorBackend:
                 backend.selected_reads += 1
                 return backend._packet()
 
+            def get_body_pose_views(self):
+                return SimpleNamespace(
+                    body_names=("robot/hip",),
+                    pos_w=backend.body_blocks["body_pos_w"],
+                    quat_w=backend.body_blocks["body_quat_w"],
+                )
+
             def write_control(self, ctrl) -> None:
                 return None
 
@@ -226,6 +244,8 @@ class _SceneTensorBackend:
     def _packet(self) -> dict[str, torch.Tensor]:
         packet = self.get_state_views(("qpos", "qvel"), device="cpu")
         packet.update(self.sensors)
+        if self.device_resident:
+            return packet
         return packet
 
 
@@ -242,6 +262,30 @@ def _scene(backend: _SceneTensorBackend) -> EntityScene:
     )
 
 
+def _use_body_capable_tensor_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expose a UniSim-2.2-shaped public TensorIOSpec for packed-block tests."""
+
+    @dataclass(frozen=True)
+    class _BodyCapableTensorIOSpec(TensorIOSpec):
+        body_names: tuple[str, ...] = ()
+        body_fields: tuple[str, ...] = ()
+        device: object | None = field(default=None)
+
+    monkeypatch.setattr("unilab.base.entity.TensorIOSpec", _BodyCapableTensorIOSpec)
+
+
+def _use_legacy_tensor_spec(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Expose a pre-2.2 TensorIOSpec without packed body-block parameters."""
+
+    @dataclass(frozen=True)
+    class _LegacyTensorIOSpec:
+        state_fields: tuple[str, ...]
+        sensor_names: tuple[str, ...]
+        device: object | None = None
+
+    monkeypatch.setattr("unilab.base.entity.TensorIOSpec", _LegacyTensorIOSpec)
+
+
 def _specs() -> tuple[SceneTensorReadSpec, ...]:
     return (
         SceneTensorReadSpec(entity="robot", sensor_names=("imu_gyro",)),
@@ -249,8 +293,11 @@ def _specs() -> tuple[SceneTensorReadSpec, ...]:
     )
 
 
-def test_host_bridge_scene_plan_packs_all_reads_into_one_phase_transfer() -> None:
+def test_host_bridge_scene_plan_packs_all_reads_into_one_phase_transfer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     backend = _SceneTensorBackend()
+    _use_body_capable_tensor_spec(monkeypatch)
     scene = _scene(backend)
     plan = scene.compile_tensor_reads("cpu", _specs())
 
@@ -275,6 +322,32 @@ def test_host_bridge_scene_plan_packs_all_reads_into_one_phase_transfer() -> Non
         "selected_post_reset_h2d": 1,
     }
 
+    plan.close()
+
+
+def test_scene_plan_pose_reads_fall_back_to_canonical_sensors_on_older_host_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _SceneTensorBackend()
+    scene = _scene(backend)
+    _use_legacy_tensor_spec(monkeypatch)
+    plan = scene.compile_tensor_reads(
+        "cpu",
+        (
+            SceneTensorReadSpec(
+                entity="robot", body_names=("hip",), body_fields=("pos_w", "quat_w")
+            ),
+        ),
+    )
+
+    assert plan.packet_body_blocks is False
+    assert plan.packet_names == ("track_pos_w_hip", "track_quat_w_hip")
+    assert backend.io_specs == []
+    plan.refresh()
+    pose = plan.ray_pose_view("robot")
+    assert pose.body_names == ("hip",)
+    torch.testing.assert_close(pose.pos_w[:, 0], backend.sensors["track_pos_w_hip"])
+    torch.testing.assert_close(pose.quat_w[:, 0], backend.sensors["track_quat_w_hip"])
     plan.close()
     assert backend.closes == 1
 
@@ -331,7 +404,7 @@ def test_device_resident_scene_plan_refreshes_every_sensor_boundary() -> None:
     torch.testing.assert_close(second, torch.full((2, 3), 7.0))
     # Every compiled sensor crosses its public backend boundary on every phase.
     # Genesis/Newton derived sensors are stable outputs, not native-live arrays.
-    assert backend.sensor_view_calls == calls_after_first_refresh + len(plan.packet_names)
+    assert backend.sensor_view_calls == calls_after_first_refresh + len(plan.sensor_names["robot"])
     assert plan.transfer_stats == {}
     assert plan.last_timing == {}
     plan.close()
@@ -350,7 +423,9 @@ def test_device_resident_selected_reset_refreshes_body_sensor_boundary() -> None
     body = plan.body_tensor_view("robot")
 
     torch.testing.assert_close(body.pos_w[:, 0], backend.sensors["track_pos_w_hip"])
-    assert backend.sensor_view_calls == calls_after_selected_refresh + len(plan.packet_names)
+    assert backend.sensor_view_calls == calls_after_selected_refresh + len(
+        plan.sensor_names["robot"]
+    )
     plan.close()
 
 
@@ -382,6 +457,105 @@ def test_scene_plan_packed_joint_layout_is_cached_and_finite_checks_are_deferred
     nonfinite = plan.joint_tensor_view("robot")
     assert bool(torch.isnan(nonfinite.joint_pos).all())
 
+    plan.close()
+
+
+def test_scene_plan_pose_reads_use_packed_pose_blocks_without_velocities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _SceneTensorBackend()
+    _use_body_capable_tensor_spec(monkeypatch)
+    scene = _scene(backend)
+    plan = scene.compile_tensor_reads(
+        "cpu",
+        (
+            SceneTensorReadSpec(
+                entity="robot", body_names=("hip",), body_fields=("pos_w", "quat_w")
+            ),
+        ),
+    )
+
+    assert plan.body_fields == {"robot": ("pos_w", "quat_w")}
+    assert plan.packet_names == ("body_pos_w", "body_quat_w")
+    if backend.io_specs:
+        assert backend.io_specs[0].body_names == ("hip",)
+        assert backend.io_specs[0].body_fields == ("pos_w", "quat_w")
+    assert plan.packet_body_axis("body_pos_w") == ("hip",)
+    plan.refresh()
+
+    pose = plan.ray_pose_view("robot")
+    assert pose.body_names == ("hip",)
+    assert pose.pos_w.shape == (2, 1, 3)
+    assert pose.quat_w.shape == (2, 1, 4)
+    torch.testing.assert_close(pose.pos_w[:, 0], backend.sensors["track_pos_w_hip"])
+    torch.testing.assert_close(pose.quat_w[:, 0], backend.sensors["track_quat_w_hip"])
+    body = plan.body_tensor_view("robot")
+    assert body.pos_w is not None and body.quat_w is not None
+    assert body.lin_vel_w is None and body.ang_vel_w is None
+    plan.close()
+
+
+def test_scene_plan_ray_pose_view_preserves_row_strided_packet_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _SceneTensorBackend()
+    _use_body_capable_tensor_spec(monkeypatch)
+    scene = _scene(backend)
+    plan = scene.compile_tensor_reads(
+        "cpu",
+        (
+            SceneTensorReadSpec(
+                entity="robot", body_names=("hip",), body_fields=("pos_w", "quat_w")
+            ),
+        ),
+    )
+
+    storage = torch.zeros((2, 12), dtype=torch.float32)
+    pos = torch.arange(6, dtype=torch.float32).reshape(2, 3)
+    quat = torch.tensor(((1.0, 0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0)), dtype=torch.float32)
+    storage[:, 3:6] = pos
+    storage[:, 7:11] = quat
+    backend.body_blocks["body_pos_w"] = storage[:, 3:6]
+    backend.body_blocks["body_quat_w"] = storage[:, 7:11]
+    plan.refresh()
+    pose = plan.ray_pose_view("robot")
+
+    assert not pose.pos_w.is_contiguous()
+    assert not pose.quat_w.is_contiguous()
+    assert pose.pos_w.data_ptr() == storage[:, 3:6].data_ptr()
+    assert pose.quat_w.data_ptr() == storage[:, 7:11].data_ptr()
+    assert pose.pos_w.stride() == (12, 3, 1)
+    assert pose.quat_w.stride() == (12, 4, 1)
+    storage[0, 3] = 42.0
+    storage[1, 7] = -1.0
+    assert pose.pos_w[0, 0, 0].item() == 42.0
+    assert pose.quat_w[1, 0, 0].item() == -1.0
+    plan.close()
+
+
+def test_scene_plan_validates_body_field_requests_and_pose_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _SceneTensorBackend()
+    _use_body_capable_tensor_spec(monkeypatch)
+    scene = _scene(backend)
+
+    with pytest.raises(ValueError, match="body_fields are unknown"):
+        SceneTensorReadSpec(entity="robot", body_names=("hip",), body_fields=("pos_w", "bogus"))
+    with pytest.raises(ValueError, match="body_fields must be unique"):
+        SceneTensorReadSpec(entity="robot", body_names=("hip",), body_fields=("pos_w", "pos_w"))
+    with pytest.raises(ValueError, match="body_fields cannot be empty"):
+        SceneTensorReadSpec(entity="robot", body_names=("hip",), body_fields=())
+
+    plan = scene.compile_tensor_reads(
+        "cpu",
+        (SceneTensorReadSpec(entity="robot", body_names=("hip",), body_fields=("pos_w",)),),
+    )
+    with pytest.raises(RuntimeError, match="must be refreshed"):
+        plan.ray_pose_view("robot")
+    plan.refresh()
+    with pytest.raises(ValueError, match=r"fields \['quat_w'\] were not compiled"):
+        plan.ray_pose_view("robot")
     plan.close()
 
 
