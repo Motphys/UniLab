@@ -61,17 +61,13 @@ def test_rocm_lock_contains_profile_runtime_dependencies() -> None:
     assert "numba" not in root_dependencies
 
 
-def test_ray_local_optional_dependencies_stay_branch_local() -> None:
+def test_ray_optional_dependencies_use_published_packages() -> None:
     for path in (ROOT / "pyproject.toml", ROOT / "pyproject.rocm.toml"):
         project = _project(path)
         extras = project["project"]["optional-dependencies"]
-        assert extras["ray-local"] == ["uni-ray[warp]"]
-        assert "uni-ray" not in _dependencies(path)
+        assert extras["ray"] == ["uniray[warp]==0.1.0"]
+        assert "uniray" not in _dependencies(path)
 
         sources = project["tool"]["uv"]["sources"]
-        assert sources["unisim-core"] == [
-            {"path": "../unisim", "editable": True, "marker": "extra == 'ray-local'"}
-        ]
-        assert sources["uni-ray"] == [
-            {"path": "../uni_ray", "editable": True, "marker": "extra == 'ray-local'"}
-        ]
+        assert "unisim-core" not in sources
+        assert "uniray" not in sources

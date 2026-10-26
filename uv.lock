@@ -5154,44 +5154,6 @@ wheels = [
 ]
 
 [[package]]
-name = "uni-ray"
-version = "0.1.0"
-source = { editable = "../uni_ray" }
-dependencies = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "unisim-core" },
-]
-
-[package.optional-dependencies]
-warp = [
-    { name = "warp-lang" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "motrixsim-core", marker = "python_full_version == '3.10.*' and extra == 'motrix'", specifier = "==0.10.1" },
-    { name = "mujoco", marker = "extra == 'mujoco'", specifier = ">=3.2.0" },
-    { name = "numpy" },
-    { name = "unisim-core", editable = "../unisim" },
-    { name = "viser", marker = "extra == 'viz'" },
-    { name = "warp-lang", marker = "extra == 'warp'", specifier = ">=1.11.0" },
-]
-provides-extras = ["warp", "mujoco", "motrix", "viz"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mujoco", specifier = ">=3.2.0" },
-    { name = "mujoco-warp", specifier = "~=3.11.0" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "torch" },
-    { name = "viser" },
-    { name = "warp-lang", specifier = ">=1.11.0" },
-]
-
-[[package]]
 name = "unilab"
 version = "1.5.1"
 source = { editable = "." }
@@ -5255,9 +5217,8 @@ newton = [
     { name = "pyglet" },
     { name = "warp-lang" },
 ]
-ray-local = [
-    { name = "uni-ray", extra = ["warp"] },
-    { name = "unisim-core" },
+ray = [
+    { name = "uniray", extra = ["warp"] },
 ]
 superdex = [
     { name = "unisim-core", extra = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -5310,19 +5271,16 @@ requires-dist = [
     { name = "tqdm" },
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "uni-ray", extras = ["warp"], marker = "extra == 'ray-local'", editable = "../uni_ray" },
-    { name = "unisim-core", marker = "extra == 'ray-local'", editable = "../unisim" },
-    { name = "unisim-core", marker = "extra != 'ray-local'", specifier = ">=2.1.1" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix' and extra == 'ray-local'", editable = "../unisim" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix' and extra != 'ray-local'", specifier = ">=2.1.1" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'ray-local' and extra == 'superdex'", specifier = ">=2.1.1" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'ray-local' and extra == 'superdex'", editable = "../unisim" },
+    { name = "uniray", extras = ["warp"], marker = "extra == 'ray'", specifier = "==0.1.0" },
+    { name = "unisim-core", specifier = "==2.2.0" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.2.0" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.2.0" },
     { name = "viser", specifier = ">=1.0.26" },
     { name = "wandb", specifier = ">=0.22.3" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
     { name = "warp-lang", marker = "extra == 'newton'", specifier = "==1.16.0" },
 ]
-provides-extras = ["drake", "mujoco", "mjwarp", "newton", "motrix", "genesis", "superdex", "ray-local"]
+provides-extras = ["drake", "mujoco", "mjwarp", "newton", "motrix", "genesis", "superdex", "ray"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -5334,12 +5292,35 @@ dev = [
 ]
 
 [[package]]
-name = "unisim-core"
-version = "2.2.0"
-source = { editable = "../unisim" }
+name = "uniray"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "unisim-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/12/d4/71015d68bae08d996f0c7d19e17516cb012e43c5f480fc56a9c1fe9ab4ba/uniray-0.1.0.tar.gz", hash = "sha256:2bbc87029615d6a4efa7315a12615f217d5219f53e0627a8ba8ac93b5ea045ee", size = 32970, upload-time = "2026-10-26T12:03:45.548Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/79/4c27367b240a58610657673f9e83499ed4ed5295dad0d17d07ac551d897c/uniray-0.1.0-py3-none-any.whl", hash = "sha256:b4bbfd5e3befb4f6327593172f4ed8e583e49086e437926b80cdf81738f7c88b", size = 36533, upload-time = "2026-10-26T12:03:40.835Z" },
+]
+
+[package.optional-dependencies]
+warp = [
+    { name = "warp-lang" },
+]
+
+[[package]]
+name = "unisim-core"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f6/85/7c0c271839c31e1042e9a3cefc0b29abf344e46709a91f958e9d45de526c/unisim_core-2.2.0.tar.gz", hash = "sha256:4097bf45bd18b1bbdf124e3f662665d24e0e050e0d0d71866d87a72d88a4bfd6", size = 735592, upload-time = "2026-10-26T11:33:02.698Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/df/aceda11969a7c2b4db39c6899ec9990eda3f10dab14ed42ab3822a6fb8dd/unisim_core-2.2.0-py3-none-any.whl", hash = "sha256:82d72bca8f7e925cd218174d128d6e483fd227e49d3409b4e5c24720528c83f3", size = 783936, upload-time = "2026-10-26T11:33:00.742Z" },
 ]
 
 [package.optional-dependencies]
@@ -5350,37 +5331,6 @@ superdex = [
     { name = "mujoco" },
     { name = "superdex-physics-uni" },
     { name = "superdex-robotics-uni" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "drake-uni", marker = "extra == 'drake'", specifier = "==0.1.0" },
-    { name = "genesis-world", marker = "extra == 'genesis'", specifier = "==1.3.3" },
-    { name = "imgui-bundle", marker = "extra == 'newton'", specifier = ">=1.92.0" },
-    { name = "mjbatch-uni", marker = "extra == 'mujoco'", specifier = "~=0.2.5" },
-    { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.10.1" },
-    { name = "mujoco", marker = "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'superdex'", specifier = "~=3.11.0" },
-    { name = "mujoco", marker = "extra == 'mujoco'", specifier = "~=3.11.0" },
-    { name = "mujoco", marker = "extra == 'newton'", specifier = "==3.11.0" },
-    { name = "mujoco", marker = "extra == 'scene-compiler'", specifier = "~=3.11.0" },
-    { name = "mujoco-warp", marker = "extra == 'mjwarp'", specifier = "~=3.11.0" },
-    { name = "mujoco-warp", marker = "extra == 'newton'", specifier = "==3.11.0" },
-    { name = "newton", marker = "extra == 'newton'", specifier = "==1.5.1" },
-    { name = "numpy" },
-    { name = "pyglet", marker = "extra == 'newton'", specifier = ">=2.1.6,<3" },
-    { name = "superdex-physics-uni", marker = "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'superdex'", specifier = "==1.3.0" },
-    { name = "superdex-robotics-uni", marker = "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'superdex'", specifier = "==1.3.0" },
-    { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
-    { name = "warp-lang", marker = "extra == 'newton'", specifier = "==1.16.0" },
-]
-provides-extras = ["scene-compiler", "mujoco", "motrix", "drake", "mjwarp", "genesis", "superdex", "newton", "isaacgym", "isaacsim"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy" },
-    { name = "pyright", specifier = "==1.1.408" },
-    { name = "pytest" },
-    { name = "ruff" },
 ]
 
 [[package]]

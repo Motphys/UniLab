@@ -23,7 +23,7 @@ classifiers = [
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "numpy",
-    "unisim-core>=2.1.1",
+    "unisim-core==2.2.0",
     "prettytable>=3.10",
     "torch==2.14.0",
     "triton-rocm==3.8.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
@@ -72,13 +72,9 @@ mujoco = [
     "mujoco~=3.11.0",
     "mjbatch-uni~=0.2.5",
 ]
-motrix = ["unisim-core[motrix]>=2.1.1"]
-# Branch-local ROCm integration against sibling ray-contract checkouts. Keep
-# this extra aligned with pyproject.toml; the default runtime still resolves the
-# published unisim-core pin. uni-ray never becomes a runtime dependency.
-# On this issue branch the generated lock intentionally resolves sibling editable
-# checkouts; a standard checkout must provide ../unisim and ../uni_ray.
-ray-local = ["uni-ray[warp]"]
+motrix = ["unisim-core[motrix]==2.2.0"]
+# Keep the optional tensor-ray extra aligned with pyproject.toml.
+ray = ["uniray[warp]==0.1.0"]
 
 [dependency-groups]
 # The RL stack (APPO/off-policy/multi-GPU) is merged into unilab itself
@@ -96,12 +92,6 @@ torch = [
 ]
 triton-rocm = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
-]
-unisim-core = [
-    { path = "../unisim", editable = true, marker = "extra == 'ray-local'" },
-]
-uni-ray = [
-    { path = "../uni_ray", editable = true, marker = "extra == 'ray-local'" },
 ]
 
 [tool.uv]

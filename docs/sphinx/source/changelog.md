@@ -25,10 +25,8 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   world alignment; body or public-site attachment with a local sensor offset;
   `min_distance`; public geom/tag/body/ancestor filters; optional normal and
   hit-point outputs in addition to distance; and reset-boundary per-row geometry
-  synchronization. The branch-local `ray-local`
-  dependency profile resolves sibling `unisim-core` and `uni-ray` through
-  relative editable paths in both CUDA and ROCm lockfiles; no PyPI publication
-  is involved
+  synchronization. The optional `ray` extra now resolves the published
+  `uniray[warp]==0.1.0` distribution in both CUDA and ROCm lockfiles
   ([UniSim #472](https://github.com/unilabsim/unisim/issues/472)).
   Manager tensor ray observation 现在消费 UniSim 公开 full-scene
   `RayCollisionDescription`，mesh/hfield materialization 不再要求 backend-specific
@@ -36,9 +34,8 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   轴。`RayPatternCfg` 支持 ring、平行 grid 与 pinhole-camera ray pattern，
   body/yaw-only/world alignment、body/public-site attachment 与本地 sensor
   offset、`min_distance`、公开 geom/tag/body/ancestor filter、可选 normal 与
-  hit-point 输出，以及 reset 边界的逐行 geometry 同步。branch-local
-  `ray-local` 依赖 profile 在 CUDA 与 ROCm lockfile 中均通过相对 editable path
-  解析 sibling `unisim-core` 与 `uni-ray`；不涉及 PyPI 发布
+  hit-point 输出，以及 reset 边界的逐行 geometry 同步。可选 `ray` extra
+  在 CUDA 与 ROCm lockfile 中均解析已发布的 `uniray[warp]==0.1.0` 发行版
   （[UniSim #472](https://github.com/unilabsim/unisim/issues/472)）。
   The first facade is a minimal grouped ray sensor, not a camera: intrinsics,
   image projection, noise, history, and scheduling remain application logic.
