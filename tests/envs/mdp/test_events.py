@@ -1324,6 +1324,37 @@ def test_velocity_push_dispatches_angular_delta_when_supported() -> None:
     )
 
 
+@requires_cuda
+def test_velocity_push_cuda_root_body_ids_match_payload_plane() -> None:
+    """Root interval IDs must match the sampled payload plane exactly."""
+
+    env, backend, _ = _tensor_dr_env(
+        device_reset_randomization=True,
+        device=torch.device("cuda"),
+    )
+    backend.interval_velocity_supported = True
+    manager = EventManager(
+        {
+            "push": EventTermCfg(
+                func=mdp.push_by_setting_velocity,
+                mode="interval",
+                interval_range_s=(1.0, 1.0),
+                params={"velocity_range": {"x": (0.2, 0.2)}},
+            )
+        },
+        env,
+    )
+    manager._interval_term_time_left[0][:] = 0.0
+
+    manager.apply(mode="interval", dt=0.1)
+
+    assert len(backend.interval_plans) == 1
+    velocity_op = _interval_op(backend.interval_plans[0], INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA)
+    assert velocity_op is not None
+    assert velocity_op.payload.device == torch.device("cuda", torch.cuda.current_device())
+    assert velocity_op.body_ids.device == velocity_op.payload.device
+
+
 @pytest.mark.parametrize(
     (
         "velocity_supported",

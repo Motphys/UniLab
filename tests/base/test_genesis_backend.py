@@ -31,6 +31,7 @@ from unisim.backend.genesis.dependencies import (
 )
 from unisim.backend.genesis.materialization import preserve_torch_globals
 from unisim.dr.types import (
+    INTERVAL_TERM_BODY_ANGULAR_VELOCITY_DELTA,
     INTERVAL_TERM_BODY_FORCE,
     INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA,
     INTERVAL_TERM_BODY_TORQUE,
@@ -530,16 +531,32 @@ def test_dr_capabilities_and_tensor_reset_randomization_boundary(
     caps = backend.get_dr_capabilities()
     assert caps.supported_reset_terms == frozenset()
     assert caps.supported_interval_terms == frozenset()
-    assert caps.supported_device_reset_terms == {"body_mass", "kp", "kd"}
-    assert caps.supported_device_interval_terms == {"body_force", "body_torque"}
+    assert caps.supported_device_reset_terms == {
+        "base_com_offset",
+        "base_mass_delta",
+        "body_ipos",
+        "body_mass",
+        "kp",
+        "kd",
+    }
+    assert caps.supported_device_interval_terms == {
+        "body_force",
+        "body_torque",
+        "body_linear_velocity_delta",
+        "body_angular_velocity_delta",
+    }
     assert caps.supports_interval_term(INTERVAL_TERM_BODY_FORCE, plane="device") is True
     assert caps.supports_interval_term(INTERVAL_TERM_BODY_TORQUE, plane="device") is True
     assert caps.supports_interval_term(INTERVAL_TERM_PUSH) is False
     assert caps.supports_interval_term(INTERVAL_TERM_PUSH, plane="device") is False
-    assert caps.supports_interval_term(INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA) is False
-    assert caps.supports_interval_term(
-        INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA, plane="device"
-    ) is (False)
+    assert (
+        caps.supports_interval_term(INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA, plane="device")
+        is True
+    )
+    assert (
+        caps.supports_interval_term(INTERVAL_TERM_BODY_ANGULAR_VELOCITY_DELTA, plane="device")
+        is True
+    )
 
     rows = torch.tensor([1, 3], dtype=torch.int64, device="cuda")
     qpos, qvel = _stand_state(backend, 2)
@@ -626,15 +643,57 @@ def test_interval_randomization_and_body_force(fake_genesis, tiny_model_file: st
                 ops=(IntervalTermOp(INTERVAL_TERM_PUSH, torch.ones((1, 3), device=device)),)
             )
         )
+    linear = torch.zeros((4, 1, 3), dtype=torch.float32, device=device)
+    linear[1, 0] = torch.asarray((0.25, -0.5, 0.75), device=device)
+    angular = torch.zeros_like(linear)
+    angular[1, 0] = torch.asarray((-0.1, 0.2, -0.3), device=device)
+    entity = backend._scene.entities[0]
+    selected_linear = torch.zeros((entity.built_envs, 3), dtype=torch.float32)
+    selected_linear[1] = linear[1, 0].cpu()
+    selected_angular = torch.zeros_like(selected_linear)
+    selected_angular[1] = angular[1, 0].cpu()
+    velocity_before = entity.qvel.clone()
+    qpos_before = entity.qpos.clone()
+    backend.apply_interval_randomization(
+        IntervalRandomizationPlan(
+            ops=(
+                IntervalTermOp(
+                    INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA,
+                    linear,
+                    body_ids=torch.as_tensor([1], dtype=torch.int64, device=device),
+                ),
+                IntervalTermOp(
+                    INTERVAL_TERM_BODY_ANGULAR_VELOCITY_DELTA,
+                    angular,
+                    body_ids=torch.as_tensor([1], dtype=torch.int64, device=device),
+                ),
+            )
+        )
+    )
+    # Genesis submits selected rows through column-scoped public state; qpos,
+    # unrelated rows, and pending wrenches remain untouched.
+    torch.testing.assert_close(entity.qpos, qpos_before)
+    torch.testing.assert_close(entity.qvel[0], velocity_before[0])
+    torch.testing.assert_close(entity.qvel[2:], velocity_before[2:])
+    torch.testing.assert_close(entity.qvel[1, 0:3], velocity_before[1, 0:3] + selected_linear[1])
+    torch.testing.assert_close(entity.qvel[1, 3:6], velocity_before[1, 3:6] + selected_angular[1])
+    assert len(entity.velocity_calls) == 2
+    np.testing.assert_allclose(entity.velocity_calls[0][0], selected_linear[1:2])
+    assert entity.velocity_calls[0][1] == [0, 1, 2]
+    np.testing.assert_allclose(entity.velocity_calls[1][0], selected_angular[1:2])
+    assert entity.velocity_calls[1][1] == [3, 4, 5]
+    for velocity_call in entity.velocity_calls:
+        assert velocity_call[2] == [1]
     with pytest.raises(
-        NotImplementedError, match="does not support device-plane term: body_linear_velocity_delta"
+        ValueError,
+        match="term 'body_linear_velocity_delta' mixes host and device tensors",
     ):
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(
                 ops=(
                     IntervalTermOp(
                         INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA,
-                        torch.zeros((4, 1, 3), dtype=torch.float32, device=device),
+                        torch.zeros((4, 1, 3), dtype=torch.float32),
                         body_ids=torch.as_tensor([1], dtype=torch.int64, device=device),
                     ),
                 )

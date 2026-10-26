@@ -53,7 +53,9 @@ compensates on the materialize cold path — hot paths never parse XML:
 - **Actuators**: `<position kp kv>` actuators import losslessly and are
   driven with `control_dofs_position`; kp/kd reset randomization is supported
   on the device plane (the DR capability sets declare only the measured device
-  reset terms: body mass, kp, kd, plus interval body force and body torque).
+  reset terms: body mass, base-mass delta, body CoM / base-CoM delta, kp,
+  kd; the device interval set additionally covers body force, body torque,
+  and world-frame root linear plus root-local angular velocity deltas).
 
 ## Prerequisites
 
@@ -145,8 +147,10 @@ degrading:
 - **Absolute geom-friction DR**: upstream Genesis only offers a per-env
   friction *ratio* API, so `geom_friction` reset randomization and
   `get_geom_friction` fail closed.
-- **Interval push / body-velocity-delta DR**: rejected at construction/plan
-  time (`push_body_name`, push perturbation).
+- **Legacy interval push term**: the opaque `push` descriptor is rejected at
+  construction/plan time. Use the six-axis velocity-delta event, which commits
+  world-frame linear and root-local angular deltas through Genesis public
+  state without touching qpos, controls, solver state, or unrelated rows.
 - **Host-plane runtime DR**: Genesis accepts reset and interval payloads only
   on its backend-bound CUDA/AMDGPU device. Host payloads fail closed with the
   term and plane named; there is no NumPy or host-bridge fallback.

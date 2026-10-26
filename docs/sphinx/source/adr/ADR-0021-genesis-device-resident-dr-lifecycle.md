@@ -11,7 +11,9 @@ orphan: true
 - Owners: Simulation backend / Manager runtime maintainers
 - Supersedes: None
 - Superseded by: None
-- Roadmap: [Issue #2520](https://github.com/Motphys/UniLab/issues/2520)
+- Roadmap: [Issue #2520](https://github.com/Motphys/UniLab/issues/2520);
+  FlashMimic subset extension:
+  [Issue #2521](https://github.com/Motphys/UniLab/issues/2521)
 
 ## Context
 
@@ -37,12 +39,16 @@ UniLab consumes the unified contract as device-only Genesis runtime DR:
   treats default host capability wording as a fallback for a device-resident runtime.
 - The packed reset device is declared before cold event-term binds, so owner terms negotiate
   against the same plane that will commit after backend materialization.
-- Reset DR is limited to the audited device lifecycle (`body_mass`, `kp`, `kd`); interval DR is
-  limited to `body_force` and `body_torque`. Unsupported, host-plane, mixed-plane, and CPU/host
-  payloads fail closed with the term and plane named.
+- Reset DR is limited to the audited device lifecycle (`body_mass`, `base_mass_delta`,
+  `body_ipos`, `base_com_offset`, `kp`, `kd`); interval DR is limited to `body_force`,
+  `body_torque`, world-frame root linear velocity delta, and root-local angular velocity delta.
+  Unsupported, host-plane, mixed-plane, and CPU/host payloads fail closed with the term and plane
+  named.
 - Genesis owner YAML enables `pd_gains` only because that device-plane packed lane declares
-  `kp`/`kd`. It does not re-enable broad portable host setters, geometry, gravity, DOF, COM, or
-  push/velocity-delta DR.
+  `kp`/`kd`. It does not re-enable broad portable host setters, geometry, gravity, DOF, or the
+  opaque legacy push descriptor. Startup body mass and the six-axis velocity-delta event use
+  their audited public device lifecycle; absolute `geom_friction` remains intentionally
+  fail-closed because upstream Genesis has no equivalent per-environment absolute friction API.
 - Event operands and interval body IDs are lifted to the backend-bound device before entering the
   public interval plan. A host RNG or NumPy input at a Manager leaf is a cold compatibility edge,
   not permission to execute runtime DR on CPU.
@@ -71,6 +77,9 @@ UniLab consumes the unified contract as device-only Genesis runtime DR:
 ## Consequences
 
 - Genesis SAC and PPO walk owners have the same PD-gain DR default as their MuJoCo counterparts.
+- The SAC G1 motion-tracking owner carries the FlashMimic-compatible DR subset: startup
+  pelvis/torso mass scaling without inertia recomputation, torso COM and full-actuator PD gain
+  reset writes, and six-axis velocity kicks. Its foot-friction event stays disabled.
 - Portable Genesis scenes have a smaller reset contract, and removed portable host runtime paths
   have no compatibility alias in UniLab.
 - Owners must sample device-resident operands on the Manager RNG/backend device. CPU-only Genesis
@@ -83,7 +92,8 @@ UniLab consumes the unified contract as device-only Genesis runtime DR:
 - `src/unilab/base/entity.py` — interval plane negotiation and device-resident interval ops.
 - `src/unilab/envs/manager_based_rl_env.py` — packed reset device declaration before event binds.
 - `src/unilab/base/reset_state.py` — plane-aware capability checks.
-- `src/unilab/conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml` — owner parity.
+- `src/unilab/conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml` — walk owner parity.
+- `src/unilab/conf/sac/task/g1_motion_tracking/genesis.yaml` — FlashMimic DR subset owner.
 - `tests/base/test_genesis_backend.py`; `tests/envs/mdp/test_events.py`;
   `tests/envs/locomotion/g1/test_g1_owner_contract.py`.
 - Generated backend support evidence:

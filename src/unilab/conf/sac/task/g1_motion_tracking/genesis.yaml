@@ -6,11 +6,13 @@
 # flows through the existing base.yaml sim_dt -> ctrl_dt chain, and the
 # integrator through the env field below. Requires unisim-core>=1.5.1 for the
 # motion body id capability (unilabsim/unisim#137), plus the contact-sensor
-# scan fix for found+mindist geom pairs (unilabsim/unisim#276). Under the
-# genesis-world==1.3.3 scene loading pinned here, the G1 scene declares no
-# model-field reset terms and the backend exposes no interval velocity-delta
-# capability, so base_com/foot_friction/push_robot stay disabled; encoder_bias
-# is a host-side observation bias and stays enabled. Playback uses Genesis
+# scan fix for found+mindist geom pairs (unilabsim/unisim#276), and the
+# device-resident Genesis DR subset from issue #2521. The owner enables
+# startup pelvis/torso mass scaling, inherited torso COM reset, reset PD-gain
+# scaling, and the six-axis interval velocity kick. Absolute geom friction
+# remains intentionally fail-closed because Genesis has no equivalent
+# per-environment friction API; encoder_bias is a host-side observation bias
+# and stays enabled. Playback uses Genesis
 # native rendering: with a display, play_render_mode=auto opens the
 # interactive viewer; headless hosts fall back to offscreen camera recording.
 defaults:
@@ -34,14 +36,39 @@ env:
   scene:
     entities:
       robot:
-        # The genesis backend does not expose portable geom names; the
-        # foot-geom declaration only feeds the disabled foot_friction DR
-        # binding.
         geom_names: null
   events:
-    # With the genesis-world==1.3.3 scene loading pinned above, the G1 scene
-    # declares no model-field reset terms and the backend exposes no interval
-    # velocity-delta capability; keep the owner fail-closed.
-    base_com: null
+    body_mass:
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: startup
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: [pelvis, torso_link]
+        mass_distribution_params: [0.9, 1.1]
+        operation: scale
+        distribution: uniform
+        recompute_inertia: false
     foot_friction: null
-    push_robot: null
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [0.9, 1.1]
+        kd_range: [0.9, 1.1]
+        distribution: uniform
+        operation: scale
+    push_robot:
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [1.0, 3.0]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [-0.2, 0.2]
+          roll: [-0.52, 0.52]
+          pitch: [-0.52, 0.52]
+          yaw: [-0.78, 0.78]
