@@ -42,7 +42,7 @@ import time
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from importlib.metadata import PackageNotFoundError, distribution, version
+from importlib.metadata import PackageNotFoundError, version
 from importlib.util import find_spec
 from pathlib import Path
 from statistics import mean, median, pstdev
@@ -59,7 +59,6 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 from unilab.base.backend_timing import UPDATE_STATE_DETAIL_TIMING_KEYS
-from unilab.rl.runtime.collector_benchmark import SCHEMA_ID, validate_envelope
 from unilab.utils.device import get_device_info_dict, get_device_info_line
 
 DEFAULT_OUTPUT_JSON = (
@@ -75,11 +74,6 @@ DEFAULT_CASE_TEMPLATES = (
 )
 DEFAULT_ALGOS = ("sac", "flashsac")
 DEFAULT_BACKEND = "mujoco"
-PRODUCTION_CASE = "flashsac/g1_motion_tracking/genesis"
-PRODUCTION_SEED = 457
-PRODUCTION_NUM_ENVS = 2048
-PRODUCTION_SIM_DT = 0.006666666666666667
-PRODUCTION_CTRL_DT = 0.02
 # CPU and CUDA tensor profiles have different dependency footprints. CPU host
 # bridge is default-safe; CUDA tensor backends are explicitly requested.
 BENCHMARK_BACKENDS = ("mujoco",)
@@ -92,7 +86,6 @@ FIXATION_PACKAGE_NAMES = (
     "torch",
     "mujoco-warp",
     "warp-lang",
-    "genesis-world",
 )
 COLLECTOR_PHASES = (
     "env_step_ms",
@@ -107,11 +100,6 @@ ENV_STEP_TIMING_KEYS = (
     "update_state_ms",
     "update_state_cpu_ms",
     "update_state_read_boundary_ms",
-    "update_state_backend_state_read_ms",
-    "update_state_backend_tracked_sensor_projection_ms",
-    "update_state_backend_named_sensor_projection_ms",
-    "update_state_backend_sensor_projection_ms",
-    "update_state_backend_sensor_projection_call_count",
     "update_state_prelude_ms",
     "update_state_queue_drain_ms",
     "update_state_termination_ms",
@@ -238,19 +226,6 @@ ENV_STEP_TIMING_KEYS = (
     "set_state_tensor_mask_ms",
     "set_state_tensor_commit_forward_ms",
     "set_state_tensor_host_cache_refresh_ms",
-    # Genesis device-resident internals. Times are auxiliary sub-timings of
-    # step_core/reset; *_count fields are event counts, not milliseconds.
-    "backend_tensor_control_upload_ms",
-    "backend_tensor_control_metadata_h2d_count",
-    "backend_tensor_control_metadata_h2d_bytes",
-    "backend_tensor_physics_ms",
-    "backend_tensor_state_publication_ms",
-    "backend_tensor_state_getter_copy_count",
-    "backend_tensor_state_mirror_copy_count",
-    "backend_tensor_state_sync_count",
-    "backend_tensor_reset_validation_ms",
-    "backend_tensor_reset_apply_ms",
-    "backend_tensor_reset_state_publication_ms",
 )
 ENV_STEP_COUNT_KEYS = (
     "reset_done_count",
@@ -276,19 +251,6 @@ ENV_STEP_TIMING_CSV_FIELDS = (
     ("apply_action_ms", "apply_action_ms"),
     ("step_core_ms", "step_core_ms"),
     ("update_state_ms", "update_state_ms"),
-    ("update_state_backend_state_read_ms", "update_state_backend_state_read_ms"),
-    (
-        "update_state_backend_tracked_sensor_projection_ms",
-        "update_state_backend_tracked_sensor_projection_ms",
-    ),
-    (
-        "update_state_backend_named_sensor_projection_ms",
-        "update_state_backend_named_sensor_projection_ms",
-    ),
-    (
-        "update_state_backend_sensor_projection_ms",
-        "update_state_backend_sensor_projection_ms",
-    ),
     ("reset_done_ms", "reset_done_ms"),
     ("env_step_internal_gap_ms", "env_step_internal_gap_ms"),
     ("reset_done_terminal_obs_ms", "reset_done_terminal_obs_ms"),
@@ -317,12 +279,6 @@ ENV_STEP_TIMING_CSV_FIELDS = (
     ("reset_done_motion_reset_publish_ms", "reset_done_motion_reset_publish_ms"),
     ("reset_done_reset_commit_ms", "reset_done_reset_commit_ms"),
     ("reset_done_reset_validation_ms", "reset_done_reset_validation_ms"),
-    ("backend_tensor_reset_validation_ms", "backend_tensor_reset_validation_ms"),
-    ("backend_tensor_reset_apply_ms", "backend_tensor_reset_apply_ms"),
-    (
-        "backend_tensor_reset_state_publication_ms",
-        "backend_tensor_reset_state_publication_ms",
-    ),
     ("reset_done_command_refresh_ms", "reset_done_command_refresh_ms"),
     ("reset_done_command_post_compute_ms", "reset_done_command_post_compute_ms"),
     ("reset_done_motion_robot_refresh_ms", "reset_done_motion_robot_refresh_ms"),
@@ -393,10 +349,6 @@ class CollectorCase:
     critic_dim: int
     action_dim: int
     env_steps_per_sync: int
-    case_profile: str = "generic"
-    num_envs_source: str = "cli"
-    sim_dt: float = 0.0
-    ctrl_dt: float = 0.0
     # Exact environment shape and term-set fixation for Gate UP evidence.
     seed: int = 0
     env_seed: int | None = None
@@ -420,8 +372,6 @@ class TimingStats:
     std_ms: float
     min_ms: float
     max_ms: float
-    p50_ms: float = 0.0
-    p95_ms: float = 0.0
 
 
 @dataclass
@@ -434,20 +384,10 @@ class CollectorResult:
     phase_ms_per_vector_step: dict[str, TimingStats]
     phase_pct: dict[str, float]
     notes: list[str]
-    # Lifecycle phases are intentionally outside total_active_ms. Construction
-    # includes backend materialization and the initial reset; setup includes the
-    # first transition/JIT drain; teardown closes the collector-owned backend.
-    construction_ms: float = 0.0
-    collector_setup_ms: float = 0.0
-    warmup_ms: float = 0.0
-    teardown_ms: float = 0.0
     # Aggregate rate over the final measured steps. This mirrors the runner
     # tail contract while remaining explicitly diagnostic, not acceptance.
     tail_step_count: int = 0
     tail_active_steps_per_sec: float | None = None
-    reset_rows_total: int = 0
-    reset_vector_step_count: int = 0
-    reset_rows_per_vector_step: TimingStats | None = None
     # Fine-grained timings reported by `TorchEnv.step()` inside env_step_ms.
     env_step_timing_ms_per_vector_step: dict[str, TimingStats] = field(default_factory=dict)
     # Backend-internal physics time per vector step (sub-part of env_step_ms).
@@ -469,7 +409,6 @@ class CollectorResult:
     backend_runtime_diagnostics: dict[str, dict[str, bool | str | None]] = field(
         default_factory=dict
     )
-    backend_tensor_profile: dict[str, Any] = field(default_factory=dict)
     # Public bounded-ingress ordering evidence collected after the active window.
     replay_ingress_diagnostics: dict[str, int | float] = field(default_factory=dict)
     # Context-only actor forward time; actions used by the measured collector
@@ -488,8 +427,6 @@ def _stats(samples_ms: list[float]) -> TimingStats:
         std_ms=pstdev(samples_ms) if len(samples_ms) > 1 else 0.0,
         min_ms=min(samples_ms),
         max_ms=max(samples_ms),
-        p50_ms=median(samples_ms),
-        p95_ms=float(np.percentile(samples_ms, 95)),
     )
 
 
@@ -620,70 +557,18 @@ def _configure_collector_cpu_threads(cap: int | None = None) -> int:
 
 
 def _backend_runtime_diagnostics(env: Any) -> dict[str, dict[str, bool | str | None]]:
-    get_diagnostics = getattr(env, "get_backend_runtime_diagnostics", None)
-    if get_diagnostics is None:
-        return {}
-    payload = get_diagnostics()
-    diagnostics = payload.get("diagnostics", {})
-    if not isinstance(diagnostics, dict):
+    backend = getattr(env, "_backend", None)
+    diagnostics = getattr(backend, "get_tensor_runtime_diagnostics", None)
+    if diagnostics is None:
         return {}
     return {
         name: {
-            "requested": bool(diagnostic.get("requested")),
-            "enabled": bool(diagnostic.get("enabled")),
-            "disable_reason": diagnostic.get("disable_reason"),
+            "requested": bool(diagnostic.requested),
+            "enabled": bool(diagnostic.enabled),
+            "disable_reason": diagnostic.disable_reason,
         }
-        for name, diagnostic in diagnostics.items()
-        if isinstance(diagnostic, dict)
+        for name, diagnostic in diagnostics().items()
     }
-
-
-def _backend_tensor_profile(env: Any, *, require_attribution: bool = False) -> dict[str, Any]:
-    """Record and fail closed on the negotiated public tensor profile."""
-
-    get_diagnostics = getattr(env, "get_backend_runtime_diagnostics", None)
-    if get_diagnostics is None:
-        raise RuntimeError("collector benchmark environment has no public backend diagnostics")
-    payload = get_diagnostics()
-    profile = {
-        "backend_type": str(payload.get("backend_type", "")),
-        **dict(payload.get("tensor_profile", {})),
-    }
-    diagnostics = _backend_runtime_diagnostics(env)
-    if profile["backend_type"] == "genesis" and (
-        profile.get("execution") != "device_resident"
-        or profile.get("data_plane") != "direct"
-        or profile.get("process_topology") != "in_process"
-        or not any(str(device).startswith("cuda") for device in profile.get("torch_devices", ()))
-    ):
-        raise RuntimeError(
-            "Genesis production collector benchmark requires the UniSim adapter's "
-            "exact-CUDA or exact-AMDGPU DEVICE_RESIDENT/DIRECT profile; negotiated "
-            f"{profile.get('execution')}/{profile.get('data_plane')}. "
-            "This benchmark must not silently use portable Genesis, CPU, Metal, "
-            "or another backend."
-        )
-    exact_cuda = diagnostics.get("exact_cuda_profile", {})
-    exact_amdgpu = diagnostics.get("exact_amdgpu_profile", {})
-    cuda_enabled = bool(exact_cuda.get("enabled", False))
-    amdgpu_enabled = bool(exact_amdgpu.get("enabled", False))
-    if profile["backend_type"] == "genesis":
-        if cuda_enabled == amdgpu_enabled:
-            raise RuntimeError(
-                "Genesis production collector benchmark requires exactly one active "
-                "exact-CUDA or exact-AMDGPU zero-copy profile; "
-                f"cuda_diagnostic={exact_cuda.get('disable_reason')}, "
-                f"amdgpu_diagnostic={exact_amdgpu.get('disable_reason')}"
-            )
-        profile["torch_runtime_family"] = "rocm" if amdgpu_enabled else "cuda"
-        profile["genesis_backend"] = "amdgpu" if amdgpu_enabled else "cuda"
-    if require_attribution and not bool(
-        diagnostics.get("attribution_diagnostics", {}).get("enabled", False)
-    ):
-        raise RuntimeError(
-            "Genesis production collector benchmark requires attribution diagnostics"
-        )
-    return profile
 
 
 def _runtime_sim_backend(sim: str) -> str:
@@ -721,31 +606,6 @@ def _compose_offpolicy_cfg(
         config_dir=str(ROOT_DIR / "src" / "unilab" / "conf" / algo), version_base="1.3"
     ):
         return compose(config_name="config", overrides=overrides)
-
-
-def _validate_production_cfg(cfg: DictConfig, *, num_envs_source: str) -> None:
-    expected = {
-        "algo.algo": "flashsac",
-        "training.sim_backend": "genesis",
-        "algo.num_envs": PRODUCTION_NUM_ENVS,
-        "env.sim_dt": PRODUCTION_SIM_DT,
-        "env.ctrl_dt": PRODUCTION_CTRL_DT,
-        "algo.seed": PRODUCTION_SEED,
-        "env.seed": PRODUCTION_SEED,
-        "env.genesis_attribution_diagnostics": True,
-    }
-    actual = {name: OmegaConf.select(cfg, name) for name in expected}
-    mismatches = [name for name, value in expected.items() if actual[name] != value]
-    if mismatches:
-        details = ", ".join(
-            f"{name}={actual[name]!r} (expected {expected[name]!r})" for name in mismatches
-        )
-        raise ValueError(f"production Genesis collector profile mismatch: {details}")
-    if num_envs_source != "owner":
-        raise ValueError(
-            "production Genesis collector profile requires its 2048-env owner value; "
-            "do not pass --num-envs"
-        )
 
 
 def _owner_config_path(algo: str, task: str, sim: str, profile: str | None = None) -> Path:
@@ -828,8 +688,6 @@ def _resolve_case_specs(
     algos_arg: str,
     backends: Sequence[str],
 ) -> list[str]:
-    if cases_arg == "production":
-        return [PRODUCTION_CASE]
     if cases_arg == "default":
         return _default_case_specs(backends)
     if cases_arg == "auto":
@@ -860,7 +718,6 @@ def _build_case(
     obs_dim: int,
     critic_dim: int,
     action_dim: int,
-    production: bool = False,
 ) -> CollectorCase:
     num_envs = int(cfg.algo.num_envs)
     capacity_steps = max(1, int(replay_capacity_steps))
@@ -886,10 +743,6 @@ def _build_case(
         critic_dim=int(critic_dim),
         action_dim=int(action_dim),
         env_steps_per_sync=int(cfg.training.env_steps_per_sync),
-        case_profile="production" if production else "generic",
-        num_envs_source="owner" if production else "cli",
-        sim_dt=float(cfg.env.sim_dt),
-        ctrl_dt=float(cfg.env.ctrl_dt),
         seed=int(cfg.algo.seed),
         env_seed=(
             int(cfg.env.seed)
@@ -1006,14 +859,11 @@ def _run_active_window_case(
     tail_steps: int = DEFAULT_TAIL_STEPS,
     policy_inference_context: TimingStats | None = None,
     policy_inference_context_evidence: dict[str, Any] | None = None,
-    construction_ms: float = 0.0,
-    production: bool = False,
 ) -> CollectorResult:
     from unilab.rl.contracts.observations import split_obs_dict
     from unilab.rl.runtime.ipc.replay_buffer import ReplayBuffer
     from unilab.rl.runtime.offpolicy.worker import timeout_bootstrap_mask
 
-    setup_started = time.perf_counter()
     replay_buffer = ReplayBuffer(
         capacity=case.replay_capacity_rows,
         obs_dim=case.obs_dim,
@@ -1026,10 +876,8 @@ def _run_active_window_case(
 
     env_device = env.device
     backend_runtime_diagnostics = _backend_runtime_diagnostics(env)
-    backend_tensor_profile = _backend_tensor_profile(env, require_attribution=production)
     actions = torch.zeros((case.num_envs, case.action_dim), dtype=torch.float32, device=env_device)
     state = env.step(actions)
-    collector_setup_ms = (time.perf_counter() - setup_started) * 1000.0
     obs, critic = split_obs_dict(state.obs)
     current_ep_rewards = torch.zeros(case.num_envs, dtype=torch.float32, device=env_device)
     current_ep_lengths = torch.zeros(case.num_envs, dtype=torch.int64, device=env_device)
@@ -1048,10 +896,8 @@ def _run_active_window_case(
     env_step_timing_samples: dict[str, list[float]] = {key: [] for key in ENV_STEP_SAMPLE_KEYS}
     numpy_random_ms_samples: list[float] = []
     numpy_random_call_samples: list[float] = []
-    reset_rows_samples: list[float] = []
     random_profiler = _NumpyRandomProfiler() if profile_numpy_random else None
     total_active_ns = 0
-    warmup_active_ns = 0
     total_steps = int(warmup_steps) + int(measure_steps)
     if total_steps <= 0 or measure_steps <= 0:
         raise ValueError("measure_steps must be > 0 and warmup_steps must be >= 0")
@@ -1093,8 +939,6 @@ def _run_active_window_case(
                 state.info.get("update_state_timing", {}) if isinstance(state.info, dict) else {}
             )
             physics_ms = _optional_timing_ms(_timing, "backend_physics_ms")
-            if physics_ms is None:
-                physics_ms = _optional_timing_ms(_timing, "backend_tensor_physics_ms")
             env_step_timing_values = {
                 key: _optional_timing_ms(_update_state_timing, key)
                 if key in UPDATE_STATE_DETAIL_TIMING_KEYS
@@ -1158,8 +1002,6 @@ def _run_active_window_case(
             current_ep_rewards += rewards
             current_ep_lengths += 1
             reset_indices = terminal_mask.nonzero(as_tuple=False).flatten()
-            if record:
-                reset_rows_samples.append(float(reset_indices.numel()))
             if reset_indices.numel() > 0:
                 ep_rewards.extend(current_ep_rewards[reset_indices].detach().cpu().tolist())
                 ep_lengths.extend(current_ep_lengths[reset_indices].detach().cpu().tolist())
@@ -1194,8 +1036,6 @@ def _run_active_window_case(
                 for key, value in env_step_timing_values.items():
                     if value is not None:
                         env_step_timing_samples.setdefault(key, []).append(value)
-            else:
-                warmup_active_ns += int((env_step_ms + replay_ms + bookkeeping_ms) * 1e6)
     finally:
         if random_profiler is not None:
             random_profiler.uninstall()
@@ -1219,11 +1059,9 @@ def _run_active_window_case(
         for key, stat in phase_stats.items()
     }
 
-    teardown_started = time.perf_counter()
     replay_ingress_diagnostics = replay_buffer.ingress_diagnostics()
     del replay_buffer
     _cleanup()
-    collector_teardown_ms = (time.perf_counter() - teardown_started) * 1000.0
     physics_stats = _stats(aux_samples["physics_ms"]) if aux_samples["physics_ms"] else None
     env_step_overhead_stats = (
         _stats(aux_samples["env_step_overhead_ms"]) if aux_samples["env_step_overhead_ms"] else None
@@ -1239,16 +1077,9 @@ def _run_active_window_case(
         collector_active_steps_per_sec=collector_active_steps_per_sec,
         tail_step_count=tail_count,
         tail_active_steps_per_sec=tail_rate,
-        reset_rows_total=int(sum(reset_rows_samples)),
-        reset_vector_step_count=sum(value > 0.0 for value in reset_rows_samples),
-        reset_rows_per_vector_step=(_stats(reset_rows_samples) if reset_rows_samples else None),
         phase_ms_per_vector_step=phase_stats,
         phase_pct=phase_pct,
         notes=[],
-        construction_ms=construction_ms,
-        collector_setup_ms=collector_setup_ms,
-        warmup_ms=warmup_active_ns / 1.0e6,
-        teardown_ms=collector_teardown_ms,
         env_step_timing_ms_per_vector_step=env_step_timing_stats,
         physics_ms_per_vector_step=physics_stats,
         env_step_overhead_ms_per_vector_step=env_step_overhead_stats,
@@ -1260,7 +1091,6 @@ def _run_active_window_case(
             _stats(numpy_random_call_samples) if numpy_random_call_samples else None
         ),
         backend_runtime_diagnostics=backend_runtime_diagnostics,
-        backend_tensor_profile=backend_tensor_profile,
         replay_ingress_diagnostics=replay_ingress_diagnostics,
         policy_inference_context=policy_inference_context,
         policy_inference_context_evidence=policy_inference_context_evidence or {},
@@ -1278,7 +1108,6 @@ def _build_and_run_case(
     extra_overrides: list[str],
     variant: str = "default",
     profile_numpy_random: bool = False,
-    production: bool = False,
 ) -> CollectorResult:
     from unilab.base.config_adapter import EnvConfigAdapter
     from unilab.training import ensure_registries
@@ -1297,8 +1126,6 @@ def _build_and_run_case(
         num_envs=num_envs,
         extra_overrides=extra_overrides,
     )
-    if production:
-        _validate_production_cfg(cfg, num_envs_source="owner")
     ensure_registries()
     # Mirror the real collector subprocess CPU budget for env/replay work.
     _configure_collector_cpu_threads()
@@ -1310,15 +1137,11 @@ def _build_and_run_case(
     ).build_task_env_cfg_override()
 
     env = None
-    result: CollectorResult | None = None
-    construction_ms = 0.0
     try:
-        construction_started = time.perf_counter()
         env, obs_dim, critic_dim, action_dim = _make_env(
             cfg,
             env_cfg_override=env_cfg_override,
         )
-        construction_ms = (time.perf_counter() - construction_started) * 1000.0
         policy_context, policy_context_evidence = _measure_policy_inference_context(
             cfg,
             obs_dim=obs_dim,
@@ -1339,9 +1162,8 @@ def _build_and_run_case(
             obs_dim=obs_dim,
             critic_dim=critic_dim,
             action_dim=action_dim,
-            production=production,
         )
-        result = _run_active_window_case(
+        return _run_active_window_case(
             case,
             env=env,
             warmup_steps=warmup_steps,
@@ -1350,19 +1172,11 @@ def _build_and_run_case(
             tail_steps=tail_steps,
             policy_inference_context=policy_context,
             policy_inference_context_evidence=policy_context_evidence,
-            construction_ms=construction_ms,
-            production=production,
         )
-        return result
     finally:
         if env is not None:
-            teardown_started = time.perf_counter()
             env.close()
-            _cleanup()
-            if result is not None:
-                result.teardown_ms += (time.perf_counter() - teardown_started) * 1000.0
-        else:
-            _cleanup()
+        _cleanup()
 
 
 def _result_to_dict(result: CollectorResult) -> dict[str, Any]:
@@ -1388,9 +1202,9 @@ def _package_versions() -> dict[str, str]:
     return values
 
 
-def _git_fixation(repository: Path) -> dict[str, str | bool | None]:
+def _git_fixation() -> dict[str, str | bool | None]:
     def git(*arguments: str) -> str:
-        return _run_text_command(["git", "-C", str(repository), *arguments])
+        return _run_text_command(["git", "-C", str(ROOT_DIR), *arguments])
 
     return {
         "branch": git("branch", "--show-current") or None,
@@ -1399,79 +1213,19 @@ def _git_fixation(repository: Path) -> dict[str, str | bool | None]:
     }
 
 
-def _distribution_source(name: str) -> dict[str, Any]:
-    try:
-        raw = distribution(name).read_text("direct_url.json")
-    except PackageNotFoundError:
-        return {"installed": False}
-    if raw is None:
-        return {"installed": True, "direct_url": None}
-    try:
-        return {"installed": True, "direct_url": json.loads(raw)}
-    except json.JSONDecodeError:
-        return {"installed": True, "direct_url": {"invalid_json": raw}}
-
-
-def _gpu_driver_version(gpu_uuid: str) -> str:
-    if torch.version.hip is not None:
-        output = _run_text_command(["rocm-smi", "--showdriverversion"])
-        prefix = "Driver version:"
-        return next(
-            (
-                line.removeprefix(prefix).strip()
-                for line in output.splitlines()
-                if line.strip().startswith(prefix)
-            ),
-            "",
-        )
-    return _run_text_command(
-        [
-            "nvidia-smi",
-            f"--id={gpu_uuid}",
-            "--query-gpu=driver_version",
-            "--format=csv,noheader",
-        ]
-    ).strip()
-
-
 def _runtime_fixation() -> dict[str, Any]:
-    unisim_repository = ROOT_DIR.parent / "unisim"
     fixation: dict[str, Any] = {
         "python_version": platform.python_version(),
         "platform": platform.platform(),
         "host": platform.node(),
         "kernel": platform.release(),
         "package_versions": _package_versions(),
-        "git": {
-            "unilab": _git_fixation(ROOT_DIR),
-            "unisim": (
-                _git_fixation(unisim_repository) if (unisim_repository / ".git").exists() else None
-            ),
-        },
-        "unisim_source": _distribution_source("unisim-core"),
+        "git": _git_fixation(),
         "torch_cuda": torch.version.cuda,
-        "torch_hip": torch.version.hip,
         "torch_cudnn": torch.backends.cudnn.version()
         if torch.backends.cudnn.is_available()
         else None,
         "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
-        "environment": {
-            name: os.environ.get(name)
-            for name in (
-                "CUDA_VISIBLE_DEVICES",
-                "HIP_VISIBLE_DEVICES",
-                "ROCR_VISIBLE_DEVICES",
-                "GS_PARA_LEVEL",
-                "GS_ENABLE_ZEROCOPY",
-                "GS_ENABLE_NDARRAY",
-                "GS_TORCH_FORCE_CPU_DEVICE",
-                "QD_ENABLE_CPU",
-                "QD_ENABLE_CUDA",
-                "QD_ENABLE_AMDGPU",
-                "QD_ENABLE_METAL",
-                COLLECTOR_CPU_THREADS_ENV,
-            )
-        },
     }
     if torch.cuda.is_available():
         index = torch.cuda.current_device()
@@ -1479,9 +1233,16 @@ def _runtime_fixation() -> dict[str, Any]:
         if uuid is None:
             raise RuntimeError("CUDA benchmarking requires a public GPU UUID receipt")
         gpu_uuid = f"GPU-{uuid}"
-        driver_version = _gpu_driver_version(gpu_uuid)
+        driver_version = _run_text_command(
+            [
+                "nvidia-smi",
+                f"--id={gpu_uuid}",
+                "--query-gpu=driver_version",
+                "--format=csv,noheader",
+            ]
+        )
         if not driver_version:
-            raise RuntimeError("GPU benchmarking requires a GPU driver-version receipt")
+            raise RuntimeError("CUDA benchmarking requires a GPU driver-version receipt")
         fixation.update(
             {
                 "gpu_name": torch.cuda.get_device_name(index),
@@ -1514,10 +1275,6 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "tail_step_count",
         "tail_active_steps_per_sec",
         "total_active_ms",
-        "construction_ms",
-        "collector_setup_ms",
-        "warmup_ms",
-        "teardown_ms",
         "env_step_ms",
         "replay_ms",
         "bookkeeping_ms",
@@ -1526,10 +1283,6 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
         "physics_ms",
         "env_step_overhead_ms",
         "reset_done_count",
-        "reset_rows_total",
-        "reset_vector_step_count",
-        "reset_rows_per_vector_step_p50",
-        "reset_rows_per_vector_step_p95",
         *(field_name for _, field_name in ENV_STEP_TIMING_CSV_FIELDS),
         "env_step_pct",
         "replay_pct",
@@ -1562,10 +1315,6 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
                     else ""
                 ),
                 "total_active_ms": result.total_active_ms,
-                "construction_ms": result.construction_ms,
-                "collector_setup_ms": result.collector_setup_ms,
-                "warmup_ms": result.warmup_ms,
-                "teardown_ms": result.teardown_ms,
             }
             for key in COLLECTOR_PHASES:
                 row[key] = result.phase_ms_per_vector_step.get(
@@ -1594,15 +1343,6 @@ def _write_csv(path: Path, results: list[CollectorResult]) -> None:
             reset_done_count = result.env_step_timing_ms_per_vector_step.get("reset_done_count")
             row["reset_done_count"] = (
                 reset_done_count.mean_ms if reset_done_count is not None else ""
-            )
-            row["reset_rows_total"] = result.reset_rows_total
-            row["reset_vector_step_count"] = result.reset_vector_step_count
-            reset_rows = result.reset_rows_per_vector_step
-            row["reset_rows_per_vector_step_p50"] = (
-                reset_rows.p50_ms if reset_rows is not None else ""
-            )
-            row["reset_rows_per_vector_step_p95"] = (
-                reset_rows.p95_ms if reset_rows is not None else ""
             )
             for timing_key, field_name in ENV_STEP_TIMING_CSV_FIELDS:
                 stat = result.env_step_timing_ms_per_vector_step.get(timing_key)
@@ -2453,11 +2193,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--num-envs",
         type=int,
-        default=None,
-        help=(
-            "Override algo.num_envs. Generic cases default to "
-            f"{DEFAULT_NUM_ENVS}; --cases production always uses its frozen owner value."
-        ),
+        default=DEFAULT_NUM_ENVS,
+        help=f"Override algo.num_envs. Default: {DEFAULT_NUM_ENVS}.",
     )
     parser.add_argument(
         "--warmup-steps",
@@ -2531,15 +2268,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--continue-on-error", action="store_true")
-    parser.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help=(
-            "Set both algo.seed and env.seed. Generic cases default to each owner; "
-            f"--cases production is frozen at {PRODUCTION_SEED}."
-        ),
-    )
     args = parser.parse_args(argv)
     if args.repeat_variant_blocks < 1:
         raise ValueError("--repeat-variant-blocks must be at least 1")
@@ -2564,22 +2292,6 @@ def main() -> int:
         _, _, spec_sim, _ = _parse_case(spec)
         if spec_sim in OPTIONAL_BACKENDS:
             _check_optional_backend_deps(spec_sim)
-
-    production = args.cases == "production" and specs == [PRODUCTION_CASE]
-    if production and args.num_envs is not None:
-        raise SystemExit(
-            "--cases production uses the frozen owner profile (2048 envs); do not pass --num-envs"
-        )
-    seed = args.seed
-    if production and seed is None:
-        seed = PRODUCTION_SEED
-    if production and seed != PRODUCTION_SEED:
-        raise SystemExit(f"--cases production requires seed {PRODUCTION_SEED}")
-    effective_num_envs = DEFAULT_NUM_ENVS if args.num_envs is None else int(args.num_envs)
-    if production:
-        effective_num_envs = None
-    seed_overrides = [] if seed is None else [f"algo.seed={seed}", f"env.seed={seed}"]
-    production_overrides = ["env.genesis_attribution_diagnostics=true"] if production else []
 
     hardware_info = _get_benchmark_hardware_info()
     print(f"Device: {get_device_info_line()}")
@@ -2606,16 +2318,10 @@ def main() -> int:
                             measure_steps=int(args.measure_steps),
                             replay_capacity_steps=int(args.replay_capacity_steps),
                             tail_steps=int(args.tail_steps),
-                            num_envs=effective_num_envs,
-                            extra_overrides=[
-                                *seed_overrides,
-                                *production_overrides,
-                                *args.override,
-                                *variant_extra_overrides,
-                            ],
+                            num_envs=args.num_envs,
+                            extra_overrides=[*args.override, *variant_extra_overrides],
                             variant=variant,
                             profile_numpy_random=bool(args.profile_numpy_random),
-                            production=production,
                         )
                     ]
                     results.extend(case_results)
@@ -2629,7 +2335,6 @@ def main() -> int:
                 raise
 
     payload = {
-        "schema": SCHEMA_ID,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "benchmark": "offpolicy_collector_active",
         "definition": (
@@ -2638,17 +2343,6 @@ def main() -> int:
             "terminal-contract handling, replay writes, and collector-side bookkeeping."
         ),
         "device": hardware_info,
-        "phase_relationships": {
-            "additive_active": list(COLLECTOR_PHASES),
-            "lifecycle_excluded_from_active": [
-                "construction_ms",
-                "collector_setup_ms",
-                "warmup_ms",
-                "teardown_ms",
-            ],
-            "tail_subset_of_active": True,
-            "attribution_children_non_additive": True,
-        },
         "command": ("uv run " + shlex.join([str(Path(__file__).resolve()), *sys.argv[1:]])),
         "args": {
             "cases": args.cases,
@@ -2656,8 +2350,6 @@ def main() -> int:
             "backend": args.backend,
             "all_backends": args.all_backends,
             "num_envs": args.num_envs,
-            "effective_num_envs": effective_num_envs,
-            "seed": seed,
             "warmup_steps": args.warmup_steps,
             "measure_steps": args.measure_steps,
             "tail_steps": args.tail_steps,
@@ -2672,7 +2364,6 @@ def main() -> int:
         "results": [_result_to_dict(result) for result in results],
         "errors": errors,
     }
-    validate_envelope(payload)
     _write_json(args.out_json, payload)
     print(f"Wrote JSON: {args.out_json}")
     if args.out_csv is not None:

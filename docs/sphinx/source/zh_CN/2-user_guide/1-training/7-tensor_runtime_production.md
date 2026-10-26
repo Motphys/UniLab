@@ -381,42 +381,6 @@ artifact schema `0.2.0`，且 UniLab、unilab-rl、UniSim commit 早于当前
 schema-v1 consumer enforcement。需要当前 head 证据时，请用上面的命令在确切
 checkout 上重新执行。
 
-## Genesis Collector 归因 Benchmark
-
-#457 的 Genesis 优化 lane 使用冻结的 FlashSAC G1 motion-tracking owner，
-而不是 benchmark 的通用环境数默认值。`--cases production` 从 owner 选择
-2048 个环境，将两个 seed 固定为 457，只启用该 benchmark 的 opt-in Genesis
-归因诊断，并拒绝数字 `--num-envs` override。除非 UniSim 恰好协商出一种受支持
-的 `DEVICE_RESIDENT / DIRECT` runtime 配对——非 HIP Torch CUDA + `gs.cuda`，
-或 HIP/ROCm Torch + `gs.amdgpu`——否则它会 fail closed。两种配对使用相同的
-collector topology 与热路径。Metal、CPU、portable、不匹配及替代后端请求不会
-静默回退。
-
-```bash
-CUDA_VISIBLE_DEVICES=0 uv run --extra genesis \
-  scripts/benchmark/rl/benchmark_offpolicy_collector_active.py \
-  --cases production \
-  --warmup-steps 10 \
-  --measure-steps 100 \
-  --tail-steps 20 \
-  --replay-capacity-steps 64 \
-  --out-json /absolute/path/issue457-collector.json \
-  --out-csv /absolute/path/issue457-collector.csv
-```
-
-结果 envelope 使用 schema `unilab.offpolicy-collector-active/2`。只有
-`env_step_ms`、`replay_ms` 与 `bookkeeping_ms` 是可加的 active phase。
-construction、首步 setup、warmup 与 teardown 不计入 active throughput；
-tail 是 active window 的子集；backend 与 Manager 归因 child 是不可加诊断。
-JSON 记录 p50/p95、reset 计数、包/GPU/git provenance、Genesis 环境变量、
-协商出的 tensor profile（包括 `torch_runtime_family` 与 `genesis_backend`）以及
-`unisim-core` 发行版来源。把 JSON、CSV 与 console log 一起保存在外部不可变
-artifact storage；`scripts/benchmark/outputs/` 仍有意不入库。ROCm 结果需与
-#457 保存的
-[NVIDIA 对照](https://gist.github.com/TATP-233/27b3ce4d970628f44574eb77865475da)
-并列保留；只比较相同 owner profile，不从吞吐推断 vendor-specific 热路径或训练
-收敛质量。
-
 ## 可选 Phase-Local Probe
 
 `g1_flashsac_backend.py` 是诊断 probe，不是 canonical 端到端 benchmark。它

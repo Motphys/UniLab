@@ -69,9 +69,9 @@ def _cpu_time() -> float:
 
 # Backends whose ``step_tensor`` publishes an event-backed asynchronous step
 # receipt (a unisim ``CompletionToken`` carried in ``info["completion"]``).
-# Synchronous host-bridge producers publish no receipt, so consumers must
-# accept a missing receipt without waiting.
-_EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"mjwarp", "genesis"})
+# Event-backed Genesis and MJWarp CUDA paths publish a receipt per step;
+# synchronous host-bridge producers publish none.
+_EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"genesis", "mjwarp"})
 
 
 class TorchEnv(ABEnv):
@@ -900,13 +900,6 @@ class TorchEnv(ABEnv):
         """
         payload: dict[str, Any] = {"backend_type": str(self._backend.backend_type)}
         try:
-            capabilities = self._backend.get_tensor_capabilities()
-            payload["tensor_profile"] = {
-                "execution": capabilities.execution.value,
-                "data_plane": capabilities.data_plane.value,
-                "process_topology": capabilities.process_topology.value,
-                "torch_devices": tuple(capabilities.torch_devices),
-            }
             diagnostics = self._backend.get_tensor_runtime_diagnostics()
         except Exception as exc:
             payload["available"] = False

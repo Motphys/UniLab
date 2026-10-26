@@ -7,9 +7,6 @@
 # leaves inherit this file and only override backend/algo tuning.
 env:
   seed: null
-  # Genesis collector benchmark attribution stays off by default; the frozen
-  # production benchmark enables this owner field before construction.
-  genesis_attribution_diagnostics: false
   scene:
     model_file: src/unilab/assets/robots/g1/scene_flat.xml
     default_keyframe_name: stand
