@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any, Literal, Sequence
 
 import torch
 from unisim.backend.base import torch_device_matches
-from unisim.ray_query import RayPoseTensorView, RayTraceFilter, RayTraceOutputs
+from unisim.ray_query import (
+    RayGeometryTensorView,
+    RayPoseTensorView,
+    RayTraceFilter,
+    RayTraceOutputs,
+)
 
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 
@@ -224,15 +229,17 @@ class RayPatternCfg:
     """
 
     entity_name: str
-    attachment_body_name: str
     pattern: RayPattern
     max_distance: float
+    attachment_body_name: str | None = None
+    attachment_site_name: str | None = None
     alignment: RayAlignment = "body"
     caster: str = "uni_ray"
     sensor_offset: Sequence[float] = (0.0, 0.0, 0.0)
     min_distance: float = 0.0
     include_normal: bool = False
     include_hit_point: bool = False
+    sync_geometry: bool = False
     allowed_geom_names: Sequence[str] | None = None
     allowed_tags: Sequence[str] | None = None
     excluded_body_names: Sequence[str] | None = None
@@ -266,8 +273,18 @@ class RayPatternCfg:
             raise ValueError(
                 "RayPatternCfg min_distance must satisfy 0 <= min_distance < max_distance"
             )
-        if not isinstance(self.attachment_body_name, str) or not self.attachment_body_name:
-            raise TypeError("RayPatternCfg attachment_body_name must be a non-empty string")
+        if (self.attachment_body_name is None) == (self.attachment_site_name is None):
+            raise ValueError(
+                "RayPatternCfg requires exactly one of attachment_body_name or attachment_site_name"
+            )
+        for attachment_value in (
+            self.attachment_body_name,
+            self.attachment_site_name,
+        ):
+            if attachment_value is not None and (
+                not isinstance(attachment_value, str) or not attachment_value
+            ):
+                raise TypeError("RayPatternCfg attachment names must be non-empty strings")
         if isinstance(self.sensor_offset, (str, bytes)) or not isinstance(
             self.sensor_offset, Sequence
         ):
@@ -281,6 +298,8 @@ class RayPatternCfg:
             raise TypeError("RayPatternCfg include_normal must be a boolean")
         if not isinstance(self.include_hit_point, bool):
             raise TypeError("RayPatternCfg include_hit_point must be a boolean")
+        if not isinstance(self.sync_geometry, bool):
+            raise TypeError("RayPatternCfg sync_geometry must be a boolean")
         if not isinstance(self.caster, str) or not self.caster:
             raise TypeError("RayPatternCfg caster must be a non-empty factory name")
         if not isinstance(self.caster_options, dict):
@@ -338,6 +357,9 @@ class RayScan(ManagerTermBase):
         self._ray_filter: RayTraceFilter | None = None
         self._outputs = RayTraceOutputs()
         self._attachment_body_index: int | None = None
+        self._attachment_body_name: str | None = None
+        self._attachment_site_local_pos: torch.Tensor | None = None
+        self._attachment_site_local_quat: torch.Tensor | None = None
         self._local_origins: torch.Tensor | None = None
         self._local_directions: torch.Tensor | None = None
         self._ray_origins: torch.Tensor | None = None
@@ -357,12 +379,26 @@ class RayScan(ManagerTermBase):
         try:
             collision = self._env.backend.get_ray_collision_description()
             scene = collision.scene
-            attachment_name = self.ray_pattern.attachment_body_name
-            if attachment_name not in scene.body_names:
-                raise KeyError(
-                    f"ray pattern attachment body {attachment_name!r} is not in {scene.body_names}"
+            attachment_body_name = self.ray_pattern.attachment_body_name
+            if self.ray_pattern.attachment_site_name is not None:
+                (site_frame,) = self._env.backend.get_ray_site_frames(
+                    (self.ray_pattern.attachment_site_name,)
                 )
-            self._attachment_body_index = tuple(scene.body_names).index(attachment_name)
+                attachment_body_name = site_frame.body_name
+                self._attachment_site_local_pos = torch.tensor(
+                    site_frame.pos, dtype=torch.float32, device=self._device
+                )
+                self._attachment_site_local_quat = torch.tensor(
+                    site_frame.quat, dtype=torch.float32, device=self._device
+                )
+            assert attachment_body_name is not None
+            self._attachment_body_name = attachment_body_name
+            if attachment_body_name not in scene.body_names:
+                raise KeyError(
+                    f"ray pattern attachment body {attachment_body_name!r} is not in "
+                    f"{scene.body_names}"
+                )
+            self._attachment_body_index = tuple(scene.body_names).index(attachment_body_name)
             self._pose_sources = self._resolve_pose_sources(collision)
             self._validate_pose_coverage(collision)
             self._pose_body_names = tuple(scene.body_names)
@@ -405,6 +441,14 @@ class RayScan(ManagerTermBase):
                     raise NotImplementedError(
                         f"RayScan caster '{self.ray_pattern.caster}' does not support "
                         "tensor hit points"
+                    )
+                if self.ray_pattern.sync_geometry and not (
+                    capabilities.supports_geometry_sync
+                    and capabilities.supports_tensor_geometry_sync
+                ):
+                    raise NotImplementedError(
+                        f"RayScan caster '{self.ray_pattern.caster}' does not support "
+                        "tensor geometry sync"
                     )
                 caster.materialize(scene)
                 caster.bind_pose_layout(tuple(scene.body_names))
@@ -470,6 +514,8 @@ class RayScan(ManagerTermBase):
             device=self._device,
         )
         self._pose_quat[..., 0] = 1.0
+        if self.ray_pattern.sync_geometry:
+            self._sync_geometry()
         self._bound = True
 
     def __call__(
@@ -526,6 +572,14 @@ class RayScan(ManagerTermBase):
         index = self._attachment_body_index
         position = pose.pos_w[:, index, :].unsqueeze(1)
         quaternion = pose.quat_w[:, index, :]
+        if self._attachment_site_local_pos is not None:
+            assert self._attachment_site_local_quat is not None
+            quaternion = _quat_multiply_wxyz(
+                quaternion, self._attachment_site_local_quat.expand_as(quaternion)
+            )
+            position = position + _quat_rotate_wxyz(
+                pose.quat_w[:, index, :], self._attachment_site_local_pos.expand(1, 3)
+            )[:, 0, :].unsqueeze(1)
         rotation = _attachment_rotation_wxyz(quaternion, self.ray_pattern.alignment)
         self._ray_origins.copy_(
             position + torch.einsum("bij,rj->bri", rotation, self._local_origins)
@@ -574,7 +628,8 @@ class RayScan(ManagerTermBase):
 
         scene = collision.scene
         source = self._pose_sources.get(self._entity_name)
-        attachment_name = self.ray_pattern.attachment_body_name
+        attachment_name = self._attachment_body_name
+        assert attachment_name is not None
         if source is None or attachment_name not in source[0]:
             raise KeyError(
                 f"ray pattern attachment body {attachment_name!r} is not owned by "
@@ -663,6 +718,30 @@ class RayScan(ManagerTermBase):
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
         """Retain caster state; observations refresh from the next read phase."""
         del env_ids
+        if self._bound and self.ray_pattern.sync_geometry:
+            self._sync_geometry()
+
+    def _sync_geometry(self) -> None:
+        """Publish backend-owned per-row geometry to the caster on reset paths."""
+
+        if self._caster is None:
+            return
+        state = self._env.backend.get_ray_geometry_state()
+        self._caster.update_geometry_tensor(
+            RayGeometryTensorView(
+                geom_sizes=torch.tensor(state.geom_sizes, dtype=torch.float32, device=self._device),
+                geom_local_pos=torch.tensor(
+                    state.geom_local_pos, dtype=torch.float32, device=self._device
+                ),
+                geom_local_quat=torch.tensor(
+                    state.geom_local_quat, dtype=torch.float32, device=self._device
+                ),
+                geom_enabled=torch.tensor(state.geom_enabled, device=self._device),
+                geom_mesh_ids=torch.tensor(
+                    state.geom_mesh_ids, dtype=torch.int32, device=self._device
+                ),
+            )
+        )
 
 
 __all__ = [
@@ -707,6 +786,22 @@ def _attachment_rotation_wxyz(quaternion: torch.Tensor, alignment: RayAlignment)
     )
     left = torch.stack((-forward[:, 1], forward[:, 0], torch.zeros_like(forward[:, 0])), dim=1)
     return torch.stack((forward, left, up), dim=2)
+
+
+def _quat_multiply_wxyz(first: torch.Tensor, second: torch.Tensor) -> torch.Tensor:
+    """Compose batched ``wxyz`` quaternions with matching leading dimensions."""
+
+    w1, x1, y1, z1 = first.unbind(dim=-1)
+    w2, x2, y2, z2 = second.unbind(dim=-1)
+    return torch.stack(
+        (
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ),
+        dim=-1,
+    )
 
 
 def _quat_rotate_wxyz(quaternion: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:

@@ -1593,7 +1593,8 @@ def test_mujoco_tensor_ray_observation_uses_public_rich_query_contract(
         model.write_text(
             "<mujoco><worldbody><geom name='ground' type='plane' size='0 0 0.1'/>"
             "<body name='base' pos='0 0 1'><joint name='joint' axis='0 1 0'/>"
-            "<geom name='robot_sphere' type='sphere' size='0.1'/></body>"
+            "<geom name='robot_sphere' type='sphere' size='0.1'/>"
+            "<site name='sensor' pos='0 0 0.2'/></body>"
             "</worldbody><actuator><motor name='motor' joint='joint' "
             "ctrlrange='-1 1'/></actuator></mujoco>"
         )
@@ -1648,6 +1649,7 @@ def test_mujoco_tensor_ray_observation_uses_public_rich_query_contract(
             "max_distance": 3.0,
             "sensor_offset": (0.0, 0.0, 0.2),
             "include_normal": True,
+            "sync_geometry": True,
         }
         values.update(kwargs)
         return mdp.RayPatternCfg(**values)
@@ -1662,7 +1664,20 @@ def test_mujoco_tensor_ray_observation_uses_public_rich_query_contract(
         torch.testing.assert_close(near[..., 1:4], expected_normal, atol=2e-5, rtol=0.0)
         torch.testing.assert_close(valid[..., 0], torch.full((2, 2), 1.2), atol=2e-5, rtol=0.0)
         torch.testing.assert_close(valid[..., 1:4], expected_normal, atol=2e-5, rtol=0.0)
+
+        site_env, site_backend = build(
+            ray_pattern(
+                attachment_body_name=None,
+                attachment_site_name="sensor",
+                sensor_offset=(0.0, 0.0, 0.0),
+                sync_geometry=False,
+            )
+        )
+        site = site_env.init_state().obs["obs"].reshape(2, -1, 4)
+        torch.testing.assert_close(site[..., 0], torch.full((2, 2), 0.1), atol=2e-5, rtol=0.0)
     finally:
+        site_env.close()
+        site_backend.close()
         near_env.close()
         valid_env.close()
         near_backend.close()

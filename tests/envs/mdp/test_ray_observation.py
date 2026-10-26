@@ -12,7 +12,13 @@ import numpy as np
 import pytest
 import torch
 from unisim.errors import UnsupportedCapabilityError
-from unisim.ray_query import RayCollisionDescription, RaySceneDescription, RayTraceOutputs
+from unisim.ray_query import (
+    RayCollisionDescription,
+    RayGeometryState,
+    RaySceneDescription,
+    RaySiteFrameDescription,
+    RayTraceOutputs,
+)
 
 from unilab.envs.mdp.ray_observation import (
     RayCameraPatternCfg,
@@ -46,6 +52,8 @@ class _Capabilities:
     supports_static_filter: bool = True
     supports_tensor_normal: bool = True
     supports_hit_point: bool = True
+    supports_geometry_sync: bool = True
+    supports_tensor_geometry_sync: bool = True
 
 
 class _FakeCaster:
@@ -59,6 +67,7 @@ class _FakeCaster:
         self.layout: tuple[str, ...] | None = None
         self.poses: list[Any] = []
         self.traces = 0
+        self.geometry_updates: list[Any] = []
         self.last_query: tuple[float, object, RayTraceOutputs] | None = None
         self.closed = 0
 
@@ -82,6 +91,9 @@ class _FakeCaster:
 
     def update_pose_tensor(self, pose: Any) -> None:
         self.poses.append(pose)
+
+    def update_geometry_tensor(self, geometry: Any) -> None:
+        self.geometry_updates.append(geometry)
 
     def trace_tensor(
         self,
@@ -175,6 +187,32 @@ class _Backend:
     def get_body_ids(self, body_names) -> np.ndarray:
         names = tuple(self.scene.body_names)
         return np.asarray([names.index(name) for name in body_names], dtype=np.int64)
+
+    def get_ray_site_frames(self, site_names) -> tuple[RaySiteFrameDescription, ...]:
+        names = tuple(site_names)
+        if names != ("foot",):
+            raise KeyError(names)
+        return (
+            RaySiteFrameDescription(
+                site_name="foot",
+                body_name="base",
+                pos=np.array([0.1, 0.2, 0.3]),
+                quat=np.array([1.0, 0.0, 0.0, 0.0]),
+            ),
+        )
+
+    def get_ray_geometry_state(self) -> RayGeometryState:
+        return RayGeometryState(
+            num_envs=2,
+            geom_names=("ground", "ball"),
+            geom_sizes=np.broadcast_to(
+                np.array([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]]), (2, 2, 3)
+            ).copy(),
+            geom_local_pos=np.zeros((2, 2, 3)),
+            geom_local_quat=np.broadcast_to(np.array([1.0, 0.0, 0.0, 0.0]), (2, 2, 4)).copy(),
+            geom_enabled=np.ones((2, 2), dtype=np.bool_),
+            geom_mesh_ids=np.full((2, 2), -1, dtype=np.int32),
+        )
 
 
 class _Env:
@@ -462,6 +500,11 @@ def test_ray_scan_fails_closed_on_unsupported_filter_and_normal(monkeypatch) -> 
     with pytest.raises(NotImplementedError, match="tensor hit points"):
         term.bind_read_phase()
 
+    caster, term = bind(sync_geometry=True)
+    caster.get_ray_capabilities = lambda: _Capabilities(supports_tensor_geometry_sync=False)
+    with pytest.raises(NotImplementedError, match="tensor geometry sync"):
+        term.bind_read_phase()
+
 
 def test_ray_scan_maps_ancestor_exclusion_from_public_names(monkeypatch) -> None:
     caster, term = _bind(monkeypatch, excluded_ancestor_body_names=("world",))
@@ -664,6 +707,50 @@ def test_world_alignment_ignores_attachment_rotation(monkeypatch) -> None:
     torch.testing.assert_close(
         directions, torch.tensor([[[1.0, 0.0, 0.0]]] * 2, dtype=torch.float32)
     )
+    term.close()
+
+
+def test_site_attachment_composes_public_site_frame(monkeypatch) -> None:
+    pose_pos = torch.tensor([[[0.4, 0.2, 0.1]]] * 2, dtype=torch.float32)
+    pose_quat = torch.zeros((2, 1, 4), dtype=torch.float32)
+    pose_quat[..., 0] = 0.5**0.5
+    pose_quat[..., 3] = 0.5**0.5
+    caster, term = _bind(
+        monkeypatch,
+        pose_pos=pose_pos,
+        pose_quat=pose_quat,
+        pattern=RayPatternCfg(
+            entity_name="robot",
+            attachment_site_name="foot",
+            pattern=RayRingPatternCfg(num_rays=1, start=0.0, stop=0.0),
+            max_distance=2.0,
+            sensor_offset=(0.03, 0.0, 0.0),
+        ),
+    )
+
+    term(term._env)
+    origins, directions, _ = caster.last_inputs
+    expected_origin = torch.tensor(
+        [[[0.2, 0.33, 0.4]]] * 2,
+        dtype=torch.float32,
+    )
+    expected_direction = torch.tensor([[[0.0, 1.0, 0.0]]] * 2, dtype=torch.float32)
+    torch.testing.assert_close(origins, expected_origin)
+    torch.testing.assert_close(directions, expected_direction)
+    term.close()
+
+
+def test_ray_scan_syncs_backend_geometry_on_bind_and_reset(monkeypatch) -> None:
+    caster, term = _bind(monkeypatch, sync_geometry=True)
+
+    assert len(caster.geometry_updates) == 1
+    geometry = caster.geometry_updates[0]
+    assert geometry.geom_sizes.shape == (2, 2, 3)
+    assert geometry.geom_enabled.shape == (2, 2)
+    assert geometry.geom_mesh_ids.dtype == torch.int32
+
+    term.reset()
+    assert len(caster.geometry_updates) == 2
     term.close()
 
 

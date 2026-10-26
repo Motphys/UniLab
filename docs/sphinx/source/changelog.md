@@ -22,9 +22,10 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   a backend-specific `uni_ray` builder, and entity-local packed pose reads are
   aggregated onto the public full-scene body axis. `RayPatternCfg` supports
   ring, parallel-grid, and pinhole-camera ray patterns; body, yaw-only, and
-  world alignment; a local sensor offset; `min_distance`; public
-  geom/tag/body/ancestor filters; and optional normal and hit-point outputs in
-  addition to distance. The branch-local `ray-local`
+  world alignment; body or public-site attachment with a local sensor offset;
+  `min_distance`; public geom/tag/body/ancestor filters; optional normal and
+  hit-point outputs in addition to distance; and reset-boundary per-row geometry
+  synchronization. The branch-local `ray-local`
   dependency profile resolves sibling `unisim-core` and `uni-ray` through
   relative editable paths in both CUDA and ROCm lockfiles; no PyPI publication
   is involved
@@ -33,8 +34,9 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `RayCollisionDescription`，mesh/hfield materialization 不再要求 backend-specific
   `uni_ray` builder，并将 entity-local packed pose read 聚合到公开 full-scene body
   轴。`RayPatternCfg` 支持 ring、平行 grid 与 pinhole-camera ray pattern，
-  body/yaw-only/world alignment、本地 sensor offset、`min_distance`、公开
-  geom/tag/body/ancestor filter，以及可选 normal 与 hit-point 输出。branch-local
+  body/yaw-only/world alignment、body/public-site attachment 与本地 sensor
+  offset、`min_distance`、公开 geom/tag/body/ancestor filter、可选 normal 与
+  hit-point 输出，以及 reset 边界的逐行 geometry 同步。branch-local
   `ray-local` 依赖 profile 在 CUDA 与 ROCm lockfile 中均通过相对 editable path
   解析 sibling `unisim-core` 与 `uni-ray`；不涉及 PyPI 发布
   （[UniSim #472](https://github.com/unilabsim/unisim/issues/472)）。
@@ -42,26 +44,24 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   image projection, noise, history, and scheduling remain application logic.
   Full-scene pose aggregation covers entity-owned bodies plus the identity
   world root; uncovered non-root bodies fail closed. MuJoCo and MJWarp
-  fixed-variant collision scenes and Motrix source mesh/hfield scenes follow
-  the UniSim fail-closed boundaries; per-row geometry variants and site frames
-  require the upstream capability tracked by
-  [UniSim #479](https://github.com/unilabsim/unisim/issues/479).
+  fixed-variant collision descriptors now publish per-row geometry through the
+  capability added by [UniSim #479](https://github.com/unilabsim/unisim/issues/479);
+  Motrix source mesh/hfield scenes follow the UniSim fail-closed boundary.
   The real end-to-end fixture covers
   primitive geometry, static filtering, minimum distance, attachment
-  transformation, and normals; focused fake-caster tests cover grid and pinhole
-  ray geometry, yaw/world alignment, and hit-point packing; mesh/hfield
+  transformation, site attachment, and normals; focused fake-caster tests cover
+  grid and pinhole ray geometry, yaw/world alignment, hit-point packing, and
+  geometry synchronization; mesh/hfield
   numerical parity is owned by the UniSim and `uni_ray` contract suites.
   首个 facade 是最小 grouped ray sensor，不是 camera：intrinsics、图像投影、
   noise、history 与 scheduling 仍属于应用逻辑。full-scene pose 聚合覆盖
   entity-owned body 与 identity world root；未覆盖的非 root body fail closed。
   MuJoCo 与 MJWarp fixed-variant collision scene 以及 Motrix source
-  mesh/hfield scene 遵循 UniSim fail-closed 边界；per-row geometry variant 与
-  site frame 需要 [UniSim #479](https://github.com/unilabsim/unisim/issues/479)
-  跟踪的上游能力。真实端到端 fixture 覆盖
+  mesh/hfield scene 遵循 UniSim fail-closed 边界；fixed-variant collision
+  descriptor 通过 [UniSim #479](https://github.com/unilabsim/unisim/issues/479)
+  新增的能力发布逐行 geometry。真实端到端 fixture 覆盖
   primitive geometry、static filtering、minimum distance、attachment
-  transformation 与 normal；grid/pinhole ray 几何、yaw/world alignment 与
-  hit-point packing 由 focused fake-caster test 覆盖；mesh/hfield 数值 parity 由 UniSim 与 `uni_ray`
-  contract suite 负责。
+  transformation、site attachment 与 normal；grid/pinhole ray 几何、yaw/world alignment、hit-point packing 与 geometry synchronization 由 focused fake-caster test 覆盖；mesh/hfield 数值 parity 由 UniSim 与 `uni_ray` contract suite 负责。
 
 ## 1.5.1 (2026-10-23)
 
