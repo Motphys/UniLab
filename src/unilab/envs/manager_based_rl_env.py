@@ -1151,15 +1151,7 @@ class ManagerBasedRlEnv(TorchEnv):
                 "declare a post-substep hook."
             )
 
-        if self._cfg.sim_substeps > 1 and self.action_manager.requires_substep_state_feedback:
-            raise NotImplementedError(
-                "ManagerBasedRlEnv Torch lifecycle P1 does not support state-feedback "
-                "actions on every physics substep"
-            )
-
     def _configure_action_control(self) -> None:
-        # Tensor Manager stepping consumes one control tensor per control step in
-        # P1; multi-substep state feedback fails closed during validation.
         return
 
     def _control_to_backend_boundary(self) -> torch.Tensor:
@@ -1222,6 +1214,19 @@ class ManagerBasedRlEnv(TorchEnv):
         self.recorder_manager.record_post_step()
         return state
 
+    @property
+    def requires_substep_state_feedback(self) -> bool:
+        return self.action_manager.requires_substep_state_feedback
+
+    def apply_substep_action(self) -> torch.Tensor:
+        self.scene._invalidate_state_reads()
+        read_plan = self.scene.read_plan
+        if read_plan is not None and self.action_manager.uses_tensor_state_packet:
+            read_plan.refresh()
+        self._sim_step_counter += 1
+        self.action_manager.apply_action()
+        return self._control_to_backend_boundary()
+
     def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
         del state
         read_plan = self.scene.read_plan
@@ -1232,7 +1237,9 @@ class ManagerBasedRlEnv(TorchEnv):
             # state once after physics.
             read_plan.refresh()
         self.action_manager.process_public_action(actions)
-        self._sim_step_counter += self._cfg.sim_substeps
+        self._sim_step_counter += (
+            1 if self.requires_substep_state_feedback else self._cfg.sim_substeps
+        )
         self.action_manager.apply_action()
         return self._control_to_backend_boundary()
 
