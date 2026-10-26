@@ -154,6 +154,24 @@ def _close_scene_entries(entries: list[dict[str, Any]]) -> None:
         entry["scene"].close()
 
 
+def _advance_session(
+    session: PlaybackSession,
+    controls: PlaybackControls,
+    *,
+    pause_on_done: bool,
+    completed: bool,
+) -> bool:
+    if completed:
+        return True
+    advanced = session.advance(controls)
+    if not pause_on_done:
+        return False
+    if not advanced:
+        return False
+    state = session.env.state
+    return bool((state.terminated | state.truncated).any().item())
+
+
 def run_viser_playback(
     session: PlaybackSession,
     *,
@@ -164,6 +182,7 @@ def run_viser_playback(
     render_spacing: float = 1.0,
     start_paused: bool = False,
     speed: float = 1.0,
+    pause_on_done: bool = False,
     entrypoint: str = "viser playback",
     log: Callable[[str], None] = print,
 ) -> None:
@@ -294,11 +313,20 @@ def run_viser_playback(
     # --- Main loop -----------------------------------------------------------
     try:
         with torch.inference_mode():
+            completed = False
             while True:
                 t0 = time.perf_counter()
 
                 controls.set_speed(float(speed_slider.value))
-                session.advance(controls)
+                was_completed = completed
+                completed = _advance_session(
+                    session,
+                    controls,
+                    pause_on_done=pause_on_done,
+                    completed=completed,
+                )
+                if completed and not was_completed:
+                    log("Playback completed; holding the final physics state.")
 
                 physics_batch = session.physics_state()
                 for entry in scene_entries["value"]:
@@ -356,6 +384,7 @@ def run_viser_playback_from_cfg(
         render_spacing=render_spacing,
         start_paused=start_paused,
         speed=speed,
+        pause_on_done=bool(OmegaConf.select(cfg, "viser.pause_on_done", default=False)),
         entrypoint=entrypoint,
         log=log,
     )

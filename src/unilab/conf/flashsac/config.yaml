@@ -176,6 +176,7 @@ viser:
   env_idx: 0
   display_mode: all
   max_envs: 16
+  pause_on_done: false
 
 hydra:
   run:
