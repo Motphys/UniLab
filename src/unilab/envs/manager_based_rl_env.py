@@ -398,7 +398,10 @@ class ManagerBasedRlEnv(TorchEnv):
         self._reset_mask_buffer = ResetMaskBuffer(num_envs, self.device)
         self.event_term_mask_buffer = ResetMaskBuffer(num_envs, self.device)
         self._has_transition = False
-
+        # Cold-path binds happen while managers construct. Declare the Manager
+        # carrier's device now so reset-capability negotiation checks the same
+        # plane that the packed reset transaction will use after materialize.
+        self._reset_state.declare_packed_reset_device(self.device)
         self._load_managers()
         self._mapped_obs_dims = self._validate_observation_mapping()
         self._validate_substep_capabilities()

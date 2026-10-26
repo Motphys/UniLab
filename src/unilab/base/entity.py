@@ -41,6 +41,7 @@ from unisim.dr.types import (
     RESET_TERM_GEOM_FRICTION,
     RESET_TERM_KD,
     RESET_TERM_KP,
+    DataPlaneName,
     IntervalRandomizationPlan,
     IntervalTermOp,
 )
@@ -1436,6 +1437,7 @@ class Entity:
         self.root_body_name = cfg.root_body_name
         self._backend_type = backend.backend_type
         self._backend = backend
+        self._interval_operand_device_value: torch.device | None = None
         self._body_tensor_layouts: dict[tuple[str, ...], np.ndarray] = {}
         self._reset_state = reset_state
         self._reset_root_layout: RootStateLayout | None = None
@@ -3453,7 +3455,9 @@ class Entity:
             if angular
             else INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA
         )
-        supported = capabilities.supports_interval_term(term)
+        supported = capabilities.supports_interval_term(
+            term, plane=self._interval_capability_plane()
+        )
         if not supported:
             raise self._capability_error(
                 "interval root velocity delta",
@@ -3593,18 +3597,38 @@ class Entity:
             capabilities = self._backend.get_dr_capabilities()
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error("interval body wrench", str(exc)) from exc
-        if not capabilities.supports_interval_term(INTERVAL_TERM_BODY_FORCE):
+        plane = self._interval_capability_plane()
+        if not capabilities.supports_interval_term(INTERVAL_TERM_BODY_FORCE, plane=plane):
             raise self._capability_error(
                 "interval body wrench",
                 f"EventManager term '{term_name}' requested an unsupported backend capability",
             )
-        if torque and not capabilities.supports_interval_term(INTERVAL_TERM_BODY_TORQUE):
+        if torque and not capabilities.supports_interval_term(
+            INTERVAL_TERM_BODY_TORQUE, plane=plane
+        ):
             raise self._capability_error(
                 "interval body wrench",
                 f"EventManager term '{term_name}' requested an unsupported backend "
                 "capability: interval body torque",
             )
-        return torch.as_tensor(local_ids), self._body_ids[local_ids]
+        return torch.as_tensor(local_ids, device=self._interval_operand_device()), self._body_ids[
+            local_ids
+        ]
+
+    def _interval_operand_device(self) -> torch.device:
+        """Return the backend-bound device for direct interval operands."""
+
+        if self._interval_operand_device_value is not None:
+            return self._interval_operand_device_value
+        views = self._backend.get_state_views(("qpos",), device=None)
+        device = views["qpos"].device
+        self._interval_operand_device_value = device
+        return device
+
+    def _interval_capability_plane(self) -> DataPlaneName:
+        """Return the capability plane used by this entity's interval payloads."""
+
+        return "device" if self._interval_operand_device().type != "cpu" else "host"
 
     def apply_body_wrench_to_sim(
         self,
@@ -3637,7 +3661,12 @@ class Entity:
             term_name=term_name,
         )
         ops = []
-        torch_body_ids = torch.tensor(np.asarray(body_ids), dtype=torch.int64)
+        device = self._interval_operand_device()
+        torch_body_ids = torch.tensor(np.asarray(body_ids), dtype=torch.int64, device=device)
+        if force_values is not None:
+            force_values = force_values.to(device=device, dtype=torch.float32)
+        if torque_values is not None:
+            torque_values = torque_values.to(device=device, dtype=torch.float32)
         if force_values is not None:
             ops.append(
                 IntervalTermOp(INTERVAL_TERM_BODY_FORCE, force_values, body_ids=torch_body_ids)

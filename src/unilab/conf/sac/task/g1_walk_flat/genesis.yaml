@@ -8,10 +8,9 @@
 # sim_dt -> ctrl_dt chain, and the integrator through the EnvCfg genesis
 # fields below. Solver/constraint-cone/iterations stay at Genesis defaults:
 # the MJCF option block does not declare them and MuJoCo's implicit defaults
-# (PGS solver, pyramidal cone) have no Genesis equivalent. Unlike the
-# shelved Isaac owner (events.pd_gains: null), the public Genesis tensor selected
-# reset does not support randomization, so unsupported host reset terms are
-# explicitly disabled rather than falling back. Playback uses Genesis native
+# (PGS solver, pyramidal cone) have no Genesis equivalent. The device-plane
+# packed reset lane declares kp/kd, so PD-gain randomization follows the shared
+# owner baseline. Playback uses Genesis native
 # rendering: with a display, play_render_mode=auto opens the interactive
 # viewer; headless hosts fall back to offscreen camera recording.
 defaults:
@@ -76,8 +75,6 @@ env:
       func: unilab.envs.mdp.skip_scene_reset
     reset_root_state_uniform:
       func: unilab.envs.mdp.reset_root_state_uniform_fused
-    # Genesis' public tensor mask reset does not support randomization.
-    pd_gains: null
   terminations:
     tilt: null
     base_height: null
