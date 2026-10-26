@@ -658,18 +658,25 @@ def _backend_tensor_profile(env: Any, *, require_attribution: bool = False) -> d
     ):
         raise RuntimeError(
             "Genesis production collector benchmark requires the UniSim adapter's "
-            "exact-CUDA DEVICE_RESIDENT/DIRECT profile; negotiated "
+            "exact-CUDA or exact-AMDGPU DEVICE_RESIDENT/DIRECT profile; negotiated "
             f"{profile.get('execution')}/{profile.get('data_plane')}. "
-            "Genesis 1.3.3 natively supports metal, "
-            "amdgpu, and cuda engines, but this benchmark must not silently use "
-            "portable Genesis, CPU, or another backend."
+            "This benchmark must not silently use portable Genesis, CPU, Metal, "
+            "or another backend."
         )
     exact_cuda = diagnostics.get("exact_cuda_profile", {})
-    if profile["backend_type"] == "genesis" and not bool(exact_cuda.get("enabled", False)):
-        raise RuntimeError(
-            "Genesis production collector benchmark did not activate exact-CUDA zero-copy; "
-            f"diagnostic: {exact_cuda.get('disable_reason') or 'missing diagnostic'}"
-        )
+    exact_amdgpu = diagnostics.get("exact_amdgpu_profile", {})
+    cuda_enabled = bool(exact_cuda.get("enabled", False))
+    amdgpu_enabled = bool(exact_amdgpu.get("enabled", False))
+    if profile["backend_type"] == "genesis":
+        if cuda_enabled == amdgpu_enabled:
+            raise RuntimeError(
+                "Genesis production collector benchmark requires exactly one active "
+                "exact-CUDA or exact-AMDGPU zero-copy profile; "
+                f"cuda_diagnostic={exact_cuda.get('disable_reason')}, "
+                f"amdgpu_diagnostic={exact_amdgpu.get('disable_reason')}"
+            )
+        profile["torch_runtime_family"] = "rocm" if amdgpu_enabled else "cuda"
+        profile["genesis_backend"] = "amdgpu" if amdgpu_enabled else "cuda"
     if require_attribution and not bool(
         diagnostics.get("attribution_diagnostics", {}).get("enabled", False)
     ):
@@ -1405,6 +1412,28 @@ def _distribution_source(name: str) -> dict[str, Any]:
         return {"installed": True, "direct_url": {"invalid_json": raw}}
 
 
+def _gpu_driver_version(gpu_uuid: str) -> str:
+    if torch.version.hip is not None:
+        output = _run_text_command(["rocm-smi", "--showdriverversion"])
+        prefix = "Driver version:"
+        return next(
+            (
+                line.removeprefix(prefix).strip()
+                for line in output.splitlines()
+                if line.strip().startswith(prefix)
+            ),
+            "",
+        )
+    return _run_text_command(
+        [
+            "nvidia-smi",
+            f"--id={gpu_uuid}",
+            "--query-gpu=driver_version",
+            "--format=csv,noheader",
+        ]
+    ).strip()
+
+
 def _runtime_fixation() -> dict[str, Any]:
     unisim_repository = ROOT_DIR.parent / "unisim"
     fixation: dict[str, Any] = {
@@ -1421,6 +1450,7 @@ def _runtime_fixation() -> dict[str, Any]:
         },
         "unisim_source": _distribution_source("unisim-core"),
         "torch_cuda": torch.version.cuda,
+        "torch_hip": torch.version.hip,
         "torch_cudnn": torch.backends.cudnn.version()
         if torch.backends.cudnn.is_available()
         else None,
@@ -1449,16 +1479,9 @@ def _runtime_fixation() -> dict[str, Any]:
         if uuid is None:
             raise RuntimeError("CUDA benchmarking requires a public GPU UUID receipt")
         gpu_uuid = f"GPU-{uuid}"
-        driver_version = _run_text_command(
-            [
-                "nvidia-smi",
-                f"--id={gpu_uuid}",
-                "--query-gpu=driver_version",
-                "--format=csv,noheader",
-            ]
-        )
+        driver_version = _gpu_driver_version(gpu_uuid)
         if not driver_version:
-            raise RuntimeError("CUDA benchmarking requires a GPU driver-version receipt")
+            raise RuntimeError("GPU benchmarking requires a GPU driver-version receipt")
         fixation.update(
             {
                 "gpu_name": torch.cuda.get_device_name(index),

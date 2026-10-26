@@ -146,7 +146,79 @@ def test_genesis_benchmark_fails_closed_on_non_exact_tensor_profile() -> None:
                 },
             }
 
-    with pytest.raises(RuntimeError, match="exact-CUDA DEVICE_RESIDENT/DIRECT"):
+    with pytest.raises(RuntimeError, match="exact-CUDA or exact-AMDGPU DEVICE_RESIDENT/DIRECT"):
+        bench._backend_tensor_profile(Env())
+
+
+@pytest.mark.parametrize(
+    ("runtime_profile", "runtime_family", "genesis_backend"),
+    [
+        ("exact_cuda_profile", "cuda", "cuda"),
+        ("exact_amdgpu_profile", "rocm", "amdgpu"),
+    ],
+)
+def test_genesis_benchmark_records_runtime_family_and_backend(
+    runtime_profile: str, runtime_family: str, genesis_backend: str
+) -> None:
+    class Env:
+        def get_backend_runtime_diagnostics(self):
+            return {
+                "backend_type": "genesis",
+                "tensor_profile": {
+                    "execution": "device_resident",
+                    "data_plane": "direct",
+                    "process_topology": "in_process",
+                    "torch_devices": ("cuda",),
+                },
+                "diagnostics": {
+                    "exact_cuda_profile": {
+                        "requested": True,
+                        "enabled": runtime_profile == "exact_cuda_profile",
+                        "disable_reason": None,
+                    },
+                    "exact_amdgpu_profile": {
+                        "requested": True,
+                        "enabled": runtime_profile == "exact_amdgpu_profile",
+                        "disable_reason": None,
+                    },
+                },
+            }
+
+    profile = bench._backend_tensor_profile(Env())
+
+    assert profile["torch_runtime_family"] == runtime_family
+    assert profile["genesis_backend"] == genesis_backend
+
+
+@pytest.mark.parametrize(("cuda_enabled", "amdgpu_enabled"), [(False, False), (True, True)])
+def test_genesis_benchmark_rejects_missing_or_ambiguous_runtime_profile(
+    cuda_enabled: bool, amdgpu_enabled: bool
+) -> None:
+    class Env:
+        def get_backend_runtime_diagnostics(self):
+            return {
+                "backend_type": "genesis",
+                "tensor_profile": {
+                    "execution": "device_resident",
+                    "data_plane": "direct",
+                    "process_topology": "in_process",
+                    "torch_devices": ("cuda",),
+                },
+                "diagnostics": {
+                    "exact_cuda_profile": {
+                        "requested": True,
+                        "enabled": cuda_enabled,
+                        "disable_reason": None,
+                    },
+                    "exact_amdgpu_profile": {
+                        "requested": True,
+                        "enabled": amdgpu_enabled,
+                        "disable_reason": None,
+                    },
+                },
+            }
+
+    with pytest.raises(RuntimeError, match="exactly one active"):
         bench._backend_tensor_profile(Env())
 
 
@@ -334,6 +406,38 @@ def test_package_versions_record_missing_dependencies_without_hiding_them(
     assert versions == {name: "not-installed" for name in bench.FIXATION_PACKAGE_NAMES} | {
         "torch": "2.14.0+cu130"
     }
+
+
+@pytest.mark.parametrize(
+    ("hip", "output", "expected_command", "expected_version"),
+    [
+        (None, "580.82.07\n", ["nvidia-smi", "--id=GPU-test"], "580.82.07"),
+        (
+            "7.2",
+            "ROCm System Management Interface\nDriver version: 6.19.14\n",
+            ["rocm-smi", "--showdriverversion"],
+            "6.19.14",
+        ),
+    ],
+)
+def test_gpu_driver_version_supports_cuda_and_rocm(
+    monkeypatch: pytest.MonkeyPatch,
+    hip: str | None,
+    output: str,
+    expected_command: list[str],
+    expected_version: str,
+) -> None:
+    commands: list[list[str]] = []
+
+    def run_command(command: list[str]) -> str:
+        commands.append(command)
+        return output
+
+    monkeypatch.setattr(bench.torch.version, "hip", hip, raising=False)
+    monkeypatch.setattr(bench, "_run_text_command", run_command)
+
+    assert bench._gpu_driver_version("GPU-test") == expected_version
+    assert commands[0][:2] == expected_command
 
 
 def test_runtime_fixation_is_serialized_with_results(monkeypatch: pytest.MonkeyPatch) -> None:

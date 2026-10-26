@@ -420,9 +420,10 @@ motion-tracking owner rather than the benchmark's generic environment default.
 `--cases production` selects 2,048 environments from the owner, fixes both
 seeds to 457, enables only this benchmark's opt-in Genesis attribution
 diagnostics, and rejects a numeric `--num-envs` override. It fails closed
-unless UniSim negotiates the exact-CUDA `DEVICE_RESIDENT / DIRECT` profile;
-native Genesis `gs.metal` and `gs.amdgpu` engine support is not treated as a
-silent CPU, portable, or substitute-backend fallback.
+unless UniSim negotiates exactly one supported `DEVICE_RESIDENT / DIRECT`
+runtime pairing: non-HIP Torch CUDA with `gs.cuda`, or HIP/ROCm Torch with
+`gs.amdgpu`. Both use the same collector topology and hot path. Metal, CPU,
+portable, mismatched, and substitute-backend requests are not silent fallbacks.
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 uv run --extra genesis \
@@ -442,10 +443,13 @@ phases. Construction, first-transition setup, warmup, and teardown are outside
 active throughput; the tail is a subset of the active window; backend and
 Manager attribution children are non-additive diagnostics. The JSON records
 p50/p95, reset counts, package/GPU/git provenance, Genesis environment
-variables, the negotiated tensor profile, and the `unisim-core` distribution
-origin. Keep the JSON, CSV, and console log together in external immutable
-artifact storage; `scripts/benchmark/outputs/` remains intentionally
-untracked. No throughput result implies training-convergence quality.
+variables, the negotiated tensor profile (including `torch_runtime_family` and
+`genesis_backend`), and the `unisim-core` distribution origin. Keep the JSON,
+CSV, and console log together in external immutable artifact storage;
+`scripts/benchmark/outputs/` remains intentionally untracked. Keep the #457
+[NVIDIA comparison](https://gist.github.com/TATP-233/27b3ce4d970628f44574eb77865475da)
+alongside ROCm results; compare like-for-like owner profiles and do not infer a
+vendor-specific hot path or training-convergence quality from throughput.
 
 ## Optional Phase-Local Probe
 

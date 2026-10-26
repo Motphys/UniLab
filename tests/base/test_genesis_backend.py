@@ -167,6 +167,9 @@ def fake_genesis(monkeypatch: pytest.MonkeyPatch):
     fake = make_fake_genesis()
     fake.backend = fake.gpu
     fake.cuda = fake.gpu
+    fake.amdgpu = fake.gpu
+    if torch.version.hip is not None:
+        fake.backend = fake.amdgpu
     fake.use_zerocopy = True
     original_add_entity = fake.Scene.add_entity
     device_getters = (
