@@ -33,6 +33,7 @@ from unisim.backend.genesis.materialization import preserve_torch_globals
 from unisim.dr.types import (
     INTERVAL_TERM_BODY_FORCE,
     INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA,
+    INTERVAL_TERM_BODY_TORQUE,
     INTERVAL_TERM_PUSH,
     IntervalRandomizationPlan,
     IntervalTermOp,
@@ -129,6 +130,18 @@ def fake_genesis(monkeypatch: pytest.MonkeyPatch):
 
         for name, original in factories.items():
             monkeypatch.setattr(torch, name, cuda_free_factory(original))
+
+        class FakeCudaEvent:
+            def record(self, stream: object) -> None:
+                del stream
+
+            def synchronize(self) -> None:
+                return None
+
+            def wait(self, stream: object) -> None:
+                del stream
+
+        monkeypatch.setattr(torch.cuda, "Event", lambda *args, **kwargs: FakeCudaEvent())
         monkeypatch.setattr(
             torch.cuda,
             "current_stream",
@@ -155,6 +168,9 @@ def fake_genesis(monkeypatch: pytest.MonkeyPatch):
     fake = make_fake_genesis()
     fake.backend = fake.gpu
     fake.cuda = fake.gpu
+    fake.amdgpu = fake.gpu
+    if torch.version.hip is not None:
+        fake.backend = fake.amdgpu
     fake.use_zerocopy = True
     original_add_entity = fake.Scene.add_entity
     device_getters = (
@@ -527,10 +543,18 @@ def test_dr_capabilities_and_tensor_reset_randomization_boundary(
 ) -> None:
     backend = _backend(tiny_model_file)
     caps = backend.get_dr_capabilities()
-    assert caps.supported_reset_terms == {"body_mass", "base_mass_delta", "kp", "kd"}
-    assert caps.supports_interval_term(INTERVAL_TERM_BODY_FORCE) is True
+    assert caps.supported_reset_terms == frozenset()
+    assert caps.supported_interval_terms == frozenset()
+    assert caps.supported_device_reset_terms == {"body_mass", "kp", "kd"}
+    assert caps.supported_device_interval_terms == {"body_force", "body_torque"}
+    assert caps.supports_interval_term(INTERVAL_TERM_BODY_FORCE, plane="device") is True
+    assert caps.supports_interval_term(INTERVAL_TERM_BODY_TORQUE, plane="device") is True
     assert caps.supports_interval_term(INTERVAL_TERM_PUSH) is False
+    assert caps.supports_interval_term(INTERVAL_TERM_PUSH, plane="device") is False
     assert caps.supports_interval_term(INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA) is False
+    assert caps.supports_interval_term(
+        INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA, plane="device"
+    ) is (False)
 
     rows = torch.tensor([1, 3], dtype=torch.int64, device="cuda")
     qpos, qvel = _stand_state(backend, 2)
@@ -566,47 +590,79 @@ def test_dr_capabilities_and_tensor_reset_randomization_boundary(
 def test_interval_randomization_and_body_force(fake_genesis, tiny_model_file: str) -> None:
     backend = _backend(tiny_model_file)
     solver = backend._scene.sim.rigid_solver
-    force = torch.ones((4, 2, 3), dtype=torch.float32)
+    device = backend._device
+    force = torch.ones((4, 2, 3), dtype=torch.float32, device=device)
+    torque = torch.full_like(force, 0.25)
     backend.apply_interval_randomization(
         IntervalRandomizationPlan(
             ops=(
                 IntervalTermOp(
                     INTERVAL_TERM_BODY_FORCE,
                     force,
-                    body_ids=torch.as_tensor([1, 3], dtype=torch.int32),
+                    body_ids=torch.as_tensor([1, 3], dtype=torch.int64, device=device),
+                ),
+                IntervalTermOp(
+                    INTERVAL_TERM_BODY_TORQUE,
+                    torque,
+                    body_ids=torch.as_tensor([1, 3], dtype=torch.int64, device=device),
                 ),
             )
         )
     )
-    assert len(solver.external_forces) == 2
-    np.testing.assert_allclose(solver.external_forces[0][0], np.ones((4, 3)))
-    assert solver.external_forces[0][1] == [1]
-    assert solver.external_forces[1][1] == [3]
+    # The single-entity lane submits one solver force call per selected body;
+    # torque rides the same API as a zero force plus the torque payload.
+    assert len(solver.external_forces) == 4
+    assert len(solver.external_torques) == 0
+    for offset, force_call in enumerate(solver.external_forces):
+        expected_magnitude = 1.0 if offset < 2 else 0.0
+        np.testing.assert_allclose(force_call[0], np.full((4, 3), expected_magnitude))
+        assert force_call[1] == [1 if offset % 2 == 0 else 3]
+        assert force_call[2] == [0, 1, 2, 3]
 
-    with pytest.raises(NotImplementedError, match="does not support interval term 'push'"):
+    with pytest.raises(
+        NotImplementedError,
+        match="genesis runtime interval randomization does not support host-plane term: body_force",
+    ):
         backend.apply_interval_randomization(
-            IntervalRandomizationPlan(ops=(IntervalTermOp(INTERVAL_TERM_PUSH, torch.ones((1, 3))),))
+            IntervalRandomizationPlan(
+                ops=(
+                    IntervalTermOp(
+                        INTERVAL_TERM_BODY_FORCE,
+                        torch.zeros((4, 1, 3), dtype=torch.float32),
+                        body_ids=torch.zeros((1,), dtype=torch.int64),
+                    ),
+                )
+            )
+        )
+
+    with pytest.raises(NotImplementedError, match="does not support device-plane term: push"):
+        backend.apply_interval_randomization(
+            IntervalRandomizationPlan(
+                ops=(IntervalTermOp(INTERVAL_TERM_PUSH, torch.ones((1, 3), device=device)),)
+            )
         )
     with pytest.raises(
-        NotImplementedError, match="does not support interval term 'body_linear_velocity_delta'"
+        NotImplementedError, match="does not support device-plane term: body_linear_velocity_delta"
     ):
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(
                 ops=(
                     IntervalTermOp(
                         INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA,
-                        torch.zeros((4, 1, 3), dtype=torch.float32),
-                        body_ids=torch.as_tensor([1], dtype=torch.int32),
+                        torch.zeros((4, 1, 3), dtype=torch.float32, device=device),
+                        body_ids=torch.as_tensor([1], dtype=torch.int64, device=device),
                     ),
                 )
             )
         )
-    with pytest.raises(ValueError, match="requires body_ids"):
+    with pytest.raises(ValueError, match="body force must have shape"):
         backend.apply_interval_randomization(
             IntervalRandomizationPlan(
                 ops=(
                     IntervalTermOp(
-                        INTERVAL_TERM_BODY_FORCE, torch.zeros((4, 1, 3), dtype=torch.float32)
+                        INTERVAL_TERM_BODY_FORCE,
+                        torch.zeros((4, 2, 3), dtype=torch.float32, device=device),
+                        body_ids=torch.as_tensor([1], dtype=torch.int64, device=device),
                     ),
                 )
             )
@@ -872,6 +928,7 @@ def test_env_cfg_genesis_fields_validate_and_reach_factory() -> None:
         genesis_constraint_solver="cg",
         genesis_friction_cone="pyramidal",
         genesis_solver_iterations=30,
+        genesis_attribution_diagnostics=True,
     )
     cfg.validate()
     kwargs = env_backend_kwargs(cfg)
@@ -881,10 +938,13 @@ def test_env_cfg_genesis_fields_validate_and_reach_factory() -> None:
         kwargs["genesis_constraint_solver"],
         kwargs["genesis_friction_cone"],
         kwargs["genesis_solver_iterations"],
-    ) == (1, "implicitfast", "cg", "pyramidal", 30)
+        kwargs["attribution_diagnostics"],
+    ) == (1, "implicitfast", "cg", "pyramidal", 30, True)
     with pytest.raises(ValueError, match="genesis_device_id must be a non-negative integer"):
         EnvCfg(genesis_device_id=-1).validate()
     with pytest.raises(ValueError, match="genesis_integrator must be a non-empty string"):
         EnvCfg(genesis_integrator="").validate()
     with pytest.raises(ValueError, match="genesis_solver_iterations must be a positive integer"):
         EnvCfg(genesis_solver_iterations=-1).validate()
+    with pytest.raises(ValueError, match="genesis_attribution_diagnostics must be bool"):
+        EnvCfg(genesis_attribution_diagnostics=1).validate()  # type: ignore[arg-type]

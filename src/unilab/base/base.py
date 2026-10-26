@@ -87,6 +87,9 @@ class EnvCfg:
     # must be selected before ``gs.init`` so each data-parallel rank gets its
     # own simulator device; ``None`` keeps Genesis' current/default device.
     genesis_device_id: Optional[int] = None
+    # Opt in to Genesis' adapter-owned collector attribution counters. The
+    # default path reports only the existing step/reset timing keys.
+    genesis_attribution_diagnostics: bool = False
     # ``genesis`` drops the MJCF global <option> block at import (REPORT #1372
     # §3.3), so integrator / constraint solver / friction cone / solver
     # iterations must be explicit owner fields. ``None`` keeps the Genesis
@@ -219,6 +222,11 @@ class EnvCfg:
             raise ValueError(
                 "genesis_device_id must be a non-negative integer or None, "
                 f"got {self.genesis_device_id!r}"
+            )
+        if not isinstance(self.genesis_attribution_diagnostics, bool):
+            raise ValueError(
+                "genesis_attribution_diagnostics must be bool, "
+                f"got {self.genesis_attribution_diagnostics!r}"
             )
         for name, value in (
             ("genesis_integrator", self.genesis_integrator),

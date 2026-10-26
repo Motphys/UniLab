@@ -8,6 +8,8 @@ from types import SimpleNamespace
 import pytest
 from scripts.benchmark.rl import benchmark_offpolicy_collector_active as bench
 
+from unilab.rl.runtime.collector_benchmark import SCHEMA_ID, validate_envelope
+
 
 def _make_result(
     *,
@@ -124,6 +126,186 @@ def test_cuda_tensor_backends_are_opt_in() -> None:
         assert bench._resolve_backend_selection(backend="mjwarp", all_backends=False) == ("mjwarp",)
 
 
+def test_genesis_benchmark_fails_closed_on_non_exact_tensor_profile() -> None:
+    class Env:
+        def get_backend_runtime_diagnostics(self):
+            return {
+                "backend_type": "genesis",
+                "tensor_profile": {
+                    "execution": "unsupported",
+                    "data_plane": "direct",
+                    "process_topology": "in_process",
+                    "torch_devices": ("cpu",),
+                },
+                "diagnostics": {
+                    "exact_cuda_profile": {
+                        "requested": True,
+                        "enabled": False,
+                        "disable_reason": "not exact CUDA",
+                    }
+                },
+            }
+
+    with pytest.raises(RuntimeError, match="exact-CUDA or exact-AMDGPU DEVICE_RESIDENT/DIRECT"):
+        bench._backend_tensor_profile(Env())
+
+
+@pytest.mark.parametrize(
+    ("runtime_profile", "runtime_family", "genesis_backend"),
+    [
+        ("exact_cuda_profile", "cuda", "cuda"),
+        ("exact_amdgpu_profile", "rocm", "amdgpu"),
+    ],
+)
+def test_genesis_benchmark_records_runtime_family_and_backend(
+    runtime_profile: str, runtime_family: str, genesis_backend: str
+) -> None:
+    class Env:
+        def get_backend_runtime_diagnostics(self):
+            return {
+                "backend_type": "genesis",
+                "tensor_profile": {
+                    "execution": "device_resident",
+                    "data_plane": "direct",
+                    "process_topology": "in_process",
+                    "torch_devices": ("cuda",),
+                },
+                "diagnostics": {
+                    "exact_cuda_profile": {
+                        "requested": True,
+                        "enabled": runtime_profile == "exact_cuda_profile",
+                        "disable_reason": None,
+                    },
+                    "exact_amdgpu_profile": {
+                        "requested": True,
+                        "enabled": runtime_profile == "exact_amdgpu_profile",
+                        "disable_reason": None,
+                    },
+                },
+            }
+
+    profile = bench._backend_tensor_profile(Env())
+
+    assert profile["torch_runtime_family"] == runtime_family
+    assert profile["genesis_backend"] == genesis_backend
+
+
+@pytest.mark.parametrize(("cuda_enabled", "amdgpu_enabled"), [(False, False), (True, True)])
+def test_genesis_benchmark_rejects_missing_or_ambiguous_runtime_profile(
+    cuda_enabled: bool, amdgpu_enabled: bool
+) -> None:
+    class Env:
+        def get_backend_runtime_diagnostics(self):
+            return {
+                "backend_type": "genesis",
+                "tensor_profile": {
+                    "execution": "device_resident",
+                    "data_plane": "direct",
+                    "process_topology": "in_process",
+                    "torch_devices": ("cuda",),
+                },
+                "diagnostics": {
+                    "exact_cuda_profile": {
+                        "requested": True,
+                        "enabled": cuda_enabled,
+                        "disable_reason": None,
+                    },
+                    "exact_amdgpu_profile": {
+                        "requested": True,
+                        "enabled": amdgpu_enabled,
+                        "disable_reason": None,
+                    },
+                },
+            }
+
+    with pytest.raises(RuntimeError, match="exactly one active"):
+        bench._backend_tensor_profile(Env())
+
+
+def test_genesis_benchmark_requires_enabled_attribution_diagnostics() -> None:
+    class Env:
+        def get_backend_runtime_diagnostics(self):
+            return {
+                "backend_type": "genesis",
+                "tensor_profile": {
+                    "execution": "device_resident",
+                    "data_plane": "direct",
+                    "process_topology": "in_process",
+                    "torch_devices": ("cuda",),
+                },
+                "diagnostics": {
+                    "exact_cuda_profile": {
+                        "requested": True,
+                        "enabled": True,
+                        "disable_reason": None,
+                    },
+                    "attribution_diagnostics": {
+                        "requested": False,
+                        "enabled": False,
+                        "disable_reason": "not requested",
+                    },
+                },
+            }
+
+    with pytest.raises(RuntimeError, match="requires attribution diagnostics"):
+        bench._backend_tensor_profile(Env(), require_attribution=True)
+
+
+def test_collector_result_records_lifecycle_and_tensor_profile() -> None:
+    result = _make_result()
+    result.construction_ms = 11.0
+    result.collector_setup_ms = 12.0
+    result.warmup_ms = 13.0
+    result.teardown_ms = 14.0
+    result.backend_tensor_profile = {
+        "backend_type": "genesis",
+        "execution": "device_resident",
+        "data_plane": "direct",
+        "process_topology": "in_process",
+        "torch_devices": ("cuda",),
+    }
+
+    payload = bench._result_to_dict(result)
+
+    assert payload["construction_ms"] == 11.0
+    assert payload["collector_setup_ms"] == 12.0
+    assert payload["warmup_ms"] == 13.0
+    assert payload["teardown_ms"] == 14.0
+    assert payload["backend_tensor_profile"]["execution"] == "device_resident"
+    assert payload["backend_tensor_profile"]["data_plane"] == "direct"
+
+
+def test_collector_benchmark_schema_rejects_incomplete_envelope() -> None:
+    result = _make_result()
+    result.backend_tensor_profile = {
+        "backend_type": "mujoco",
+        "execution": "host_bridge",
+        "data_plane": "host_bridge",
+        "process_topology": "in_process",
+        "torch_devices": ("cpu",),
+    }
+    serialized = bench._result_to_dict(result)
+    envelope = {
+        "schema": SCHEMA_ID,
+        "benchmark": "offpolicy_collector_active",
+        "command": "test",
+        "device": {},
+        "fixation": {},
+        "results": [serialized],
+        "errors": [],
+    }
+
+    validate_envelope(envelope)
+
+    envelope["schema"] = "unisim.reserved/0.1"
+    with pytest.raises(ValueError, match="unsupported collector benchmark schema"):
+        validate_envelope(envelope)
+    envelope["schema"] = SCHEMA_ID
+    del serialized["phase_ms_per_vector_step"]["replay_ms"]
+    with pytest.raises(ValueError, match="additive collector phases"):
+        validate_envelope(envelope)
+
+
 def test_resolve_case_specs_deduplicates_explicit_specs() -> None:
     specs = bench._resolve_case_specs(
         "sac/g1_walk_flat/mujoco,sac/g1_walk_flat/mujoco,flashsac/g1_walk_flat/mujoco",
@@ -153,16 +335,42 @@ def test_stats_reports_distribution() -> None:
     assert stats.median_ms == 2.0
     assert stats.min_ms == 1.0
     assert stats.max_ms == 3.0
+    assert stats.median_ms == stats.p50_ms
+    assert stats.p95_ms == pytest.approx(2.9)
     assert stats.std_ms == pytest.approx(0.81649658)
 
 
 def test_parse_args_defaults_to_large_env_count_and_longer_measure_window() -> None:
     args = bench.parse_args([])
 
-    assert args.num_envs == 8192
+    assert args.num_envs is None
     assert args.measure_steps == 100
     assert args.backend == "mujoco"
     assert not args.all_backends
+
+
+def test_production_case_resolves_from_owner_and_freezes_profile() -> None:
+    assert bench._resolve_case_specs(
+        "production", algos_arg="sac,flashsac", backends=("mujoco",)
+    ) == [bench.PRODUCTION_CASE]
+
+    cfg = bench._compose_offpolicy_cfg(
+        *bench._parse_case(bench.PRODUCTION_CASE),
+        extra_overrides=[
+            "algo.seed=457",
+            "env.seed=457",
+            "env.genesis_attribution_diagnostics=true",
+        ],
+    )
+    bench._validate_production_cfg(cfg, num_envs_source="owner")
+
+    assert cfg.algo.num_envs == 2048
+    assert cfg.env.sim_dt == pytest.approx(0.006666666666666667)
+    assert cfg.env.ctrl_dt == pytest.approx(0.02)
+    assert cfg.algo.num_envs == bench.PRODUCTION_NUM_ENVS
+
+    with pytest.raises(ValueError, match="requires its 2048-env owner value"):
+        bench._validate_production_cfg(cfg, num_envs_source="cli")
 
 
 def test_parse_args_accepts_backend_and_all_backend_modes() -> None:
@@ -198,6 +406,38 @@ def test_package_versions_record_missing_dependencies_without_hiding_them(
     assert versions == {name: "not-installed" for name in bench.FIXATION_PACKAGE_NAMES} | {
         "torch": "2.14.0+cu130"
     }
+
+
+@pytest.mark.parametrize(
+    ("hip", "output", "expected_command", "expected_version"),
+    [
+        (None, "580.82.07\n", ["nvidia-smi", "--id=GPU-test"], "580.82.07"),
+        (
+            "7.2",
+            "ROCm System Management Interface\nDriver version: 6.19.14\n",
+            ["rocm-smi", "--showdriverversion"],
+            "6.19.14",
+        ),
+    ],
+)
+def test_gpu_driver_version_supports_cuda_and_rocm(
+    monkeypatch: pytest.MonkeyPatch,
+    hip: str | None,
+    output: str,
+    expected_command: list[str],
+    expected_version: str,
+) -> None:
+    commands: list[list[str]] = []
+
+    def run_command(command: list[str]) -> str:
+        commands.append(command)
+        return output
+
+    monkeypatch.setattr(bench.torch.version, "hip", hip, raising=False)
+    monkeypatch.setattr(bench, "_run_text_command", run_command)
+
+    assert bench._gpu_driver_version("GPU-test") == expected_version
+    assert commands[0][:2] == expected_command
 
 
 def test_runtime_fixation_is_serialized_with_results(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,6 +553,16 @@ def test_write_csv_includes_all_phase_columns(tmp_path) -> None:
 
     header = out_csv.read_text(encoding="utf-8").splitlines()[0]
     assert "bookkeeping_ms" in header
+    assert "construction_ms" in header
+    assert "collector_setup_ms" in header
+    assert "warmup_ms" in header
+    assert "teardown_ms" in header
+    assert "backend_tensor_reset_state_publication_ms" in header
+    assert "update_state_backend_tracked_sensor_projection_ms" in header
+    assert "update_state_backend_named_sensor_projection_ms" in header
+    assert "reset_rows_total" in header
+    assert "reset_vector_step_count" in header
+    assert "reset_rows_per_vector_step_p95" in header
     assert "env_step_overhead_ms" in header
     assert "physics_pct" in header
     assert "env_step_overhead_pct" in header
@@ -553,7 +803,9 @@ def test_variant_blocks_alternate_labels_without_extending_measurement(monkeypat
         extra_overrides,
         variant,
         profile_numpy_random,
+        production,
     ):
+        del production
         order.append(variant)
         result = _make_result(
             throughput=1000.0,

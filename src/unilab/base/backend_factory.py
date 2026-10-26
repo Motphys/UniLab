@@ -157,7 +157,9 @@ def _validate_cuda_only_backend_platform(backend_type: str, kwargs: dict[str, An
             "macOS has no supported CUDA runtime",
             "Use a CPU-authoritative host-bridge backend or a Linux CUDA runtime.",
         )
-    if runtime_state["torch_hip"] not in (None, "None", ""):
+    if runtime_state["torch_hip"] not in (None, "None", "") and not (
+        profile.rocm_tensor_profile.startswith("Supported:")
+    ):
         raise _fail_closed_cuda_only(
             backend_type,
             requested_device,
@@ -262,6 +264,8 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     # its own device.
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
+    if cfg.genesis_attribution_diagnostics:
+        result["attribution_diagnostics"] = True
     result["newton_use_cuda_graph"] = cfg.newton_use_cuda_graph
     return result
 

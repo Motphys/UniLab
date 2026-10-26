@@ -116,7 +116,8 @@ Pairing contract (issue #2483, ADR-0019): with a CUDA learner on a non-ROCm Torc
 
 CUDA-only tensor backends are rejected before backend construction on CPU, MPS,
 macOS, ROCm/HIP, unavailable CUDA, malformed CUDA ordinals, and out-of-range
-device requests. They do not fall back to NumPy or a host bridge.
+device requests. Genesis instead accepts its declared HIP/ROCm + `gs.amdgpu`
+profile. Unsupported requests do not fall back to NumPy or a host bridge.
 
 Check the Torch runtime and visible ordinals in the same process environment:
 
@@ -124,17 +125,19 @@ Check the Torch runtime and visible ordinals in the same process environment:
 uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.version.hip, torch.cuda.is_available(), torch.cuda.device_count(), torch.cuda.current_device())"
 ```
 
-`torch.version.hip` must be `None` for the CUDA-only matrix. If CUDA is
-unavailable, check the NVIDIA driver/container mismatch before changing task
-configuration. If `CUDA_VISIBLE_DEVICES` is set, backend ordinals address that
-remapped namespace, not host-global physical indices.
+`torch.version.hip` must be `None` for CUDA-only backends and the Genesis
+`gs.cuda` pairing; the Genesis `gs.amdgpu` pairing requires a HIP build. If the
+GPU runtime is unavailable, check the driver/container mismatch before changing
+task configuration. If `CUDA_VISIBLE_DEVICES` is set, backend ordinals address
+that remapped namespace, not host-global physical indices.
 
-On macOS and ROCm, use a CPU-authoritative host-bridge backend. On ROCm,
-Manager/TorchEnv uses the current GPU whenever the learner device is CUDA —
-the default `training.collector_tensor_device=auto` follows the learner device —
-or when training explicitly sets `training.collector_tensor_device=cuda`, provided
-the selected HOST_BRIDGE backend declares and accepts the routed `cuda`
-`env.collector_tensor_device`; CPU learners keep CPU, torch.mps learners retain the
-owner/default CPU placement, and direct environment construction remains CPU.
+On macOS, use a CPU-authoritative host-bridge backend. ROCm supports both host
+bridges and the Genesis exact-`gs.amdgpu` device-resident profile. For a host
+bridge, Manager/TorchEnv uses the current GPU whenever the learner device is
+CUDA — the default `training.collector_tensor_device=auto` follows the learner
+device — or when training explicitly sets `training.collector_tensor_device=cuda`,
+provided the selected backend declares and accepts the routed `cuda`
+`env.collector_tensor_device`; CPU learners keep CPU, torch.mps learners retain
+the owner/default CPU placement, and direct environment construction remains CPU.
 GPU Torch buffers on a host bridge do not imply GPU physics or a
 device-resident backend lifecycle.

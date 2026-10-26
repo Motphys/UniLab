@@ -63,6 +63,25 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   primitive geometry、static filtering、minimum distance、attachment
   transformation、site attachment 与 normal；grid/pinhole ray 几何、yaw/world alignment、hit-point packing 与 geometry synchronization 由 focused fake-caster test 覆盖；mesh/hfield 数值 parity 由 UniSim 与 `uni_ray` contract suite 负责。
 
+### Changed / 变更
+
+- Genesis runtime domain randomization now follows the unified device-resident
+  `unisim-core` lifecycle. Manager interval negotiation selects the
+  backend-bound device plane, wrench payloads and body IDs enter the interval
+  plan on that device, and the packed reset device is declared before cold
+  event-term binds. The Genesis G1 walk SAC owner re-enables `pd_gains` with
+  the PPO owner because Genesis declares device-plane packed reset `kp`/`kd`;
+  host-plane runtime DR, push, velocity-delta, and other undeclared terms
+  still fail closed
+  ([#2520](https://github.com/Motphys/UniLab/issues/2520)).
+  Genesis 运行时域随机化现在遵循 `unisim-core` 统一的 device-resident 生命
+  周期。Manager interval 协商选择 backend 绑定的 device plane；wrench payload
+  与 body ID 在该设备上进入 interval plan；packed reset 设备会在冷路径
+  event-term bind 之前声明。Genesis G1 walk SAC owner 与 PPO owner 一致重新
+  启用 `pd_gains`，因为 Genesis 声明了 device-plane packed reset 的
+  `kp`/`kd`；host-plane 运行时 DR、push、velocity-delta 以及其他未声明 term
+  仍会 fail closed（[#2520](https://github.com/Motphys/UniLab/issues/2520)）。
+
 ## 1.5.1 (2026-10-23)
 
 ### Added / 新增

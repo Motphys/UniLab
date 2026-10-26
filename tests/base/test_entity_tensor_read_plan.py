@@ -387,7 +387,7 @@ def test_device_resident_scene_plan_reuses_aggregate_body_views() -> None:
 def test_device_resident_scene_plan_refreshes_every_sensor_boundary() -> None:
     backend = _SceneTensorBackend(device_resident=True)
     scene = _scene(backend)
-    plan = scene.compile_tensor_reads("cpu", _specs())
+    plan = scene.compile_tensor_reads("cpu", _specs(), attribution_diagnostics=True)
 
     plan.refresh()
     calls_after_first_refresh = backend.sensor_view_calls
@@ -402,10 +402,33 @@ def test_device_resident_scene_plan_refreshes_every_sensor_boundary() -> None:
     assert first is not second
     torch.testing.assert_close(first, torch.tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]))
     torch.testing.assert_close(second, torch.full((2, 3), 7.0))
-    # Every compiled sensor crosses its public backend boundary on every phase.
-    # Genesis/Newton derived sensors are stable outputs, not native-live arrays.
+    # Every compiled packet crosses its public backend boundary on every phase:
+    # named sensors use individual projections, while body blocks use one packed
+    # tracked-body projection.
     assert backend.sensor_view_calls == calls_after_first_refresh + len(plan.sensor_names["robot"])
     assert plan.transfer_stats == {}
+    assert set(plan.last_timing) == {
+        "state_read_ms",
+        "tracked_sensor_projection_ms",
+        "named_sensor_projection_ms",
+        "sensor_projection_ms",
+        "sensor_projection_call_count",
+    }
+    assert plan.last_timing["state_read_ms"] >= 0.0
+    assert plan.last_timing["tracked_sensor_projection_ms"] >= 0.0
+    assert plan.last_timing["named_sensor_projection_ms"] >= 0.0
+    assert plan.last_timing["sensor_projection_ms"] >= 0.0
+    assert plan.last_timing["sensor_projection_call_count"] == len(plan.sensor_names["robot"]) + 1
+    plan.close()
+
+
+def test_device_resident_read_attribution_is_opt_in() -> None:
+    backend = _SceneTensorBackend(device_resident=True)
+    scene = _scene(backend)
+    plan = scene.compile_tensor_reads("cpu", _specs())
+
+    plan.refresh()
+
     assert plan.last_timing == {}
     plan.close()
 

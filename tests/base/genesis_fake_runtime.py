@@ -259,11 +259,20 @@ class _FakeEntity:
 
 class _FakeRigidSolver:
     def __init__(self):
-        self.external_forces: list[tuple[np.ndarray, list[int]]] = []
+        self.external_forces: list[tuple[np.ndarray, list[int], list[int] | None]] = []
+        self.external_torques: list[tuple[np.ndarray, list[int], list[int] | None]] = []
 
     def apply_links_external_force(self, force, links_idx=None, envs_idx=None, **kwargs):
         value = torch.as_tensor(force, dtype=torch.float32).cpu().numpy().copy()
-        self.external_forces.append((value, list(links_idx)))
+        self.external_forces.append(
+            (value, list(links_idx), None if envs_idx is None else list(envs_idx))
+        )
+
+    def apply_links_external_torque(self, torque, links_idx=None, envs_idx=None, **kwargs):
+        value = torch.as_tensor(torque, dtype=torch.float32).cpu().numpy().copy()
+        self.external_torques.append(
+            (value, list(links_idx), None if envs_idx is None else list(envs_idx))
+        )
 
 
 class _FakeCamera:
