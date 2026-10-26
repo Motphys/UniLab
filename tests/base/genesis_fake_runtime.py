@@ -108,6 +108,7 @@ class _FakeEntity:
         ]
         self.built_envs = 0
         self.control_calls: list[np.ndarray] = []
+        self.velocity_calls: list[tuple[np.ndarray, list[int], list[int]]] = []
         self.step_count = 0
 
     def get_link(self, name):
@@ -206,12 +207,36 @@ class _FakeEntity:
     def set_dofs_velocity(
         self, velocity=None, dofs_idx_local=None, envs_idx=None, *, skip_forward=False
     ):
-        rows = self._rows(envs_idx)
+        # Genesis 1.3.3 accepts int64 rows with a selected-column payload. A
+        # bool mask means the payload is full-width even when columns narrow.
+        raw_rows = self._rows(envs_idx)
+        bool_mask = envs_idx is not None and np.asarray(envs_idx.dtype == torch.bool).item()
+        dofs = list(range(NV)) if dofs_idx_local is None else list(dofs_idx_local)
         value = torch.as_tensor(velocity, dtype=torch.float32).cpu()
-        if rows is None:
-            self.qvel = value.clone()
+        if raw_rows is None:
+            submitted = value
+            rows = None
+        elif bool_mask:
+            submitted = value
+            rows = list(np.flatnonzero(np.asarray(envs_idx.detach().cpu())))
         else:
-            self.qvel[rows] = value.clone()
+            rows = list(raw_rows)
+            submitted = value if tuple(value.shape) == (len(rows), len(dofs)) else value[-1:]
+        self.velocity_calls.append((submitted.numpy().copy(), dofs, [-1] if rows is None else rows))
+        device = self.qvel.device
+        row_indices = (
+            None if rows is None else torch.as_tensor(rows, dtype=torch.int64, device=device)
+        )
+        columns = torch.as_tensor(dofs, dtype=torch.int64, device=device)
+        if row_indices is None:
+            staged = self.qvel.clone()
+        else:
+            staged = self.qvel.index_select(0, row_indices)
+        staged_values = submitted.to(device=device, dtype=self.qvel.dtype)
+        if tuple(staged_values.shape) != tuple(staged[:, columns].shape):
+            staged_values = staged_values[-1:, :].expand(staged[:, columns].shape).clone()
+        staged = staged.index_copy(1, columns, staged_values)
+        self.qvel = staged if row_indices is None else self.qvel.index_copy(0, row_indices, staged)
 
     def control_dofs_position(self, position, dofs_idx_local=None, envs_idx=None):
         value = torch.as_tensor(position, dtype=torch.float32).cpu()

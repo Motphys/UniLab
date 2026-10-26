@@ -1795,6 +1795,7 @@ class Entity:
         self._backend_type = backend.backend_type
         self._backend = backend
         self._interval_operand_device_value: torch.device | None = None
+        self._interval_root_body_ids_value: torch.Tensor | None = None
         self._body_tensor_layouts: dict[tuple[str, ...], np.ndarray] = {}
         self._reset_state = reset_state
         self._reset_root_layout: RootStateLayout | None = None
@@ -3889,9 +3890,19 @@ class Entity:
             ) from exc
 
     def _interval_root_body_ids(self) -> torch.Tensor:
-        """Return the immutable root body IDs as a torch-first host int64 tensor."""
+        """Return immutable root body IDs on the backend-bound interval plane."""
         assert self._root_body_ids is not None
-        return torch.tensor(self._root_body_ids, dtype=torch.int64)
+        device = self._interval_operand_device()
+        cached = self._interval_root_body_ids_value
+        if cached is not None and cached.device == device:
+            return cached
+        cached = torch.as_tensor(
+            np.asarray(self._root_body_ids).copy(),
+            dtype=torch.int64,
+            device=device,
+        )
+        self._interval_root_body_ids_value = cached
+        return cached
 
     def _validate_root_velocity_delta(
         self,
@@ -3920,13 +3931,19 @@ class Entity:
             raise ValueError(
                 f"EventManager term '{term_name}' root velocity delta must be finite floating data"
             )
+        device = self._interval_operand_device()
+        if values.device != device:
+            raise ValueError(
+                f"EventManager term '{term_name}' root velocity delta must live on "
+                f"{device}; got {values.device}"
+            )
         assert self._root_body_ids is not None
         delta = torch.zeros(
             (self._backend.num_envs, len(self._root_body_ids), 3),
-            dtype=values.dtype,
-            device=values.device,
+            dtype=torch.float32,
+            device=device,
         )
-        delta[ids.to(device=values.device, dtype=torch.int64), 0, :] = values
+        delta[ids.to(device=device, dtype=torch.int64), 0, :] = values.to(dtype=torch.float32)
         return delta
 
     def bind_body_wrench(

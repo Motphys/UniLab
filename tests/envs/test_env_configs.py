@@ -637,6 +637,41 @@ def test_flashsac_g1_motion_mujoco_tensor_command_model_field_dr_roll_out(
         env._backend.close()
 
 
+def test_sac_g1_motion_genesis_flashmimic_dr_roll_out() -> None:
+    """The SAC Genesis owner exercises the FlashMimic device-DR subset."""
+    ensure_registries()
+    _require_genesis_runtime()
+    from unilab.base import registry
+    from unilab.envs import ManagerBasedRlEnv
+
+    _, override = _motion_manager_override(
+        "g1_motion_tracking",
+        "genesis",
+        config_root="sac",
+    )
+    env = registry.make(
+        "G1MotionTracking",
+        num_envs=2,
+        sim_backend="genesis",
+        env_cfg_override=override,
+    )
+    assert isinstance(env, ManagerBasedRlEnv)
+    try:
+        names = env.event_manager._mode_term_names
+        assert set(names["startup"]) == {"body_mass"}
+        assert set(names["reset"]) >= {"base_com", "encoder_bias", "pd_gains"}
+        assert set(names["interval"]) == {"push_robot"}
+        obs, _ = env.reset(seed=2521)
+        assert all(torch.isfinite(values).all() for values in obs.values())
+        for _ in range(3):
+            state = env.step(torch.zeros((2, 29), dtype=torch.float32, device=env.device))
+        assert torch.isfinite(state.reward).all()
+        assert all(torch.isfinite(values).all() for values in state.obs.values())
+    finally:
+        env.close()
+        env._backend.close()
+
+
 def test_flashsac_g1_motion_genesis_manager_tensor_command_roll_out() -> None:
     """The canonical FlashSAC Genesis owner exercises the Manager tensor path."""
     ensure_registries()

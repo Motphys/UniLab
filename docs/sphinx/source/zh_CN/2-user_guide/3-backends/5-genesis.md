@@ -49,7 +49,9 @@ materialize 冷路径补偿——热路径从不解析 XML：
 - **执行器**：`<position kp kv>` 执行器无损导入，用
   `control_dofs_position` 驱动；kp/kd reset 随机化在 device plane 受支持
   （DR 能力集只声明实测的 device reset 项：body mass、kp、kd，以及
-  interval body force 与 body torque）。
+  base-mass delta、body CoM / base-CoM delta、kp、kd；device interval 集
+  另覆盖 body force、body torque，以及世界系 root 线速度与 root 本体系
+  角速度 delta）。
 
 ## 前置条件
 
@@ -139,8 +141,10 @@ Genesis 的 init/destroy 循环每轮泄漏 200–450 MB host RSS（REPORT
   flat owner YAML。
 - **绝对值 geom 摩擦 DR**：上游 Genesis 只有 per-env 摩擦*比例* API，
   因此 `geom_friction` reset 随机化与 `get_geom_friction` fail-closed。
-- **interval push / body-velocity-delta DR**：在构造/plan 时拒绝
-  （`push_body_name`、push perturbation）。
+- **legacy interval push term**：不透明 `push` descriptor 在构造/plan 时
+  拒绝。请使用六轴 velocity-delta event；它通过 Genesis public state 提交
+  世界系线速度与 root 本体系角速度 delta，且不修改 qpos、control、solver
+  state 或未选中的 rows。
 - **host-plane 运行时 DR**：Genesis 只接受位于其 backend 绑定
   CUDA/AMDGPU device 上的 reset 与 interval payload。host payload 会带上
   term 与 plane fail-closed；没有 NumPy 或 host-bridge 回退。
