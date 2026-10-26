@@ -444,7 +444,15 @@ class ManagerBasedRlEnv(TorchEnv):
         specs.extend(self._manager_term_tensor_read_specs())
         specs.extend(self._command_tensor_read_specs())
         self.scene.read_plan = (
-            self.scene.compile_tensor_reads(self.device, specs) if specs else None
+            self.scene.compile_tensor_reads(
+                self.device,
+                specs,
+                attribution_diagnostics=bool(
+                    getattr(self.cfg, "genesis_attribution_diagnostics", False)
+                ),
+            )
+            if specs
+            else None
         )
 
     def _action_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
@@ -1250,6 +1258,21 @@ class ManagerBasedRlEnv(TorchEnv):
                 read_plan.refresh()
             boundary_ms = (time.perf_counter() - boundary_started) * 1000.0
             timing["update_state_read_boundary_ms"] = boundary_ms
+            if read_plan is not None:
+                read_timing = read_plan.last_timing
+                timing["update_state_backend_state_read_ms"] = read_timing.get("state_read_ms", 0.0)
+                timing["update_state_backend_tracked_sensor_projection_ms"] = read_timing.get(
+                    "tracked_sensor_projection_ms", 0.0
+                )
+                timing["update_state_backend_named_sensor_projection_ms"] = read_timing.get(
+                    "named_sensor_projection_ms", 0.0
+                )
+                timing["update_state_backend_sensor_projection_ms"] = read_timing.get(
+                    "sensor_projection_ms", 0.0
+                )
+                timing["update_state_backend_sensor_projection_call_count"] = read_timing.get(
+                    "sensor_projection_call_count", 0.0
+                )
             return self._update_state_in_read_phase(state)
 
     def _update_state_in_read_phase(self, state: TorchEnvState) -> TorchEnvState:
@@ -1510,6 +1533,13 @@ class ManagerBasedRlEnv(TorchEnv):
     def _collect_reset_backend_timing_ms(self) -> dict[str, float]:
         timing = dict(super()._collect_reset_backend_timing_ms())
         timing.update(self._reset_state.last_set_state_timing_ms)
+        for source, target in (
+            ("tensor_reset_validation_ms", "backend_tensor_reset_validation_ms"),
+            ("tensor_reset_apply_ms", "backend_tensor_reset_apply_ms"),
+            ("tensor_state_publication_ms", "backend_tensor_reset_state_publication_ms"),
+        ):
+            if source in timing:
+                timing[target] = timing[source]
         timing.update(self._last_reset_manager_timing_ms)
         return timing
 

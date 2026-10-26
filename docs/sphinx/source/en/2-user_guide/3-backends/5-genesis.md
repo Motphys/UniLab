@@ -57,9 +57,17 @@ compensates on the materialize cold path — hot paths never parse XML:
 
 ## Prerequisites
 
-- Linux x86_64 with an NVIDIA GPU and driver. Only the `gs.gpu` lane is
-  validated by the feasibility probe; the CPU backend is not a validated
-  support lane.
+- Linux x86_64 with a supported GPU runtime for the Manager tensor runtime.
+  UniSim's reviewed Genesis tensor profile requires Genesis zero-copy and one
+  exact runtime pairing: non-HIP Torch CUDA with `gs.cuda`, or HIP/ROCm Torch
+  with `gs.amdgpu`. Both negotiate `DEVICE_RESIDENT`, in-process, `DIRECT` and
+  retain the public `cuda` Torch device namespace.
+- Genesis 1.3.3 itself natively supports `gs.metal` on Apple Silicon and
+  `gs.amdgpu` on Linux HIP, as shown by the direct-engine G1 throughput work
+  (UniLab PR #2518 / discussion #2517). Metal remains outside the UniSim
+  Genesis adapter tensor lifecycle. On ROCm, `gs.cuda` is rejected as a runtime
+  mismatch; on non-HIP CUDA, `gs.amdgpu` is likewise rejected. CPU, portable
+  Genesis, Metal, MPS, and substitute backends are never silent fallbacks.
 - The repository's pinned torch window (torch 2.8 on x86_64): the
   IMUSensor + contact-force sensor combination crashed under torch 2.7 in
   the probe (REPORT §3.4/§8).

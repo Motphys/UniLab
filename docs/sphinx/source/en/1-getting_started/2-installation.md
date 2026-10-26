@@ -250,8 +250,9 @@ ROCm notes:
   explicit `training.collector_tensor_device=cuda` forces the same routing for
   other learner devices. Direct environment construction remains CPU.
   Host-bridge physics stays on CPU; packed transfers connect it to the GPU
-  observations, actions, rewards, and resets. CUDA-only physics backends remain
-  unsupported on ROCm. See
+  observations, actions, rewards, and resets. Genesis additionally supports its
+  existing device-resident direct lifecycle with HIP/ROCm Torch and exact
+  `gs.amdgpu`; other CUDA-only physics backends remain unsupported on ROCm. See
   {doc}`/adr/ADR-0012-sole-tensor-manager-and-scoped-backends`.
 - When installing from PyPI instead of a source checkout, `make sync-rocm` does
   not apply. Install the torch build validated by the repository from the

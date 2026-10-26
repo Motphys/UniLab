@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import inspect
 import re
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -342,6 +343,7 @@ class SceneTensorReadPlan:
         packet_body_axes: Mapping[str, tuple[str, ...]],
         packet_body_blocks: bool,
         host_plan: HostBridgeTransferPlan | None,
+        attribution_diagnostics: bool = False,
     ) -> None:
         self._scene = scene
         self._device = torch.device(device)
@@ -350,6 +352,7 @@ class SceneTensorReadPlan:
         self._body_names = MappingProxyType(dict(body_names))
         self._body_fields = MappingProxyType(dict(body_fields))
         self._host_plan_value = host_plan
+        self._attribution_diagnostics = attribution_diagnostics
         self._packet_names = packet_names
         owners = dict(packet_sensor_owners)
         if not packet_body_blocks:
@@ -369,6 +372,7 @@ class SceneTensorReadPlan:
         self._packet: Mapping[str, torch.Tensor] = MappingProxyType({})
         self._refreshed = False
         self._closed = False
+        self._direct_read_timing: dict[str, float] = {}
 
     @property
     def scene(self) -> "EntityScene":
@@ -893,7 +897,7 @@ class SceneTensorReadPlan:
     def last_timing(self) -> dict[str, float]:
         self._require_open()
         if self._host_plan_value is None:
-            return {}
+            return dict(self._direct_read_timing)
         return dict(self._host_plan_value.last_timing)
 
     def close(self) -> None:
@@ -945,28 +949,60 @@ class SceneTensorReadPlan:
                 ) from exc
         else:
             try:
+                state_started = time.perf_counter() if self._attribution_diagnostics else None
                 # Every sensor must cross its public backend boundary. Genesis,
                 # Newton, and Isaac workers may project derived values into
                 # stable adapter-owned storage here; only a fresh call proves
                 # that storage reflects the current post-step/post-reset state.
                 raw = dict(backend.get_state_views(("qpos", "qvel"), device=self._device))
+                state_ms = (
+                    (time.perf_counter() - state_started) * 1000.0
+                    if state_started is not None
+                    else 0.0
+                )
                 body_packet_names = tuple(
                     name for name in self._packet_names if name not in self._packet_sensor_owners
                 )
                 body_view: Any = None
                 if body_packet_names:
+                    tracked_started = time.perf_counter() if self._attribution_diagnostics else None
                     body_names = tuple(
                         name.partition("/")[2] if "/" in name else name
                         for name in self._packet_body_axes[body_packet_names[0]]
                     )
                     body_view = backend.get_tracked_body_views(body_names, device=self._device)
-                for name in self._packet_names:
-                    if name in self._packet_sensor_owners:
-                        raw[name] = backend.get_sensor_view(name, device=self._device)
-                    else:
+                    tracked_ms = (
+                        (time.perf_counter() - tracked_started) * 1000.0
+                        if tracked_started is not None
+                        else 0.0
+                    )
+                else:
+                    tracked_ms = 0.0
+                named_packet_names = tuple(
+                    name for name in self._packet_names if name in self._packet_sensor_owners
+                )
+                named_started = time.perf_counter() if self._attribution_diagnostics else None
+                for name in named_packet_names:
+                    raw[name] = backend.get_sensor_view(name, device=self._device)
+                named_ms = (
+                    (time.perf_counter() - named_started) * 1000.0
+                    if named_started is not None
+                    else 0.0
+                )
+                if body_packet_names and body_view is not None:
+                    for name in body_packet_names:
                         raw[name] = getattr(body_view, _PACKET_FIELD_BODY_FIELDS[name]).reshape(
                             backend.num_envs, -1
                         )
+                if self._attribution_diagnostics:
+                    projection_call_count = len(named_packet_names) + int(bool(body_packet_names))
+                    self._direct_read_timing = {
+                        "state_read_ms": state_ms,
+                        "tracked_sensor_projection_ms": tracked_ms,
+                        "named_sensor_projection_ms": named_ms,
+                        "sensor_projection_ms": tracked_ms + named_ms,
+                        "sensor_projection_call_count": float(projection_call_count),
+                    }
             except (AttributeError, KeyError, TypeError, ValueError, NotImplementedError) as exc:
                 raise type(exc)(
                     "Manager scene device-resident tensor read on backend "
@@ -4554,6 +4590,8 @@ class EntityScene(Mapping[str, Entity]):
         self,
         device: str | torch.device,
         specs: Sequence[SceneTensorReadSpec],
+        *,
+        attribution_diagnostics: bool = False,
     ) -> "SceneTensorReadPlan":
         """Compile the scene's only packed tensor read layout for one device.
 
@@ -4708,6 +4746,7 @@ class EntityScene(Mapping[str, Entity]):
             packet_body_axes=packet_body_axes,
             packet_body_blocks=packet_body_blocks,
             host_plan=host_plan,
+            attribution_diagnostics=attribution_diagnostics,
         )
 
     @staticmethod
