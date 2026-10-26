@@ -10,7 +10,7 @@ import pytest
 import torch
 
 from unilab.rl.runtime.ipc import inference_ring as inference_ring_module
-from unilab.rl.runtime.ipc.inference_ring import SharedInferenceRing
+from unilab.rl.runtime.ipc.inference_ring import CudaRingTransport, SharedInferenceRing
 
 
 def _observations(tick: int) -> torch.Tensor:
@@ -59,6 +59,66 @@ def _roundtrip_one(ring: SharedInferenceRing, tick: int, policy_version: int) ->
     torch.testing.assert_close(done_destination, dones)
     torch.testing.assert_close(received_actions, actions)
     assert received_version == policy_version
+
+
+@pytest.mark.parametrize(
+    ("hip_version", "event_wait"),
+    [(None, "stream"), ("7.2.53211", "synchronize")],
+)
+def test_cuda_ring_transport_selects_event_wait_by_runtime(
+    monkeypatch: pytest.MonkeyPatch, hip_version: str | None, event_wait: str
+) -> None:
+    monkeypatch.setattr(torch.version, "hip", hip_version, raising=False)
+
+    transport = inference_ring_module._build_ring_transport(torch.device("cuda"))
+
+    assert isinstance(transport, CudaRingTransport)
+    assert transport.event_wait == event_wait
+
+
+def test_cuda_ring_transport_rejects_unknown_event_wait() -> None:
+    with pytest.raises(ValueError, match="event_wait must be 'stream' or 'synchronize'"):
+        CudaRingTransport(event_wait="busy-wait")  # type: ignore[arg-type]
+
+
+def test_cuda_ring_transport_synchronize_waits_on_event_not_stream() -> None:
+    class Event:
+        def __init__(self) -> None:
+            self.synchronize_count = 0
+
+        def synchronize(self) -> None:
+            self.synchronize_count += 1
+
+        def wait(self, stream) -> None:
+            raise AssertionError("compatibility fallback must not use stream event wait")
+
+    class Ring:
+        device = torch.device("cuda")
+
+        def __init__(self, event: Event) -> None:
+            self.event = event
+
+        def _observation_event(self, slot: int) -> Event:
+            assert slot == 0
+            return self.event
+
+        def _action_event(self, slot: int) -> Event:
+            assert slot == 0
+            return self.event
+
+        def _consumer_done_event(self, slot: int) -> Event:
+            assert slot == 0
+            return self.event
+
+    event = Event()
+    ring = Ring(event)
+    transport = CudaRingTransport(event_wait="synchronize")
+
+    transport.wait_observation_ready(ring, 0)
+    transport.wait_action_ready(ring, 0)
+    transport.wait_consumer_done(ring, 0)
+
+    assert event.synchronize_count == 3
 
 
 @pytest.mark.parametrize("capacity", [1, 2, 4])
@@ -469,9 +529,9 @@ def test_cuda_inference_ring_waits_for_delayed_consumer_clone() -> None:
     torch.testing.assert_close(received, torch.zeros((2, 2), device="cuda"))
 
 
-def _cuda_ring_child(ring: SharedInferenceRing, result_queue: Any) -> None:
+def _cuda_ring_child(ring: SharedInferenceRing, result_queue: Any, tick_count: int = 3) -> None:
     try:
-        for tick in range(3):
+        for tick in range(tick_count):
             ring.publish_observation(
                 tick_id=tick,
                 observations=(
@@ -541,6 +601,61 @@ def test_cuda_inference_ring_ipc_events_cross_process() -> None:
     assert diagnostics["consumed_tick"] == 2
     assert diagnostics["closed"] is True
     assert not hasattr(ring, "observations")
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or not torch.version.hip,
+    reason="ROCm/HIP CUDA runtime not available",
+)
+def test_hip_inference_ring_survives_rocm_ipc_event_slot_reuse() -> None:
+    """Cover the 33rd IPC-event stream wait that breaks unfixed ROCm CLR 7.2."""
+    spawn_context = mp.get_context("spawn")
+    result_queue = spawn_context.Queue()
+    ring = SharedInferenceRing(
+        num_envs=2,
+        obs_dim=3,
+        action_dim=2,
+        device="cuda",
+        capacity=1,
+        epoch=0,
+    )
+    process = spawn_context.Process(
+        target=_cuda_ring_child,
+        args=(ring, result_queue, 40),
+    )
+    process.start()
+    try:
+        observations = torch.empty((2, 3), device=ring.device)
+        dones = torch.empty(2, device=ring.device)
+        for tick in range(40):
+            ring.copy_observation_to(
+                tick_id=tick,
+                observations=observations,
+                dones=dones,
+                epoch=0,
+            )
+            ring.publish_action(
+                tick_id=tick,
+                policy_version=tick + 10,
+                actions=torch.full((2, 2), float(10 * tick), device=ring.device),
+                epoch=0,
+            )
+        result: Any | BaseException = result_queue.get(timeout=30)
+    finally:
+        process.join(timeout=30)
+        if process.is_alive():  # pragma: no cover - failure path
+            process.terminate()
+            process.join()
+        ring.close()
+        result_queue.close()
+        result_queue.join_thread()
+
+    assert not process.exitcode, f"child exited with {process.exitcode}"
+    assert not isinstance(result, BaseException), result
+    assert result["published_tick"] == 39
+    assert result["consumed_tick"] == 39
+    assert result["closed"] is True
 
 
 def _delayed_consumer_reuse_child(
