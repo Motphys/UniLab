@@ -13,7 +13,7 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
-## Unreleased / 未发布
+## 1.5.2 (2026-10-27)
 
 ### Added / 新增
 
@@ -59,6 +59,19 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   新增的能力发布逐行 geometry。真实端到端 fixture 覆盖
   primitive geometry、static filtering、minimum distance、attachment
   transformation、site attachment 与 normal；grid/pinhole ray 几何、yaw/world alignment、hit-point packing 与 geometry synchronization 由 focused fake-caster test 覆盖；mesh/hfield 数值 parity 由 UniSim 与 `uni_ray` contract suite 负责。
+- A direct-engine G1 physics-throughput benchmark now covers Genesis
+  Metal/AMDGPU/CUDA, optional MJWarp and Newton CUDA, mjbatch CPU, and MotrixSim
+  CPU. It shares the stand keyframe and control setup, maps backend-specific
+  quaternion and actuator semantics, synchronizes the selected device, and emits
+  throughput statistics, JSON, and plots. The tool measures pure physics
+  stepping only and does not add a training-runtime or backend-support claim
+  ([#2518](https://github.com/Motphys/UniLab/pull/2518)).
+  direct-engine G1 physics-throughput benchmark 现在覆盖 Genesis
+  Metal/AMDGPU/CUDA、可选 MJWarp 与 Newton CUDA、mjbatch CPU 以及 MotrixSim
+  CPU。它共享 stand keyframe 与控制设置，映射 backend 特有的 quaternion 和
+  actuator 语义，同步所选设备，并输出吞吐统计、JSON 与图表。该工具只测量纯
+  physics stepping，不新增 training-runtime 或 backend 支持承诺
+  （[#2518](https://github.com/Motphys/UniLab/pull/2518)）。
 
 ### Changed / 变更
 
@@ -78,6 +91,29 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   启用 `pd_gains`，因为 Genesis 声明了 device-plane packed reset 的
   `kp`/`kd`；host-plane 运行时 DR、push、velocity-delta 以及其他未声明 term
   仍会 fail closed（[#2520](https://github.com/Motphys/UniLab/issues/2520)）。
+- The ROCm lock profile now publishes the exact `genesis-world==1.3.3` optional
+  extra and resolves its opt-in installation from registry packages. The default
+  `make sync-rocm` target still installs only the `mujoco` extra
+  ([#2531](https://github.com/Motphys/UniLab/issues/2531)).
+  ROCm lock profile 现在发布精确的 `genesis-world==1.3.3` optional extra，并让
+  opt-in 安装从 registry package 解析。默认 `make sync-rocm` target 仍然只安装
+  `mujoco` extra（[#2531](https://github.com/Motphys/UniLab/issues/2531)）。
+
+### Fixed / 修复
+
+- The CUDA inference IPC ring now uses event synchronization instead of IPC-event
+  stream waits on HIP/ROCm. This avoids the ROCm CLR 7.2 emulated-event modulo
+  defect that produced `hipErrorInvalidValue` when the 33rd signal-slot event
+  was reused, allowing production-shape ROCm Genesis SAC runs to complete. The
+  compatibility path is performance-impacting; NVIDIA CUDA continues to use
+  stream waits
+  ([#2530](https://github.com/Motphys/UniLab/issues/2530)).
+  CUDA inference IPC ring 在 HIP/ROCm 上现在使用 event synchronize，而不是
+  IPC-event stream wait。这避开了 ROCm CLR 7.2 emulated-event 的 modulo 缺陷；
+  该缺陷在第 33 个 signal-slot event 复用时触发 `hipErrorInvalidValue`，修复后
+  production-shape ROCm Genesis SAC run 可以正常完成。兼容路径会影响性能；
+  NVIDIA CUDA 继续使用 stream wait
+  （[#2530](https://github.com/Motphys/UniLab/issues/2530)）。
 
 ## 1.5.1 (2026-10-23)
 
