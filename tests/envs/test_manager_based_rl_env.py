@@ -1639,10 +1639,12 @@ def test_mujoco_tensor_ray_observation_uses_public_rich_query_contract(
         values = {
             "entity_name": "robot",
             "attachment_body_name": "base",
-            "num_rays": 2,
-            "pattern_start": 0.0,
-            "pattern_stop": 0.0,
-            "pattern_pitch": -0.5 * 3.141592653589793,
+            "pattern": mdp.RayRingPatternCfg(
+                num_rays=2,
+                start=0.0,
+                stop=0.0,
+                pitch=-0.5 * 3.141592653589793,
+            ),
             "max_distance": 3.0,
             "sensor_offset": (0.0, 0.0, 0.2),
             "include_normal": True,

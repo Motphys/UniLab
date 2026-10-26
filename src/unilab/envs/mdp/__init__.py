@@ -58,7 +58,17 @@ from unilab.envs.mdp.observations import (
 from unilab.envs.mdp.observations import (
     projected_gravity_imu_misaligned as projected_gravity_imu_misaligned,
 )
+from unilab.envs.mdp.ray_observation import RayAlignment as RayAlignment
+from unilab.envs.mdp.ray_observation import (
+    RayCameraPatternCfg as RayCameraPatternCfg,
+)
+from unilab.envs.mdp.ray_observation import (
+    RayGridPatternCfg as RayGridPatternCfg,
+)
 from unilab.envs.mdp.ray_observation import RayPatternCfg as RayPatternCfg
+from unilab.envs.mdp.ray_observation import (
+    RayRingPatternCfg as RayRingPatternCfg,
+)
 from unilab.envs.mdp.ray_observation import RayScan as RayScan
 from unilab.envs.mdp.recorders import LifecycleCounterRecorder as LifecycleCounterRecorder
 from unilab.envs.mdp.rewards import action_acc_l2 as action_acc_l2
@@ -99,6 +109,10 @@ __all__ = [
     "UniformPoseCommand",
     "UniformPoseCommandCfg",
     "RayPatternCfg",
+    "RayAlignment",
+    "RayCameraPatternCfg",
+    "RayGridPatternCfg",
+    "RayRingPatternCfg",
     "RayScan",
     "action_acc_l2",
     "action_rate_l2",

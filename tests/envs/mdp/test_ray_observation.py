@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -14,7 +14,13 @@ import torch
 from unisim.errors import UnsupportedCapabilityError
 from unisim.ray_query import RayCollisionDescription, RaySceneDescription, RayTraceOutputs
 
-from unilab.envs.mdp.ray_observation import RayPatternCfg, RayScan
+from unilab.envs.mdp.ray_observation import (
+    RayCameraPatternCfg,
+    RayGridPatternCfg,
+    RayPatternCfg,
+    RayRingPatternCfg,
+    RayScan,
+)
 from unilab.managers.manager_base import ManagerTermBaseCfg
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -26,6 +32,7 @@ class _Block:
     def __init__(self, values: torch.Tensor):
         self.distance = values
         self.normal = torch.zeros(*values.shape, 3, dtype=torch.float32)
+        self.hit_point = torch.ones(*values.shape, 3, dtype=torch.float32)
 
 
 @dataclass
@@ -38,13 +45,15 @@ class _Capabilities:
     supports_min_distance: bool = True
     supports_static_filter: bool = True
     supports_tensor_normal: bool = True
+    supports_hit_point: bool = True
 
 
 class _FakeCaster:
     caster_type = "fake-ray"
 
-    def __init__(self, *, values: torch.Tensor | None = None):
+    def __init__(self, *, num_rays: int = 4, values: torch.Tensor | None = None):
         self.values = values
+        self.expected_num_rays = num_rays
         self.scene: Any = None
         self.materialized = False
         self.layout: tuple[str, ...] | None = None
@@ -59,7 +68,7 @@ class _FakeCaster:
 
     @property
     def num_rays(self) -> int:
-        return 4
+        return self.expected_num_rays
 
     def get_ray_capabilities(self) -> _Capabilities:
         return _Capabilities()
@@ -108,7 +117,9 @@ class _FakeCaster:
             raise ValueError("shared ray tensors must be contiguous")
         values = self.values
         if values is None:
-            values = torch.arange(8, dtype=torch.float32).reshape(2, 4)
+            values = torch.arange(2 * self.expected_num_rays, dtype=torch.float32).reshape(
+                2, self.expected_num_rays
+            )
         return _Block(values)
 
     def close(self) -> None:
@@ -189,6 +200,7 @@ def _bind(
     values: torch.Tensor | None = None,
     pose_pos: torch.Tensor | None = None,
     pose_quat: torch.Tensor | None = None,
+    pattern: RayPatternCfg | None = None,
     **pattern_kwargs: Any,
 ) -> tuple[_FakeCaster, RayScan]:
     scene = _RayScene()
@@ -198,7 +210,15 @@ def _bind(
         geom_tags=(("terrain",), ("robot",)),
         body_parent_ids=np.array([-1, 0], dtype=np.intp),
     )
-    caster = _FakeCaster(values=values)
+    if pattern is None:
+        pattern = RayPatternCfg(
+            entity_name="robot",
+            attachment_body_name="base",
+            pattern=RayRingPatternCfg(num_rays=4, start=0.0, stop=1.5),
+            max_distance=3.0,
+        )
+    pattern = replace(pattern, **pattern_kwargs)
+    caster = _FakeCaster(num_rays=pattern.pattern.ray_count, values=values)
     if pose_pos is None:
         pose_pos = torch.zeros((2, 1, 3), dtype=torch.float32)
     if pose_quat is None:
@@ -206,22 +226,14 @@ def _bind(
         pose_quat[..., 0] = 1.0
     read_plan = _ReadPlan(pose_pos, pose_quat)
     env = _Env(read_plan, caster, scene, collision)
-    pattern = RayPatternCfg(
-        entity_name="robot",
-        attachment_body_name="base",
-        num_rays=4,
-        pattern_start=0.0,
-        pattern_stop=1.5,
-        max_distance=3.0,
-        **pattern_kwargs,
-    )
     term = RayScan(ManagerTermBaseCfg(func=RayScan, params={"ray_pattern": pattern}), env)
     monkeypatch.setattr(
         "unilab.envs.mdp.ray_observation._create_ray_caster",
         lambda caster_name, **kwargs: (
             setattr(caster, "scene", kwargs["collision"].scene),
+            setattr(caster, "expected_num_rays", kwargs["num_rays"]),
             caster,
-        )[1],
+        )[2],
     )
     term.bind_read_phase()
     return caster, term
@@ -232,9 +244,7 @@ def test_ray_pattern_config_validates_public_names_and_values() -> None:
         RayPatternCfg(
             entity_name="robot",
             attachment_body_name="base",
-            num_rays=4,
-            pattern_start=0,
-            pattern_stop=1,
+            pattern=RayRingPatternCfg(num_rays=4, start=0.0, stop=1.0),
             max_distance=2,
         ).attachment_body_name
         == "base"
@@ -255,14 +265,37 @@ def test_ray_pattern_config_validates_public_names_and_values() -> None:
         base = dict(
             entity_name="robot",
             attachment_body_name="base",
-            num_rays=4,
-            pattern_start=0.0,
-            pattern_stop=1.0,
+            pattern=RayRingPatternCfg(num_rays=4, start=0.0, stop=1.0),
             max_distance=1.0,
         )
         base.update(kwargs)
         with pytest.raises((TypeError, ValueError)):
             RayPatternCfg(**base)
+
+
+def test_ray_pattern_configs_validate_geometry_values() -> None:
+    for make_pattern in (
+        lambda: RayRingPatternCfg(num_rays=0, start=0.0, stop=1.0),
+        lambda: RayRingPatternCfg(num_rays=2, start=0.0, stop=float("nan")),
+        lambda: RayGridPatternCfg(size=(0.0, 1.0), resolution=0.1),
+        lambda: RayGridPatternCfg(size=(1.0, 1.0), resolution=0.0),
+        lambda: RayGridPatternCfg(size=(1.0, 1.0), resolution=0.1, direction=(0.0, 0.0, 0.0)),
+        lambda: RayCameraPatternCfg(width=0, height=2, fovy=90.0),
+        lambda: RayCameraPatternCfg(width=2, height=2, fovy=180.0),
+        lambda: RayCameraPatternCfg(
+            width=2, height=2, fovy=90.0, forward=(1.0, 0.0, 0.0), up=(1.0, 0.0, 0.0)
+        ),
+    ):
+        with pytest.raises((TypeError, ValueError)):
+            make_pattern()
+    with pytest.raises(ValueError):
+        RayPatternCfg(
+            entity_name="robot",
+            attachment_body_name="base",
+            pattern=RayRingPatternCfg(num_rays=2, start=0.0, stop=1.0),
+            max_distance=1.0,
+            alignment="attachment",
+        )
 
 
 def test_ray_scan_binds_and_traces_without_importing_uni_ray(monkeypatch) -> None:
@@ -367,9 +400,7 @@ def test_ray_scan_fails_closed_on_unsupported_rich_capabilities(monkeypatch) -> 
     pattern = RayPatternCfg(
         entity_name="robot",
         attachment_body_name="base",
-        num_rays=2,
-        pattern_start=0.0,
-        pattern_stop=1.0,
+        pattern=RayRingPatternCfg(num_rays=2, start=0.0, stop=1.0),
         max_distance=2.0,
         min_distance=0.1,
     )
@@ -402,9 +433,7 @@ def test_ray_scan_fails_closed_on_unsupported_filter_and_normal(monkeypatch) -> 
         values = {
             "entity_name": "robot",
             "attachment_body_name": "base",
-            "num_rays": 2,
-            "pattern_start": 0.0,
-            "pattern_stop": 1.0,
+            "pattern": RayRingPatternCfg(num_rays=2, start=0.0, stop=1.0),
             "max_distance": 2.0,
         }
         values.update(pattern_kwargs)
@@ -426,6 +455,11 @@ def test_ray_scan_fails_closed_on_unsupported_filter_and_normal(monkeypatch) -> 
     caster, term = bind(include_normal=True)
     caster.get_ray_capabilities = lambda: _Capabilities(supports_tensor_normal=False)
     with pytest.raises(NotImplementedError, match="tensor normals"):
+        term.bind_read_phase()
+
+    caster, term = bind(include_hit_point=True)
+    caster.get_ray_capabilities = lambda: _Capabilities(supports_hit_point=False)
+    with pytest.raises(NotImplementedError, match="tensor hit points"):
         term.bind_read_phase()
 
 
@@ -457,9 +491,7 @@ def test_ray_scan_fails_closed_on_missing_ancestry(monkeypatch) -> None:
     pattern = RayPatternCfg(
         entity_name="robot",
         attachment_body_name="base",
-        num_rays=2,
-        pattern_start=0.0,
-        pattern_stop=1.0,
+        pattern=RayRingPatternCfg(num_rays=2, start=0.0, stop=1.0),
         max_distance=2.0,
         excluded_ancestor_body_names=("world",),
     )
@@ -493,9 +525,7 @@ def test_ray_scan_fails_closed_on_uncovered_non_root_body(monkeypatch) -> None:
     pattern = RayPatternCfg(
         entity_name="robot",
         attachment_body_name="base",
-        num_rays=2,
-        pattern_start=0.0,
-        pattern_stop=1.0,
+        pattern=RayRingPatternCfg(num_rays=2, start=0.0, stop=1.0),
         max_distance=2.0,
     )
     term = RayScan(ManagerTermBaseCfg(func=RayScan, params={"ray_pattern": pattern}), env)
@@ -521,9 +551,9 @@ def test_ray_scan_publishes_matching_attachment_ray_batches(monkeypatch) -> None
         ),
     )
     angles = torch.linspace(
-        term.ray_pattern.pattern_start,
-        term.ray_pattern.pattern_stop,
-        term.ray_pattern.num_rays,
+        term.ray_pattern.pattern.start,
+        term.ray_pattern.pattern.stop,
+        term.ray_pattern.pattern.num_rays,
         dtype=torch.float32,
     )
     expected_directions = torch.stack(
@@ -567,6 +597,115 @@ def test_ray_pattern_follows_body_attachment_pose(monkeypatch) -> None:
     term.close()
 
 
+def test_grid_pattern_uses_yaw_alignment(monkeypatch) -> None:
+    pose_quat = torch.zeros((2, 1, 4), dtype=torch.float32)
+    pose_quat[..., 0] = 0.5**0.5
+    pose_quat[..., 3] = 0.5**0.5
+    caster, term = _bind(
+        monkeypatch,
+        pose_quat=pose_quat,
+        pattern=RayPatternCfg(
+            entity_name="robot",
+            attachment_body_name="base",
+            pattern=RayGridPatternCfg(size=(0.2, 0.1), resolution=0.1, offset=(0.05, 0.0)),
+            alignment="yaw",
+            max_distance=4.0,
+        ),
+    )
+
+    term(term._env)
+    origins, directions, _ = caster.last_inputs
+    assert origins.shape == directions.shape == (2, 6, 3)
+    local_origins = torch.tensor(
+        [
+            [-0.05, -0.05, 0.0],
+            [0.05, -0.05, 0.0],
+            [0.15, -0.05, 0.0],
+            [-0.05, 0.05, 0.0],
+            [0.05, 0.05, 0.0],
+            [0.15, 0.05, 0.0],
+        ],
+        dtype=torch.float32,
+    )
+    yaw_rotation = torch.tensor(
+        [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+        dtype=torch.float32,
+    )
+    expected_origins = local_origins[None, :, :] @ yaw_rotation.T
+    torch.testing.assert_close(origins, expected_origins.repeat(2, 1, 1))
+    torch.testing.assert_close(
+        directions, torch.zeros_like(directions) - torch.tensor((0.0, 0.0, 1.0))
+    )
+    term.close()
+
+
+def test_world_alignment_ignores_attachment_rotation(monkeypatch) -> None:
+    pose_pos = torch.tensor([[[0.3, 0.2, 0.1]]] * 2, dtype=torch.float32)
+    pose_quat = torch.zeros((2, 1, 4), dtype=torch.float32)
+    pose_quat[..., 0] = 0.5**0.5
+    pose_quat[..., 3] = 0.5**0.5
+    caster, term = _bind(
+        monkeypatch,
+        pose_pos=pose_pos,
+        pose_quat=pose_quat,
+        pattern=RayPatternCfg(
+            entity_name="robot",
+            attachment_body_name="base",
+            pattern=RayRingPatternCfg(num_rays=1, start=0.0, stop=0.0),
+            alignment="world",
+            max_distance=1.0,
+            sensor_offset=(0.2, 0.0, 0.0),
+        ),
+    )
+
+    term(term._env)
+    origins, directions, _ = caster.last_inputs
+    torch.testing.assert_close(origins, torch.tensor([[[0.5, 0.2, 0.1]]] * 2, dtype=torch.float32))
+    torch.testing.assert_close(
+        directions, torch.tensor([[[1.0, 0.0, 0.0]]] * 2, dtype=torch.float32)
+    )
+    term.close()
+
+
+def test_camera_pattern_generates_normalized_pinhole_rays() -> None:
+    pattern = RayCameraPatternCfg(width=3, height=2, fovy=90.0)
+    directions = pattern.directions(torch.device("cpu"))
+
+    assert pattern.ray_count == 6
+    assert directions.shape == (6, 3)
+    torch.testing.assert_close(
+        torch.linalg.vector_norm(directions, dim=-1), torch.ones(6), atol=1e-6, rtol=0.0
+    )
+    torch.testing.assert_close(
+        directions[1],
+        torch.tensor((2.0 / 5.0**0.5, 0.0, 1.0 / 5.0**0.5), dtype=torch.float32),
+        atol=1e-6,
+        rtol=0.0,
+    )
+
+
+def test_ray_scan_publishes_optional_hit_point(monkeypatch) -> None:
+    source = torch.arange(8, dtype=torch.float32).reshape(2, 4)
+    caster, term = _bind(
+        monkeypatch,
+        values=source,
+        include_normal=True,
+        include_hit_point=True,
+    )
+    result = term(term._env)
+
+    assert term.observation_width == 28
+    assert result.shape == (2, 28)
+    assert caster.last_query is not None
+    outputs = caster.last_query[2]
+    assert outputs.normal and outputs.hit_point
+    packed = result.reshape(2, 4, 7)
+    torch.testing.assert_close(packed[..., 0], source)
+    torch.testing.assert_close(packed[..., 1:4], torch.zeros((2, 4, 3)))
+    torch.testing.assert_close(packed[..., 4:7], torch.ones((2, 4, 3)))
+    term.close()
+
+
 def test_ray_scan_fails_closed_before_binding_and_on_unsupported_capability(monkeypatch) -> None:
     scene = _RayScene()
     caster = _FakeCaster()
@@ -584,9 +723,7 @@ def test_ray_scan_fails_closed_before_binding_and_on_unsupported_capability(monk
     pattern = RayPatternCfg(
         entity_name="robot",
         attachment_body_name="base",
-        num_rays=2,
-        pattern_start=0.0,
-        pattern_stop=1.0,
+        pattern=RayRingPatternCfg(num_rays=2, start=0.0, stop=1.0),
         max_distance=1.0,
     )
     term = RayScan(ManagerTermBaseCfg(func=RayScan, params={"ray_pattern": pattern}), env)

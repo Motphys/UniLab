@@ -20,12 +20,11 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 - The Manager tensor ray observation now consumes UniSim's full-scene public
   `RayCollisionDescription`, so mesh/hfield materialization no longer requires
   a backend-specific `uni_ray` builder, and entity-local packed pose reads are
-  aggregated onto the public full-scene body axis. `RayPatternCfg` supports a
-  body-only attachment transform with a local sensor offset, `min_distance`,
-  public geom/tag/body/ancestor filters, a yaw ring with configurable pitch,
-  and optional distance+normal output
-  (`[distance, normal_x, normal_y, normal_z]`, flattened to the observation
-  width). The branch-local `ray-local`
+  aggregated onto the public full-scene body axis. `RayPatternCfg` supports
+  ring, parallel-grid, and pinhole-camera ray patterns; body, yaw-only, and
+  world alignment; a local sensor offset; `min_distance`; public
+  geom/tag/body/ancestor filters; and optional normal and hit-point outputs in
+  addition to distance. The branch-local `ray-local`
   dependency profile resolves sibling `unisim-core` and `uni-ray` through
   relative editable paths in both CUDA and ROCm lockfiles; no PyPI publication
   is involved
@@ -33,9 +32,9 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   Manager tensor ray observation 现在消费 UniSim 公开 full-scene
   `RayCollisionDescription`，mesh/hfield materialization 不再要求 backend-specific
   `uni_ray` builder，并将 entity-local packed pose read 聚合到公开 full-scene body
-  轴。`RayPatternCfg` 支持 body-only attachment 变换与本地 sensor
-  offset、`min_distance`、公开 geom/tag/body/ancestor filter，以及可选
-  distance+normal 输出（`[distance, normal_x, normal_y, normal_z]`）。branch-local
+  轴。`RayPatternCfg` 支持 ring、平行 grid 与 pinhole-camera ray pattern，
+  body/yaw-only/world alignment、本地 sensor offset、`min_distance`、公开
+  geom/tag/body/ancestor filter，以及可选 normal 与 hit-point 输出。branch-local
   `ray-local` 依赖 profile 在 CUDA 与 ROCm lockfile 中均通过相对 editable path
   解析 sibling `unisim-core` 与 `uni-ray`；不涉及 PyPI 发布
   （[UniSim #472](https://github.com/unilabsim/unisim/issues/472)）。
@@ -44,17 +43,24 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   Full-scene pose aggregation covers entity-owned bodies plus the identity
   world root; uncovered non-root bodies fail closed. MuJoCo and MJWarp
   fixed-variant collision scenes and Motrix source mesh/hfield scenes follow
-  the UniSim fail-closed boundaries. The real end-to-end fixture covers
+  the UniSim fail-closed boundaries; per-row geometry variants and site frames
+  require the upstream capability tracked by
+  [UniSim #479](https://github.com/unilabsim/unisim/issues/479).
+  The real end-to-end fixture covers
   primitive geometry, static filtering, minimum distance, attachment
-  transformation, and normals; mesh/hfield numerical parity is owned by the
-  UniSim and `uni_ray` contract suites.
+  transformation, and normals; focused fake-caster tests cover grid and pinhole
+  ray geometry, yaw/world alignment, and hit-point packing; mesh/hfield
+  numerical parity is owned by the UniSim and `uni_ray` contract suites.
   首个 facade 是最小 grouped ray sensor，不是 camera：intrinsics、图像投影、
   noise、history 与 scheduling 仍属于应用逻辑。full-scene pose 聚合覆盖
   entity-owned body 与 identity world root；未覆盖的非 root body fail closed。
   MuJoCo 与 MJWarp fixed-variant collision scene 以及 Motrix source
-  mesh/hfield scene 遵循 UniSim fail-closed 边界。真实端到端 fixture 覆盖
+  mesh/hfield scene 遵循 UniSim fail-closed 边界；per-row geometry variant 与
+  site frame 需要 [UniSim #479](https://github.com/unilabsim/unisim/issues/479)
+  跟踪的上游能力。真实端到端 fixture 覆盖
   primitive geometry、static filtering、minimum distance、attachment
-  transformation 与 normal；mesh/hfield 数值 parity 由 UniSim 与 `uni_ray`
+  transformation 与 normal；grid/pinhole ray 几何、yaw/world alignment 与
+  hit-point packing 由 focused fake-caster test 覆盖；mesh/hfield 数值 parity 由 UniSim 与 `uni_ray`
   contract suite 负责。
 
 ### Changed / 变更
