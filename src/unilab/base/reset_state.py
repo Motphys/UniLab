@@ -1812,9 +1812,9 @@ class ResetStateTransaction:
         """Data plane of the packed composer for capability checks.
 
         Torch tensors on ``torch.cpu`` form the host plane; any other device
-        forms the device plane. Before the packed device is declared (cold-path
-        binds run before ``declare_packed_reset_device``) the check falls back
-        to the host plane, matching the historical declaration semantics.
+        forms the device plane. The Manager runtime declares this device before
+        cold-path event binds; standalone transactions must do the same before
+        constructing terms so capability checks match the eventual commit plane.
         """
         device = self._packed_reset_device
         if device is None or device.type == "cpu":

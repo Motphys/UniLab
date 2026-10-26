@@ -1107,6 +1107,38 @@ def test_apply_body_impulse_offset_generates_cross_torque() -> None:
     )
 
 
+@requires_cuda
+def test_apply_body_impulse_cuda_payload_stays_on_declared_device_plane() -> None:
+    env, backend, _ = _tensor_dr_env(device_reset_randomization=True, device=torch.device("cuda"))
+    backend.interval_force_supported = True
+    backend.interval_torque_supported = True
+    manager = EventManager(
+        {
+            "impulse": EventTermCfg(
+                func=mdp.apply_body_impulse,
+                mode="step",
+                params={
+                    "force_range": (1.0, 1.0),
+                    "torque_range": (0.25, 0.25),
+                    "duration_s": (1.0, 1.0),
+                    "cooldown_s": (0.0, 0.0),
+                },
+            )
+        },
+        env,
+    )
+
+    manager.apply(mode="step", dt=0.02)
+
+    assert len(backend.interval_plans) == 1
+    plan = backend.interval_plans[0]
+    for term in (INTERVAL_TERM_BODY_FORCE, INTERVAL_TERM_BODY_TORQUE):
+        op = _interval_op(plan, term)
+        assert op is not None
+        assert op.payload.device.type == "cuda", term
+        assert op.body_ids.device.type == "cuda", term
+
+
 def test_apply_body_impulse_reset_clears_active_wrench() -> None:
     env, backend, _ = _transaction_env(rng_seed=43, interval_force_supported=True)
     manager = EventManager(
@@ -1673,11 +1705,17 @@ class _TensorBackend(_Backend):
         self.device_reset_randomization = device_reset_randomization
         self.device_plane = device_plane
         self.tensor_reset_calls: list[tuple[Any, Any, Any, Any]] = []
+        view_device = torch.device("cuda" if device_plane else "cpu")
+        self.view_device = view_device
         self.body_tensor_views = {
-            "pos_w": torch.zeros((self.num_envs, 1, 3), dtype=torch.float32),
-            "quat_w": torch.zeros((self.num_envs, 1, 4), dtype=torch.float32),
-            "lin_vel_w": torch.zeros((self.num_envs, 1, 3), dtype=torch.float32),
-            "ang_vel_w": torch.zeros((self.num_envs, 1, 3), dtype=torch.float32),
+            "pos_w": torch.zeros((self.num_envs, 1, 3), dtype=torch.float32, device=view_device),
+            "quat_w": torch.zeros((self.num_envs, 1, 4), dtype=torch.float32, device=view_device),
+            "lin_vel_w": torch.zeros(
+                (self.num_envs, 1, 3), dtype=torch.float32, device=view_device
+            ),
+            "ang_vel_w": torch.zeros(
+                (self.num_envs, 1, 3), dtype=torch.float32, device=view_device
+            ),
         }
         self.body_tensor_views["quat_w"][..., 0] = 1.0
 
@@ -1713,6 +1751,7 @@ class _TensorBackend(_Backend):
             supported_reset_terms=capabilities.supported_reset_terms,
             supported_interval_terms=capabilities.supported_interval_terms,
             supported_device_reset_terms=capabilities.supported_reset_terms,
+            supported_device_interval_terms=capabilities.supported_interval_terms,
         )
 
     def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> dict:
@@ -1724,9 +1763,10 @@ class _TensorBackend(_Backend):
         return SimpleNamespace(body_names=tuple(body_names), **self.body_tensor_views)
 
     def get_state_views(self, names, device=None):
+        target = self.view_device if device is None else torch.device(device)
         return {
-            "qpos": torch.zeros((self.num_envs, 3), dtype=torch.float32),
-            "qvel": torch.zeros((self.num_envs, 3), dtype=torch.float32),
+            "qpos": torch.zeros((self.num_envs, 3), dtype=torch.float32, device=target),
+            "qvel": torch.zeros((self.num_envs, 3), dtype=torch.float32, device=target),
         }
 
     def get_sensor_view(self, name, device="cpu"):

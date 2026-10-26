@@ -47,9 +47,9 @@ materialize 冷路径补偿——热路径从不解析 XML：
   contact sensor 变为 per-link net contact force 阈值（1 N）——这是对
   geom 对 `found` 语义的近似，不是复现。
 - **执行器**：`<position kp kv>` 执行器无损导入，用
-  `control_dofs_position` 驱动；kp/kd reset 随机化受支持（DR 能力集只
-  声明 per-env 往返实测的项：body mass、base mass、kp、kd，以及
-  interval body force）。
+  `control_dofs_position` 驱动；kp/kd reset 随机化在 device plane 受支持
+  （DR 能力集只声明实测的 device reset 项：body mass、kp、kd，以及
+  interval body force 与 body torque）。
 
 ## 前置条件
 
@@ -132,6 +132,9 @@ Genesis 的 init/destroy 循环每轮泄漏 200–450 MB host RSS（REPORT
   因此 `geom_friction` reset 随机化与 `get_geom_friction` fail-closed。
 - **interval push / body-velocity-delta DR**：在构造/plan 时拒绝
   （`push_body_name`、push perturbation）。
+- **host-plane 运行时 DR**：Genesis 只接受位于其 backend 绑定
+  CUDA/AMDGPU device 上的 reset 与 interval payload。host payload 会带上
+  term 与 plane fail-closed；没有 NumPy 或 host-bridge 回退。
 - **同进程重复 `gs.init`**（见上文）。
 
 ## 跨后端迁移（sim2sim）
