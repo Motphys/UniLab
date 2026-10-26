@@ -61,6 +61,13 @@ def test_rocm_lock_contains_profile_runtime_dependencies() -> None:
     assert "numba" not in root_dependencies
 
 
+def test_rocm_profile_publishes_genesis_extra() -> None:
+    for path in (ROOT / "pyproject.toml", ROOT / "pyproject.rocm.toml"):
+        project = _project(path)
+        extras = project["project"]["optional-dependencies"]
+        assert extras["genesis"] == ["genesis-world==1.3.3"]
+
+
 def test_ray_optional_dependencies_use_published_packages() -> None:
     for path in (ROOT / "pyproject.toml", ROOT / "pyproject.rocm.toml"):
         project = _project(path)
