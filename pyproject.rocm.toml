@@ -73,6 +73,7 @@ mujoco = [
     "mjbatch-uni~=0.2.5",
 ]
 motrix = ["unisim-core[motrix]==2.2.0"]
+genesis = ["genesis-world==1.3.3"]
 # Keep the optional tensor-ray extra aligned with pyproject.toml.
 ray = ["uniray[warp]==0.1.0"]
 
