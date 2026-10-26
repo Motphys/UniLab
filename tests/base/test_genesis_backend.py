@@ -117,15 +117,33 @@ def fake_genesis(monkeypatch: pytest.MonkeyPatch):
     if not torch.cuda.is_available():
         factories = {
             name: getattr(torch, name)
-            for name in ("arange", "empty", "full", "ones", "tensor", "zeros")
+            for name in (
+                "arange",
+                "asarray",
+                "as_tensor",
+                "empty",
+                "empty_like",
+                "full",
+                "full_like",
+                "ones",
+                "ones_like",
+                "tensor",
+                "zeros",
+                "zeros_like",
+            )
         }
 
         def cuda_free_factory(original):
             def factory(*args, **kwargs):
                 device = kwargs.get("device")
-                if device is not None and torch.device(device).type == "cuda":
+                requested_cuda = device is not None and torch.device(device).type == "cuda"
+                if requested_cuda:
                     kwargs["device"] = "cpu"
-                return original(*args, **kwargs)
+                result = original(*args, **kwargs)
+                source = next((value for value in args if isinstance(value, torch.Tensor)), None)
+                if requested_cuda or getattr(source, "_fake_genesis_cuda", False):
+                    result._fake_genesis_cuda = True
+                return result
 
             return factory
 
@@ -157,6 +175,39 @@ def fake_genesis(monkeypatch: pytest.MonkeyPatch):
                 and self._genesis_backend_is_exact_cuda()
                 and bool(getattr(self._gs, "use_zerocopy", False))
             ),
+        )
+        monkeypatch.setattr(
+            GenesisBackend,
+            "_device_dr_supported",
+            lambda self: self._tensor_lifecycle_supported(),
+        )
+        original_interval_operand_plane = GenesisBackend._interval_operand_plane
+
+        def fake_interval_operand_plane(self, op):
+            operands = tuple(
+                value
+                for value in (op.payload, op.body_ids)
+                if value is not None and isinstance(value, torch.Tensor)
+            )
+            planes = {
+                "device"
+                if getattr(value, "_fake_genesis_cuda", False) or value.device.type != "cpu"
+                else "host"
+                for value in operands
+            }
+            if len(planes) > 1:
+                raise ValueError(
+                    "genesis runtime interval randomization operands must share one "
+                    f"data plane; term {op.term!r} mixes host and device tensors"
+                )
+            if planes:
+                return next(iter(planes))
+            return original_interval_operand_plane(self, op)
+
+        monkeypatch.setattr(
+            GenesisBackend,
+            "_interval_operand_plane",
+            fake_interval_operand_plane,
         )
 
         def tensor_device(self, requested=None):
@@ -607,7 +658,7 @@ def test_dr_capabilities_and_tensor_reset_randomization_boundary(
 def test_interval_randomization_and_body_force(fake_genesis, tiny_model_file: str) -> None:
     backend = _backend(tiny_model_file)
     solver = backend._scene.sim.rigid_solver
-    device = backend._device
+    device = torch.device("cuda") if not torch.cuda.is_available() else backend._device
     force = torch.ones((4, 2, 3), dtype=torch.float32, device=device)
     torque = torch.full_like(force, 0.25)
     backend.apply_interval_randomization(
@@ -623,7 +674,7 @@ def test_interval_randomization_and_body_force(fake_genesis, tiny_model_file: st
                     torque,
                     body_ids=torch.as_tensor([1, 3], dtype=torch.int64, device=device),
                 ),
-            )
+            ),
         )
     )
     # The single-entity lane submits one solver force call per selected body;
@@ -669,18 +720,19 @@ def test_interval_randomization_and_body_force(fake_genesis, tiny_model_file: st
     selected_angular[1] = angular[1, 0].cpu()
     velocity_before = entity.qvel.clone()
     qpos_before = entity.qpos.clone()
+    linear_ids = torch.as_tensor([1], dtype=torch.int64, device=device)
     backend.apply_interval_randomization(
         IntervalRandomizationPlan(
             ops=(
                 IntervalTermOp(
                     INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA,
                     linear,
-                    body_ids=torch.as_tensor([1], dtype=torch.int64, device=device),
+                    body_ids=linear_ids,
                 ),
                 IntervalTermOp(
                     INTERVAL_TERM_BODY_ANGULAR_VELOCITY_DELTA,
                     angular,
-                    body_ids=torch.as_tensor([1], dtype=torch.int64, device=device),
+                    body_ids=linear_ids,
                 ),
             )
         )
@@ -721,7 +773,7 @@ def test_interval_randomization_and_body_force(fake_genesis, tiny_model_file: st
                     IntervalTermOp(
                         INTERVAL_TERM_BODY_FORCE,
                         torch.zeros((4, 2, 3), dtype=torch.float32, device=device),
-                        body_ids=torch.as_tensor([1], dtype=torch.int64, device=device),
+                        body_ids=linear_ids,
                     ),
                 )
             )
