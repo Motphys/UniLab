@@ -305,6 +305,9 @@ def test_demo_positional_completes_all_demo_names(tmp_path: Path) -> None:
 
     choices = complete_words(["uv", "run", "demo", ""], 3, metadata)
     assert choices == [
+        "a1-bimanual",
+        "a1-left-arm",
+        "a1-right-arm",
         "dance",
         "teaser",
     ]
@@ -316,6 +319,7 @@ def test_demo_positional_filters_by_prefix(tmp_path: Path) -> None:
 
     assert complete_words(["uv", "run", "demo", "d"], 3, metadata) == ["dance"]
     assert complete_words(["uv", "run", "demo", "t"], 3, metadata) == ["teaser"]
+    assert complete_words(["uv", "run", "demo", "a1-l"], 3, metadata) == ["a1-left-arm"]
 
 
 def test_demo_flags_completed_after_demo_name(tmp_path: Path) -> None:
