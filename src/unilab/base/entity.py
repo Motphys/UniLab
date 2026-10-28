@@ -2405,16 +2405,14 @@ class Entity:
         root_body_ids: np.ndarray | None,
         body_ids: np.ndarray | None,
     ) -> None:
-        """Validate mapped selections against immutable public layout addresses.
+        """Validate mapped joint and body addresses without reading live state.
 
-        DEVICE_RESIDENT mapped backends intentionally close their legacy host
-        state getters after materialization.  Entity construction is cold and
-        contract-only here: selected column and body addresses were already
-        resolved through public name APIs, so validate their bounds against the
-        immutable scene layout rather than copying live CUDA state to host.
+        Cold DEVICE_RESIDENT construction checks joint columns against the
+        immutable scene layout. Public body names bind scene model IDs to
+        backend body-state rows, allowing selection validation after legacy
+        host state slots are released and without copying CUDA state to host.
         """
         assert physical_entity is not None
-        owner = layout.get_entity(physical_entity)
         if pos_ids is not None and pos_ids.size and int(np.max(pos_ids)) >= layout.nq:
             raise ValueError(
                 f"Entity '{self.name}' joint position index {int(np.max(pos_ids))} "
@@ -2425,20 +2423,52 @@ class Entity:
                 f"Entity '{self.name}' joint velocity index {int(np.max(vel_ids))} "
                 f"exceeds mapped qvel width {layout.nv}"
             )
+
+        # SceneLayout body IDs are model addresses and may include unowned world
+        # rows. Backend body IDs address public body-state storage and need not
+        # use the same origin. Bind the two cold-path layouts by public name,
+        # then keep using backend rows for state reads, reset and randomization.
+        layout_body_names = tuple(
+            f"{entity.name}/{body_name}"
+            for entity in layout.entities
+            for body_name in entity.body_names
+        )
+        layout_body_ids = layout.get_body_ids(layout_body_names)
+        body_state_rows = self._resolve_ids(
+            "mapped body state", layout_body_names, self._backend.get_body_ids
+        )
+        body_state_width = int(np.max(body_state_rows)) + 1 if body_state_rows.size else 0
+        row_by_layout_id = dict(zip(layout_body_ids, body_state_rows, strict=True))
         for label, ids in (("root body", root_body_ids), ("body", body_ids)):
-            if ids is not None and ids.size and int(np.max(ids)) >= layout.nbody:
+            if ids is not None and ids.size and int(np.max(ids)) >= body_state_width:
                 raise ValueError(
-                    f"Entity '{self.name}' {label} id {int(np.max(ids))} exceeds "
-                    f"mapped body count {layout.nbody}"
+                    f"Entity '{self.name}' {label} row {int(np.max(ids))} exceeds "
+                    f"mapped body-state count {body_state_width}"
                 )
-        expected_root = owner.body_ids[owner.body_names.index(owner.root_body)]
         if root_body_ids is not None and len(root_body_ids) != 1:
             raise ValueError(f"Entity '{self.name}' root body selection must contain one row")
-        if root_body_ids is not None and int(root_body_ids[0]) != expected_root:
-            raise ValueError(
-                f"Entity '{self.name}' selected root body {int(root_body_ids[0])}; "
-                f"mapped layout declares {expected_root}"
+
+        selections = (
+            (
+                "root body",
+                (self.root_body_name,) if self.root_body_name is not None else None,
+                root_body_ids,
+            ),
+            ("body", self._body_names, body_ids),
+        )
+        for label, names, ids in selections:
+            if ids is None:
+                continue
+            assert names is not None
+            expected_rows = np.asarray(
+                [row_by_layout_id[body_id] for body_id in layout.get_body_ids(names)],
+                dtype=np.intp,
             )
+            if not np.array_equal(ids, expected_rows):
+                raise ValueError(
+                    f"Entity '{self.name}' selected {label} rows {ids.tolist()}; "
+                    f"mapped body-state layout declares {expected_rows.tolist()}"
+                )
 
     def _validate_body_state(
         self,
