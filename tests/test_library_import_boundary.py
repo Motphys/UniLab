@@ -199,12 +199,26 @@ def test_rl_layer_respects_internal_dag(layer: str) -> None:
     assert violations == [], f"src/unilab/rl/{layer} violates the RL-internal DAG: {violations}"
 
 
-@pytest.mark.parametrize("forbidden", _RL_DAG_FORBIDDEN["adapters"])
+@pytest.mark.parametrize(
+    "forbidden",
+    (
+        "unilab.training",
+        "unilab.base",
+        "unilab.rl.algos",
+        "unilab.envs",
+        "unilab.tasks",
+        "unilab.managers",
+        "unilab.scripts",
+        "unisim",
+    ),
+)
 def test_layer_violations_catches_forbidden_adapter_imports(tmp_path: Path, forbidden: str) -> None:
     path = tmp_path / "forbidden.py"
     path.write_text(f"from {forbidden} import marker\n", encoding="utf-8")
 
-    assert _layer_violations(tmp_path, (forbidden,)) == [(path.as_posix(), forbidden)]
+    assert _layer_violations(tmp_path, _RL_DAG_FORBIDDEN["adapters"]) == [
+        (path.as_posix(), forbidden)
+    ]
 
 
 def test_layer_violations_allows_adapter_contracts_typing_import(tmp_path: Path) -> None:
