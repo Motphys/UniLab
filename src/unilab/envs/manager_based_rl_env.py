@@ -1535,12 +1535,13 @@ class ManagerBasedRlEnv(TorchEnv):
         options: dict[str, Any] | None = None,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
         """Execute the selected-row (``env_ids``) Manager reset lifecycle."""
-        del options
+        if options:
+            raise NotImplementedError("ManagerBasedRlEnv.reset does not support options")
+        if seed is not None:
+            self.seed(seed)
         if self._state is None:
             state = self.init_state()
             return state.obs, {"log": state.info.get("log", {})}
-        if seed is not None:
-            self.seed(seed)
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
             reset_mask = self._all_env_reset_mask
