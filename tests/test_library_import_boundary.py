@@ -63,9 +63,16 @@ def _imports(path: Path) -> set[str]:
     return modules
 
 
+def _display_path(path: Path) -> str:
+    try:
+        return path.relative_to(_REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def _layer_violations(root: Path, forbidden: tuple[str, ...]) -> list[tuple[str, str]]:
     return [
-        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        (_display_path(path), module)
         for path in sorted(root.rglob("*.py"))
         for module in sorted(_imports(path))
         if any(module == layer or module.startswith(f"{layer}.") for layer in forbidden)
@@ -175,7 +182,12 @@ _RL_DAG_FORBIDDEN: dict[str, tuple[str, ...]] = {
     "adapters": (
         "unilab.training",
         "unilab.base",
-        "unilab.algos",
+        "unilab.rl.algos",
+        "unilab.envs",
+        "unilab.tasks",
+        "unilab.managers",
+        "unilab.scripts",
+        "unisim",
     ),
 }
 
@@ -185,6 +197,40 @@ def test_rl_layer_respects_internal_dag(layer: str) -> None:
     violations = _layer_violations(_RL_PACKAGE / layer, _RL_DAG_FORBIDDEN[layer])
 
     assert violations == [], f"src/unilab/rl/{layer} violates the RL-internal DAG: {violations}"
+
+
+@pytest.mark.parametrize(
+    "forbidden",
+    (
+        "unilab.training",
+        "unilab.base",
+        "unilab.rl.algos",
+        "unilab.envs",
+        "unilab.tasks",
+        "unilab.managers",
+        "unilab.scripts",
+        "unisim",
+    ),
+)
+def test_layer_violations_catches_forbidden_adapter_imports(tmp_path: Path, forbidden: str) -> None:
+    path = tmp_path / "forbidden.py"
+    path.write_text(f"from {forbidden} import marker\n", encoding="utf-8")
+
+    assert _layer_violations(tmp_path, _RL_DAG_FORBIDDEN["adapters"]) == [
+        (path.as_posix(), forbidden)
+    ]
+
+
+def test_layer_violations_allows_adapter_contracts_typing_import(tmp_path: Path) -> None:
+    path = tmp_path / "allowed.py"
+    path.write_text(
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from unilab.rl.contracts import observations\n",
+        encoding="utf-8",
+    )
+
+    assert _layer_violations(tmp_path, _RL_DAG_FORBIDDEN["adapters"]) == []
 
 
 def test_rl_logging_does_not_import_other_unilab_layers() -> None:
