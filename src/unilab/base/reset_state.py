@@ -37,7 +37,6 @@ from unisim.dr.types import (
     RESET_TERM_KD,
     RESET_TERM_KP,
     RESET_TERM_SPECS,
-    DataPlaneName,
 )
 from unisim.entities import EntityStatePatch, SceneResetRequest
 from unisim.scene_layout import CompiledSceneLayout
@@ -1808,19 +1807,6 @@ class ResetStateTransaction:
         assert device is not None
         return ids.to(dtype=torch.int64, device=device)
 
-    def _packed_reset_plane(self) -> DataPlaneName:
-        """Data plane of the packed composer for capability checks.
-
-        Torch tensors on ``torch.cpu`` form the host plane; any other device
-        forms the device plane. The Manager runtime declares this device before
-        cold-path event binds; standalone transactions must do the same before
-        constructing terms so capability checks match the eventual commit plane.
-        """
-        device = self._packed_reset_device
-        if device is None or device.type == "cpu":
-            return "host"
-        return "device"
-
     def _packed_values(self, values: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Move validated values into the packed composer as float32, on device."""
         device = self._packed_reset_device
@@ -1912,9 +1898,7 @@ class ResetStateTransaction:
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error(term_name, "actuator gain randomization", exc) from exc
         required = frozenset((RESET_TERM_KP, RESET_TERM_KD))
-        unsupported = capabilities.get_unsupported_reset_terms(
-            required, plane=self._packed_reset_plane()
-        )
+        unsupported = capabilities.get_unsupported_reset_terms(required)
         if unsupported:
             detail = ", ".join(sorted(unsupported))
             raise self._capability_error(
@@ -1957,9 +1941,7 @@ class ResetStateTransaction:
             capabilities = self._backend.get_dr_capabilities()
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error(term_name, f"{field} randomization", exc) from exc
-        unsupported = capabilities.get_unsupported_reset_terms(
-            frozenset((field,)), plane=self._packed_reset_plane()
-        )
+        unsupported = capabilities.get_unsupported_reset_terms(frozenset((field,)))
         if unsupported:
             raise self._capability_error(
                 term_name,

@@ -33,11 +33,10 @@ provider protocol and the environment does not carry a DR manager.
 
 Backend differences are explicit capabilities, not task-side branches:
 
-- `DomainRandomizationCapabilities.supported_reset_terms` — host plane
-  (`torch.cpu` payloads)
-- `supported_interval_terms` — host plane
-- `supported_device_reset_terms` / `supported_device_interval_terms` — device
-  plane (CUDA payloads); an empty set fails closed
+- `DomainRandomizationCapabilities.supported_reset_terms` — every reset term the
+  backend supports through the public DR path
+- `supported_interval_terms` — every interval term the backend supports through
+  the public DR path
 - fixed-variant layouts
 - per-environment playback support
 - `TensorLifecycleCapabilities.packed_reset` with
@@ -45,11 +44,13 @@ Backend differences are explicit capabilities, not task-side branches:
   startup DR lifecycle; a missing declaration fails closed at env
   construction.
 
-The payload tensors' device selects the plane: `torch.cpu` payloads negotiate
-the host term sets and CUDA payloads the device term sets. An unadvertised
-requested term fails closed with the backend, term, and plane named.
-Manager code never imports MuJoCo or mjbatch and never accesses a backend model
-or pool.
+These are single, plane-independent term sets. Manager capability negotiation
+does not inspect the payload device or pass a plane. CPU/GPU execution and any
+required internal conversion belong to the backend adapter, not to separate
+public capability sets. An unadvertised requested term fails closed with the
+backend and term named; a backend may also reject payloads that violate its
+device or lifecycle contract. Manager code never imports MuJoCo or mjbatch and
+never accesses a backend model or pool.
 
 ## Reset Payload And Defaults
 
@@ -89,10 +90,10 @@ the former UniLab-side MuJoCo recompilation used to obtain inertia defaults.
 Interval plans are term-descriptor based: `IntervalRandomizationPlan.ops`
 carries `IntervalTermOp` entries from `unisim.dr.interval`. Payloads are
 torch-first: `IntervalTermOp.payload` is a torch tensor or a
-`TensorIntervalPayload` whose device selects the plane, and push is
-producer-sampled on every backend — backend-internal global-RNG push sampling
-no longer exists. Builtin payload contracts are enforced by
-`IntervalTermOp.validate`; unknown backend-owned custom terms pass through to
+`TensorIntervalPayload`; push is producer-sampled on every backend —
+backend-internal global-RNG push sampling no longer exists. Builtin payload
+contracts are enforced by `IntervalTermOp.validate`; unknown backend-owned
+custom terms pass through to
 that backend's handler table. Plans that cross spawn collectors carry sampling
 ranges rather than tensors; device payloads are process-local.
 

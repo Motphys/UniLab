@@ -47,11 +47,11 @@ materialize 冷路径补偿——热路径从不解析 XML：
   contact sensor 变为 per-link net contact force 阈值（1 N）——这是对
   geom 对 `found` 语义的近似，不是复现。
 - **执行器**：`<position kp kv>` 执行器无损导入，用
-  `control_dofs_position` 驱动；kp/kd reset 随机化在 device plane 受支持
-  （DR 能力集只声明实测的 device reset 项：body mass、kp、kd，以及
-  base-mass delta、body CoM / base-CoM delta、kp、kd；device interval 集
-  另覆盖 body force、body torque，以及世界系 root 线速度与 root 本体系
-  角速度 delta）。
+  `control_dofs_position` 驱动；kp/kd reset 随机化通过 device-resident
+  生命周期受支持。统一 DR 能力集只声明实测的 reset 项：body mass、
+  base-mass delta、body CoM / base-CoM delta、kp、kd；interval 集另覆盖
+  body force、body torque，以及世界系 root 线速度与 root 本体系角速度
+  delta。
 
 ## 前置条件
 
