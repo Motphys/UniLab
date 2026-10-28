@@ -615,7 +615,7 @@ def _build_appo_actor(
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
-    from unilab.rl.contracts.observations import get_obs_dims
+    from unilab.base.contracts.observations import get_obs_dims
 
     action_shape = env.action_space.shape
     if action_shape is None:
@@ -751,14 +751,14 @@ def extract_reset_obs(reset_result):
 
 
 def resolve_play_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:
-    from unilab.rl.contracts.observations import get_obs_dims
+    from unilab.base.contracts.observations import get_obs_dims
 
     obs_dim, critic_obs_dim = get_obs_dims(obs_groups_spec)
     return int(obs_dim), int(critic_obs_dim)
 
 
 def extract_play_obs(obs_dict: dict[str, torch.Tensor]) -> torch.Tensor:
-    from unilab.rl.contracts.observations import split_obs_dict
+    from unilab.base.contracts.observations import split_obs_dict
 
     obs_out, _ = split_obs_dict(obs_dict)
     return obs_out

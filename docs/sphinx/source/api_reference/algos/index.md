@@ -16,7 +16,7 @@ The PPO (RSL-RL) integration lives in `unilab.rl.adapters.rsl_rl`:
 
 UniLab keeps the training *entrypoints* (`src/unilab/scripts/train_*.py`),
 which inject environments into the RL runners through
-`unilab.rl.contracts.env.EnvFactory`; see `src/unilab/base/env_factory.py` for the
+`unilab.base.contracts.env.EnvFactory`; see `src/unilab/base/env_factory.py` for the
 registry-backed adapter.
 
 All trainers conform to a single runner contract — see

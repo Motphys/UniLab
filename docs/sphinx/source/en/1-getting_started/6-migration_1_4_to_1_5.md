@@ -28,7 +28,7 @@ the restored form — for example
 | `EventTermCfg.min_step_count_between_reset` | ignored for reset events | per-row trigger filtering restored (1.3.x semantics) |
 | Reset owners | `reset_transaction(reset_mask)` / `reset_committed(reset_mask)` | `reset_transaction(env_ids)` / `reset_committed(env_ids)` |
 | Recorder hooks | `record_pre_reset(reset_mask)` / `record_post_reset(reset_mask)` | `record_pre_reset(env_ids)` / `record_post_reset(env_ids)` |
-| RL env contract | `EnvProtocol.reset(env_indices)` | `EnvProtocol.reset(env_ids)` (see `src/unilab/rl/contracts/env.py`) |
+| RL env contract | `EnvProtocol.reset(env_indices)` | `EnvProtocol.reset(env_ids)` (see `src/unilab/base/contracts/env.py`) |
 
 `env_ids` is a one-dimensional integer tensor of row indices; `None` (and, at
 manager boundaries, a `slice`) selects every row. The restored form matches

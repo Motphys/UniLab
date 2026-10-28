@@ -54,14 +54,15 @@ architecture changes.
 
 - UniLab provides environments and adapters, and now also owns the RL
   algorithm and training-execution stack in `unilab.rl` (merged from the
-  unilab_rl repo @ 3654e4b). Its layers: `contracts` (env injection and
-  observation semantics), `adapters/rsl_rl`, `algos` (APPO/SAC/FlashSAC),
-  `runtime` (distributed/ipc/offpolicy), and `logging`. Internal DAG:
-  `contracts` depends only on type/tensor libraries; `runtime` must not
-  depend on `algos`/`training`/`base`; `algos` must not construct concrete
-  envs; the RL core must not import `base`/`envs`/`tasks`/`managers`/
-  `training`/`scripts`/`unisim`. These boundaries are guarded by
-  `tests/test_library_import_boundary.py`. The PPO path is a direct rsl-rl
+  unilab_rl repo @ 3654e4b). The env-injection contract and observation
+  semantics live in `unilab.base.contracts`; the `unilab.rl` layers are
+  `adapters/rsl_rl`, `algos` (APPO/SAC/FlashSAC), `runtime`
+  (distributed/ipc/offpolicy), and `logging`. Internal DAG: `base.contracts`
+  depends only on type/tensor libraries; `runtime` must not depend on
+  `algos`/`training`/`base`; `algos` must not construct concrete envs; the RL
+  core must not import `base`/`envs`/`tasks`/`managers`/`training`/`scripts`/
+  `unisim` except the `unilab.base.contracts` leaf. These boundaries are
+  guarded by `tests/test_library_import_boundary.py`. The PPO path is a direct rsl-rl
   integration (`unilab.rl.adapters.rsl_rl`: VecEnv adapter and distributed
   helpers; runner and algorithm are upstream rsl-rl). The env factory must
   be a pickleable `EnvFactory` for spawn collectors. The `unilab.rl`,

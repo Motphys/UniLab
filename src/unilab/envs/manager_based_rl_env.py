@@ -32,6 +32,7 @@ from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,
     MANAGER_TERM_MAPPING_POLICY,
 )
+from unilab.base.contracts.env import EnvAlgoCapabilities
 from unilab.base.cpu_runtime import apply_cpu_confinement
 from unilab.base.entity import EntityCfg, EntityScene, SceneTensorReadPlan, SceneTensorReadSpec
 from unilab.base.reset_selectors import ResetMaskBuffer, resolve_reset_env_ids
@@ -74,7 +75,6 @@ from unilab.managers import (
     TerminationTermCfg,
 )
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.rl.contracts.env import EnvAlgoCapabilities
 
 
 def _finite_real(value: Any) -> bool:

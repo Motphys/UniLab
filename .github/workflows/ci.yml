@@ -73,7 +73,7 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: |
-          uv sync \
+          uv sync --extra unirl \
             --no-install-package torch \
             --no-install-package nvidia-cublas-cu12 \
             --no-install-package nvidia-cuda-cupti-cu12 \
@@ -109,7 +109,7 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: |
-          uv sync \
+          uv sync --extra unirl \
             --no-install-package torch \
             --no-install-package nvidia-cublas-cu12 \
             --no-install-package nvidia-cuda-cupti-cu12 \
@@ -228,7 +228,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libwayland-client0
       - name: Install dependencies
         run: |
-          uv sync --extra mujoco --extra mjwarp \
+          uv sync --extra mujoco --extra mjwarp --extra unirl \
             --no-install-package torch \
             --no-install-package nvidia-cublas-cu12 \
             --no-install-package nvidia-cuda-cupti-cu12 \

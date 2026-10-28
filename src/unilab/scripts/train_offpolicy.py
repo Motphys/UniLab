@@ -262,7 +262,12 @@ def build_offpolicy_play_env_cfg_override(algo_name: str, cfg: DictConfig) -> di
 
 
 def build_runner(algo_name: str, cfg: DictConfig, log_dir: str | None = None):
-    """Build algorithm runner from unified Hydra config."""
+    """Build algorithm runner from unified Hydra config.
+
+    Internal script entry point (``unilab.scripts.train_offpolicy``); not a
+    public API. Drive training through the ``train``/``eval`` CLI entry points
+    rather than importing this function from a downstream package.
+    """
     # Cold-path DP CPU partition: each rank's collector owns one contiguous
     # CPU block (single rank keeps the legacy unset behavior). The ids only
     # reach the collector env override — never the num_envs=1 probe envs,

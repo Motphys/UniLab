@@ -119,7 +119,7 @@ language-independent absolute path.
    - algorithms and tasks: `src/unilab/conf/`, `src/unilab/scripts/train_*.py`,
      `src/unilab/rl/algos/`
    - env contract: `src/unilab/base/torch_env.py`,
-     `src/unilab/rl/contracts/env.py`
+     `src/unilab/base/contracts/env.py`
    - backend contract: `unisim.backend.base`
    - registry: `src/unilab/base/registry.py`
    - runner/IPC: `src/unilab/rl/runtime/async_runner.py`,
