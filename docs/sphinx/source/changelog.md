@@ -13,6 +13,76 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.5.3 (2026-10-29)
+
+### Added / 新增
+
+- Manager action terms that require state feedback can now recompute control on
+  every physics substep. The Manager refreshes public packed state, reapplies
+  the action, and steps the backend once per substep while preserving the
+  existing one-control-per-step behavior for feed-forward terms
+  ([#2535](https://github.com/Motphys/UniLab/issues/2535)).
+  需要 state feedback 的 Manager action term 现在可以在每个 physics substep
+  重新计算控制。Manager 会刷新公开 packed state、重新应用 action，并按
+  substep 单独推进 backend；feed-forward term 仍保持每步一次控制的既有行为
+  （[#2535](https://github.com/Motphys/UniLab/issues/2535)）。
+
+### Changed / 变更
+
+- The public environment contracts moved from `unilab.rl.contracts` to
+  `unilab.base.contracts`, and the old namespace is removed. Environment
+  construction no longer imports the RL algorithm stack, `unilab.base` can load
+  the contracts lazily without UniSim, and training dependencies such as
+  TensorBoard, TensorDict, rsl-rl, and W&B are available through the single
+  `unirl` extra instead of the base environment install
+  ([#2542](https://github.com/Motphys/UniLab/issues/2542)).
+  公共 environment contract 从 `unilab.rl.contracts` 移到
+  `unilab.base.contracts`，旧命名空间已删除。环境构造不再导入 RL algorithm
+  stack；`unilab.base` 可以在不加载 UniSim 的情况下 lazy 加载 contract；
+  TensorBoard、TensorDict、rsl-rl 与 W&B 等训练依赖改由单一的 `unirl`
+  extra 提供，不再进入基础 environment 安装
+  （[#2542](https://github.com/Motphys/UniLab/issues/2542)）。
+- Manager reset and interval randomization now consume UniSim's unified
+  capability sets instead of negotiating separate host and device planes. The
+  default and ROCm profiles pin `unisim-core==2.2.3`, and backend payload and
+  device-execution obligations remain fail-closed
+  ([#2550](https://github.com/Motphys/UniLab/issues/2550)).
+  Manager reset 与 interval randomization 现在消费 UniSim 的统一 capability
+  set，不再分别协商 host/device plane。默认与 ROCm profile 均钉定
+  `unisim-core==2.2.3`；backend payload 和设备执行义务仍然 fail closed
+  （[#2550](https://github.com/Motphys/UniLab/issues/2550)）。
+- The unused `options` parameter is removed from
+  `ManagerBasedRlEnv.reset()`; passing it now raises the normal Python
+  unexpected-keyword `TypeError` without a compatibility layer
+  ([#2538](https://github.com/Motphys/UniLab/issues/2538)).
+  `ManagerBasedRlEnv.reset()` 删除了未使用的 `options` 参数；传入该参数会按
+  Python 常规行为抛出 unexpected-keyword `TypeError`，没有兼容层
+  （[#2538](https://github.com/Motphys/UniLab/issues/2538)）。
+
+### Fixed / 修复
+
+- Mapped Entity body selections are now bound to backend body-state rows by
+  public body name. Scene-layout body IDs remain model addresses, so packed
+  backends may omit the world row without confusing the two address spaces
+  ([#2535](https://github.com/Motphys/UniLab/issues/2535)).
+  Mapped Entity 的 body 选择现在按公开 body name 绑定到 backend body-state
+  row。Scene-layout body ID 继续表示 model 地址，因此 packed backend 可以省略
+  world row，而不会混淆两种地址空间
+  （[#2535](https://github.com/Motphys/UniLab/issues/2535)）。
+- An explicit seed passed to `reset()` is applied before cold-path state
+  initialization, so initialization and reset randomization consume the
+  requested seed ([#2538](https://github.com/Motphys/UniLab/issues/2538)).
+  显式传入 `reset()` 的 seed 现在会在冷路径 state initialization 之前应用，
+  initialization 与 reset randomization 都会消费该 seed
+  （[#2538](https://github.com/Motphys/UniLab/issues/2538)）。
+- Interactive playback now resolves checkpoints and runs sim2sim contract
+  preflight before constructing playback environments for rsl-rl, APPO, SAC,
+  and FlashSAC sessions
+  ([#2539](https://github.com/Motphys/UniLab/issues/2539)).
+  Interactive playback 现在会先解析 checkpoint 并执行 sim2sim contract
+  preflight，然后再为 rsl-rl、APPO、SAC 与 FlashSAC session 构造 playback
+  环境（[#2539](https://github.com/Motphys/UniLab/issues/2539)）。
+
 ## 1.5.2 (2026-10-27)
 
 ### Added / 新增
