@@ -3556,26 +3556,6 @@ def test_cold_reset_applies_seed_before_initialization() -> None:
         different.close()
 
 
-@pytest.mark.parametrize("options", [None, {}])
-def test_cold_reset_accepts_empty_options(options: dict[str, object] | None) -> None:
-    env, _ = _make_env()
-    try:
-        env.reset(options=options)
-        assert env.state is not None
-    finally:
-        env.close()
-
-
-def test_reset_rejects_options_before_cold_initialization() -> None:
-    env, _ = _make_env()
-    try:
-        with pytest.raises(NotImplementedError, match="does not support options"):
-            env.reset(options={"mode": "evaluation"})
-        assert env.state is None
-    finally:
-        env.close()
-
-
 def test_reset_seed_updates_the_shared_generator_in_place() -> None:
     cfg = _make_cfg(include_optional_managers=False)
     cfg.events = {}
