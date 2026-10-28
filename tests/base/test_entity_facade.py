@@ -13,9 +13,11 @@ from unisim.backend.base import (
     MocapPoseBinding,
     RootStateLayout,
     SimBackend,
+    TensorExecution,
     TrackedBodyStateViews,
 )
 from unisim.dr.types import DomainRandomizationCapabilities
+from unisim.scene_layout import CompiledSceneLayout, EntityLayout
 
 import unilab.base.entity as entity_module
 from unilab.assets import ASSETS_ROOT_PATH
@@ -894,3 +896,122 @@ def test_scene_exposes_read_only_community_entities_and_zero_origins() -> None:
     assert origins.shape == (3, 3)
     torch.testing.assert_close(origins, torch.zeros_like(origins))
     assert not origins.requires_grad
+
+
+@pytest.mark.parametrize("excluded_world_rows", [0, 1], ids=["whole-mjcf", "packed-state"])
+def test_mapped_multi_entity_body_addresses_use_backend_state_rows(
+    excluded_world_rows: int,
+) -> None:
+    def physical_entity(name: str, first_body_id: int) -> EntityLayout:
+        return EntityLayout(
+            name=name,
+            kind="rigid",
+            root_mode="fixed",
+            root_body="wrist",
+            body_names=("wrist", "finger"),
+            body_ids=(first_body_id, first_body_id + 1),
+            body_parent_names=(None, "wrist"),
+            joints=(),
+            actuator_names=(),
+            actuator_joint_names=(),
+            actuator_indices=(),
+        )
+
+    layout = CompiledSceneLayout(
+        entities=(physical_entity("left_hand", 1), physical_entity("right_hand", 3)),
+        nq=0,
+        nv=0,
+        nu=0,
+        nbody=5,
+    )
+
+    class Backend:
+        backend_type = "fake"
+        num_envs = 2
+        num_actuators = 0
+
+        def __init__(self) -> None:
+            self.model_ids = {
+                f"{entity.name}/{body_name}": body_id
+                for entity in layout.entities
+                for body_name, body_id in zip(entity.body_names, entity.body_ids, strict=True)
+            }
+            self.state_rows = {
+                name: body_id - excluded_world_rows for name, body_id in self.model_ids.items()
+            }
+            self.body_pos = np.zeros(
+                (self.num_envs, layout.nbody - excluded_world_rows, 3), dtype=np.float32
+            )
+            for name, row in self.state_rows.items():
+                self.body_pos[:, row, 0] = self.model_ids[name]
+
+        def get_tensor_capabilities(self):
+            from unisim.backend.base import TensorDataPlane, TensorLifecycleCapabilities
+
+            return TensorLifecycleCapabilities(
+                execution=TensorExecution.DEVICE_RESIDENT,
+                data_plane=TensorDataPlane.DIRECT,
+                stream_event_ownership="test",
+                torch_devices=("cpu",),
+            )
+
+        def get_entity_default_state(self, name: str):
+            return {
+                "root_pose": np.tile(
+                    np.asarray([0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+                    (self.num_envs, 1),
+                ),
+                "root_velocity": np.zeros((self.num_envs, 6), dtype=np.float32),
+                "joint_positions": np.zeros((self.num_envs, 0), dtype=np.float32),
+                "joint_velocities": np.zeros((self.num_envs, 0), dtype=np.float32),
+            }
+
+        def get_body_ids(self, names) -> np.ndarray:
+            return np.asarray([self.state_rows[name] for name in names], dtype=np.int32)
+
+        def get_tracked_body_views(self, body_names, device=None) -> TrackedBodyStateViews:
+            del device
+            names = tuple(body_names)
+            rows = np.asarray([self.state_rows[name] for name in names], dtype=np.intp)
+            quat = np.zeros((self.num_envs, len(names), 4), dtype=np.float32)
+            quat[..., 0] = 1.0
+            return TrackedBodyStateViews(
+                body_names=names,
+                pos_w=torch.from_numpy(self.body_pos[:, rows].copy()),
+                quat_w=torch.from_numpy(quat),
+                lin_vel_w=torch.zeros((self.num_envs, len(names), 3)),
+                ang_vel_w=torch.zeros((self.num_envs, len(names), 3)),
+            )
+
+    backend = Backend()
+    transaction = ResetStateTransaction(cast(SimBackend, backend), scene_layout=layout)
+    entities = {}
+    for name, first_body_id in (("left_hand", 1), ("right_hand", 3)):
+        entities[name] = Entity(
+            name,
+            EntityCfg(
+                root_body_name=f"{name}/wrist",
+                body_names=(f"{name}/wrist", f"{name}/finger"),
+                physical_entity=name,
+            ),
+            cast(SimBackend, backend),
+            reset_state=transaction,
+        )
+        expected_rows = np.asarray(
+            [first_body_id - excluded_world_rows, first_body_id + 1 - excluded_world_rows],
+            dtype=np.int32,
+        )
+        np.testing.assert_array_equal(entities[name]._root_body_ids, expected_rows[:1])
+        np.testing.assert_array_equal(entities[name]._body_ids, expected_rows)
+        _, _, reset_rows = entities[name]._bind_body_randomization(
+            None, capability="test body reset rows"
+        )
+        np.testing.assert_array_equal(reset_rows, expected_rows)
+
+        copy_body_state = entities[name].bind_body_state_copy()
+        out_pos = np.zeros((2, 2, 3), dtype=np.float32)
+        out_quat = np.zeros((2, 2, 4), dtype=np.float32)
+        out_lin_vel = np.zeros((2, 2, 3), dtype=np.float32)
+        out_ang_vel = np.zeros((2, 2, 3), dtype=np.float32)
+        copy_body_state(out_pos, out_quat, out_lin_vel, out_ang_vel)
+        np.testing.assert_array_equal(out_pos[0, :, 0], [first_body_id, first_body_id + 1])

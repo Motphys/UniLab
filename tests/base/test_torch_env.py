@@ -14,6 +14,8 @@ import numpy as np
 import pytest
 import torch
 from unisim.backend.base import (
+    COMPLETION_CONTRACT_VERSION,
+    CompletionToken,
     SimBackend,
     TensorDataPlane,
     TensorExecution,
@@ -202,6 +204,59 @@ def test_step_uses_backend_tensor_contract_and_autoreset() -> None:
         assert state.info["timing"][key] >= 0.0
     assert "final_observation" not in state.info
     assert "_final_observation" not in state.info
+
+
+def test_substep_feedback_preserves_control_timing_and_final_completion() -> None:
+    class _FeedbackEnv(_StubTorchEnv):
+        @property
+        def requires_substep_state_feedback(self) -> bool:
+            return True
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.feedback_control = torch.zeros((self.num_envs, 4), dtype=torch.float32)
+            self.substep_applies = 0
+
+        def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
+            self.feedback_control = super().apply_action(actions, state)
+            return self.feedback_control
+
+        def apply_substep_action(self) -> torch.Tensor:
+            self.substep_applies += 1
+            self.feedback_control.add_(1.0)
+            return self.feedback_control
+
+    backend = _backend()
+    completions = [
+        CompletionToken(
+            contract_version=COMPLETION_CONTRACT_VERSION,
+            operation="step",
+            sequence=index,
+            producer_id="test",
+        )
+        for index in range(5)
+    ]
+    controls: list[torch.Tensor] = []
+
+    def step_tensor(ctrl: torch.Tensor, nsteps: int) -> dict[str, Any]:
+        assert nsteps == 1
+        controls.append(ctrl.clone())
+        index = len(controls) - 1
+        return {"timing": {"physics_ms": float(index + 1)}, "completion": completions[index]}
+
+    backend.step_tensor.side_effect = step_tensor
+    cfg = _StubCfg(ctrl_dt=0.5)
+    env = _FeedbackEnv(cfg=cfg, backend=backend, terminate=False)
+    env.init_state()
+    state = env.step(_actions(env))
+
+    assert env.substep_applies == 4
+    assert backend.step_tensor.call_count == 5
+    expected = torch.stack([torch.full((3, 4), float(index)) for index in range(5)])
+    torch.testing.assert_close(torch.stack(controls), expected)
+    assert state.info["timing"]["backend_physics_ms"] == 15.0
+    assert state.info["completion"] is completions[-1]
+    assert env._pending_backend_step_completion is None
 
 
 def test_unsupported_backend_tensor_runtime_fails_closed() -> None:
