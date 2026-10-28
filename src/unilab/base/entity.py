@@ -2405,13 +2405,12 @@ class Entity:
         root_body_ids: np.ndarray | None,
         body_ids: np.ndarray | None,
     ) -> None:
-        """Validate mapped selections against immutable public layout addresses.
+        """Validate mapped joint and body addresses without reading live state.
 
-        DEVICE_RESIDENT mapped backends intentionally close their legacy host
-        state getters after materialization.  Entity construction is cold and
-        contract-only here: selected column and body addresses were already
-        resolved through public name APIs, so validate their bounds against the
-        immutable scene layout rather than copying live CUDA state to host.
+        Cold DEVICE_RESIDENT construction checks joint columns against the
+        immutable scene layout. Public body names bind scene model IDs to
+        backend body-state rows, allowing selection validation after legacy
+        host state slots are released and without copying CUDA state to host.
         """
         assert physical_entity is not None
         if pos_ids is not None and pos_ids.size and int(np.max(pos_ids)) >= layout.nq:
