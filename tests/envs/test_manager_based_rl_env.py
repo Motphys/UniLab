@@ -795,6 +795,21 @@ class _TensorBodyAction(ActionTerm):
         self._entity.data.write_ctrl(self._processed)
 
 
+class _FeedbackTensorBodyAction(_TensorBodyAction):
+    requires_substep_state_feedback = True
+
+    def apply_actions(self) -> None:
+        self._env.trace.append("action_apply")
+        self._env.action_sim_steps.append(self._env._sim_step_counter)
+        super().apply_actions()
+
+
+@dataclass(kw_only=True)
+class _FeedbackTensorBodyActionCfg(_TensorBodyActionCfg):
+    def build(self, env) -> ActionTerm:
+        return _FeedbackTensorBodyAction(self, env)
+
+
 @dataclass(kw_only=True)
 class _CommandCfg(CommandTermCfg):
     def build(self, env) -> CommandTerm:
@@ -3584,35 +3599,96 @@ def test_per_substep_metrics_fail_without_post_substep_backend_hook() -> None:
         _make_env(cfg)
 
 
-def test_multisubstep_state_independent_action_skips_callback() -> None:
+def test_multisubstep_state_independent_action_keeps_batched_step() -> None:
     env, backend = _make_env(reject_pre_step=True)
     try:
+        env.init_state()
+        env.step(torch.zeros((2, 1), dtype=torch.float32))
+
         assert backend.pre_step_control is None
         assert not env.action_manager.requires_substep_state_feedback
+        assert backend.step_nsteps == [2]
+        assert len(backend.tensor_controls) == 1
+        assert env.action_sim_steps == [2]
     finally:
         env.close()
 
 
-def test_multisubstep_state_feedback_action_uses_callback() -> None:
+def test_multisubstep_state_feedback_action_steps_without_host_callback() -> None:
     cfg = _make_cfg(
+        sim_substeps=5,
         actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
     )
-    with pytest.raises(
-        NotImplementedError,
-        match="Torch lifecycle P1 does not support state-feedback actions",
-    ):
-        _make_env(cfg)
+    env, backend = _make_env(cfg, reject_pre_step=True)
+    try:
+        env.init_state()
+        state = env.step(torch.zeros((2, 1), dtype=torch.float32))
+
+        assert backend.pre_step_control is None
+        assert backend.step_nsteps == [1] * 5
+        assert len(backend.tensor_controls) == 5
+        assert env.action_sim_steps == [1, 2, 3, 4, 5]
+        assert state.info["completion"] is backend.completions[-1]
+    finally:
+        env.close()
 
 
-def test_multisubstep_state_feedback_action_fails_when_backend_rejects_callback() -> None:
-    cfg = _make_cfg(
-        actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
+def test_multisubstep_state_feedback_refreshes_public_state_and_control(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(sim_substeps=5, include_optional_managers=False)
+    cfg.actions = {
+        "tilt": _FeedbackTensorBodyActionCfg(
+            entity_name="robot",
+            top_body_name="platform",
+            ball_body_name="ball",
+        )
+    }
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
     )
-    with pytest.raises(
-        NotImplementedError,
-        match="Torch lifecycle P1 does not support state-feedback actions",
-    ):
-        _make_env(cfg, reject_pre_step=True)
+
+    class _AdvancingBackend(_ScenePlanBackend):
+        def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+            super().step(ctrl, nsteps)
+            self.sensors["track_pos_w_ball"][:, 2] += 1.0
+            self.trace.append("physics")
+
+    backend = _AdvancingBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    backend.trace = env.trace
+    try:
+        env.init_state()
+        env.trace.clear()
+        plan = env.scene.read_plan
+        assert plan is not None
+        original_refresh = plan.refresh
+
+        def refresh() -> None:
+            env.trace.append("read")
+            original_refresh()
+
+        monkeypatch.setattr(plan, "refresh", refresh)
+        state = env.step(torch.zeros((2, 1), dtype=torch.float32))
+
+        assert env.trace[:15] == ["read", "action_apply", "physics"] * 5
+        assert backend.step_nsteps == [1] * 5
+        controls = torch.stack([control[:, 0] for control in backend.tensor_controls])
+        expected = torch.tensor([1.2, 2.2, 3.2, 4.2, 5.2])[:, None].expand(5, 2)
+        torch.testing.assert_close(controls, expected)
+        assert env.action_sim_steps == [1, 2, 3, 4, 5]
+        assert state.info["completion"] is backend.completions[-1]
+
+        state = env.step(torch.tensor([[1.0], [0.0]], dtype=torch.float32))
+        assert state.final_observation is not None
+        torch.testing.assert_close(state.obs["obs"][0], torch.zeros(2))
+        torch.testing.assert_close(state.info["steps"], torch.tensor([0, 1]))
+        assert state.info["completion"] is backend.completions[-1]
+    finally:
+        env.close()
 
 
 def test_single_substep_feedback_action_does_not_require_callback() -> None:
