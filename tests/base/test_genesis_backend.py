@@ -595,9 +595,7 @@ def test_dr_capabilities_and_tensor_reset_randomization_boundary(
 ) -> None:
     backend = _backend(tiny_model_file)
     caps = backend.get_dr_capabilities()
-    assert caps.supported_reset_terms == frozenset()
-    assert caps.supported_interval_terms == frozenset()
-    assert caps.supported_device_reset_terms == {
+    assert caps.supported_reset_terms == {
         "base_com_offset",
         "base_mass_delta",
         "body_ipos",
@@ -605,24 +603,17 @@ def test_dr_capabilities_and_tensor_reset_randomization_boundary(
         "kp",
         "kd",
     }
-    assert caps.supported_device_interval_terms == {
+    assert caps.supported_interval_terms == {
         "body_force",
         "body_torque",
         "body_linear_velocity_delta",
         "body_angular_velocity_delta",
     }
-    assert caps.supports_interval_term(INTERVAL_TERM_BODY_FORCE, plane="device") is True
-    assert caps.supports_interval_term(INTERVAL_TERM_BODY_TORQUE, plane="device") is True
+    assert caps.supports_interval_term(INTERVAL_TERM_BODY_FORCE) is True
+    assert caps.supports_interval_term(INTERVAL_TERM_BODY_TORQUE) is True
     assert caps.supports_interval_term(INTERVAL_TERM_PUSH) is False
-    assert caps.supports_interval_term(INTERVAL_TERM_PUSH, plane="device") is False
-    assert (
-        caps.supports_interval_term(INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA, plane="device")
-        is True
-    )
-    assert (
-        caps.supports_interval_term(INTERVAL_TERM_BODY_ANGULAR_VELOCITY_DELTA, plane="device")
-        is True
-    )
+    assert caps.supports_interval_term(INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA) is True
+    assert caps.supports_interval_term(INTERVAL_TERM_BODY_ANGULAR_VELOCITY_DELTA) is True
 
     rows = torch.tensor([1, 3], dtype=torch.int64, device="cuda")
     qpos, qvel = _stand_state(backend, 2)

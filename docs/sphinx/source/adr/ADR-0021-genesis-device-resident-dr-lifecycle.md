@@ -13,7 +13,8 @@ orphan: true
 - Superseded by: None
 - Roadmap: [Issue #2520](https://github.com/Motphys/UniLab/issues/2520);
   FlashMimic subset extension:
-  [Issue #2521](https://github.com/Motphys/UniLab/issues/2521)
+  [Issue #2521](https://github.com/Motphys/UniLab/issues/2521); unified capability sets:
+  [Issue #2550](https://github.com/Motphys/UniLab/issues/2550)
 
 ## Context
 
@@ -32,19 +33,19 @@ before this integration; the authoritative adapter ADR and implementation live i
 
 UniLab consumes the unified contract as device-only Genesis runtime DR:
 
-- Genesis declares reset terms only in `supported_device_reset_terms`, and interval terms only
-  in `supported_device_interval_terms`. The host term sets are empty, including for portable
-  scenes and sessions without the exact CUDA/AMDGPU lifecycle.
-- Manager capability negotiation selects the plane from the backend-bound tensor device. It never
-  treats default host capability wording as a fallback for a device-resident runtime.
-- The packed reset device is declared before cold event-term binds, so owner terms negotiate
-  against the same plane that will commit after backend materialization.
+- Genesis declares reset terms in `supported_reset_terms` and interval terms in
+  `supported_interval_terms`. These single sets enumerate supported terms without splitting them
+  into host/device public capability planes. They do not imply that Genesis accepts host payloads.
+- Manager capability negotiation is plane-independent. The backend-bound tensor device still
+  determines operand placement, while the backend owns execution and any adapter-internal
+  conversion for an advertised term.
+- The packed reset device is declared before cold event-term binds, so owner terms construct and
+  commit operands on the same device after backend materialization.
 - Reset DR is limited to the audited device lifecycle (`body_mass`, `base_mass_delta`,
   `body_ipos`, `base_com_offset`, `kp`, `kd`); interval DR is limited to `body_force`,
   `body_torque`, world-frame root linear velocity delta, and root-local angular velocity delta.
-  Unsupported, host-plane, mixed-plane, and CPU/host payloads fail closed with the term and plane
-  named.
-- Genesis owner YAML enables `pd_gains` only because that device-plane packed lane declares
+  Unsupported terms and CPU/host payloads fail closed with explicit backend errors.
+- Genesis owner YAML enables `pd_gains` only because that device-resident packed lane declares
   `kp`/`kd`. It does not re-enable broad portable host setters, geometry, gravity, DOF, or the
   opaque legacy push descriptor. Startup body mass and the six-axis velocity-delta event use
   their audited public device lifecycle; absolute `geom_friction` remains intentionally
@@ -55,21 +56,21 @@ UniLab consumes the unified contract as device-only Genesis runtime DR:
 
 ## Stable Contracts
 
-- `DomainRandomizationCapabilities` plane sets are authoritative; aggregate projections keep
-  `dr.reset.*`/`dr.interval.*` and `dr.device.reset.*`/`dr.device.interval.*` independent.
+- The single `DomainRandomizationCapabilities.supported_reset_terms` and
+  `supported_interval_terms` sets are authoritative; execution topology is not an alternate DR
+  term set.
 - The Manager packed reset transaction declares its device before reset event construction.
 - Genesis interval dispatch uses public `IntervalTermOp` values only; backend IDs are Torch int64
   on the backend device and wrench payloads are float32 on that same device.
 - Genesis owners cannot declare backend capability by comments or backend-name branches; owner
-  YAML may only enable terms whose plane the current backend declares.
+  YAML may only enable terms that the current backend declares.
 
 ## Alternatives Considered
 
-- **Default to the historical host plane before packed-device declaration:** rejected. It made a
-  portable host setter look valid during cold binds and could accept a term that the eventual
-  device commit must reject.
-- **Convert host operands inside each backend adapter:** rejected as the Manager contract. It
-  reintroduces hidden hot-path H2D detours and plane ambiguity at every adapter boundary.
+- **Keep separate host/device capability sets:** rejected. It made a portable host setter look
+  valid during cold binds and leaked adapter execution topology into every Manager consumer.
+- **Select capability sets from the Manager payload device:** rejected. Term support is a public
+  backend capability; payload placement and adapter-internal conversion are execution details.
 - **Keep `events.pd_gains: null` until every Genesis reset term is device-capable:** rejected.
   `kp`/`kd` have one audited lifecycle; unrelated unsupported terms already fail closed and need
   no owner-level blanket disable.
@@ -82,16 +83,17 @@ UniLab consumes the unified contract as device-only Genesis runtime DR:
   reset writes, and six-axis velocity kicks. Its foot-friction event stays disabled.
 - Portable Genesis scenes have a smaller reset contract, and removed portable host runtime paths
   have no compatibility alias in UniLab.
-- Owners must sample device-resident operands on the Manager RNG/backend device. CPU-only Genesis
-  sessions do not advertise runtime DR.
+- Owners must sample device-resident operands on the Manager RNG/backend device. Unified term
+  sets do not add CPU/host execution support to Genesis.
 - Adding a Genesis reset or interval term requires first extending the audited device lifecycle
   and capability declaration in `unisim-core`, then updating owners/docs here.
 
 ## Evidence In Repo
 
-- `src/unilab/base/entity.py` — interval plane negotiation and device-resident interval ops.
+- `src/unilab/base/entity.py` — plane-independent interval capability checks and device-resident
+  interval ops.
 - `src/unilab/envs/manager_based_rl_env.py` — packed reset device declaration before event binds.
-- `src/unilab/base/reset_state.py` — plane-aware capability checks.
+- `src/unilab/base/reset_state.py` — unified reset-term capability checks.
 - `src/unilab/conf/{ppo,sac}/task/g1_walk_flat/genesis.yaml` — walk owner parity.
 - `src/unilab/conf/sac/task/g1_motion_tracking/genesis.yaml` — FlashMimic DR subset owner.
 - `tests/base/test_genesis_backend.py`; `tests/envs/mdp/test_events.py`;

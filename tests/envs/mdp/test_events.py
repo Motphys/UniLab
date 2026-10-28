@@ -1774,17 +1774,6 @@ class _TensorBackend(_Backend):
             packed_reset_fields=packed_fields,
         )
 
-    def get_dr_capabilities(self) -> DomainRandomizationCapabilities:
-        capabilities = super().get_dr_capabilities()
-        if not self.device_plane:
-            return capabilities
-        return DomainRandomizationCapabilities(
-            supported_reset_terms=capabilities.supported_reset_terms,
-            supported_interval_terms=capabilities.supported_interval_terms,
-            supported_device_reset_terms=capabilities.supported_reset_terms,
-            supported_device_interval_terms=capabilities.supported_interval_terms,
-        )
-
     def set_state_tensor(self, env_indices, qpos, qvel, randomization=None) -> dict:
         self.tensor_reset_calls.append((env_indices, qpos, qvel, randomization))
         return {"ok": True}
