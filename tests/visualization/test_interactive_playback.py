@@ -20,6 +20,7 @@ from unilab.visualization.interactive_playback import (
     PlaybackConfig,
     PlaybackControls,
     RslRlPlaybackSession,
+    create_appo_playback_session,
     create_rsl_rl_playback_session,
     create_sac_playback_session,
     make_sim2sim_preflight,
@@ -327,7 +328,7 @@ def test_create_rsl_rl_playback_session_runs_sim2sim_preflight(tmp_path: Path) -
     run_dir.mkdir()
     checkpoint = run_dir / "model_10.pt"
     torch.save({"actor": {}}, checkpoint)
-    preflight_calls: list[str | None] = []
+    calls: list[str] = []
 
     class Runner:
         def __init__(self, wrapped_env, train_cfg, log_dir, device):
@@ -339,15 +340,42 @@ def test_create_rsl_rl_playback_session_runs_sim2sim_preflight(tmp_path: Path) -
         def get_inference_policy(self, *, device):
             return lambda obs: torch.ones((1, 2))
 
+    def env_factory(num_envs: int) -> SimpleNamespace:
+        calls.append("env")
+        return _rsl_rl_session_test_env()
+
+    def preflight(source_run_dir: str | None) -> None:
+        assert source_run_dir == str(run_dir)
+        calls.append("preflight")
+
     kwargs = _rsl_rl_session_kwargs(tmp_path)
     kwargs["checkpoint_resolver"] = lambda *args: str(checkpoint)
     kwargs["runner_cls"] = Runner
-    kwargs["sim2sim_preflight"] = lambda run_dir: preflight_calls.append(run_dir)
+    kwargs["env_factory"] = env_factory
+    kwargs["sim2sim_preflight"] = preflight
 
     _session, _mode, resolved = create_rsl_rl_playback_session(**kwargs)
 
     assert resolved == str(checkpoint)
-    assert preflight_calls == [str(run_dir)]
+    assert calls == ["preflight", "env"]
+
+
+def test_rsl_rl_sim2sim_failure_prevents_env_construction(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "model_10.pt"
+    checkpoint.touch()
+    env_calls: list[int] = []
+    kwargs = _rsl_rl_session_kwargs(tmp_path)
+    kwargs["checkpoint_resolver"] = lambda *args: str(checkpoint)
+    kwargs["env_factory"] = lambda num_envs: env_calls.append(num_envs)
+
+    def reject_checkpoint(source_run_dir: str | None) -> None:
+        raise RuntimeError("incompatible checkpoint")
+
+    kwargs["sim2sim_preflight"] = reject_checkpoint
+    with pytest.raises(RuntimeError, match="incompatible checkpoint"):
+        create_rsl_rl_playback_session(**kwargs)
+
+    assert env_calls == []
 
 
 def test_create_rsl_rl_playback_session_wraps_load_with_dim_guard(tmp_path: Path) -> None:
@@ -374,6 +402,52 @@ def test_create_rsl_rl_playback_session_wraps_load_with_dim_guard(tmp_path: Path
 
     with pytest.raises(CrossBackendIncompatibleError):
         create_rsl_rl_playback_session(**kwargs)
+
+
+def test_appo_sim2sim_failure_prevents_env_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import unilab.visualization.interactive_playback as interactive_playback
+
+    checkpoint = tmp_path / "model_10.pt"
+    checkpoint.touch()
+    env_calls: list[int] = []
+    monkeypatch.setattr(
+        interactive_playback,
+        "_resolve_appo_checkpoint_from_cfg",
+        lambda cfg, *, root_dir: (str(checkpoint), str(tmp_path)),
+    )
+
+    def reject_checkpoint(source_run_dir, target_cfg, *, algo_name, strict):
+        raise RuntimeError("incompatible checkpoint")
+
+    monkeypatch.setattr(interactive_playback, "resolve_sim2sim_config", reject_checkpoint)
+
+    def env_factory(num_envs: int) -> SimpleNamespace:
+        env_calls.append(num_envs)
+        return _rsl_rl_session_test_env()
+
+    with pytest.raises(RuntimeError, match="incompatible checkpoint"):
+        create_appo_playback_session(
+            playback_cfg=PlaybackConfig(
+                task="Task",
+                load_run="run",
+                checkpoint=None,
+                action_mode="policy",
+                policy_obs_mode="actor",
+                algo_log_name="appo",
+                log_root=None,
+            ),
+            cfg=SimpleNamespace(training=SimpleNamespace(sim2sim_strict=True)),
+            rl_cfg={},
+            env_factory=env_factory,
+            root_dir=tmp_path,
+            device="cpu",
+            wrapper_cls=_RslRlTestWrapper,
+        )
+
+    assert env_calls == []
 
 
 def test_sac_playback_session_runs_sim2sim_preflight(
@@ -471,6 +545,61 @@ def test_sac_playback_session_runs_sim2sim_preflight(
     assert resolved == str(checkpoint)
     assert resolved_runs == ["run"]
     assert preflight_calls == [(str(tmp_path), "sac")]
+
+
+@pytest.mark.parametrize("algo_name", ["sac", "flashsac"])
+def test_offpolicy_sim2sim_failure_prevents_env_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    algo_name: str,
+) -> None:
+    from omegaconf import OmegaConf
+
+    import unilab.utils.checkpoint as checkpoint_utils
+    import unilab.visualization.interactive_playback as interactive_playback
+
+    checkpoint = tmp_path / "model_10.pt"
+    checkpoint.touch()
+    resolved_checkpoint = (str(checkpoint), str(tmp_path))
+    env_calls: list[int] = []
+    monkeypatch.setattr(
+        checkpoint_utils,
+        "resolve_checkpoint_path",
+        lambda task_log_root, load_run, *, checkpoint=None, suffix=".pt": resolved_checkpoint,
+    )
+
+    def reject_checkpoint(source_run_dir, target_cfg, *, algo_name, strict):
+        raise RuntimeError("incompatible checkpoint")
+
+    monkeypatch.setattr(interactive_playback, "resolve_sim2sim_config", reject_checkpoint)
+
+    def env_factory(num_envs: int) -> None:
+        env_calls.append(num_envs)
+
+    with pytest.raises(RuntimeError, match="incompatible checkpoint"):
+        create_sac_playback_session(
+            playback_cfg=PlaybackConfig(
+                task="Task",
+                load_run="run",
+                checkpoint=None,
+                action_mode="policy",
+                policy_obs_mode="actor",
+                algo_log_name=algo_name,
+                log_root=None,
+            ),
+            cfg=OmegaConf.create(
+                {
+                    "training": {"sim2sim_strict": True},
+                    "algo": {"algo_log_name": algo_name},
+                }
+            ),
+            env_factory=env_factory,
+            root_dir=tmp_path,
+            device="cpu",
+            algo_name=algo_name,
+        )
+
+    assert env_calls == []
 
 
 def test_offpolicy_playback_keeps_policy_io_on_env_device() -> None:
