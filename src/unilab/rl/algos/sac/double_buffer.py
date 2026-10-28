@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from omegaconf import DictConfig, OmegaConf
 
+from unilab.base.contracts.env import EnvFactory
+from unilab.base.contracts.observations import get_obs_dims
 from unilab.rl.algos.sac.learner import SACLearner
-from unilab.rl.contracts.env import EnvFactory
-from unilab.rl.contracts.observations import get_obs_dims
 from unilab.rl.runtime.ipc.replay_pipelines.device import (
     require_offpolicy_replay_device,
 )

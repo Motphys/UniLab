@@ -1,7 +1,7 @@
-"""Observation-group helpers for the ``unilab.rl`` env contract.
+"""Observation-group helpers for the env contract.
 
 Generic helpers over the ``obs_groups_spec`` / observation-dict contract
-defined in ``unilab.rl.contracts.env``. Observation values are Torch tensors at
+defined in ``unilab.base.contracts.env``. Observation values are Torch tensors at
 the env boundary (see ``env_contract``); the helpers stay value-agnostic so
 host-side diagnostics with NumPy carriers can reuse them.
 """

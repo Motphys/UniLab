@@ -255,7 +255,7 @@ def _compose_offpolicy_cfg(task: str = DEFAULT_TASK, sim: str = DEFAULT_SIM) -> 
 
 def _resolve_env_shape(cfg: DictConfig) -> ReplayShape:
     from unilab.base.config_adapter import EnvConfigAdapter, create_env
-    from unilab.rl.contracts.observations import get_obs_dims
+    from unilab.base.contracts.observations import get_obs_dims
     from unilab.training import ensure_registries
 
     ensure_registries()

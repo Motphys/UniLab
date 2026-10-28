@@ -25,7 +25,7 @@ UniLab 1.5 将公共 reset 契约恢复为 IsaacLab/mjlab 风格的 `env_ids` �
 | `EventTermCfg.min_step_count_between_reset` | reset 事件不生效 | 恢复逐行触发过滤（1.3.x 语义） |
 | reset owner | `reset_transaction(reset_mask)` / `reset_committed(reset_mask)` | `reset_transaction(env_ids)` / `reset_committed(env_ids)` |
 | recorder 钩子 | `record_pre_reset(reset_mask)` / `record_post_reset(reset_mask)` | `record_pre_reset(env_ids)` / `record_post_reset(env_ids)` |
-| RL 环境契约 | `EnvProtocol.reset(env_indices)` | `EnvProtocol.reset(env_ids)`（见 `src/unilab/rl/contracts/env.py`） |
+| RL 环境契约 | `EnvProtocol.reset(env_indices)` | `EnvProtocol.reset(env_ids)`（见 `src/unilab/base/contracts/env.py`） |
 
 `env_ids` 是一维整数行索引张量；`None`（manager 边界还接受 `slice`）表示全部行。
 恢复后的形态与 v1.3.x 公共契约一致，针对 1.3.x 编写的代码无需修改。

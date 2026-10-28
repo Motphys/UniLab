@@ -61,6 +61,12 @@ class Route:
 
 
 def package_root() -> Path:
+    """Return the source-checkout package root (``src/unilab``).
+
+    Internal: this path only exists in a source checkout, not an installed
+    wheel. Downstream packages must not rely on it; register tasks through the
+    ``unilab.tasks`` entry-point contract instead.
+    """
     return Path(__file__).resolve().parent
 
 

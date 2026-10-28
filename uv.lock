@@ -5176,10 +5176,7 @@ dependencies = [
     { name = "packaging" },
     { name = "prettytable" },
     { name = "rich" },
-    { name = "rsl-rl-lib" },
     { name = "setuptools" },
-    { name = "tensorboard" },
-    { name = "tensordict" },
     { name = "torch", version = "2.14.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
     { name = "torch", version = "2.14.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "tqdm" },
@@ -5187,7 +5184,6 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "unisim-core" },
     { name = "viser" },
-    { name = "wandb" },
 ]
 
 [package.optional-dependencies]
@@ -5222,6 +5218,12 @@ ray = [
 ]
 superdex = [
     { name = "unisim-core", extra = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+unirl = [
+    { name = "rsl-rl-lib" },
+    { name = "tensorboard" },
+    { name = "tensordict" },
+    { name = "wandb" },
 ]
 
 [package.dev-dependencies]
@@ -5262,10 +5264,10 @@ requires-dist = [
     { name = "prettytable", specifier = ">=3.10" },
     { name = "pyglet", marker = "extra == 'newton'", specifier = ">=2.1.6,<3" },
     { name = "rich" },
-    { name = "rsl-rl-lib", specifier = ">=5.0.0" },
+    { name = "rsl-rl-lib", marker = "extra == 'unirl'", specifier = ">=5.0.0" },
     { name = "setuptools" },
-    { name = "tensorboard", specifier = ">=2.21.0" },
-    { name = "tensordict" },
+    { name = "tensorboard", marker = "extra == 'unirl'", specifier = ">=2.21.0" },
+    { name = "tensordict", marker = "extra == 'unirl'" },
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.9,<2.15" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.9,<2.15", index = "https://download-r2.pytorch.org/whl/cu130" },
     { name = "tqdm" },
@@ -5276,11 +5278,11 @@ requires-dist = [
     { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.2.0" },
     { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.2.0" },
     { name = "viser", specifier = ">=1.0.26" },
-    { name = "wandb", specifier = ">=0.22.3" },
+    { name = "wandb", marker = "extra == 'unirl'", specifier = ">=0.22.3" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
     { name = "warp-lang", marker = "extra == 'newton'", specifier = "==1.16.0" },
 ]
-provides-extras = ["drake", "mujoco", "mjwarp", "newton", "motrix", "genesis", "superdex", "ray"]
+provides-extras = ["drake", "mujoco", "mjwarp", "newton", "motrix", "genesis", "superdex", "ray", "unirl"]
 
 [package.metadata.requires-dev]
 dev = [

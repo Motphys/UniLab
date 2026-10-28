@@ -43,17 +43,13 @@ dependencies = [
     "etils",
     "hydra-core>=1.3",
     "omegaconf",
-    "tensordict",
-    "rsl-rl-lib>=5.0.0",
     "packaging",
     "mediapy",
-    "tensorboard>=2.21.0",
     "setuptools",
     "rich",
     "tqdm",
     "typing-extensions",
     "lark>=1.3.1",
-    "wandb>=0.22.3",
     "onnxruntime<1.20 ; python_version < '3.11'",
     "onnxruntime>=1.20 ; python_version >= '3.11'",
     "huggingface_hub>=0.25",
@@ -117,6 +113,16 @@ superdex = [
 # caster factory. The PyPI distribution is `uniray`; the import namespace is
 # `uni_ray`.
 ray = ["uniray[warp]==0.1.0"]
+# The merged RL/training stack (unilab.rl) needs these optional packages;
+# `pip install unilab` stays a lightweight env without them. Single extra on
+# purpose: APPO/SAC/FlashSAC/off-policy share these; only PPO (rsl-rl) is
+# lighter and does not justify its own extra.
+unirl = [
+    "tensordict",
+    "rsl-rl-lib>=5.0.0",
+    "tensorboard>=2.21.0",
+    "wandb>=0.22.3",
+]
 
 [dependency-groups]
 # The RL stack (APPO/off-policy/multi-GPU) is merged into unilab itself

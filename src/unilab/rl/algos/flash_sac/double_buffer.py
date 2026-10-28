@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from omegaconf import DictConfig
 
+from unilab.base.contracts.env import EnvFactory
+from unilab.base.contracts.observations import get_obs_dims
 from unilab.rl.algos.flash_sac.learner import FlashSACLearner
 from unilab.rl.algos.flash_sac.replay import AgeBiasedReplayPipeline
-from unilab.rl.contracts.env import EnvFactory
-from unilab.rl.contracts.observations import get_obs_dims
 from unilab.rl.runtime.device import get_default_device
 from unilab.rl.runtime.ipc.replay_pipelines.device import require_offpolicy_replay_device
 from unilab.rl.runtime.offpolicy.double_buffer_runner import (

@@ -134,7 +134,7 @@ def appo_collector_fn(
         critic_weight_param_shapes, create=False, shm_name=critic_weight_sync_name
     )
 
-    # Create environment through the injected factory (see unilab.rl.contracts.env).
+    # Create environment through the injected factory (see unilab.base.contracts.env).
     # Diagnostics construction is likewise injected; the training assembly layer
     # owns the tensor-native guard implementation.
     env = env_factory(num_envs, env_cfg_override)

@@ -1,4 +1,4 @@
-"""THE tensor-native env contract consumed by ``unilab.rl`` runners.
+"""THE tensor-native env contract consumed by RL runners and collectors.
 
 This layer never constructs environments itself and never imports an env
 registry. Environments are injected by the caller (e.g. UniLab's training

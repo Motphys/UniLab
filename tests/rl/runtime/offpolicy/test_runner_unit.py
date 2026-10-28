@@ -27,7 +27,7 @@ import torch
 
 import unilab.rl.runtime.offpolicy.double_buffer_runner as device_runner_module
 import unilab.rl.runtime.offpolicy.runner as runner_module
-from unilab.rl.contracts.probe import EnvContractProbe
+from unilab.base.contracts.probe import EnvContractProbe
 from unilab.rl.logging.metric_schema import METRIC_SCHEMA_VERSION, normalize_metric_map
 from unilab.rl.logging.metrics_drain import RewardComponentWindow
 from unilab.rl.logging.runtime_manifest_schema import (

@@ -30,6 +30,12 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.backend_timing import UPDATE_STATE_DETAIL_TIMING_KEYS
 from unilab.base.base import EnvPlayCapabilities
+from unilab.base.contracts.env import (
+    EnvAlgoCapabilities,
+    EnvPlayCapabilitiesProtocol,
+    EnvProtocol,
+    EnvStateProtocol,
+)
 from unilab.base.entity import EntityCfg
 from unilab.base.scene import SceneCfg
 from unilab.base.torch_env import TorchEnv, TorchEnvState
@@ -61,12 +67,6 @@ from unilab.managers import (
 )
 from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.rl.contracts.env import (
-    EnvAlgoCapabilities,
-    EnvPlayCapabilitiesProtocol,
-    EnvProtocol,
-    EnvStateProtocol,
-)
 
 
 class _FakeBackend:
