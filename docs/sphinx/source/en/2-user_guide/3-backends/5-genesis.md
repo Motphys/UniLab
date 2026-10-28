@@ -52,10 +52,11 @@ compensates on the materialize cold path — hot paths never parse XML:
   reproduction of it.
 - **Actuators**: `<position kp kv>` actuators import losslessly and are
   driven with `control_dofs_position`; kp/kd reset randomization is supported
-  on the device plane (the DR capability sets declare only the measured device
-  reset terms: body mass, base-mass delta, body CoM / base-CoM delta, kp,
-  kd; the device interval set additionally covers body force, body torque,
-  and world-frame root linear plus root-local angular velocity deltas).
+  through the device-resident lifecycle. The unified DR capability sets declare
+  only the measured reset terms: body mass, base-mass delta, body CoM /
+  base-CoM delta, kp, kd; the interval set additionally covers body force,
+  body torque, and world-frame root linear plus root-local angular velocity
+  deltas.
 
 ## Prerequisites
 
@@ -159,9 +160,10 @@ degrading:
   construction/plan time. Use the six-axis velocity-delta event, which commits
   world-frame linear and root-local angular deltas through Genesis public
   state without touching qpos, controls, solver state, or unrelated rows.
-- **Host-plane runtime DR**: Genesis accepts reset and interval payloads only
-  on its backend-bound CUDA/AMDGPU device. Host payloads fail closed with the
-  term and plane named; there is no NumPy or host-bridge fallback.
+- **Host-payload runtime DR**: Genesis accepts reset and interval payloads only
+  on its backend-bound CUDA/AMDGPU device. Host payloads fail closed with an
+  explicit backend error; the unified term sets do not imply host execution
+  support, and there is no NumPy or host-bridge fallback.
 - **Repeated `gs.init`** in one process (see above).
 
 ## Cross-Backend Migration (sim2sim)

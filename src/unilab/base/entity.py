@@ -42,7 +42,6 @@ from unisim.dr.types import (
     RESET_TERM_GEOM_FRICTION,
     RESET_TERM_KD,
     RESET_TERM_KP,
-    DataPlaneName,
     IntervalRandomizationPlan,
     IntervalTermOp,
 )
@@ -3807,9 +3806,7 @@ class Entity:
             if angular
             else INTERVAL_TERM_BODY_LINEAR_VELOCITY_DELTA
         )
-        supported = capabilities.supports_interval_term(
-            term, plane=self._interval_capability_plane()
-        )
+        supported = capabilities.supports_interval_term(term)
         if not supported:
             raise self._capability_error(
                 "interval root velocity delta",
@@ -3965,15 +3962,12 @@ class Entity:
             capabilities = self._backend.get_dr_capabilities()
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error("interval body wrench", str(exc)) from exc
-        plane = self._interval_capability_plane()
-        if not capabilities.supports_interval_term(INTERVAL_TERM_BODY_FORCE, plane=plane):
+        if not capabilities.supports_interval_term(INTERVAL_TERM_BODY_FORCE):
             raise self._capability_error(
                 "interval body wrench",
                 f"EventManager term '{term_name}' requested an unsupported backend capability",
             )
-        if torque and not capabilities.supports_interval_term(
-            INTERVAL_TERM_BODY_TORQUE, plane=plane
-        ):
+        if torque and not capabilities.supports_interval_term(INTERVAL_TERM_BODY_TORQUE):
             raise self._capability_error(
                 "interval body wrench",
                 f"EventManager term '{term_name}' requested an unsupported backend "
@@ -3992,11 +3986,6 @@ class Entity:
         device = views["qpos"].device
         self._interval_operand_device_value = device
         return device
-
-    def _interval_capability_plane(self) -> DataPlaneName:
-        """Return the capability plane used by this entity's interval payloads."""
-
-        return "device" if self._interval_operand_device().type != "cpu" else "host"
 
     def apply_body_wrench_to_sim(
         self,
