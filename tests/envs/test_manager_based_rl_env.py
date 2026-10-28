@@ -3518,6 +3518,49 @@ def test_manual_reset_is_required_when_autoreset_is_disabled() -> None:
     env.step(torch.zeros((2, 1), dtype=torch.float32))
 
 
+def test_cold_reset_applies_seed_before_initialization() -> None:
+    first, _ = _make_env()
+    second, _ = _make_env()
+    different, _ = _make_env()
+    try:
+        first_obs, _ = first.reset(seed=123)
+        second_obs, _ = second.reset(seed=123)
+        different_obs, _ = different.reset(seed=124)
+
+        assert first.state is not None
+        assert second.state is not None
+        assert different.state is not None
+        for group in first_obs:
+            torch.testing.assert_close(first_obs[group], second_obs[group])
+        torch.testing.assert_close(first.state.info["steps"], second.state.info["steps"])
+        assert torch.any(first.state.info["steps"] != different.state.info["steps"])
+        assert set(different_obs) == set(first_obs)
+    finally:
+        first.close()
+        second.close()
+        different.close()
+
+
+@pytest.mark.parametrize("options", [None, {}])
+def test_cold_reset_accepts_empty_options(options: dict[str, object] | None) -> None:
+    env, _ = _make_env()
+    try:
+        env.reset(options=options)
+        assert env.state is not None
+    finally:
+        env.close()
+
+
+def test_reset_rejects_options_before_cold_initialization() -> None:
+    env, _ = _make_env()
+    try:
+        with pytest.raises(NotImplementedError, match="does not support options"):
+            env.reset(options={"mode": "evaluation"})
+        assert env.state is None
+    finally:
+        env.close()
+
+
 def test_reset_seed_updates_the_shared_generator_in_place() -> None:
     cfg = _make_cfg(include_optional_managers=False)
     cfg.events = {}
