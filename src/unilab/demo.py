@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.assets.hub import resolve_checkpoint_file
+from unilab.assets.hub import resolve_checkpoint_file, resolve_scene_dir
 
 
 @dataclass(frozen=True)
@@ -189,7 +189,13 @@ def _run_teaser_demo() -> int:
             _motrix_python_executable(),
             str(_package_root() / "visualization" / "teaser.py"),
         ]
+        resolve_scene_dir("scenes/teaser")
         env = os.environ.copy()
+        package_parent = str(_package_root().parent)
+        python_path = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            os.pathsep.join((package_parent, python_path)) if python_path else package_parent
+        )
         dev_venv = _dev_venv()
         if dev_venv is not None:
             env["UV_PROJECT_ENVIRONMENT"] = str(dev_venv)
