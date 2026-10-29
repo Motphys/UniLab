@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Sequence
 
 from unilab.demo import run_demo
+from unilab.interruption import run_process_with_graceful_interrupt
 
 SUPPORTED_ALGOS = ("ppo", "appo", "sac", "flashsac")
 SUPPORTED_SIMS = (
@@ -60,6 +61,12 @@ class Route:
 
 
 def package_root() -> Path:
+    """Return the source-checkout package root (``src/unilab``).
+
+    Internal: this path only exists in a source checkout, not an installed
+    wheel. Downstream packages must not rely on it; register tasks through the
+    ``unilab.tasks`` entry-point contract instead.
+    """
     return Path(__file__).resolve().parent
 
 
@@ -560,7 +567,7 @@ def _run_train_eval(mode: str, argv: Sequence[str] | None = None) -> int:
         render_mode=args.render_mode,
     )
     try:
-        return subprocess.run(command, check=False).returncode
+        return run_process_with_graceful_interrupt(command)
     except KeyboardInterrupt:
         # Ctrl+C is delivered to both this routing process and the child
         # playback/training process.  The child owns its renderer cleanup;

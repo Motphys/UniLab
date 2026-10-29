@@ -21,6 +21,7 @@ from unilab.base.process_device import (
     resolve_backend_env_device_id,
 )
 from unilab.base.run_control import RunComplete
+from unilab.interruption import graceful_keyboard_interrupt
 from unilab.rl import (
     UNILAB_DP_LOG_DIR,
     RslRlVecEnvAdapter,
@@ -363,6 +364,7 @@ def play_ppo(cfg: DictConfig, device: str) -> str | None:
     return play_video_path
 
 
+@graceful_keyboard_interrupt
 @hydra.main(version_base="1.3", config_path="../conf/ppo", config_name="config")
 def main(cfg: DictConfig) -> None:
     rank = current_torch_distributed_rank()

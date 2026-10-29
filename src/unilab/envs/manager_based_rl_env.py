@@ -32,6 +32,7 @@ from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,
     MANAGER_TERM_MAPPING_POLICY,
 )
+from unilab.base.contracts.env import EnvAlgoCapabilities
 from unilab.base.cpu_runtime import apply_cpu_confinement
 from unilab.base.entity import EntityCfg, EntityScene, SceneTensorReadPlan, SceneTensorReadSpec
 from unilab.base.reset_selectors import ResetMaskBuffer, resolve_reset_env_ids
@@ -74,7 +75,6 @@ from unilab.managers import (
     TerminationTermCfg,
 )
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.rl.contracts.env import EnvAlgoCapabilities
 
 
 def _finite_real(value: Any) -> bool:
@@ -398,7 +398,10 @@ class ManagerBasedRlEnv(TorchEnv):
         self._reset_mask_buffer = ResetMaskBuffer(num_envs, self.device)
         self.event_term_mask_buffer = ResetMaskBuffer(num_envs, self.device)
         self._has_transition = False
-
+        # Cold-path binds happen while managers construct. Declare the Manager
+        # carrier's device now so the packed reset transaction uses that same
+        # device after materialize.
+        self._reset_state.declare_packed_reset_device(self.device)
         self._load_managers()
         self._mapped_obs_dims = self._validate_observation_mapping()
         self._validate_substep_capabilities()
@@ -427,12 +430,14 @@ class ManagerBasedRlEnv(TorchEnv):
                     env_ids=self._all_env_rows if self.event_manager.uses_startup_rows else None,
                 )
         self._compile_tensor_read_plan()
+        self.observation_manager.bind_read_phase()
         self.command_manager.bind_read_phase()
         self._validate_manager_tensor_runtime()
 
     def _compile_tensor_read_plan(self) -> None:
         """Compile the scene's only packed tensor read phase."""
         specs: list[SceneTensorReadSpec] = []
+        specs.extend(self._observation_ray_read_specs())
         specs.extend(self._action_tensor_read_specs())
         specs.extend(self._observation_tensor_read_specs())
         specs.extend(self._task_tensor_state_read_specs())
@@ -507,6 +512,10 @@ class ManagerBasedRlEnv(TorchEnv):
                         )
                     )
                 term = term_cfg.func
+                if getattr(term, "ray_pattern", None) is not None:
+                    # Ray terms already declared a pose-only body request above.
+                    # They must not also add the legacy four-field body-state set.
+                    continue
                 body_names = term_cfg.params.get("tensor_body_names")
                 if body_names is None:
                     body_names = getattr(term, "tensor_body_names", None)
@@ -530,6 +539,41 @@ class ManagerBasedRlEnv(TorchEnv):
                         f"'{name}' requires an entity_name parameter"
                     )
                 specs.append(SceneTensorReadSpec(entity=entity_name, body_names=tuple(body_names)))
+        return specs
+
+    def _observation_ray_read_specs(self) -> list[SceneTensorReadSpec]:
+        """Collect pose-only blocks needed by tensor ray observations."""
+        specs: list[SceneTensorReadSpec] = []
+        requested_entities: set[str] = set()
+        for group_name, terms in self.observation_manager.active_terms.items():
+            for name in terms:
+                term_cfg = self.observation_manager.get_term_cfg(group_name, name)
+                ray_pattern = getattr(term_cfg.func, "ray_pattern", None)
+                if ray_pattern is None:
+                    continue
+                if not isinstance(ray_pattern, mdp.RayPatternCfg):
+                    raise TypeError(
+                        "ManagerBasedRlEnv ray declaration for observation term "
+                        f"'{group_name}/{name}' must be RayPatternCfg; got "
+                        f"{type(ray_pattern).__name__}"
+                    )
+                for entity_name, entity in self.scene.entities.items():
+                    if entity_name in requested_entities:
+                        continue
+                    try:
+                        body_names = tuple(entity.body_names)
+                    except NotImplementedError:
+                        continue
+                    if not body_names:
+                        continue
+                    requested_entities.add(entity_name)
+                    specs.append(
+                        SceneTensorReadSpec(
+                            entity=entity_name,
+                            body_names=body_names,
+                            body_fields=("pos_w", "quat_w"),
+                        )
+                    )
         return specs
 
     def _manager_term_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
@@ -1107,15 +1151,7 @@ class ManagerBasedRlEnv(TorchEnv):
                 "declare a post-substep hook."
             )
 
-        if self._cfg.sim_substeps > 1 and self.action_manager.requires_substep_state_feedback:
-            raise NotImplementedError(
-                "ManagerBasedRlEnv Torch lifecycle P1 does not support state-feedback "
-                "actions on every physics substep"
-            )
-
     def _configure_action_control(self) -> None:
-        # Tensor Manager stepping consumes one control tensor per control step in
-        # P1; multi-substep state feedback fails closed during validation.
         return
 
     def _control_to_backend_boundary(self) -> torch.Tensor:
@@ -1178,6 +1214,19 @@ class ManagerBasedRlEnv(TorchEnv):
         self.recorder_manager.record_post_step()
         return state
 
+    @property
+    def requires_substep_state_feedback(self) -> bool:
+        return self.action_manager.requires_substep_state_feedback
+
+    def apply_substep_action(self) -> torch.Tensor:
+        self.scene._invalidate_state_reads()
+        read_plan = self.scene.read_plan
+        if read_plan is not None and self.action_manager.uses_tensor_state_packet:
+            read_plan.refresh()
+        self._sim_step_counter += 1
+        self.action_manager.apply_action()
+        return self._control_to_backend_boundary()
+
     def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
         del state
         read_plan = self.scene.read_plan
@@ -1188,7 +1237,9 @@ class ManagerBasedRlEnv(TorchEnv):
             # state once after physics.
             read_plan.refresh()
         self.action_manager.process_public_action(actions)
-        self._sim_step_counter += self._cfg.sim_substeps
+        self._sim_step_counter += (
+            1 if self.requires_substep_state_feedback else self._cfg.sim_substeps
+        )
         self.action_manager.apply_action()
         return self._control_to_backend_boundary()
 
@@ -1488,15 +1539,13 @@ class ManagerBasedRlEnv(TorchEnv):
         env_ids: torch.Tensor | None = None,
         *,
         seed: int | None = None,
-        options: dict[str, Any] | None = None,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
         """Execute the selected-row (``env_ids``) Manager reset lifecycle."""
-        del options
+        if seed is not None:
+            self.seed(seed)
         if self._state is None:
             state = self.init_state()
             return state.obs, {"log": state.info.get("log", {})}
-        if seed is not None:
-            self.seed(seed)
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
             reset_mask = self._all_env_reset_mask
@@ -1725,6 +1774,7 @@ class ManagerBasedRlEnv(TorchEnv):
         self._sim_step_counter = self.step_counter * self._cfg.sim_substeps
 
     def close(self) -> None:
+        self.observation_manager.close()
         read_plan = self.scene.read_plan
         if read_plan is not None:
             read_plan.close()

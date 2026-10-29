@@ -157,7 +157,9 @@ def _validate_cuda_only_backend_platform(backend_type: str, kwargs: dict[str, An
             "macOS has no supported CUDA runtime",
             "Use a CPU-authoritative host-bridge backend or a Linux CUDA runtime.",
         )
-    if runtime_state["torch_hip"] not in (None, "None", ""):
+    if runtime_state["torch_hip"] not in (None, "None", "") and not (
+        profile.rocm_tensor_profile.startswith("Supported:")
+    ):
         raise _fail_closed_cuda_only(
             backend_type,
             requested_device,

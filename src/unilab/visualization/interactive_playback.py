@@ -482,11 +482,6 @@ def create_rsl_rl_playback_session(
         policy_obs_dims_getter = get_policy_obs_dims
 
     device_name = default_device(torch) if device is None else str(device)
-    env = env_factory(int(playback_cfg.num_envs))
-    if env is None:
-        raise RuntimeError("Playback env factory did not return an environment.")
-    actor_obs_dim, flat_obs_dim = policy_obs_dims_getter(env.obs_groups_spec)
-
     policy_obs_mode = playback_cfg.policy_obs_mode
     checkpoint_path: str | None = None
     if playback_cfg.action_mode == "policy":
@@ -497,6 +492,14 @@ def create_rsl_rl_playback_session(
             playback_cfg.algo_log_name,
             playback_cfg.log_root,
         )
+        if checkpoint_path is not None and sim2sim_preflight is not None:
+            sim2sim_preflight(str(Path(checkpoint_path).parent))
+
+    env = env_factory(int(playback_cfg.num_envs))
+    if env is None:
+        raise RuntimeError("Playback env factory did not return an environment.")
+    actor_obs_dim, flat_obs_dim = policy_obs_dims_getter(env.obs_groups_spec)
+    if playback_cfg.action_mode == "policy":
         if policy_obs_mode == "auto" and checkpoint_path is not None:
             ckpt_dim = checkpoint_input_dim_reader(checkpoint_path)
             if ckpt_dim == actor_obs_dim:
@@ -526,8 +529,6 @@ def create_rsl_rl_playback_session(
         if checkpoint_path is None:
             log("WARNING: no checkpoint found - falling back to zero actions.")
         else:
-            if sim2sim_preflight is not None:
-                sim2sim_preflight(str(Path(checkpoint_path).parent))
             log_dir = str(
                 entrypoint_log_root(
                     Path(root_dir),
@@ -614,7 +615,7 @@ def _build_appo_actor(
     from rsl_rl.utils import resolve_callable
     from tensordict import TensorDict
 
-    from unilab.rl.contracts.observations import get_obs_dims
+    from unilab.base.contracts.observations import get_obs_dims
 
     action_shape = env.action_space.shape
     if action_shape is None:
@@ -663,14 +664,6 @@ def create_appo_playback_session(
     """Create an APPO interactive playback session."""
 
     device_name = default_device(torch) if device is None else str(device)
-    env = env_factory(int(playback_cfg.num_envs))
-    if env is None:
-        raise RuntimeError("Playback env factory did not return an environment.")
-
-    policy_obs_mode = playback_cfg.policy_obs_mode
-    wrapped_env = wrapper_cls(env, device=device_name, policy_obs_mode=policy_obs_mode)
-    policy = None
-    actor = None
     checkpoint_path: str | None = None
     if playback_cfg.action_mode == "policy":
         checkpoint_path, checkpoint_dir = _resolve_appo_checkpoint_from_cfg(cfg, root_dir=root_dir)
@@ -686,22 +679,36 @@ def create_appo_playback_session(
                 algo_name="appo",
                 strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
             )
-            actor, actor_obs_dim, action_dim = _build_appo_actor(
-                env=env,
-                wrapped_env=wrapped_env,
-                cfg=cfg,
-                rl_cfg=rl_cfg,
-                device=device_name,
-            )
-            checkpoint = torch.load(checkpoint_path, map_location=device_name, weights_only=True)
-            with policy_load_dim_guard(
-                env_obs_dim=actor_obs_dim,
-                env_action_dim=action_dim,
-                algo_name="appo",
-            ):
-                actor.load_state_dict(checkpoint["actor"])
-            policy = actor
-            log(f"Loading APPO checkpoint: {checkpoint_path}")
+
+    env = env_factory(int(playback_cfg.num_envs))
+    if env is None:
+        raise RuntimeError("Playback env factory did not return an environment.")
+
+    policy_obs_mode = playback_cfg.policy_obs_mode
+    wrapped_env = wrapper_cls(env, device=device_name, policy_obs_mode=policy_obs_mode)
+    policy = None
+    actor = None
+    if (
+        playback_cfg.action_mode == "policy"
+        and checkpoint_path is not None
+        and Path(checkpoint_path).exists()
+    ):
+        actor, actor_obs_dim, action_dim = _build_appo_actor(
+            env=env,
+            wrapped_env=wrapped_env,
+            cfg=cfg,
+            rl_cfg=rl_cfg,
+            device=device_name,
+        )
+        checkpoint = torch.load(checkpoint_path, map_location=device_name, weights_only=True)
+        with policy_load_dim_guard(
+            env_obs_dim=actor_obs_dim,
+            env_action_dim=action_dim,
+            algo_name="appo",
+        ):
+            actor.load_state_dict(checkpoint["actor"])
+        policy = actor
+        log(f"Loading APPO checkpoint: {checkpoint_path}")
 
     log(f"Action mode: {playback_cfg.action_mode}")
     return (
@@ -744,14 +751,14 @@ def extract_reset_obs(reset_result):
 
 
 def resolve_play_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:
-    from unilab.rl.contracts.observations import get_obs_dims
+    from unilab.base.contracts.observations import get_obs_dims
 
     obs_dim, critic_obs_dim = get_obs_dims(obs_groups_spec)
     return int(obs_dim), int(critic_obs_dim)
 
 
 def extract_play_obs(obs_dict: dict[str, torch.Tensor]) -> torch.Tensor:
-    from unilab.rl.contracts.observations import split_obs_dict
+    from unilab.base.contracts.observations import split_obs_dict
 
     obs_out, _ = split_obs_dict(obs_dict)
     return obs_out
@@ -976,43 +983,9 @@ def create_sac_playback_session(
     from unilab.utils.checkpoint import resolve_checkpoint_path
 
     device_name = default_device(torch, str(device) if device is not None else None)
-    env = env_factory(int(playback_cfg.num_envs))
-    if env is None:
-        raise RuntimeError("Playback env factory did not return an environment.")
-
-    obs_dim, critic_obs_dim = resolve_play_obs_dims(env.obs_groups_spec)
-    action_shape = env.action_space.shape
-    if action_shape is None:
-        raise ValueError("env.action_space.shape must be defined")
-    action_dim = int(action_shape[0])
-    session_device = resolve_playback_device(getattr(env, "device", None), device_name)
-    actor_algo_type, actor_kwargs = resolve_play_actor_spec(
-        algo_name,
-        cfg,
-        obs_dim=obs_dim,
-        critic_obs_dim=critic_obs_dim,
-    )
-    if algo_name == "flashsac":
-        actor_kwargs.update(_flashsac_actor_kwargs(cfg))
-
-    actor = None
     checkpoint_path: str | None = None
-    normalizer = None
-    if bool(getattr(cfg.algo, "obs_normalization", False)):
-        from unilab.rl.algos.common.normalization import EmpiricalNormalization
-
-        normalizer = EmpiricalNormalization(shape=obs_dim, device=session_device)
+    checkpoint_available = False
     if playback_cfg.action_mode == "policy":
-        actor = build_actor(
-            actor_algo_type,
-            obs_dim,
-            action_dim,
-            cfg.algo.actor_hidden_dim,
-            cfg.algo.use_layer_norm,
-            str(session_device),
-            **actor_kwargs,
-        )
-        actor.eval()
         algo_log_name = str(cfg.algo.algo_log_name)
         if playback_cfg.log_root is not None:
             task_log_root = (
@@ -1036,12 +1009,12 @@ def create_sac_playback_session(
         )
         checkpoint_path = str(resolved_path) if resolved_path is not None else None
         checkpoint_dir = str(resolved_dir) if resolved_dir is not None else None
-        if checkpoint_path is None or not os.path.exists(checkpoint_path):
+        checkpoint_available = checkpoint_path is not None and os.path.exists(checkpoint_path)
+        if not checkpoint_available:
             log(
                 f"WARNING: no {algo_name} checkpoint found for "
                 f"load_run={playback_cfg.load_run} - falling back to zero actions."
             )
-            actor = None
         else:
             resolve_sim2sim_config(
                 checkpoint_dir,
@@ -1049,6 +1022,46 @@ def create_sac_playback_session(
                 algo_name=algo_name,
                 strict=bool(getattr(cfg.training, "sim2sim_strict", True)),
             )
+
+    env = env_factory(int(playback_cfg.num_envs))
+    if env is None:
+        raise RuntimeError("Playback env factory did not return an environment.")
+
+    obs_dim, critic_obs_dim = resolve_play_obs_dims(env.obs_groups_spec)
+    action_shape = env.action_space.shape
+    if action_shape is None:
+        raise ValueError("env.action_space.shape must be defined")
+    action_dim = int(action_shape[0])
+    session_device = resolve_playback_device(getattr(env, "device", None), device_name)
+    actor_algo_type, actor_kwargs = resolve_play_actor_spec(
+        algo_name,
+        cfg,
+        obs_dim=obs_dim,
+        critic_obs_dim=critic_obs_dim,
+    )
+    if algo_name == "flashsac":
+        actor_kwargs.update(_flashsac_actor_kwargs(cfg))
+
+    actor = None
+    normalizer = None
+    if bool(getattr(cfg.algo, "obs_normalization", False)):
+        from unilab.rl.algos.common.normalization import EmpiricalNormalization
+
+        normalizer = EmpiricalNormalization(shape=obs_dim, device=session_device)
+    if playback_cfg.action_mode == "policy":
+        actor = build_actor(
+            actor_algo_type,
+            obs_dim,
+            action_dim,
+            cfg.algo.actor_hidden_dim,
+            cfg.algo.use_layer_norm,
+            str(session_device),
+            **actor_kwargs,
+        )
+        actor.eval()
+        if checkpoint_path is None or not checkpoint_available:
+            actor = None
+        else:
             checkpoint = torch.load(checkpoint_path, map_location=session_device, weights_only=True)
             expected_actor_semantics = (
                 flashsac_play_actor_semantics(

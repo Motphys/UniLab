@@ -13,6 +13,262 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.5.3 (2026-10-29)
+
+### Added / 新增
+
+- Manager action terms that require state feedback can now recompute control on
+  every physics substep. The Manager refreshes public packed state, reapplies
+  the action, and steps the backend once per substep while preserving the
+  existing one-control-per-step behavior for feed-forward terms
+  ([#2535](https://github.com/Motphys/UniLab/issues/2535)).
+  需要 state feedback 的 Manager action term 现在可以在每个 physics substep
+  重新计算控制。Manager 会刷新公开 packed state、重新应用 action，并按
+  substep 单独推进 backend；feed-forward term 仍保持每步一次控制的既有行为
+  （[#2535](https://github.com/Motphys/UniLab/issues/2535)）。
+
+### Changed / 变更
+
+- The public environment contracts moved from `unilab.rl.contracts` to
+  `unilab.base.contracts`, and the old namespace is removed. Environment
+  construction no longer imports the RL algorithm stack, `unilab.base` can load
+  the contracts lazily without UniSim, and training dependencies such as
+  TensorBoard, TensorDict, rsl-rl, and W&B are available through the single
+  `unirl` extra instead of the base environment install
+  ([#2542](https://github.com/Motphys/UniLab/issues/2542)).
+  公共 environment contract 从 `unilab.rl.contracts` 移到
+  `unilab.base.contracts`，旧命名空间已删除。环境构造不再导入 RL algorithm
+  stack；`unilab.base` 可以在不加载 UniSim 的情况下 lazy 加载 contract；
+  TensorBoard、TensorDict、rsl-rl 与 W&B 等训练依赖改由单一的 `unirl`
+  extra 提供，不再进入基础 environment 安装
+  （[#2542](https://github.com/Motphys/UniLab/issues/2542)）。
+- Manager reset and interval randomization now consume UniSim's unified
+  capability sets instead of negotiating separate host and device planes. The
+  default and ROCm profiles pin `unisim-core==2.2.3`, and backend payload and
+  device-execution obligations remain fail-closed
+  ([#2550](https://github.com/Motphys/UniLab/issues/2550)).
+  Manager reset 与 interval randomization 现在消费 UniSim 的统一 capability
+  set，不再分别协商 host/device plane。默认与 ROCm profile 均钉定
+  `unisim-core==2.2.3`；backend payload 和设备执行义务仍然 fail closed
+  （[#2550](https://github.com/Motphys/UniLab/issues/2550)）。
+- The unused `options` parameter is removed from
+  `ManagerBasedRlEnv.reset()`; passing it now raises the normal Python
+  unexpected-keyword `TypeError` without a compatibility layer
+  ([#2538](https://github.com/Motphys/UniLab/issues/2538)).
+  `ManagerBasedRlEnv.reset()` 删除了未使用的 `options` 参数；传入该参数会按
+  Python 常规行为抛出 unexpected-keyword `TypeError`，没有兼容层
+  （[#2538](https://github.com/Motphys/UniLab/issues/2538)）。
+
+### Fixed / 修复
+
+- Mapped Entity body selections are now bound to backend body-state rows by
+  public body name. Scene-layout body IDs remain model addresses, so packed
+  backends may omit the world row without confusing the two address spaces
+  ([#2535](https://github.com/Motphys/UniLab/issues/2535)).
+  Mapped Entity 的 body 选择现在按公开 body name 绑定到 backend body-state
+  row。Scene-layout body ID 继续表示 model 地址，因此 packed backend 可以省略
+  world row，而不会混淆两种地址空间
+  （[#2535](https://github.com/Motphys/UniLab/issues/2535)）。
+- An explicit seed passed to `reset()` is applied before cold-path state
+  initialization, so initialization and reset randomization consume the
+  requested seed ([#2538](https://github.com/Motphys/UniLab/issues/2538)).
+  显式传入 `reset()` 的 seed 现在会在冷路径 state initialization 之前应用，
+  initialization 与 reset randomization 都会消费该 seed
+  （[#2538](https://github.com/Motphys/UniLab/issues/2538)）。
+- Interactive playback now resolves checkpoints and runs sim2sim contract
+  preflight before constructing playback environments for rsl-rl, APPO, SAC,
+  and FlashSAC sessions
+  ([#2539](https://github.com/Motphys/UniLab/issues/2539)).
+  Interactive playback 现在会先解析 checkpoint 并执行 sim2sim contract
+  preflight，然后再为 rsl-rl、APPO、SAC 与 FlashSAC session 构造 playback
+  环境（[#2539](https://github.com/Motphys/UniLab/issues/2539)）。
+
+## 1.5.2 (2026-10-27)
+
+### Added / 新增
+
+- The Manager tensor ray observation now consumes UniSim's full-scene public
+  `RayCollisionDescription`, so mesh/hfield materialization no longer requires
+  a backend-specific `uni_ray` builder, and entity-local packed pose reads are
+  aggregated onto the public full-scene body axis. `RayPatternCfg` supports
+  ring, parallel-grid, and pinhole-camera ray patterns; body, yaw-only, and
+  world alignment; body or public-site attachment with a local sensor offset;
+  `min_distance`; public geom/tag/body/ancestor filters; optional normal and
+  hit-point outputs in addition to distance; and reset-boundary per-row geometry
+  synchronization. The optional `ray` extra now resolves the published
+  `uniray[warp]==0.1.0` distribution in both CUDA and ROCm lockfiles
+  ([UniSim #472](https://github.com/unilabsim/unisim/issues/472)).
+  Manager tensor ray observation 现在消费 UniSim 公开 full-scene
+  `RayCollisionDescription`，mesh/hfield materialization 不再要求 backend-specific
+  `uni_ray` builder，并将 entity-local packed pose read 聚合到公开 full-scene body
+  轴。`RayPatternCfg` 支持 ring、平行 grid 与 pinhole-camera ray pattern，
+  body/yaw-only/world alignment、body/public-site attachment 与本地 sensor
+  offset、`min_distance`、公开 geom/tag/body/ancestor filter、可选 normal 与
+  hit-point 输出，以及 reset 边界的逐行 geometry 同步。可选 `ray` extra
+  在 CUDA 与 ROCm lockfile 中均解析已发布的 `uniray[warp]==0.1.0` 发行版
+  （[UniSim #472](https://github.com/unilabsim/unisim/issues/472)）。
+  The first facade is a minimal grouped ray sensor, not a camera: intrinsics,
+  image projection, noise, history, and scheduling remain application logic.
+  Full-scene pose aggregation covers entity-owned bodies plus the identity
+  world root; uncovered non-root bodies fail closed. MuJoCo and MJWarp
+  fixed-variant collision descriptors now publish per-row geometry through the
+  capability added by [UniSim #479](https://github.com/unilabsim/unisim/issues/479);
+  Motrix source mesh/hfield scenes follow the UniSim fail-closed boundary.
+  The real end-to-end fixture covers
+  primitive geometry, static filtering, minimum distance, attachment
+  transformation, site attachment, and normals; focused fake-caster tests cover
+  grid and pinhole ray geometry, yaw/world alignment, hit-point packing, and
+  geometry synchronization; mesh/hfield
+  numerical parity is owned by the UniSim and `uni_ray` contract suites.
+  首个 facade 是最小 grouped ray sensor，不是 camera：intrinsics、图像投影、
+  noise、history 与 scheduling 仍属于应用逻辑。full-scene pose 聚合覆盖
+  entity-owned body 与 identity world root；未覆盖的非 root body fail closed。
+  MuJoCo 与 MJWarp fixed-variant collision scene 以及 Motrix source
+  mesh/hfield scene 遵循 UniSim fail-closed 边界；fixed-variant collision
+  descriptor 通过 [UniSim #479](https://github.com/unilabsim/unisim/issues/479)
+  新增的能力发布逐行 geometry。真实端到端 fixture 覆盖
+  primitive geometry、static filtering、minimum distance、attachment
+  transformation、site attachment 与 normal；grid/pinhole ray 几何、yaw/world alignment、hit-point packing 与 geometry synchronization 由 focused fake-caster test 覆盖；mesh/hfield 数值 parity 由 UniSim 与 `uni_ray` contract suite 负责。
+- A direct-engine G1 physics-throughput benchmark now covers Genesis
+  Metal/AMDGPU/CUDA, optional MJWarp and Newton CUDA, mjbatch CPU, and MotrixSim
+  CPU. It shares the stand keyframe and control setup, maps backend-specific
+  quaternion and actuator semantics, synchronizes the selected device, and emits
+  throughput statistics, JSON, and plots. The tool measures pure physics
+  stepping only and does not add a training-runtime or backend-support claim
+  ([#2518](https://github.com/Motphys/UniLab/pull/2518)).
+  direct-engine G1 physics-throughput benchmark 现在覆盖 Genesis
+  Metal/AMDGPU/CUDA、可选 MJWarp 与 Newton CUDA、mjbatch CPU 以及 MotrixSim
+  CPU。它共享 stand keyframe 与控制设置，映射 backend 特有的 quaternion 和
+  actuator 语义，同步所选设备，并输出吞吐统计、JSON 与图表。该工具只测量纯
+  physics stepping，不新增 training-runtime 或 backend 支持承诺
+  （[#2518](https://github.com/Motphys/UniLab/pull/2518)）。
+
+### Changed / 变更
+
+- Genesis runtime domain randomization now follows the unified device-resident
+  `unisim-core` lifecycle. Manager interval negotiation selects the
+  backend-bound device plane, wrench payloads and body IDs enter the interval
+  plan on that device, and the packed reset device is declared before cold
+  event-term binds. The Genesis G1 walk SAC owner re-enables `pd_gains` with
+  the PPO owner because Genesis declares device-plane packed reset `kp`/`kd`;
+  host-plane runtime DR, push, velocity-delta, and other undeclared terms
+  still fail closed
+  ([#2520](https://github.com/Motphys/UniLab/issues/2520)).
+  Genesis 运行时域随机化现在遵循 `unisim-core` 统一的 device-resident 生命
+  周期。Manager interval 协商选择 backend 绑定的 device plane；wrench payload
+  与 body ID 在该设备上进入 interval plan；packed reset 设备会在冷路径
+  event-term bind 之前声明。Genesis G1 walk SAC owner 与 PPO owner 一致重新
+  启用 `pd_gains`，因为 Genesis 声明了 device-plane packed reset 的
+  `kp`/`kd`；host-plane 运行时 DR、push、velocity-delta 以及其他未声明 term
+  仍会 fail closed（[#2520](https://github.com/Motphys/UniLab/issues/2520)）。
+- The ROCm lock profile now publishes the exact `genesis-world==1.3.3` optional
+  extra and resolves its opt-in installation from registry packages. The default
+  `make sync-rocm` target still installs only the `mujoco` extra
+  ([#2531](https://github.com/Motphys/UniLab/issues/2531)).
+  ROCm lock profile 现在发布精确的 `genesis-world==1.3.3` optional extra，并让
+  opt-in 安装从 registry package 解析。默认 `make sync-rocm` target 仍然只安装
+  `mujoco` extra（[#2531](https://github.com/Motphys/UniLab/issues/2531)）。
+
+### Fixed / 修复
+
+- The CUDA inference IPC ring now uses event synchronization instead of IPC-event
+  stream waits on HIP/ROCm. This avoids the ROCm CLR 7.2 emulated-event modulo
+  defect that produced `hipErrorInvalidValue` when the 33rd signal-slot event
+  was reused, allowing production-shape ROCm Genesis SAC runs to complete. The
+  compatibility path is performance-impacting; NVIDIA CUDA continues to use
+  stream waits
+  ([#2530](https://github.com/Motphys/UniLab/issues/2530)).
+  CUDA inference IPC ring 在 HIP/ROCm 上现在使用 event synchronize，而不是
+  IPC-event stream wait。这避开了 ROCm CLR 7.2 emulated-event 的 modulo 缺陷；
+  该缺陷在第 33 个 signal-slot event 复用时触发 `hipErrorInvalidValue`，修复后
+  production-shape ROCm Genesis SAC run 可以正常完成。兼容路径会影响性能；
+  NVIDIA CUDA 继续使用 stream wait
+  （[#2530](https://github.com/Motphys/UniLab/issues/2530)）。
+
+## 1.5.1 (2026-10-23)
+
+### Added / 新增
+
+- FlashSAC data-parallel learners now capture and replay the whole update
+  cycle, including NCCL reductions, by default on supported compiled CUDA
+  execution. Runner synchronizer hooks coordinate capture and replay, a
+  packed loss-validity sentinel keeps optimizer and target updates rank
+  consistent, and DP capture failure fails closed instead of allowing one rank
+  to fall back to eager collectives. Set
+  `algo.algo_params.dp_whole_cycle_cuda_graph=false` to disable DP capture, or
+  `algo.algo_params.use_whole_cycle_cuda_graph=false` to disable capture on all
+  ranks. `training.dp_gradient_wire_dtype=bfloat16` additionally opts into
+  lossy BF16 communication for sufficiently large FP32 gradient groups; FP32
+  remains the default and long-run convergence equivalence has not been
+  established
+  ([#2499](https://github.com/Motphys/UniLab/pull/2499)).
+  FlashSAC 数据并行 learner 在受支持的编译 CUDA 执行路径上，现在默认捕获并回放
+  包含 NCCL reduction 的完整 update cycle。Runner synchronizer hook 协调捕获与
+  回放；打包的 loss-validity sentinel 保证 optimizer 与 target update 在各 rank
+  一致；DP 捕获失败会 fail closed，而不是允许单个 rank 回退到 eager collectives。
+  设置 `algo.algo_params.dp_whole_cycle_cuda_graph=false` 可关闭 DP 捕获；
+  `algo.algo_params.use_whole_cycle_cuda_graph=false` 可在所有 rank 关闭捕获。
+  `training.dp_gradient_wire_dtype=bfloat16` 可额外为足够大的 FP32 gradient
+  group 选择有损 BF16 通信；FP32 仍为默认，且尚未证明长时间训练收敛等价
+  （[#2499](https://github.com/Motphys/UniLab/pull/2499)）。
+
+### Changed / 变更
+
+- Multi-GPU topology remains explicit and simple: omit
+  `CUDA_VISIBLE_DEVICES` for one rank, or provide one entry per selected GPU.
+  README now shows minimal two-GPU FlashSAC training and the manually managed
+  CUDA MPS flow. An explicit `training.cuda_process_sharing=mps` request
+  normalizes numeric GPU entries to host UUIDs before rank derivation and CUDA
+  initialization, so the documented per-GPU MPS launch no longer fails on the
+  second rank; `uni-cumps env` is reserved for external launchers
+  ([#2499](https://github.com/Motphys/UniLab/pull/2499),
+  [#2505](https://github.com/Motphys/UniLab/pull/2505)).
+  多 GPU 拓扑保持显式且简单：省略 `CUDA_VISIBLE_DEVICES` 使用一个 rank；为每张
+  选择的 GPU 提供一个条目则启用对应 rank。README 现在展示最小双卡 FlashSAC
+  训练和手动管理的 CUDA MPS 流程。显式 `training.cuda_process_sharing=mps`
+  请求会在 rank 派生和 CUDA 初始化前把数字 GPU 条目规范化为主机 UUID，因此
+  文档中的 per-GPU MPS 启动不再在第二个 rank 失败；`uni-cumps env` 仅保留给
+  外部启动器使用（[#2499](https://github.com/Motphys/UniLab/pull/2499)、
+  [#2505](https://github.com/Motphys/UniLab/pull/2505)）。
+
+### Fixed / 修复
+
+- PPO, APPO, SAC, and FlashSAC entrypoints now handle `Ctrl+C` cooperatively:
+  runner and collector cleanup finishes, the first interrupt returns shell
+  status `130` without a traceback, and a second interrupt forces termination.
+  Actual worker and rank failures remain loud
+  ([#2503](https://github.com/Motphys/UniLab/pull/2503)).
+  PPO、APPO、SAC 与 FlashSAC 入口现在协作处理 `Ctrl+C`：runner 与 collector
+  清理完成后，第一次中断以 shell status `130` 退出且不输出 traceback；第二次
+  中断强制终止。真实的 worker/rank 失败仍会完整暴露
+  （[#2503](https://github.com/Motphys/UniLab/pull/2503)）。
+- The off-policy live terminal display now starts at the collector-ready
+  handshake, preventing learner compilation, CUDA graph capture, and collector
+  startup messages from interleaving with live redraws
+  ([#2507](https://github.com/Motphys/UniLab/pull/2507)).
+  off-policy live 终端显示现在延迟到 collector-ready handshake，避免 learner
+  编译、CUDA graph 捕获和 collector 启动消息与 live 刷新交错
+  （[#2507](https://github.com/Motphys/UniLab/pull/2507)）。
+- Off-policy runners initialize the learner inference timer on every supported
+  device and record the effective `cuda_events` or synchronized wall-clock
+  implementation in the runtime manifest. This fixes macOS MPS SAC/FlashSAC
+  training failing at the first inference request
+  ([#2509](https://github.com/Motphys/UniLab/pull/2509)).
+  off-policy runner 会在每个受支持的 learner 设备上初始化推理计时器，并把实际
+  使用的 `cuda_events` 或同步 wall-clock 实现记录到 runtime manifest。该修复解决
+  macOS MPS SAC/FlashSAC 训练在第一次推理请求时失败的问题
+  （[#2509](https://github.com/Motphys/UniLab/pull/2509)）。
+- Fused community 13-D root-state and motion-state resets now rotate world-frame
+  angular velocity into the generalized free-root/body frame before tensor
+  submission, while linear velocity remains world-frame. Rotated roots with
+  nonzero angular velocity therefore initialize the intended physical state
+  without reintroducing host-boundary work
+  ([#2513](https://github.com/Motphys/UniLab/pull/2513)).
+  融合 community 13-D root-state 与 motion-state reset 现在会在 tensor 提交前把
+  world-frame 角速度旋转到 generalized free-root/body frame，线速度仍保持
+  world-frame。带非零角速度的旋转 root 因此能初始化为预期物理状态，且没有重新
+  引入 host-boundary 开销（[#2513](https://github.com/Motphys/UniLab/pull/2513)）。
+
 ## 1.5.0 (2026-10-22)
 
 ### Breaking changes / 破坏性变更

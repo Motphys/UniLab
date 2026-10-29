@@ -5155,7 +5155,7 @@ wheels = [
 
 [[package]]
 name = "unilab"
-version = "1.5.0"
+version = "1.5.3"
 source = { editable = "." }
 dependencies = [
     { name = "etils", version = "1.13.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -5176,10 +5176,7 @@ dependencies = [
     { name = "packaging" },
     { name = "prettytable" },
     { name = "rich" },
-    { name = "rsl-rl-lib" },
     { name = "setuptools" },
-    { name = "tensorboard" },
-    { name = "tensordict" },
     { name = "torch", version = "2.14.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
     { name = "torch", version = "2.14.0+cu130", source = { registry = "https://download-r2.pytorch.org/whl/cu130" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "tqdm" },
@@ -5187,7 +5184,6 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "unisim-core" },
     { name = "viser" },
-    { name = "wandb" },
 ]
 
 [package.optional-dependencies]
@@ -5217,8 +5213,17 @@ newton = [
     { name = "pyglet" },
     { name = "warp-lang" },
 ]
+ray = [
+    { name = "uniray", extra = ["warp"] },
+]
 superdex = [
     { name = "unisim-core", extra = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
+]
+unirl = [
+    { name = "rsl-rl-lib" },
+    { name = "tensorboard" },
+    { name = "tensordict" },
+    { name = "wandb" },
 ]
 
 [package.dev-dependencies]
@@ -5259,24 +5264,25 @@ requires-dist = [
     { name = "prettytable", specifier = ">=3.10" },
     { name = "pyglet", marker = "extra == 'newton'", specifier = ">=2.1.6,<3" },
     { name = "rich" },
-    { name = "rsl-rl-lib", specifier = ">=5.0.0" },
+    { name = "rsl-rl-lib", marker = "extra == 'unirl'", specifier = ">=5.0.0" },
     { name = "setuptools" },
-    { name = "tensorboard", specifier = ">=2.21.0" },
-    { name = "tensordict" },
+    { name = "tensorboard", marker = "extra == 'unirl'", specifier = ">=2.21.0" },
+    { name = "tensordict", marker = "extra == 'unirl'" },
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.9,<2.15" },
     { name = "torch", marker = "sys_platform == 'linux' or sys_platform == 'win32'", specifier = ">=2.9,<2.15", index = "https://download-r2.pytorch.org/whl/cu130" },
     { name = "tqdm" },
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
-    { name = "unisim-core", specifier = "==2.1.0" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.1.0" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.1.0" },
+    { name = "uniray", extras = ["warp"], marker = "extra == 'ray'", specifier = "==0.1.0" },
+    { name = "unisim-core", specifier = "==2.2.3" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.2.3" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.2.3" },
     { name = "viser", specifier = ">=1.0.26" },
-    { name = "wandb", specifier = ">=0.22.3" },
+    { name = "wandb", marker = "extra == 'unirl'", specifier = ">=0.22.3" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
     { name = "warp-lang", marker = "extra == 'newton'", specifier = "==1.16.0" },
 ]
-provides-extras = ["drake", "mujoco", "mjwarp", "newton", "motrix", "genesis", "superdex"]
+provides-extras = ["drake", "mujoco", "mjwarp", "newton", "motrix", "genesis", "superdex", "ray", "unirl"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -5288,14 +5294,36 @@ dev = [
 ]
 
 [[package]]
+name = "uniray"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "unisim-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/12/d4/71015d68bae08d996f0c7d19e17516cb012e43c5f480fc56a9c1fe9ab4ba/uniray-0.1.0.tar.gz", hash = "sha256:2bbc87029615d6a4efa7315a12615f217d5219f53e0627a8ba8ac93b5ea045ee", size = 32970, upload-time = "2026-10-26T12:03:45.548Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/79/4c27367b240a58610657673f9e83499ed4ed5295dad0d17d07ac551d897c/uniray-0.1.0-py3-none-any.whl", hash = "sha256:b4bbfd5e3befb4f6327593172f4ed8e583e49086e437926b80cdf81738f7c88b", size = 36533, upload-time = "2026-10-26T12:03:40.835Z" },
+]
+
+[package.optional-dependencies]
+warp = [
+    { name = "warp-lang" },
+]
+
+[[package]]
 name = "unisim-core"
-version = "2.1.0"
+version = "2.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8e/54/8bbfa4f671b4c26002983afeb88f24e548816de3ccb29112ac4b8ca9ae66/unisim_core-2.1.0.tar.gz", hash = "sha256:4353d0e01214954181a30b6e00442cf3f5e3bb45fba551cee2e6f35440db1d2d", size = 699562, upload-time = "2026-10-21T14:47:45.451Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/45/3afcc1f9ad96bbd97d1f9c58c0609a5acddda066cd86e61ebdcd0b94f4bd/unisim_core-2.2.3.tar.gz", hash = "sha256:a798aa58cb1135891508f9184c38b51a52304116064336d6ba77105acf1ff246", size = 760174, upload-time = "2026-10-28T16:43:30.49Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/71/2b320d4c77f8896d59a4a240335f284f8393e223618dc80fc38c98e74b66/unisim_core-2.2.3-py3-none-any.whl", hash = "sha256:c4a3dda639a75b7eab09d4b96231f7d7663069615e672fd74f1835502d625b9e", size = 808508, upload-time = "2026-10-28T16:43:28.387Z" },
+]
 
 [package.optional-dependencies]
 motrix = [

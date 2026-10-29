@@ -771,7 +771,7 @@ def _make_env(
     env_cfg_override: dict[str, Any] | None,
 ):
     from unilab.base.config_adapter import create_env
-    from unilab.rl.contracts.observations import get_obs_dims
+    from unilab.base.contracts.observations import get_obs_dims
 
     env = create_env(cfg, num_envs=int(cfg.algo.num_envs), env_cfg_override=env_cfg_override)
     if env.state is None:
@@ -860,7 +860,7 @@ def _run_active_window_case(
     policy_inference_context: TimingStats | None = None,
     policy_inference_context_evidence: dict[str, Any] | None = None,
 ) -> CollectorResult:
-    from unilab.rl.contracts.observations import split_obs_dict
+    from unilab.base.contracts.observations import split_obs_dict
     from unilab.rl.runtime.ipc.replay_buffer import ReplayBuffer
     from unilab.rl.runtime.offpolicy.worker import timeout_bootstrap_mask
 

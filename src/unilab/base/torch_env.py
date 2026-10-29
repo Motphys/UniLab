@@ -69,10 +69,9 @@ def _cpu_time() -> float:
 
 # Backends whose ``step_tensor`` publishes an event-backed asynchronous step
 # receipt (a unisim ``CompletionToken`` carried in ``info["completion"]``).
-# Synchronous producers — host-bridge backends and device-resident backends
-# that synchronize before returning (for example genesis) — publish no
-# receipt, so consumers must accept a missing receipt without waiting.
-_EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"mjwarp"})
+# Event-backed Genesis and MJWarp CUDA paths publish a receipt per step;
+# synchronous host-bridge producers publish none.
+_EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"genesis", "mjwarp"})
 
 
 class TorchEnv(ABEnv):
@@ -270,7 +269,7 @@ class TorchEnv(ABEnv):
         # previous one before the backend call so unsupported or failed steps
         # cannot expose stale completion metadata.
         self._state.info.pop("completion", None)
-        backend_result = self._backend.step_tensor(ctrl, self._cfg.sim_substeps)
+        backend_result = self._step_physics(ctrl)
         step_core_ms = (time.perf_counter() - phase) * 1000.0
         step_core_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
         if isinstance(backend_result, dict):
@@ -369,6 +368,44 @@ class TorchEnv(ABEnv):
             if completion is not None:
                 self._state.info["completion"] = completion
         return self._state
+
+    @property
+    def requires_substep_state_feedback(self) -> bool:
+        """Whether controls must be recomputed from state between physics substeps."""
+        return False
+
+    def apply_substep_action(self) -> torch.Tensor:
+        """Refresh state-dependent control before the next physics substep."""
+        raise NotImplementedError(
+            f"{type(self).__name__} must implement apply_substep_action when "
+            "requires_substep_state_feedback is True"
+        )
+
+    def _step_physics(self, ctrl: torch.Tensor) -> dict[str, Any] | None:
+        if not self.requires_substep_state_feedback:
+            return cast(
+                dict[str, Any] | None,
+                self._backend.step_tensor(ctrl, self._cfg.sim_substeps),
+            )
+
+        backend_result: dict[str, Any] | None = None
+        backend_timing: dict[str, Any] = {}
+        for substep in range(self._cfg.sim_substeps):
+            if substep > 0:
+                ctrl = self.apply_substep_action()
+                self._validate_control(ctrl)
+            result = self._backend.step_tensor(ctrl, 1)
+            if not isinstance(result, dict):
+                continue
+            backend_result = result
+            for key, value in result.get("timing", {}).items():
+                backend_timing[key] = backend_timing.get(key, 0.0) + value
+
+        if backend_result is None:
+            return None
+        # The final receipt orders the whole substep sequence for transition
+        # consumers; intermediate receipts are superseded by the next step.
+        return {"timing": backend_timing, "completion": backend_result.get("completion")}
 
     def _validate_action(self, actions: torch.Tensor) -> None:
         self._validate_action_contract(actions)

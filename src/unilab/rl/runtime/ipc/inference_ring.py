@@ -12,13 +12,15 @@ flag.
 from __future__ import annotations
 
 import multiprocessing as mp
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import torch
 
 from unilab.rl.runtime.device import sync_device
 
 _SPAWN_CTX = mp.get_context("spawn")
+
+CudaEventWait = Literal["stream", "synchronize"]
 
 
 class RingTransport(Protocol):
@@ -143,6 +145,13 @@ class CpuRingTransport:
 class CudaRingTransport:
     """Per-slot IPC-event staging transport for a CUDA inference ring."""
 
+    def __init__(self, *, event_wait: CudaEventWait = "stream") -> None:
+        if event_wait not in ("stream", "synchronize"):
+            raise ValueError(
+                f"CUDA inference event_wait must be 'stream' or 'synchronize', got {event_wait!r}"
+            )
+        self.event_wait = event_wait
+
     def validate_observation_inputs(
         self, ring: "SharedInferenceRing", observations: torch.Tensor, dones: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -171,7 +180,7 @@ class CudaRingTransport:
         ring._observation_event(slot).record(torch.cuda.current_stream(ring.device))
 
     def wait_observation_ready(self, ring: "SharedInferenceRing", slot: int) -> None:
-        ring._observation_event(slot).wait(torch.cuda.current_stream(ring.device))
+        self._wait_event(ring._observation_event(slot), ring.device)
 
     def publish_action(
         self,
@@ -187,10 +196,10 @@ class CudaRingTransport:
         return ring.actions[slot].clone()
 
     def wait_action_ready(self, ring: "SharedInferenceRing", slot: int) -> None:
-        ring._action_event(slot).wait(torch.cuda.current_stream(ring.device))
+        self._wait_event(ring._action_event(slot), ring.device)
 
     def wait_consumer_done(self, ring: "SharedInferenceRing", slot: int) -> None:
-        ring._consumer_done_event(slot).wait(torch.cuda.current_stream(ring.device))
+        self._wait_event(ring._consumer_done_event(slot), ring.device)
 
     def record_action_ready(self, ring: "SharedInferenceRing", slot: int) -> None:
         ring._action_event(slot).record(torch.cuda.current_stream(ring.device))
@@ -204,12 +213,26 @@ class CudaRingTransport:
         ring._consumer_done_event(slot).record(torch.cuda.current_stream(ring.device))
         ring._consumer_done_ticks[slot] = int(tick_id)
 
+    def _wait_event(self, event: torch.cuda.Event, device: torch.device) -> None:
+        if self.event_wait == "synchronize":
+            event.synchronize()
+            return
+        event.wait(torch.cuda.current_stream(device))
+
 
 def _build_ring_transport(device: torch.device) -> RingTransport:
     if device.type == "cpu":
         return CpuRingTransport()
     if device.type == "cuda":
-        return CudaRingTransport()
+        # PERFORMANCE-COMPATIBILITY FALLBACK: ROCm/HIP 7.2 emulated IPC events
+        # omit the signal-ring modulo in hipStreamWaitEvent (ROCm CLR a44f100
+        # fixes it), so the 33rd reuse of an event passes signal[32] and fails
+        # with hipErrorInvalidValue. Event.synchronize uses the correctly
+        # modulo-indexed ROCm path but blocks the host and reduces overlap; use
+        # it only until every supported HIP runtime includes the CLR fix.
+        return CudaRingTransport(
+            event_wait="synchronize" if bool(getattr(torch.version, "hip", None)) else "stream"
+        )
     raise ValueError(f"inference rings support CPU and CUDA only, got {device.type!r}")
 
 

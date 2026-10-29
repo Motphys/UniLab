@@ -77,7 +77,7 @@ def test_observation_mask_reset_contract() -> None:
         for group, values in reset_obs.items():
             assert values.shape == obs_before[group].shape
             assert np.isfinite(values).all()
-            np.testing.assert_array_equal(env.state.obs[group][reset_ids], values)
+            np.testing.assert_array_equal(env.state.obs[group][reset_ids], values[reset_ids])
             np.testing.assert_array_equal(
                 env.state.obs[group][keep_ids],
                 obs_before[group][keep_ids],

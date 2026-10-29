@@ -11,7 +11,10 @@ from typing import Any
 
 import pytest
 
-from unilab.training.cuda_process_sharing import probe_cuda_process_sharing
+from unilab.training.cuda_process_sharing import (
+    probe_cuda_process_sharing,
+    resolve_mps_visibility_entries,
+)
 
 
 class _Completed:
@@ -40,6 +43,14 @@ def _fake_commands(gpu_uuid: str = "GPU-a", *, server_pid: int = 2768293) -> Any
             assert kwargs["input"] == "get_server_list\n"
             return _Completed(f"{server_pid}\n")
         raise AssertionError(f"unexpected command: {command}")
+
+    return run_command
+
+
+def _fake_uuid_table_commands(stdout: str) -> Any:
+    def run_command(command: list[str], **kwargs: Any) -> _Completed:
+        assert command[0] == "nvidia-smi"
+        return _Completed(stdout)
 
     return run_command
 
@@ -409,3 +420,50 @@ def test_ambient_probe_records_unresolvable_facts_as_none(linux_mps: Any) -> Non
     assert evidence.collector_gpu_uuid is None
     assert not evidence.ambient_server
     assert not evidence.validated
+
+
+def test_mps_visibility_entries_resolve_numeric_indices() -> None:
+    """Numeric entries become host UUIDs in nvidia-smi display form."""
+
+    resolved = resolve_mps_visibility_entries(
+        ("0", "1"),
+        run_command=_fake_uuid_table_commands("0, GPU-aaaa\n1, GPU-bbbb\n"),
+    )
+
+    assert resolved == ("GPU-aaaa", "GPU-bbbb")
+
+
+def test_mps_visibility_entries_pass_through_non_numeric() -> None:
+    """UUID, MIG, and CUDA-disabled entries never touch host tooling."""
+
+    def forbidden_command(command: list[str], **kwargs: Any) -> Any:
+        raise AssertionError(f"unexpected command: {command}")
+
+    entries = ("GPU-aaaa", "MIG-aaaa/0/0", "-1")
+
+    assert resolve_mps_visibility_entries(entries, run_command=forbidden_command) == entries
+
+
+def test_mps_visibility_entries_normalize_mixed_masks() -> None:
+    resolved = resolve_mps_visibility_entries(
+        ("GPU-bbbb", "0"),
+        run_command=_fake_uuid_table_commands("0, GPU-aaaa\n"),
+    )
+
+    assert resolved == ("GPU-bbbb", "GPU-aaaa")
+
+
+def test_mps_visibility_entries_unknown_index_fails_closed() -> None:
+    with pytest.raises(ValueError, match="could not resolve"):
+        resolve_mps_visibility_entries(
+            ("3",),
+            run_command=_fake_uuid_table_commands("0, GPU-aaaa\n"),
+        )
+
+
+def test_mps_visibility_entries_missing_host_table_fails_closed() -> None:
+    def failing_command(command: list[str], **kwargs: Any) -> Any:
+        raise RuntimeError("no nvidia-smi")
+
+    with pytest.raises(ValueError, match="could not resolve"):
+        resolve_mps_visibility_entries(("0",), run_command=failing_command)

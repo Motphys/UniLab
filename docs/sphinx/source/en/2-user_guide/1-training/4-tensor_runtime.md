@@ -58,9 +58,10 @@ actions use the CPU inference ring; in the default-legal pairings the learner
 itself is CPU or Apple MPS — see the pairing contract below for CUDA
 learners), and `cuda` derives the CUDA ring. `cuda` follows Torch device-type
 semantics and covers both NVIDIA CUDA and AMD ROCm. It does not relax separate
-platform gates: CUDA-only tensor backends still fail closed on ROCm/HIP, and
-`training.cuda_process_sharing` remains available only to the NVIDIA-specific
-CUDA MPS daemon and native H2D implementation.
+platform gates: CUDA-only tensor backends still fail closed on ROCm/HIP, while
+Genesis separately admits only its reviewed HIP/ROCm + exact `gs.amdgpu`
+profile. `training.cuda_process_sharing` remains available only to the
+NVIDIA-specific CUDA MPS daemon and native H2D implementation.
 
 Removed keys fail closed with a migration error: use
 `training.collector_tensor_device` instead of `training.sim_carrier_device`

@@ -4,7 +4,7 @@ The RL subsystem (contracts, adapters, algorithms, runtime, logging) merged
 back into ``src/unilab/rl/``; it was the standalone unilab-rl package before
 issue #2372. This module guards the merged internal DAG:
 
-- ``unilab.rl.contracts`` is a leaf: stdlib/Torch types only, never unilab
+- ``unilab.base.contracts`` is a leaf: stdlib/Torch types only, never unilab
   runtime/training/env layers or unisim.
 - ``unilab.rl.logging`` only depends on itself.
 - ``unilab.rl.runtime`` may use contracts/logging and the leaf shims
@@ -39,8 +39,8 @@ _RL_PACKAGE = _LIBRARY_PACKAGE / "rl"
 # Observation-contract symbols have exactly one owner module; everywhere else
 # they must be imported, not re-defined.
 _SINGLE_OWNER_SYMBOLS = {
-    "split_obs_dict": _RL_PACKAGE / "contracts" / "observations.py",
-    "get_obs_dims": _RL_PACKAGE / "contracts" / "observations.py",
+    "split_obs_dict": _LIBRARY_PACKAGE / "base" / "contracts" / "observations.py",
+    "get_obs_dims": _LIBRARY_PACKAGE / "base" / "contracts" / "observations.py",
     "get_default_device": _LIBRARY_PACKAGE / "utils" / "device.py",
     "TrainingSeedInfo": _LIBRARY_PACKAGE / "training" / "seed.py",
     "resolve_training_seed": _LIBRARY_PACKAGE / "training" / "seed.py",
@@ -63,12 +63,24 @@ def _imports(path: Path) -> set[str]:
     return modules
 
 
-def _layer_violations(root: Path, forbidden: tuple[str, ...]) -> list[tuple[str, str]]:
+def _display_path(path: Path) -> str:
+    try:
+        return path.relative_to(_REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _layer_violations(
+    root: Path,
+    forbidden: tuple[str, ...],
+    allowed: tuple[str, ...] = (),
+) -> list[tuple[str, str]]:
     return [
-        (path.relative_to(_REPO_ROOT).as_posix(), module)
+        (_display_path(path), module)
         for path in sorted(root.rglob("*.py"))
         for module in sorted(_imports(path))
         if any(module == layer or module.startswith(f"{layer}.") for layer in forbidden)
+        and not any(module == ok or module.startswith(f"{ok}.") for ok in allowed)
     ]
 
 
@@ -142,17 +154,6 @@ def test_utils_does_not_import_higher_layers() -> None:
 # Internal DAG for the merged RL subsystem. Each entry lists the import roots
 # forbidden for ``src/unilab/rl/<layer>``.
 _RL_DAG_FORBIDDEN: dict[str, tuple[str, ...]] = {
-    "contracts": (
-        "unilab.base",
-        "unilab.envs",
-        "unilab.tasks",
-        "unilab.managers",
-        "unilab.training",
-        "unilab.scripts",
-        "unilab.rl.algos",
-        "unilab.rl.runtime",
-        "unisim",
-    ),
     "runtime": (
         "unilab.rl.algos",
         "unilab.training",
@@ -175,16 +176,63 @@ _RL_DAG_FORBIDDEN: dict[str, tuple[str, ...]] = {
     "adapters": (
         "unilab.training",
         "unilab.base",
-        "unilab.algos",
+        "unilab.rl.algos",
+        "unilab.envs",
+        "unilab.tasks",
+        "unilab.managers",
+        "unilab.scripts",
+        "unisim",
     ),
 }
 
 
+# The env-injection contract is owned by ``unilab.base.contracts`` but consumed
+# by the RL algorithms/runtime; it is the one ``unilab.base`` leaf allowed
+# across the RL-internal DAG boundary.
+_RL_CONTRACT_LEAF = ("unilab.base.contracts",)
+
+
 @pytest.mark.parametrize("layer", sorted(_RL_DAG_FORBIDDEN))
 def test_rl_layer_respects_internal_dag(layer: str) -> None:
-    violations = _layer_violations(_RL_PACKAGE / layer, _RL_DAG_FORBIDDEN[layer])
+    violations = _layer_violations(
+        _RL_PACKAGE / layer, _RL_DAG_FORBIDDEN[layer], allowed=_RL_CONTRACT_LEAF
+    )
 
     assert violations == [], f"src/unilab/rl/{layer} violates the RL-internal DAG: {violations}"
+
+
+@pytest.mark.parametrize(
+    "forbidden",
+    (
+        "unilab.training",
+        "unilab.base",
+        "unilab.rl.algos",
+        "unilab.envs",
+        "unilab.tasks",
+        "unilab.managers",
+        "unilab.scripts",
+        "unisim",
+    ),
+)
+def test_layer_violations_catches_forbidden_adapter_imports(tmp_path: Path, forbidden: str) -> None:
+    path = tmp_path / "forbidden.py"
+    path.write_text(f"from {forbidden} import marker\n", encoding="utf-8")
+
+    assert _layer_violations(tmp_path, _RL_DAG_FORBIDDEN["adapters"]) == [
+        (path.as_posix(), forbidden)
+    ]
+
+
+def test_layer_violations_allows_adapter_contracts_typing_import(tmp_path: Path) -> None:
+    path = tmp_path / "allowed.py"
+    path.write_text(
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from unilab.rl.contracts import observations\n",
+        encoding="utf-8",
+    )
+
+    assert _layer_violations(tmp_path, _RL_DAG_FORBIDDEN["adapters"]) == []
 
 
 def test_rl_logging_does_not_import_other_unilab_layers() -> None:
@@ -257,6 +305,17 @@ def test_rl_package_import_stays_lightweight() -> None:
     )
 
 
+def test_unilab_import_stays_lightweight() -> None:
+    """``import unilab`` must not pull in the optional training stack."""
+    _run_isolated(
+        "import sys\n"
+        "import unilab\n"
+        "heavy = [m for m in sys.modules if m.split('.')[0] in "
+        "('tensordict', 'rsl_rl', 'wandb', 'tensorboard')]\n"
+        "assert not heavy, f'unilab pulled in heavy modules: {heavy}'\n"
+    )
+
+
 def test_distributed_context_import_closure_stays_leaf() -> None:
     """The DP topology context must not need Torch or env/training layers."""
     _run_isolated(
@@ -275,9 +334,29 @@ def test_contracts_import_without_simulator_packages() -> None:
     """Contracts modules must not require unisim or any simulator backend."""
     _run_isolated(
         "import sys\n"
-        "import unilab.rl.contracts.env\n"
-        "import unilab.rl.contracts.observations\n"
-        "import unilab.rl.contracts.probe\n"
+        "import unilab.base.contracts.env\n"
+        "import unilab.base.contracts.observations\n"
+        "import unilab.base.contracts.probe\n"
         "bad = [m for m in sys.modules if m == 'unisim' or m.startswith('unisim.')]\n"
         "assert not bad, f'contracts pulled in simulator packages: {bad}'\n"
+    )
+
+
+def test_base_contracts_does_not_import_rl_or_higher_layers() -> None:
+    violations = _layer_violations(
+        _LIBRARY_PACKAGE / "base" / "contracts",
+        (
+            "unilab.rl",
+            "unilab.envs",
+            "unilab.tasks",
+            "unilab.managers",
+            "unilab.training",
+            "unilab.visualization",
+            "unilab.scripts",
+            "unisim",
+        ),
+    )
+
+    assert violations == [], (
+        f"src/unilab/base/contracts must stay a leaf (stdlib/Torch types only): {violations}"
     )

@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any, Callable
 
-from unilab.rl.contracts.env import EnvFactory
-from unilab.rl.contracts.probe import probe_env_contract
+from unilab.base.contracts.env import EnvFactory
+from unilab.base.contracts.probe import probe_env_contract
 from unilab.rl.logging import OffPolicyLogger
 from unilab.rl.logging.metrics_drain import RewardComponentWindow, drain_collector_metrics
 from unilab.rl.runtime.async_runner import AsyncRunner

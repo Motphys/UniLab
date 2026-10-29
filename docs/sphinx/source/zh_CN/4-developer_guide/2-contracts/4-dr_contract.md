@@ -29,21 +29,20 @@ Manager-Based event term 是 UniLab 唯一的 DR lifecycle。任务 provider 协
 
 Backend 差异是显式 capability，不是 task-side 分支：
 
-- `DomainRandomizationCapabilities.supported_reset_terms`——host 平面
-  （`torch.cpu` payload）
-- `supported_interval_terms`——host 平面
-- `supported_device_reset_terms` / `supported_device_interval_terms`——device
-  平面（CUDA payload）；空集合 fail closed
+- `DomainRandomizationCapabilities.supported_reset_terms`——backend 通过公开 DR
+  路径支持的全部 reset term
+- `supported_interval_terms`——backend 通过公开 DR 路径支持的全部 interval term
 - fixed-variant layout
 - per-environment playback 支持
 - `TensorLifecycleCapabilities.packed_reset` 与 `SimBackend.bind_packed_reset()`：
   Manager-Based reset 与 startup DR 生命周期的必需 capability；缺失声明会在 env
   构造时 fail closed。
 
-payload tensor 的设备决定平面：`torch.cpu` payload 走 host term 集合协商，CUDA
-payload 走 device term 集合。未在对应平面声明的请求 term 会携带 backend、term
-与平面名称 fail closed。Manager code 不 import MuJoCo 或 mjbatch，也不访问
-backend model/pool。
+这两个集合是单一且与 plane 无关的 term 集合。Manager capability 协商不检查
+payload 所在设备，也不传递 plane。CPU/GPU 执行及所需的内部转换由 backend
+adapter 负责，不再拆成不同的公开 capability 集合。未声明的请求 term 会携带
+backend 与 term 名称 fail closed；backend 仍会拒绝违反其设备或生命周期契约的
+payload。Manager code 不 import MuJoCo 或 mjbatch，也不访问 backend model/pool。
 
 ## Reset Payload 与默认值
 
@@ -76,8 +75,8 @@ closed。该边界移除了 UniLab 侧为 inertia 默认值重新 compile MuJoCo
 
 Interval plan 基于 term descriptor：`IntervalRandomizationPlan.ops` 携带来自
 `unisim.dr.interval` 的 `IntervalTermOp`。payload 为 torch-first：
-`IntervalTermOp.payload` 是 torch tensor 或 `TensorIntervalPayload`，其设备决定
-平面；push 在所有后端统一为生产方采样——后端内部的全局 RNG push 采样已不存在。
+`IntervalTermOp.payload` 是 torch tensor 或 `TensorIntervalPayload`；push 在所有
+后端统一为生产方采样——后端内部的全局 RNG push 采样已不存在。
 内置 payload contract 由 `IntervalTermOp.validate` 强制；未知 backend-owned
 custom term 传给该 backend handler table。跨 spawn collector 的 plan 携带采样
 范围而不是 tensor；device payload 是进程本地的。

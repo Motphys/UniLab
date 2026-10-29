@@ -1,4 +1,4 @@
-"""Tests for unilab.rl.contracts.observations.
+"""Tests for unilab.base.contracts.observations.
 
 Ported from unilab_rl ``tests/utils/test_observations.py`` (itself adapted from
 UniLab's pre-split ``tests/utils/test_obs_utils.py``).
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from unilab.rl.contracts.observations import get_obs_dims, split_obs_dict
+from unilab.base.contracts.observations import get_obs_dims, split_obs_dict
 
 
 class TestSplitObsDict:

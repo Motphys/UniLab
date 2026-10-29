@@ -37,7 +37,6 @@ from unisim.dr.types import (
     RESET_TERM_KD,
     RESET_TERM_KP,
     RESET_TERM_SPECS,
-    DataPlaneName,
 )
 from unisim.entities import EntityStatePatch, SceneResetRequest
 from unisim.scene_layout import CompiledSceneLayout
@@ -153,6 +152,7 @@ class ResetStateTransaction:
         self._tensor_root_columns: (
             tuple[tuple[int, ...], tuple[int, ...], torch.Tensor, torch.Tensor] | None
         ) = None
+        self._tensor_root_velocity: torch.Tensor | None = None
         self._tensor_joint_columns: (
             tuple[tuple[int, ...], tuple[int, ...], torch.Tensor, torch.Tensor] | None
         ) = None
@@ -324,6 +324,7 @@ class ResetStateTransaction:
         self._requesting_terms.clear()
         self._last_commit_had_writes = False
         self._tensor_active = True
+        self._ensure_tensor_root_velocity_scratch()
 
     def write_entity_state(
         self,
@@ -1343,7 +1344,7 @@ class ResetStateTransaction:
             qpos_columns=qpos_columns_t,
             qpos_values=root_state[:, :7].contiguous(),
             qvel_columns=qvel_columns_t,
-            qvel_values=root_state[:, 7:13].contiguous(),
+            qvel_values=self._encode_tensor_root_velocity(root_state),
         )
         self._tensor_has_writes = True
 
@@ -1465,7 +1466,7 @@ class ResetStateTransaction:
             qpos_columns=root_qpos_columns,
             qpos_values=root_state[:, :7].contiguous(),
             qvel_columns=root_qvel_columns,
-            qvel_values=root_state[:, 7:13].contiguous(),
+            qvel_values=self._encode_tensor_root_velocity(root_state),
         )
         transaction.write_state_mask(
             effective_mask,
@@ -1806,19 +1807,6 @@ class ResetStateTransaction:
         assert device is not None
         return ids.to(dtype=torch.int64, device=device)
 
-    def _packed_reset_plane(self) -> DataPlaneName:
-        """Data plane of the packed composer for capability checks.
-
-        Torch tensors on ``torch.cpu`` form the host plane; any other device
-        forms the device plane. Before the packed device is declared (cold-path
-        binds run before ``declare_packed_reset_device``) the check falls back
-        to the host plane, matching the historical declaration semantics.
-        """
-        device = self._packed_reset_device
-        if device is None or device.type == "cpu":
-            return "host"
-        return "device"
-
     def _packed_values(self, values: np.ndarray | torch.Tensor) -> torch.Tensor:
         """Move validated values into the packed composer as float32, on device."""
         device = self._packed_reset_device
@@ -1864,6 +1852,37 @@ class ResetStateTransaction:
             )
         self._validate_tensor_root_quaternions(root_state[:, 3:7], term_name=term_name)
 
+    def _ensure_tensor_root_velocity_scratch(self) -> None:
+        """Keep the encoded root-velocity carrier at one stable device address."""
+        device = self._packed_reset_device
+        assert device is not None
+        scratch = self._tensor_root_velocity
+        if (
+            scratch is not None
+            and scratch.shape == (self._num_envs, 6)
+            and scratch.dtype is torch.float32
+            and scratch.device == device
+        ):
+            return
+        self._tensor_root_velocity = torch.empty(
+            (self._num_envs, 6), dtype=torch.float32, device=device
+        )
+
+    def _encode_tensor_root_velocity(self, root_state: torch.Tensor) -> torch.Tensor:
+        """Encode community world-frame velocity for generalized free-root qvel.
+
+        Free-root linear velocity is world-frame already. Angular velocity is
+        public world-frame input but generalized ``qvel`` stores it in the root
+        body frame. The full-width carrier avoids masking this conversion to a
+        selected-row allocation while preserving one masked state write.
+        """
+        self._ensure_tensor_root_velocity_scratch()
+        velocity = self._tensor_root_velocity
+        assert velocity is not None
+        velocity[:, :3] = root_state[:, 7:10]
+        velocity[:, 3:6] = quat_apply_inverse(root_state[:, 3:7], root_state[:, 10:13])
+        return velocity.contiguous()
+
     def _validate_tensor_root_quaternions(self, values: torch.Tensor, *, term_name: str) -> None:
         norms = torch.linalg.vector_norm(values, dim=-1)
         if not bool(torch.isclose(norms, torch.ones_like(norms), rtol=1e-5, atol=1e-6).all()):
@@ -1879,9 +1898,7 @@ class ResetStateTransaction:
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error(term_name, "actuator gain randomization", exc) from exc
         required = frozenset((RESET_TERM_KP, RESET_TERM_KD))
-        unsupported = capabilities.get_unsupported_reset_terms(
-            required, plane=self._packed_reset_plane()
-        )
+        unsupported = capabilities.get_unsupported_reset_terms(required)
         if unsupported:
             detail = ", ".join(sorted(unsupported))
             raise self._capability_error(
@@ -1924,9 +1941,7 @@ class ResetStateTransaction:
             capabilities = self._backend.get_dr_capabilities()
         except (AttributeError, NotImplementedError) as exc:
             raise self._capability_error(term_name, f"{field} randomization", exc) from exc
-        unsupported = capabilities.get_unsupported_reset_terms(
-            frozenset((field,)), plane=self._packed_reset_plane()
-        )
+        unsupported = capabilities.get_unsupported_reset_terms(frozenset((field,)))
         if unsupported:
             raise self._capability_error(
                 term_name,

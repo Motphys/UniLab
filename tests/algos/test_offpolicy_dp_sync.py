@@ -599,8 +599,10 @@ def test_build_runner_single_rank_flashsac_keeps_dp_sync_none(monkeypatch: pytes
     assert kwargs["collector_cpu_ids"] is None
 
 
+@pytest.mark.parametrize("wire_dtype", ["float32", "bfloat16"])
 def test_build_runner_multi_gpu_constructs_dp_sync_for_flashsac_rank0(
     monkeypatch: pytest.MonkeyPatch,
+    wire_dtype: str,
 ):
     monkeypatch.setattr(
         "unilab.rl.runtime.distributed.affinity.discover_physical_cpu_groups",
@@ -610,12 +612,15 @@ def test_build_runner_multi_gpu_constructs_dp_sync_for_flashsac_rank0(
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-rank-local")
     monkeypatch.delenv(UNILAB_DP_RANK, raising=False)
     monkeypatch.delenv(UNILAB_DP_LOG_DIR, raising=False)
-    kwargs = _build_flashsac_runner_with_dp_fakes(monkeypatch, [])
+    kwargs = _build_flashsac_runner_with_dp_fakes(
+        monkeypatch, [f"training.dp_gradient_wire_dtype={wire_dtype}"]
+    )
     dp_sync = kwargs["dp_sync"]
     assert isinstance(dp_sync, DpParameterSync)
     assert dp_sync.world_size == 2
     assert dp_sync.rank == 0
     assert dp_sync.backend == "nccl"
+    assert dp_sync.gradient_wire_dtype == wire_dtype
     assert dp_sync.rendezvous_path == "/tmp/dp_sync_test_run/.dp_rendezvous"
     assert kwargs["collector_cpu_ids"] == [cpu for core in range(32) for cpu in (core, core + 64)]
 

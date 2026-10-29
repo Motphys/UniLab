@@ -77,6 +77,8 @@ def test_removed_reset_row_contracts_stay_removed() -> None:
         "_materialize_tensor_default_state",
         "_packed_reset_widths_match",
         "_packed_reset_public_widths",
+        "_packed_reset_plane",
+        "_interval_capability_plane",
         "_tensor_randomization_columns",
         "_validate_gain_vector",
         "_canonical_default_shape",

@@ -25,6 +25,13 @@ CLI 会根据 `--algo`、`--task`、`--sim` 以及可选的 `--profile` 构造�
 路径。定义路由的取值必须使用 CLI flag；命令之后的 Hydra override 用于设置诸如
 `algo.max_iterations`、`algo.num_envs` 和 `training.no_play` 等字段。
 
+## 中断训练
+
+发送一次 `Ctrl+C` 表示请求协作退出。训练入口、collector、数据并行 sibling
+rank 以及 torch elastic worker 会先执行既有清理路径，然后进程按惯例返回退出码
+`130`。再发送一次 `Ctrl+C` 会强制 CLI 子进程终止；强制终止不保证优雅清理。
+torch elastic 的正常关机提示仍可能出现，但用户取消不会被报告为训练失败。
+
 `uni-cumps` 负责 CUDA MPS 的显式用户态 daemon 生命周期。它提供只读
 host/topology 诊断，只启动和停止 UniLab record 记录的 user-owned daemon，并输出
 launcher 环境而不修改调用方 shell：

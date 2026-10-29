@@ -16,11 +16,11 @@ from typing import Any
 import torch
 from rsl_rl.utils import resolve_callable
 
+from unilab.base.contracts.env import EnvFactory
+from unilab.base.contracts.observations import get_obs_dims
 from unilab.rl.algos.appo.learner import APPOLearner
 from unilab.rl.algos.appo.staging import TensorRolloutStagingPool
 from unilab.rl.algos.appo.worker import appo_collector_fn
-from unilab.rl.contracts.env import EnvFactory
-from unilab.rl.contracts.observations import get_obs_dims
 from unilab.rl.logging import OffPolicyLogger
 from unilab.rl.logging.metrics_drain import RewardComponentWindow, drain_collector_metrics
 from unilab.rl.runtime.device import get_default_device

@@ -73,7 +73,7 @@ uv run scripts/generate_support_matrix.py --write
 | `mjwarp` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 不支持 |
 | `newton` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 支持 | 不支持 | 不支持 | 不支持 |
 | `superdex` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge with explicit ROCm Torch buffers (`cuda`) | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 支持 |
-| `genesis` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 支持 | 不支持 | 不支持 | 不支持 |
+| `genesis` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported UniSim tensor profile; Genesis engine natively supports Metal, with no CPU or substitute-backend fallback | Supported: Linux ROCm with HIP Torch and exact gs.amdgpu (cuda); no CPU or substitute-backend fallback | In-process; no external Python worker | 支持 | 不支持 | 不支持 | 不支持 |
 | `isaacgym` | Device-resident / external worker / cuda ipc | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | Dedicated external Python 3.8 worker; host Python paths are not inherited | 支持 | 不支持 | 不支持 | 不支持 |
 | `isaacsim` | Device-resident / external worker / cuda ipc | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | Dedicated external Python 3.11 worker; host Python paths are not inherited | 支持 | 不支持 | 不支持 | 不支持 |
 
@@ -107,7 +107,8 @@ uv run scripts/generate_support_matrix.py --write
 ## 平台故障排查
 
 CUDA-only tensor 后端在 CPU、MPS、macOS、ROCm/HIP、CUDA 不可用、CUDA 序号
-非法以及设备越界时，都会在后端构造前失败；不会回退到 NumPy 或 host bridge。
+非法以及设备越界时，都会在后端构造前失败；Genesis 则接受其声明的
+HIP/ROCm + `gs.amdgpu` profile。不支持的请求不会回退到 NumPy 或 host bridge。
 
 请在同一个进程环境中检查 Torch runtime 与可见序号：
 
@@ -115,15 +116,16 @@ CUDA-only tensor 后端在 CPU、MPS、macOS、ROCm/HIP、CUDA 不可用、CUDA 
 uv run python -c "import torch; print(torch.__version__, torch.version.cuda, torch.version.hip, torch.cuda.is_available(), torch.cuda.device_count(), torch.cuda.current_device())"
 ```
 
-CUDA-only 矩阵要求 `torch.version.hip` 为 `None`。若 CUDA 不可用，先检查
-NVIDIA 驱动与容器运行时不匹配，再调整任务配置。设置了
-`CUDA_VISIBLE_DEVICES` 时，后端序号指向重映射后的命名空间，而不是宿主机
-全局物理索引。
+CUDA-only 后端与 Genesis `gs.cuda` 配对要求 `torch.version.hip` 为 `None`；
+Genesis `gs.amdgpu` 配对则要求 HIP build。若 GPU runtime 不可用，先检查
+驱动与容器运行时不匹配，再调整任务配置。设置了 `CUDA_VISIBLE_DEVICES` 时，
+后端序号指向重映射后的命名空间，而不是宿主机全局物理索引。
 
-在 macOS 与 ROCm 上请使用 CPU-authoritative host-bridge 后端。在 ROCm 上，
-只要 learner 设备为 CUDA——默认的 `training.collector_tensor_device=auto` 会跟随
+在 macOS 上请使用 CPU-authoritative host-bridge 后端。ROCm 支持 host bridge
+与 Genesis exact-`gs.amdgpu` device-resident profile。对于 host bridge，只要
+learner 设备为 CUDA——默认的 `training.collector_tensor_device=auto` 会跟随
 learner 设备——或训练显式设置 `training.collector_tensor_device=cuda`，且所选
-HOST_BRIDGE 后端声明并接受被路由的 `cuda` `env.collector_tensor_device`，
-Manager/TorchEnv 就使用当前 GPU；CPU learner 保持 CPU，torch.mps learner
-保留 owner/default CPU 放置，直接构造环境仍为 CPU。host bridge 使用 GPU
-Torch buffer 不代表 GPU physics，也不代表 device-resident 后端生命周期。
+后端声明并接受被路由的 `cuda` `env.collector_tensor_device`，Manager/TorchEnv
+就使用当前 GPU；CPU learner 保持 CPU，torch.mps learner 保留 owner/default
+CPU 放置，直接构造环境仍为 CPU。host bridge 使用 GPU Torch buffer 不代表
+GPU physics，也不代表 device-resident 后端生命周期。

@@ -28,6 +28,7 @@ from unilab.rl.logging.runtime_manifest_schema import (
 )
 from unilab.rl.runtime.async_runner import _SPAWN_CTX
 from unilab.rl.runtime.device import (
+    CudaDeviceTimer,
     DeviceTimer,
     build_device_timer,
     device_runtime_capabilities,
@@ -617,12 +618,20 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         return int(value)
 
     def _prepare_inference_timing_events(self) -> None:
-        """Allocate the validated inference forward timer."""
+        """Allocate the learner-device inference forward timer."""
         try:
             self._inference_forward_timer = build_device_timer(self.device)
+            uses_cuda_events = isinstance(self._inference_forward_timer, CudaDeviceTimer)
+            self.runtime_manifest["inference_timing"] = {
+                "timer_kind": "cuda_events" if uses_cuda_events else "synchronized_wall_clock",
+                "has_timing_events": uses_cuda_events,
+                "persistent_timing_event_count": 2 if uses_cuda_events else 0,
+                "classification": "capability",
+            }
         except BaseException:
             if hasattr(self, "_inference_forward_timer"):
                 delattr(self, "_inference_forward_timer")
+            self.runtime_manifest.pop("inference_timing", None)
             raise
 
     def _shutdown_collector(self) -> None:
@@ -1074,6 +1083,12 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 if self._collector_ready:
                     raise RuntimeError("Collector sent duplicate ready signal")
                 self._collector_ready = True
+                # The ready signal marks the end of cold-path startup on both
+                # sides: learner compile/capture ran before the training loop
+                # and collector env construction precedes this publish. Open
+                # the live terminal display only now so startup output cannot
+                # interleave with Live redraws.
+                logger.start()
                 continue
             if not self._collector_ready:
                 raise RuntimeError(
@@ -1505,14 +1520,8 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
                 "threshold": 0.8,
                 "allowed_bytes": int(cuda_free_bytes * 0.8),
             }
-            self._prepare_inference_timing_events()
-            self.runtime_manifest["inference_timing"] = {
-                "timer_kind": "cuda_events",
-                "has_timing_events": True,
-                "persistent_timing_event_count": 2,
-                "classification": "capability",
-            }
 
+        self._prepare_inference_timing_events()
         self._shutdown_recorder.set_phase(owner="learner", phase="startup/replay_resources")
         # --- bounded collector ingress (the complete ring lives on device) ---
         buffer_capacity = self.replay_buffer_n * self.num_envs
@@ -1678,7 +1687,6 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             f"Replay learner lightweight: batched event write (log_interval={self.log_interval})"
         )
         self._active_logger = logger
-        logger.start()
         try:
             self._shutdown_recorder.set_phase(owner="learner", phase="startup/dp_init")
             # --- inference coordination queues ---

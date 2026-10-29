@@ -43,7 +43,7 @@ jobs:
           python-version: "3.11"
       - name: Install CPU runtime
         run: |
-          uv sync --extra mujoco \
+          uv sync --extra mujoco --extra unirl \
             --no-install-package torch \
             --no-install-package nvidia-cublas-cu12 \
             --no-install-package nvidia-cuda-cupti-cu12 \
@@ -89,7 +89,7 @@ jobs:
           enable-cache: false
           python-version: "3.11"
       - name: Install tensor runtime
-        run: uv sync --extra mujoco --extra mjwarp --extra newton --extra motrix
+        run: uv sync --extra mujoco --extra mjwarp --extra newton --extra motrix --extra unirl
       - name: CUDA task contract tests
         run: >
           uv run --no-sync pytest -q

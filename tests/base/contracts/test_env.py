@@ -7,7 +7,7 @@ import pytest
 import torch
 
 from tests.rl._fakes import FakeVecEnv, _FakePlayCapabilities, _FakeSpace
-from unilab.rl.contracts.env import (
+from unilab.base.contracts.env import (
     EnvAlgoCapabilities,
     EnvAlgoCapabilitiesProtocol,
     EnvProtocol,

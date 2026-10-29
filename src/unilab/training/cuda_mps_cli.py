@@ -809,7 +809,11 @@ def start_daemon(
         raise
     except OSError as exc:
         raise CudaMpsError(f"Could not prepare daemon record for {daemon_name!r}: {exc}.") from exc
-    runtime_base = _default_runtime_root(daemon_name)
+    # Fully explicit directories must work even if another user's daemon owns
+    # the default temporary root.
+    runtime_base = (
+        _default_runtime_root(daemon_name) if pipe_dir is None or log_dir is None else Path(".")
+    )
     using_default_runtime = pipe_dir is None
     pipe_value = pipe_dir or str(runtime_base / "pipe")
     log_value = log_dir or str(runtime_base / "log")

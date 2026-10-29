@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+import signal
 import sys
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from typing import Any, Callable
 
 from unilab.rl.runtime.ipc.collector_error import (
@@ -21,6 +23,10 @@ from unilab.rl.runtime.ipc.parent_watchdog import (
 )
 
 _SPAWN_CTX = mp.get_context("spawn")
+
+
+def _is_ctrl_c_exitcode(exitcode: int) -> bool:
+    return exitcode in (-signal.SIGINT, 128 + signal.SIGINT)
 
 
 def _collector_entry_wrapper(
@@ -46,13 +52,39 @@ def _collector_entry_wrapper(
         grace_period=kwargs.pop("_parent_watchdog_grace_period", DEFAULT_GRACE_PERIOD_S),
         label=label,
     )
-    with collector_error_guard(
-        error_conn=error_conn,
-        metrics_queue=kwargs.get("metrics_queue"),
-        stop_event=kwargs.get("stop_event"),
-        label=label,
-    ):
-        target_fn(**kwargs)
+    with _collector_ignores_ctrl_c():
+        with collector_error_guard(
+            error_conn=error_conn,
+            metrics_queue=kwargs.get("metrics_queue"),
+            stop_event=kwargs.get("stop_event"),
+            label=label,
+        ):
+            target_fn(**kwargs)
+
+
+@contextmanager
+def _collector_ignores_ctrl_c():
+    """Make the learner the sole owner of Ctrl+C cancellation.
+
+    Terminal-generated SIGINT reaches every process in the foreground process
+    group.  A collector interpreting it independently raises before the parent
+    learner can set ``stop_event``, which surfaces as a collector crash during
+    an ordinary user cancellation.  Ignoring SIGINT here keeps the normal close
+    path authoritative; the parent's ``AsyncRunner.close()`` still sets the stop
+    event and escalates to SIGTERM if cooperative shutdown exceeds its deadline.
+    """
+    try:
+        previous_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    except ValueError:
+        # signal.signal is main-thread-only on some platforms. Collector entry
+        # points are main-thread spawn targets, but inline test doubles need not
+        # install this policy.
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
 
 class AsyncRunner(ABC):
@@ -159,8 +191,14 @@ class AsyncRunner(ABC):
 
         if self._collector_process is not None:
             exitcode = getattr(self._collector_process, "exitcode", None)
-            # -15 (SIGTERM) is expected during normal close()
-            if exitcode is not None and exitcode != 0 and exitcode != -15:
+            # -15 (SIGTERM) is expected during normal close(). A SIGINT exit is
+            # likewise an externally cancelled hot loop, not a collector crash;
+            # close() still releases all shared resources below.
+            if (
+                exitcode is not None
+                and exitcode not in (0, -15)
+                and not _is_ctrl_c_exitcode(exitcode)
+            ):
                 death_info = self._read_collector_error()
                 print(
                     f"\n[AsyncRunner] Collector exited with code {exitcode}:\n{death_info}\n",

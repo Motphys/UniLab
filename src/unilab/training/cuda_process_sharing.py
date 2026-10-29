@@ -164,12 +164,8 @@ def canonicalize_gpu_uuid(value: str) -> str:
     return value.strip().upper().removeprefix("GPU-").replace("-", "")
 
 
-def _nvidia_uuid(
-    run_command: Callable[..., Any],
-    visible_entries: Sequence[str],
-    index: int,
-) -> str | None:
-    """Map a visibility-relative index to its host UUID, if evidence exists."""
+def _nvidia_uuid_table(run_command: Callable[..., Any]) -> dict[str, str] | None:
+    """Return the host ``nvidia-smi`` index→UUID table, or None when unavailable."""
     try:
         result = run_command(
             ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"],
@@ -186,7 +182,19 @@ def _nvidia_uuid(
     rows = [_parse_csv_row(row) for row in str(stdout).splitlines() if row.strip()]
     if not rows or any(len(row) != 2 for row in rows):
         return None
-    by_host_index = {row[0]: canonicalize_gpu_uuid(row[1]) for row in rows if row[0].isdigit()}
+    return {row[0]: row[1] for row in rows if row[0].isdigit()}
+
+
+def _nvidia_uuid(
+    run_command: Callable[..., Any],
+    visible_entries: Sequence[str],
+    index: int,
+) -> str | None:
+    """Map a visibility-relative index to its host UUID, if evidence exists."""
+    table = _nvidia_uuid_table(run_command)
+    if table is None:
+        return None
+    by_host_index = {key: canonicalize_gpu_uuid(value) for key, value in table.items()}
     if index < len(visible_entries):
         token = canonicalize_gpu_uuid(visible_entries[index])
         if token.isdigit():
@@ -194,6 +202,44 @@ def _nvidia_uuid(
         if token in by_host_index.values():
             return token
     return by_host_index.get(str(index))
+
+
+def resolve_mps_visibility_entries(
+    entries: Sequence[str],
+    *,
+    run_command: Callable[..., Any] = subprocess.run,
+) -> tuple[str, ...]:
+    """Return ``CUDA_VISIBLE_DEVICES`` entries with numeric indices as UUIDs.
+
+    A per-GPU MPS server enumerates only its own device, so a client whose
+    one-entry visibility mask holds a nonzero numeric index overruns that
+    namespace and fails CUDA initialization with "No CUDA GPUs are available".
+    UUID entries survive that server-side remapping, so an explicit
+    ``training.cuda_process_sharing=mps`` launch normalizes visibility before
+    CUDA latches the mask.  Non-numeric entries (UUID, MIG, ``-1``) pass
+    through unchanged; the returned UUIDs keep the ``nvidia-smi`` display form.
+
+    Raises:
+        ValueError: A numeric entry could not be mapped to a host GPU UUID.
+    """
+    if not any(entry.isdigit() for entry in entries):
+        return tuple(entries)
+    table = _nvidia_uuid_table(run_command)
+    normalized: list[str] = []
+    for entry in entries:
+        if not entry.isdigit():
+            normalized.append(entry)
+            continue
+        uuid = None if table is None else table.get(entry)
+        if uuid is None:
+            raise ValueError(
+                "training.cuda_process_sharing='mps' could not resolve "
+                f"CUDA_VISIBLE_DEVICES entry {entry!r} to a host GPU UUID; MPS "
+                "clients require UUID visibility entries. Check "
+                "nvidia-smi --query-gpu=index,uuid --format=csv,noheader."
+            )
+        normalized.append(uuid)
+    return tuple(normalized)
 
 
 def _server_evidence(
@@ -507,4 +553,5 @@ __all__ = [
     "apply_cuda_process_sharing_manifest",
     "canonicalize_gpu_uuid",
     "probe_cuda_process_sharing",
+    "resolve_mps_visibility_entries",
 ]

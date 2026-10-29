@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from unilab.rl.contracts.env import EnvFactory, get_produces_completion_receipts
-from unilab.rl.contracts.observations import get_obs_dims as _get_obs_dims
+from unilab.base.contracts.env import EnvFactory, get_produces_completion_receipts
+from unilab.base.contracts.observations import get_obs_dims as _get_obs_dims
 
 
 @dataclass(frozen=True)

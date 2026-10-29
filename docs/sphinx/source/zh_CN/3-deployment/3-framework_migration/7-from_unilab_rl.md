@@ -24,10 +24,10 @@
 
 | 旧 import（`uni_rl.*`） | 新 import |
 |---|---|
-| `uni_rl.env_contract` | `unilab.rl.contracts.env` |
+| `uni_rl.env_contract` | `unilab.base.contracts.env` |
 | `uni_rl.training_state` | 无替代（checkpoint 保存/加载由 `unilab.training.experiment` 负责） |
-| `uni_rl.utils.observations` | `unilab.rl.contracts.observations` |
-| `uni_rl.algos.common.device`（probe） | `unilab.rl.contracts.probe` |
+| `uni_rl.utils.observations` | `unilab.base.contracts.observations` |
+| `uni_rl.algos.common.device`（probe） | `unilab.base.contracts.probe` |
 | `uni_rl.algos.appo` / `.sac` / `.flash_sac` / `.common` | `unilab.rl.algos.*`（子包名不变） |
 | `uni_rl.algos.common.collector_timing` | `unilab.rl.runtime.collector_timing` |
 | `uni_rl.ipc.async_runner` | `unilab.rl.runtime.async_runner` |

@@ -26,6 +26,16 @@ optional `--profile`. Route-defining values must use the CLI flags; Hydra
 overrides after the command are for fields such as `algo.max_iterations`,
 `algo.num_envs`, and `training.no_play`.
 
+## Interrupting Training
+
+Send `Ctrl+C` once to request cooperative shutdown. Training entrypoints,
+collectors, sibling data-parallel ranks, and torch elastic workers unwind their
+existing cleanup paths before the process exits with the conventional status
+`130`. Send `Ctrl+C` a second time to force the CLI child to terminate; forced
+termination does not guarantee graceful cleanup. Normal shutdown notices from
+torch elastic may still appear, but a user cancellation is not reported as a
+training failure.
+
 The `uni-cumps` command owns the explicit user-space daemon lifecycle for
 CUDA MPS. It reports read-only host status and topology diagnostics, starts and
 stops only UniLab-recorded user-owned daemons, and prints launcher environment

@@ -1,4 +1,4 @@
-"""THE tensor-native env contract consumed by ``unilab.rl`` runners.
+"""THE tensor-native env contract consumed by RL runners and collectors.
 
 This layer never constructs environments itself and never imports an env
 registry. Environments are injected by the caller (e.g. UniLab's training
@@ -16,9 +16,13 @@ Contract summary (tensor-native, autoresetting vectorized env):
   or ``{"obs": 48, "critic": 101}``. ``"obs"`` is the actor group;
   ``"critic"`` is the optional privileged critic group.
 - ``reset(env_ids)`` accepts a one-dimensional Torch integer tensor on the
-  environment device (or ``None``) and returns selected-row observations.
-  ``init_state()`` performs cold-path initialization and returns the first
-  state; ``state`` is ``None`` before it is called.
+  environment device (or ``None``) and returns full-width ``(num_envs, dim)``
+  tensors for every observation group. Only selected rows are reset and updated;
+  non-reset rows retain their previous observations. History and delay state are
+  reset only for selected rows, and manual reset shares this full-width
+  publication contract with autoreset. ``init_state()`` performs cold-path
+  initialization and returns the first state; ``state`` is ``None`` before it is
+  called.
 - Collectors keep observations, actions, rewards, termination flags, and reset
   indices tensor-native. NumPy is only a host serialization/diagnostic carrier,
   never a trainer boundary.

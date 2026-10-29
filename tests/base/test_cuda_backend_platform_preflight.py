@@ -69,7 +69,10 @@ def test_host_bridge_backends_do_not_require_torch_cuda(
         ("newton", {"newton_device": "cpu"}, "valid", "not supported"),
         ("newton", {"newton_device": "mps"}, "valid", "not supported"),
         ("mjwarp", {}, "darwin", "macOS"),
-        ("genesis", {"genesis_device_id": 0}, "hip", "ROCm/HIP"),
+        ("mjwarp", {}, "hip", "ROCm/HIP"),
+        ("newton", {"newton_device": "cuda:0"}, "hip", "ROCm/HIP"),
+        ("isaacgym", {"isaacgym_device_id": 0}, "hip", "ROCm/HIP"),
+        ("isaacsim", {"isaacsim_device_id": 0}, "hip", "ROCm/HIP"),
         ("mjwarp", {}, "unavailable", "unavailable"),
         ("newton", {"newton_device": "cuda:2"}, "valid", "out of range"),
         ("newton", {"newton_device": "cuda:not-an-index"}, "valid", "not supported"),
@@ -119,6 +122,25 @@ def test_cuda_only_backend_can_construct_with_valid_cuda_device(
 
     assert len(backend_calls) == 1
     assert fake_cuda == []
+
+
+def test_genesis_backend_can_construct_with_valid_rocm_device(
+    fake_cuda: list[int],
+    backend_calls: list[dict[str, object]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(torch.version, "hip", "7.2", raising=False)
+
+    backend_factory.create_backend(
+        "genesis",
+        _Scene(),
+        1,
+        0.005,
+        genesis_device_id=0,
+    )
+
+    assert len(backend_calls) == 1
+    assert fake_cuda == [0]
 
 
 @pytest.mark.parametrize("learner_device", ["cpu", "mps"])

@@ -8,12 +8,12 @@ from typing import Any, cast
 
 import torch
 
-from unilab.rl.contracts.env import (
+from unilab.base.contracts.env import (
     EnvFactory,
     get_algo_capabilities,
     get_backend_runtime_diagnostics,
 )
-from unilab.rl.contracts.observations import split_obs_dict
+from unilab.base.contracts.observations import split_obs_dict
 from unilab.rl.runtime.collector_timing import extract_env_step_breakdown_timing_ms
 from unilab.rl.runtime.offpolicy.actor_adapter import (
     get_offpolicy_actor_adapter,
@@ -368,7 +368,7 @@ def _run_collector(
         trace_recorder = TraceRecorder("offpolicy_collector")
 
     # Initialize environment through the injected factory (see
-    # ``unilab.rl.contracts.env``); this layer never touches an env registry.
+    # ``unilab.base.contracts.env``); this layer never touches an env registry.
     env = env_factory(num_envs, env_cfg_override)
     requested_transport = inference_transport
     if requested_transport not in {item.value for item in InferenceTransport}:

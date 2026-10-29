@@ -30,6 +30,12 @@ from unilab.assets import ASSETS_ROOT_PATH
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.backend_timing import UPDATE_STATE_DETAIL_TIMING_KEYS
 from unilab.base.base import EnvPlayCapabilities
+from unilab.base.contracts.env import (
+    EnvAlgoCapabilities,
+    EnvPlayCapabilitiesProtocol,
+    EnvProtocol,
+    EnvStateProtocol,
+)
 from unilab.base.entity import EntityCfg
 from unilab.base.scene import SceneCfg
 from unilab.base.torch_env import TorchEnv, TorchEnvState
@@ -61,12 +67,6 @@ from unilab.managers import (
 )
 from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.rl.contracts.env import (
-    EnvAlgoCapabilities,
-    EnvPlayCapabilitiesProtocol,
-    EnvProtocol,
-    EnvStateProtocol,
-)
 
 
 class _FakeBackend:
@@ -793,6 +793,21 @@ class _TensorBodyAction(ActionTerm):
             view = state.body_tensor_view(self._entity)
             self._processed.copy_(view.pos_w[:, 1, 2:3])
         self._entity.data.write_ctrl(self._processed)
+
+
+class _FeedbackTensorBodyAction(_TensorBodyAction):
+    requires_substep_state_feedback = True
+
+    def apply_actions(self) -> None:
+        self._env.trace.append("action_apply")
+        self._env.action_sim_steps.append(self._env._sim_step_counter)
+        super().apply_actions()
+
+
+@dataclass(kw_only=True)
+class _FeedbackTensorBodyActionCfg(_TensorBodyActionCfg):
+    def build(self, env) -> ActionTerm:
+        return _FeedbackTensorBodyAction(self, env)
 
 
 @dataclass(kw_only=True)
@@ -1578,6 +1593,110 @@ def test_mujoco_host_bridge_packed_reset_lifecycle(
         if "env" in locals():
             env.close()
         backend.close()
+
+
+def test_mujoco_tensor_ray_observation_uses_public_rich_query_contract(
+    tmp_path: Path,
+) -> None:
+    """Exercise the real MuJoCo/UniSim/uni_ray perception path end to end."""
+
+    pytest.importorskip("uni_ray", reason="local uni_ray is required")
+    pytest.importorskip("warp", reason="warp-lang is required by uni_ray")
+
+    def build(pattern: mdp.RayPatternCfg):
+        model = tmp_path / "ray-rich-query.xml"
+        model.write_text(
+            "<mujoco><worldbody><geom name='ground' type='plane' size='0 0 0.1'/>"
+            "<body name='base' pos='0 0 1'><joint name='joint' axis='0 1 0'/>"
+            "<geom name='robot_sphere' type='sphere' size='0.1'/>"
+            "<site name='sensor' pos='0 0 0.2'/></body>"
+            "</worldbody><actuator><motor name='motor' joint='joint' "
+            "ctrlrange='-1 1'/></actuator></mujoco>"
+        )
+        scene = SceneCfg(
+            model_file=str(model),
+            entities={
+                "robot": EntityCfg(
+                    root_body_name="base",
+                    body_names=("base",),
+                    joint_names=("joint",),
+                    actuator_names=("motor",),
+                )
+            },
+        )
+        cfg = ManagerBasedRlEnvCfg(
+            scene=scene,
+            sim_dt=0.01,
+            ctrl_dt=0.02,
+            max_episode_seconds=0.04,
+            observations={
+                "actor": ObservationGroupCfg(
+                    terms={
+                        "rays": ObservationTermCfg(
+                            func=mdp.RayScan, params={"ray_pattern": pattern}
+                        )
+                    }
+                )
+            },
+            actions={
+                "effort": mdp.JointEffortActionCfg(entity_name="robot", actuator_names=(".*",))
+            },
+            events={"default": EventTermCfg(func=mdp.reset_scene_to_default, mode="reset")},
+            rewards={"alive": RewardTermCfg(func=mdp.is_alive, weight=1.0)},
+            terminations={"time_out": TerminationTermCfg(func=mdp.time_out, time_out=True)},
+            policy_observation_group="actor",
+        )
+        backend = create_backend(
+            "mujoco", scene, 2, cfg.sim_dt, base_name="base", add_body_sensors=True
+        )
+        return ManagerBasedRlEnv(cfg, backend, 2), backend
+
+    def ray_pattern(**kwargs):
+        values = {
+            "entity_name": "robot",
+            "attachment_body_name": "base",
+            "pattern": mdp.RayRingPatternCfg(
+                num_rays=2,
+                start=0.0,
+                stop=0.0,
+                pitch=-0.5 * 3.141592653589793,
+            ),
+            "max_distance": 3.0,
+            "sensor_offset": (0.0, 0.0, 0.2),
+            "include_normal": True,
+            "sync_geometry": True,
+        }
+        values.update(kwargs)
+        return mdp.RayPatternCfg(**values)
+
+    near_env, near_backend = build(ray_pattern())
+    valid_env, valid_backend = build(ray_pattern(min_distance=0.15, excluded_body_names=("base",)))
+    try:
+        near = near_env.init_state().obs["obs"].reshape(2, -1, 4)
+        valid = valid_env.init_state().obs["obs"].reshape(2, -1, 4)
+        torch.testing.assert_close(near[..., 0], torch.full((2, 2), 0.1), atol=2e-5, rtol=0.0)
+        expected_normal = torch.tensor([0.0, 0.0, 1.0]).repeat(2, 2, 1)
+        torch.testing.assert_close(near[..., 1:4], expected_normal, atol=2e-5, rtol=0.0)
+        torch.testing.assert_close(valid[..., 0], torch.full((2, 2), 1.2), atol=2e-5, rtol=0.0)
+        torch.testing.assert_close(valid[..., 1:4], expected_normal, atol=2e-5, rtol=0.0)
+
+        site_env, site_backend = build(
+            ray_pattern(
+                attachment_body_name=None,
+                attachment_site_name="sensor",
+                sensor_offset=(0.0, 0.0, 0.0),
+                sync_geometry=False,
+            )
+        )
+        site = site_env.init_state().obs["obs"].reshape(2, -1, 4)
+        torch.testing.assert_close(site[..., 0], torch.full((2, 2), 0.1), atol=2e-5, rtol=0.0)
+    finally:
+        site_env.close()
+        site_backend.close()
+        near_env.close()
+        valid_env.close()
+        near_backend.close()
+        valid_backend.close()
 
 
 def _make_state_env(
@@ -3414,6 +3533,29 @@ def test_manual_reset_is_required_when_autoreset_is_disabled() -> None:
     env.step(torch.zeros((2, 1), dtype=torch.float32))
 
 
+def test_cold_reset_applies_seed_before_initialization() -> None:
+    first, _ = _make_env()
+    second, _ = _make_env()
+    different, _ = _make_env()
+    try:
+        first_obs, _ = first.reset(seed=123)
+        second_obs, _ = second.reset(seed=123)
+        different_obs, _ = different.reset(seed=124)
+
+        assert first.state is not None
+        assert second.state is not None
+        assert different.state is not None
+        for group in first_obs:
+            torch.testing.assert_close(first_obs[group], second_obs[group])
+        torch.testing.assert_close(first.state.info["steps"], second.state.info["steps"])
+        assert torch.any(first.state.info["steps"] != different.state.info["steps"])
+        assert set(different_obs) == set(first_obs)
+    finally:
+        first.close()
+        second.close()
+        different.close()
+
+
 def test_reset_seed_updates_the_shared_generator_in_place() -> None:
     cfg = _make_cfg(include_optional_managers=False)
     cfg.events = {}
@@ -3437,35 +3579,96 @@ def test_per_substep_metrics_fail_without_post_substep_backend_hook() -> None:
         _make_env(cfg)
 
 
-def test_multisubstep_state_independent_action_skips_callback() -> None:
+def test_multisubstep_state_independent_action_keeps_batched_step() -> None:
     env, backend = _make_env(reject_pre_step=True)
     try:
+        env.init_state()
+        env.step(torch.zeros((2, 1), dtype=torch.float32))
+
         assert backend.pre_step_control is None
         assert not env.action_manager.requires_substep_state_feedback
+        assert backend.step_nsteps == [2]
+        assert len(backend.tensor_controls) == 1
+        assert env.action_sim_steps == [2]
     finally:
         env.close()
 
 
-def test_multisubstep_state_feedback_action_uses_callback() -> None:
+def test_multisubstep_state_feedback_action_steps_without_host_callback() -> None:
     cfg = _make_cfg(
+        sim_substeps=5,
         actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
     )
-    with pytest.raises(
-        NotImplementedError,
-        match="Torch lifecycle P1 does not support state-feedback actions",
-    ):
-        _make_env(cfg)
+    env, backend = _make_env(cfg, reject_pre_step=True)
+    try:
+        env.init_state()
+        state = env.step(torch.zeros((2, 1), dtype=torch.float32))
+
+        assert backend.pre_step_control is None
+        assert backend.step_nsteps == [1] * 5
+        assert len(backend.tensor_controls) == 5
+        assert env.action_sim_steps == [1, 2, 3, 4, 5]
+        assert state.info["completion"] is backend.completions[-1]
+    finally:
+        env.close()
 
 
-def test_multisubstep_state_feedback_action_fails_when_backend_rejects_callback() -> None:
-    cfg = _make_cfg(
-        actions={"drive": _FeedbackDriveCfg(entity_name="robot")},
+def test_multisubstep_state_feedback_refreshes_public_state_and_control(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(sim_substeps=5, include_optional_managers=False)
+    cfg.actions = {
+        "tilt": _FeedbackTensorBodyActionCfg(
+            entity_name="robot",
+            top_body_name="platform",
+            ball_body_name="ball",
+        )
+    }
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
     )
-    with pytest.raises(
-        NotImplementedError,
-        match="Torch lifecycle P1 does not support state-feedback actions",
-    ):
-        _make_env(cfg, reject_pre_step=True)
+
+    class _AdvancingBackend(_ScenePlanBackend):
+        def step(self, ctrl: np.ndarray, nsteps: int = 1) -> None:
+            super().step(ctrl, nsteps)
+            self.sensors["track_pos_w_ball"][:, 2] += 1.0
+            self.trace.append("physics")
+
+    backend = _AdvancingBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    backend.trace = env.trace
+    try:
+        env.init_state()
+        env.trace.clear()
+        plan = env.scene.read_plan
+        assert plan is not None
+        original_refresh = plan.refresh
+
+        def refresh() -> None:
+            env.trace.append("read")
+            original_refresh()
+
+        monkeypatch.setattr(plan, "refresh", refresh)
+        state = env.step(torch.zeros((2, 1), dtype=torch.float32))
+
+        assert env.trace[:15] == ["read", "action_apply", "physics"] * 5
+        assert backend.step_nsteps == [1] * 5
+        controls = torch.stack([control[:, 0] for control in backend.tensor_controls])
+        expected = torch.tensor([1.2, 2.2, 3.2, 4.2, 5.2])[:, None].expand(5, 2)
+        torch.testing.assert_close(controls, expected)
+        assert env.action_sim_steps == [1, 2, 3, 4, 5]
+        assert state.info["completion"] is backend.completions[-1]
+
+        state = env.step(torch.tensor([[1.0], [0.0]], dtype=torch.float32))
+        assert state.final_observation is not None
+        torch.testing.assert_close(state.obs["obs"][0], torch.zeros(2))
+        torch.testing.assert_close(state.info["steps"], torch.tensor([0, 1]))
+        assert state.info["completion"] is backend.completions[-1]
+    finally:
+        env.close()
 
 
 def test_single_substep_feedback_action_does_not_require_callback() -> None:
