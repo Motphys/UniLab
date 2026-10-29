@@ -41,6 +41,7 @@ from unilab.training import (
 )
 from unilab.training.experiment import ExperimentTracker
 from unilab.training.onnx_export import export_policy_onnx, verify_policy_onnx
+from unilab.training.run import finite_validation_env_overrides
 from unilab.training.seed import apply_configured_training_seed
 from unilab.training.tensor_runtime import (
     resolve_recorded_collector_tensor_device,
@@ -123,6 +124,7 @@ def build_appo_runner_kwargs(
         collector_tensor_device=select_collector_tensor_device(cfg),
         learner_device=_env_carrier_device(cfg, collector_device),
     )
+    routed_env_cfg_override.update(finite_validation_env_overrides(cfg))
 
     runner_kwargs = {
         "env_name": cfg.training.task_name,
@@ -381,6 +383,7 @@ def main(cfg: DictConfig) -> None:
         collector_tensor_device=select_collector_tensor_device(cfg),
         learner_device=_env_carrier_device(cfg, collector_device, runner_device=learner_device),
     )
+    env_cfg_override.update(finite_validation_env_overrides(cfg))
     seed_info = apply_configured_training_seed(cfg, torch_runtime=True, cuda=True)
     tf32_matmul_policy = apply_tf32_matmul_from_cfg(cfg, device=learner_device)
     resolved_collector_tensor_device = resolve_recorded_collector_tensor_device(

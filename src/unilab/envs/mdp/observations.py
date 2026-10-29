@@ -157,7 +157,13 @@ class _NamedSensorObservation(ManagerTermBase):
             )
         views = read_plan.sensor_tensor_views(entity, sensor_names)
         value = views.values[self._sensor_name]
-        if not bool(torch.isfinite(value).all()):
+        if getattr(env, "defer_finite_validation", False):
+            record = getattr(env, "record_finite_validation", None)
+            if callable(record):
+                record(value, f"observation/{self._term_name}")
+            elif not bool(torch.isfinite(value).all()):
+                raise ValueError(f"Observation term '{self._term_name}' received NaN or Inf")
+        elif not bool(torch.isfinite(value).all()):
             raise ValueError(
                 f"Observation term '{self._term_name}' capability "
                 f"'named sensor {self._sensor_name}' on backend "

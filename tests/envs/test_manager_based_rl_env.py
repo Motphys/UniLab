@@ -1324,6 +1324,35 @@ def test_step_publishes_fixed_width_reward_components_for_tensor_collectors() ->
     env.close()
 
 
+def test_deferred_episode_metrics_flush_at_fixed_step_without_reset() -> None:
+    cfg = _make_cfg(
+        include_optional_managers=False,
+        metrics={"length": MetricsTermCfg(func=_metric, reduce="mean")},
+    )
+    cfg.terminations = {"failure": TerminationTermCfg(func=_failure)}
+    cfg.defer_finite_validation = True
+    cfg.finite_validation_interval = 4
+    env, _ = _make_env(cfg)
+    env.reset()
+    env.set_episode_length_buf(torch.zeros(env.num_envs, dtype=torch.int64))
+    fail = torch.full((env.num_envs, 1), 0.9, dtype=torch.float32)
+    continue_episode = torch.zeros_like(fail)
+    try:
+        first = env.step(fail)
+        assert "Episode_Metrics/length" not in first.info["log"]
+        for _ in range(3):
+            at_boundary = env.step(continue_episode)
+        assert at_boundary.info["log"]["Episode_Metrics/length"] == pytest.approx(1.0)
+
+        after_reset = env.step(fail)
+        assert "Episode_Metrics/length" not in after_reset.info["log"]
+        for _ in range(3):
+            at_boundary = env.step(continue_episode)
+        assert at_boundary.info["log"]["Episode_Metrics/length"] == pytest.approx(2.5)
+    finally:
+        env.close()
+
+
 def test_manager_env_satisfies_rl_runtime_contract() -> None:
     env, _backend = _make_env()
     _backend.get_play_capabilities = lambda: EnvPlayCapabilities(

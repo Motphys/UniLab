@@ -80,6 +80,11 @@ training:
     buffer_size: 100
     max_envs_to_dump: 5
     output_dir: null
+    defer_validation: true
+    check_interval: 32
+    capture_interval: 32
+  defer_finite_validation: true
+  finite_validation_interval: 32
   log_root: null
   log_dir: null
   play_only: false

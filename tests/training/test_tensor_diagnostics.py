@@ -8,7 +8,9 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import torch
+from omegaconf import OmegaConf
 
+from unilab.training.run import finite_validation_env_overrides, resolve_nan_guard_cfg
 from unilab.training.tensor_diagnostics import NanGuard, NanGuardCfg
 
 
@@ -52,6 +54,60 @@ def test_detection_unions_bad_rows_across_groups_and_reward() -> None:
     assert ids.tolist() == [1, 2]
     assert guard.check_ctrl(torch.zeros((3, 2))) is None
     assert guard.check({"obs": torch.zeros((3, 1))}, torch.zeros(3)) is None
+
+
+def test_deferred_verdict_accumulates_mixed_rows_until_poll(tmp_path: Path) -> None:
+    guard = _guard(tmp_path, defer_validation=True, check_interval=4)
+    obs = {"obs": torch.tensor([[1.0, 2.0], [3.0, float("nan")], [4.0, 5.0]])}
+    assert guard.check(obs, torch.zeros(3), step=1) is None
+    assert guard.check_ctrl(torch.tensor([[0.0], [1.0], [float("inf")]]), step=2) is None
+    assert guard.poll(step=2) is None
+    assert guard.device_verdict is not None
+    assert bool(guard.device_verdict)
+
+    ids = guard.poll(step=4)
+    assert isinstance(ids, torch.Tensor)
+    assert ids.tolist() == [1, 2]
+    assert guard.device_verdict is not None
+    assert not bool(guard.device_verdict)
+    assert guard.check({"obs": torch.zeros((3, 2))}, torch.zeros(3), step=5) is None
+
+
+@pytest.mark.parametrize("check_interval", [0, 4])
+def test_explicit_non_deferred_check_ignores_configured_poll_interval(
+    tmp_path: Path, check_interval: int
+) -> None:
+    guard = _guard(tmp_path, defer_validation=True, check_interval=check_interval)
+    obs = {"obs": torch.tensor([[0.0], [float("nan")], [0.0]])}
+
+    obs_ids = guard.check(obs, torch.zeros(3), step=1, defer=False)
+    assert isinstance(obs_ids, torch.Tensor)
+    assert obs_ids.tolist() == [1]
+    assert guard.device_verdict is not None
+    assert not bool(guard.device_verdict)
+
+    ctrl_ids = guard.check_ctrl(torch.tensor([[0.0], [0.0], [float("inf")]]), step=2, defer=False)
+    assert isinstance(ctrl_ids, torch.Tensor)
+    assert ctrl_ids.tolist() == [2]
+
+
+def test_capture_interval_skips_snapshots_and_owner_state_reads(tmp_path: Path) -> None:
+    guard = _guard(tmp_path, buffer_size=2, capture_interval=2)
+    for step in range(5):
+        if guard.capture_due(step):
+            guard.capture(torch.full((3, 1), float(step)), step=step)
+    path = guard.dump(torch.tensor([0]), "", 5)
+    assert path is not None
+    artifact = np.load(path)
+    assert artifact["states"].shape == (2, 1, 1)
+    torch.testing.assert_close(
+        torch.from_numpy(artifact["states"]), torch.tensor([[[2.0]], [[4.0]]])
+    )
+
+    disabled = _guard(tmp_path, capture_interval=0)
+    assert not disabled.capture_due(0)
+    disabled.capture(torch.zeros((3, 1)))
+    assert disabled._buffer == []  # noqa: SLF001 - snapshot contract
 
 
 def test_finite_detection_writes_no_artifact(tmp_path: Path) -> None:
@@ -101,9 +157,46 @@ def test_configuration_and_shapes_fail_closed(tmp_path: Path) -> None:
         NanGuard(NanGuardCfg(enabled=True, buffer_size=0), 3, False)
     with pytest.raises(ValueError, match="max_envs_to_dump must be non-negative"):
         NanGuard(NanGuardCfg(enabled=True, max_envs_to_dump=-1), 3, False)
+    for interval in (-1, 1.5, True):
+        with pytest.raises(ValueError, match="capture_interval must be non-negative"):
+            NanGuard(NanGuardCfg(enabled=True, capture_interval=cast(Any, interval)), 3, False)
+        with pytest.raises(ValueError, match="check_interval must be non-negative"):
+            NanGuard(NanGuardCfg(enabled=True, check_interval=cast(Any, interval)), 3, False)
 
     guard = _guard(tmp_path)
     with pytest.raises(ValueError, match="leading dimension must be 3"):
         guard.check({"obs": torch.zeros((2, 1))}, torch.zeros(3))
     with pytest.raises(TypeError, match="must be a floating-point tensor"):
         guard.check({"obs": torch.zeros((3, 2), dtype=torch.int32)}, torch.zeros(3))
+
+
+def test_training_routes_guard_and_shared_finite_boundary() -> None:
+    cfg = OmegaConf.create(
+        {
+            "training": {
+                "defer_finite_validation": True,
+                "finite_validation_interval": 32,
+                "nan_guard": {
+                    "enabled": True,
+                    "capture_interval": 32,
+                    "check_interval": 32,
+                    "defer_validation": True,
+                },
+            }
+        }
+    )
+    assert finite_validation_env_overrides(cfg) == {
+        "defer_finite_validation": True,
+        "finite_validation_interval": 32,
+    }
+    guard_cfg = resolve_nan_guard_cfg(cfg.training)
+    assert guard_cfg is not None
+    assert (guard_cfg.capture_interval, guard_cfg.check_interval, guard_cfg.defer_validation) == (
+        32,
+        32,
+        True,
+    )
+
+    cfg.training.finite_validation_interval = 0
+    with pytest.raises(ValueError, match="positive integer"):
+        finite_validation_env_overrides(cfg)

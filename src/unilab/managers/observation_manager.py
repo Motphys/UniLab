@@ -164,6 +164,13 @@ class ObservationManager(ManagerBase):
     def __init__(self, cfg: dict[str, ObservationGroupCfg | None], env: ManagerBasedRlEnv):
         self.cfg = deepcopy(cfg)
         self._device = getattr(env, "device", torch.device("cpu"))
+        env_cfg = getattr(env, "cfg", None)
+        self._defer_finite_validation = bool(
+            getattr(
+                env, "defer_finite_validation", getattr(env_cfg, "defer_finite_validation", False)
+            )
+        )
+        self._finite_verdict = torch.ones((), dtype=torch.bool, device=self._device)
         self._rng = getattr(env, "rng", None)
         if self._rng is not None and self._rng.device != self._device:
             raise ValueError(
@@ -192,6 +199,10 @@ class ObservationManager(ManagerBase):
                 self._group_obs_dim[group_name] = group_term_dims
 
         self._obs_buffer: dict[str, torch.Tensor | dict[str, torch.Tensor]] | None = None
+        self._group_finite_verdict = {
+            group_name: torch.ones((), dtype=torch.bool, device=self._device)
+            for group_name in self._group_obs_dim
+        }
         for group_name, group_dim in self._group_obs_dim.items():
             # Finite verdicts are row-owned: every non-batch dimension is
             # reduced exactly once. Keep the full-width boolean mask resident
@@ -299,6 +310,85 @@ class ObservationManager(ManagerBase):
         return self._group_obs_term_names
 
     @property
+    def finite_verdict(self) -> torch.Tensor:
+        """Device-resident observation verdict accumulated since the last poll."""
+        return self._finite_verdict
+
+    def _record_finite(self, value: torch.Tensor, group_name: str) -> None:
+        finite = torch.isfinite(value).all()
+        self._finite_verdict.logical_and_(finite)
+        self._group_finite_verdict[group_name].logical_and_(finite)
+
+    def reset_finite_verdict(self) -> None:
+        self._finite_verdict.fill_(True)
+        for verdict in self._group_finite_verdict.values():
+            verdict.fill_(True)
+
+    def clear_finite_verdict(self) -> None:
+        self.reset_finite_verdict()
+
+    def poll_finite_validation(self) -> bool:
+        """Report deferred observation failures at the host validation boundary."""
+        valid = bool(self._finite_verdict.detach().cpu().item())
+        if valid:
+            self.reset_finite_verdict()
+            return True
+        group_valid = {
+            name: bool(verdict.detach().cpu().item())
+            for name, verdict in self._group_finite_verdict.items()
+        }
+        self.reset_finite_verdict()
+        handled_nonfatal = False
+        for group_name, group_cfg in self.cfg.items():
+            if group_cfg is None or group_valid.get(group_name, True):
+                continue
+            if group_cfg.nan_policy in ("warn", "sanitize"):
+                handled_nonfatal = True
+                if group_cfg.nan_policy == "warn":
+                    print(
+                        "[ObservationManager] NaN/Inf observed in group "
+                        f"'{group_name}' (deferred validation boundary)."
+                    )
+                continue
+            if group_cfg.nan_policy != "error":
+                continue
+            values = None if self._obs_buffer is None else self._obs_buffer.get(group_name)
+            if isinstance(values, dict):
+                for term_name, value in values.items():
+                    self._check_and_handle_nans(
+                        value,
+                        context=f"{group_name}/{term_name}",
+                        policy="error",
+                        force_host=True,
+                    )
+            elif isinstance(values, torch.Tensor):
+                if group_cfg.nan_check_per_term:
+                    axis = self._group_obs_concatenate_dim[group_name]
+                    axis = axis if axis >= 0 else values.ndim + axis
+                    offset = 0
+                    for term_name, term_dims in zip(
+                        self._group_obs_term_names[group_name],
+                        self._group_obs_term_dim[group_name],
+                        strict=True,
+                    ):
+                        width = int(term_dims[axis - 1])
+                        selectors = [slice(None)] * values.ndim
+                        selectors[axis] = slice(offset, offset + width)
+                        self._check_and_handle_nans(
+                            values[tuple(selectors)],
+                            context=f"{group_name}/{term_name}",
+                            policy="error",
+                            force_host=True,
+                        )
+                        offset += width
+                else:
+                    self._check_and_handle_nans(
+                        values, context=group_name, policy="error", force_host=True
+                    )
+            raise ValueError("ObservationManager returned a non-finite observation.")
+        return not handled_nonfatal
+
+    @property
     def group_obs_dim(self) -> dict[str, tuple[int, ...] | list[tuple[int, ...]]]:
         return self._group_obs_dim
 
@@ -384,6 +474,8 @@ class ObservationManager(ManagerBase):
         tensor: torch.Tensor,
         context: str,
         policy: str,
+        *,
+        force_host: bool = False,
     ) -> torch.Tensor:
         """Check for NaN/Inf and handle according to policy.
 
@@ -399,6 +491,12 @@ class ObservationManager(ManagerBase):
           ValueError: If policy is "error" and NaN/Inf detected.
         """
         if policy == "disabled":
+            return tensor
+
+        if self._defer_finite_validation and not force_host:
+            self._record_finite(tensor, context.split("/", 1)[0])
+            if policy in ("warn", "sanitize"):
+                return torch.nan_to_num(tensor, nan=0.0, posinf=0.0, neginf=0.0)
             return tensor
 
         # The overwhelmingly common path is finite.  Use one full tensor scan
@@ -721,7 +819,11 @@ class ObservationManager(ManagerBase):
                 torch.eq(finite_value, 0.0, out=finite)
                 verdict = self._group_finite_valid[group_name]
                 torch.all(finite, dim=tuple(range(1, finite.ndim)), out=verdict)
-                if not bool(verdict.all()):
+                if self._defer_finite_validation:
+                    group_finite = verdict.all()
+                    self._finite_verdict.logical_and_(group_finite)
+                    self._group_finite_verdict[group_name].logical_and_(group_finite)
+                elif not bool(verdict.all()):
                     axis = self._group_obs_concatenate_dim[group_name]
                     axis = axis if axis >= 0 else result.ndim + axis
                     offset = 0

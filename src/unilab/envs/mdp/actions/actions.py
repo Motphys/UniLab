@@ -206,7 +206,8 @@ class BaseAction(ActionTerm):
 
     def validate_actions(self) -> None:
         """Publish the manager-owned raw-action finite verdict."""
-        self.publish_validation_verdict()
+        if not getattr(self._env, "_defer_finite_validation", False):
+            self.publish_validation_verdict()
 
     def _apply_affine(self, source: torch.Tensor, destination: torch.Tensor) -> None:
         destination.copy_(source)
@@ -282,9 +283,9 @@ class JointPositionAction(BaseAction):
                     self._tensor_target, joint_ids=self._target_ids
                 )
             if isinstance(self._env, TorchEnv):
-                # Publish the affine-target device verdict for the owner
-                # boundary; the control-validation consumer owns the read.
-                self._env._pending_control_finite_check = bool(self._processed_actions_finite_valid)
+                # Accumulate every term's processed-action verdict on device.
+                # TorchEnv also checks the final control after this adjustment.
+                self._env.record_control_finite_verdict(self._processed_actions_finite_valid)
             return
         processed = self._entity_values(self._processed_actions)
         encoder_bias = self._entity.data.encoder_bias_tensor.to(

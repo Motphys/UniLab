@@ -103,6 +103,61 @@ def test_action_split_history_apply_and_partial_reset(fake_env: FakeEnv) -> None
     torch.testing.assert_close(manager.action[[0, 2]], second[[0, 2]])
 
 
+def test_deferred_action_validation_preserves_history_and_term_updates(
+    fake_env: FakeEnv,
+) -> None:
+    setattr(fake_env, "defer_finite_validation", True)
+    manager = ActionManager({"legs": DummyActionCfg(entity_name="robot", dim=2)}, fake_env)
+    first = torch.ones((fake_env.num_envs, 2), dtype=torch.float32)
+    second = torch.full_like(first, 2.0)
+
+    manager.process_action(first)
+    manager.process_action(second)
+
+    torch.testing.assert_close(manager.prev_action, first)
+    torch.testing.assert_close(manager.action, second)
+    torch.testing.assert_close(manager.get_term("legs").raw_action, second)
+    assert bool(manager.finite_verdict)
+
+    bad = second.clone()
+    bad[0, 0] = float("nan")
+    manager.process_action(bad)
+    torch.testing.assert_close(manager.prev_action, second)
+    assert torch.isnan(manager.get_term("legs").raw_action[0, 0])
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        manager.poll_finite_validation()
+
+
+def test_deferred_action_validation_retains_bad_rows_after_history_overwrite(
+    fake_env: FakeEnv,
+) -> None:
+    setattr(fake_env, "defer_finite_validation", True)
+    manager = ActionManager({"legs": DummyActionCfg(entity_name="robot", dim=2)}, fake_env)
+    clean = torch.ones((fake_env.num_envs, 2), dtype=torch.float32)
+    bad_first = clean.clone()
+    bad_first[2, 0] = torch.nan
+    bad_second = clean.clone()
+    bad_second[1, 1] = torch.inf
+
+    manager.process_action(bad_first)
+    manager.process_action(bad_second)
+    for _ in range(3):
+        manager.process_action(clean)
+
+    # Every published history and term carrier is now finite; the report must
+    # still name the rows that were bad earlier in this validation interval.
+    for carrier in (
+        manager.action,
+        manager.prev_action,
+        manager.prev_prev_action,
+        manager.get_term("legs").raw_action,
+    ):
+        assert bool(torch.isfinite(carrier).all())
+    with pytest.raises(ValueError, match=r"environments \[1, 2\]"):
+        manager.poll_finite_validation()
+    assert manager.poll_finite_validation()
+
+
 def test_action_manager_aggregates_substep_state_feedback(fake_env: FakeEnv) -> None:
     manager = ActionManager(
         {

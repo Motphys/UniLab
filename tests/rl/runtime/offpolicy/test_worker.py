@@ -1393,7 +1393,7 @@ def test_worker_shutdown_flushes_partial_metrics_before_abnormal_cleanup(
     assert scalars["Train/mean_reward"] == 4.0
     assert scalars["Train/mean_episode_length"] == 1.0
     assert scalars["Episode/timeout_rate"] == 0.0
-    assert events == ["step", "replay_add", "cleanup"]
+    assert events == ["step", "replay_add", "cleanup", "replay_release"]
 
 
 def test_inference_request_publish_timeout_is_explicit() -> None:

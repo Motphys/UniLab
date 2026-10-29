@@ -72,6 +72,8 @@ class ActionTerm(ManagerTermBase):
 
     def publish_validation_verdict(self) -> None:
         """Fail closed on the latest action-slice finite verdict."""
+        if getattr(self._env, "defer_finite_validation", False):
+            return
         if bool(self._action_finite_valid):
             return
         raise ValueError(f"{type(self).__name__} received NaN or Inf actions")
@@ -113,12 +115,20 @@ class ActionManager(ManagerBase):
 
         # Create buffers to store actions.
         self._device = getattr(env, "device", torch.device("cpu"))
+        env_cfg = getattr(env, "cfg", None)
+        self._defer_finite_validation = bool(
+            getattr(
+                env, "defer_finite_validation", getattr(env_cfg, "defer_finite_validation", False)
+            )
+        )
+        self._finite_verdict = torch.ones((), dtype=torch.bool, device=self._device)
         self._action = torch.zeros(
             (self.num_envs, self.total_action_dim), dtype=torch.float32, device=self._device
         )
         self._prev_action = torch.zeros_like(self._action)
         self._prev_prev_action = torch.zeros_like(self._action)
         self._action_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
+        self._finite_bad_rows = torch.zeros(self.num_envs, dtype=torch.bool, device=self._device)
 
     def __str__(self) -> str:
         msg = f"<ActionManager> contains {len(self._term_names)} active terms.\n"
@@ -163,7 +173,15 @@ class ActionManager(ManagerBase):
 
     def record_public_action_finite(self, action: torch.Tensor) -> None:
         """Record the public full-width action verdict without publication."""
-        self._action_finite_valid.copy_(torch.isfinite(action).all())
+        if self._defer_finite_validation:
+            bad_rows = ~torch.isfinite(action).all(dim=1)
+            self._finite_bad_rows.logical_or_(bad_rows)
+            valid = ~bad_rows.any()
+        else:
+            valid = torch.isfinite(action).all()
+        self._action_finite_valid.copy_(valid)
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(valid)
 
     def process_public_action(self, action: torch.Tensor) -> None:
         """Process an action whose full-width verdict was already recorded."""
@@ -172,6 +190,36 @@ class ActionManager(ManagerBase):
     @property
     def active_terms(self) -> list[str]:
         return self._term_names
+
+    @property
+    def finite_verdict(self) -> torch.Tensor:
+        """Device-resident finite verdict accumulated since the last poll."""
+        return self._finite_verdict
+
+    def reset_finite_verdict(self) -> None:
+        self._finite_verdict.fill_(True)
+        self._finite_bad_rows.zero_()
+
+    def clear_finite_verdict(self) -> None:
+        self.reset_finite_verdict()
+
+    def poll_finite_validation(self) -> bool:
+        """Report a deferred action failure at the host validation boundary."""
+        valid = bool(self._finite_verdict.detach().cpu().item())
+        if valid:
+            self.reset_finite_verdict()
+            return True
+        rows = (
+            torch.nonzero(self._finite_bad_rows, as_tuple=False)
+            .flatten()[:10]
+            .detach()
+            .cpu()
+            .tolist()
+        )
+        self.reset_finite_verdict()
+        raise ValueError(
+            f"ActionManager received an action containing NaN or Inf for environments {rows}."
+        )
 
     @property
     def requires_substep_state_feedback(self) -> bool:
@@ -236,8 +284,8 @@ class ActionManager(ManagerBase):
                 f"ActionManager action device must be {self._device}, received {action.device}"
             )
         if not reuse_recorded_verdict:
-            self._action_finite_valid.copy_(torch.isfinite(action).all())
-            if not bool(self._action_finite_valid):
+            self.record_public_action_finite(action)
+            if not self._defer_finite_validation and not bool(self._action_finite_valid):
                 raise ValueError("ActionManager received an action containing NaN or Inf.")
         # ``step`` records the device verdict once and publishes it at the
         # control-validation boundary, so the reuse path stays free of
@@ -255,6 +303,14 @@ class ActionManager(ManagerBase):
                 validator = getattr(term, "validate_actions", None)
                 if callable(validator):
                     validator()
+                if self._defer_finite_validation:
+                    # Terms may change their raw carrier after the flat policy
+                    # action was checked (for example, with latency buffers).
+                    bad_rows = ~torch.isfinite(term.raw_action).reshape(self.num_envs, -1).all(
+                        dim=1
+                    )
+                    self._finite_bad_rows.logical_or_(bad_rows)
+                    self._finite_verdict.logical_and_(~bad_rows.any())
             except (TypeError, ValueError, NotImplementedError) as exc:
                 raise type(exc)(f"ActionManager term '{name}': {exc}") from exc
             idx += term.action_dim

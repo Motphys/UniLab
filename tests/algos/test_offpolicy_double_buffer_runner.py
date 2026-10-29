@@ -137,7 +137,7 @@ def test_offpolicy_config_has_one_replay_path():
     assert cfg.training.replay_prefetch_mode == "one_tick"
     assert cfg.training.env_steps_per_sync == 1
     assert cfg.training.inference_slot_capacity == 1
-    assert cfg.training.collector_metrics_interval == 1
+    assert cfg.training.collector_metrics_interval == 32
     assert cfg.training.replay_ingress_depth == 2
     assert cfg.training.replay_ingress_slot_rows is None
 
@@ -415,7 +415,7 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     settings = runner.kwargs["runtime_settings"]
     assert isinstance(settings, RuntimeSettings)
     assert settings.inference_slot_capacity == 1
-    assert settings.collector_metrics_interval == 1
+    assert settings.collector_metrics_interval == 32
     assert settings.replay_ingress_depth == 2
     assert settings.replay_ingress_slot_rows == cfg.algo.num_envs
     assert settings.num_envs == cfg.algo.num_envs
@@ -425,7 +425,7 @@ def test_sac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPatch):
     assert runner.kwargs["batch_size"] == settings.batch_size
     assert runner.kwargs["updates_per_step"] == settings.updates_per_step
     assert settings.configured_inference_slot_capacity == 1
-    assert settings.configured_collector_metrics_interval == 1
+    assert settings.configured_collector_metrics_interval == 32
     assert settings.configured_replay_ingress_depth == 2
     assert settings.configured_replay_ingress_slot_rows is None
     assert runner.kwargs["learner"].kwargs == {
@@ -506,7 +506,7 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     settings = runner.kwargs["runtime_settings"]
     assert isinstance(settings, RuntimeSettings)
     assert settings.inference_slot_capacity == 1
-    assert settings.collector_metrics_interval == 1
+    assert settings.collector_metrics_interval == 32
     assert settings.replay_ingress_depth == 2
     assert settings.replay_ingress_slot_rows == cfg.algo.num_envs
     assert settings.num_envs == cfg.algo.num_envs
@@ -516,7 +516,7 @@ def test_flashsac_dispatch_constructs_unique_runner(monkeypatch: pytest.MonkeyPa
     assert runner.kwargs["batch_size"] == settings.batch_size
     assert runner.kwargs["updates_per_step"] == settings.updates_per_step
     assert settings.configured_inference_slot_capacity == 1
-    assert settings.configured_collector_metrics_interval == 1
+    assert settings.configured_collector_metrics_interval == 32
     assert settings.configured_replay_ingress_depth == 2
     assert settings.configured_replay_ingress_slot_rows is None
 

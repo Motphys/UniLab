@@ -75,6 +75,13 @@ class RewardManager(ManagerBase):
         self.cfg = deepcopy(cfg)
         super().__init__(env=env)
         self._device = getattr(env, "device", torch.device("cpu"))
+        env_cfg = getattr(env, "cfg", None)
+        self._defer_finite_validation = bool(
+            getattr(
+                env, "defer_finite_validation", getattr(env_cfg, "defer_finite_validation", False)
+            )
+        )
+        self._finite_verdict = torch.ones((), dtype=torch.bool, device=self._device)
         self._reward_buf = torch.zeros(self.num_envs, dtype=torch.float32, device=self._device)
         self._step_reward = torch.zeros(
             (self.num_envs, len(self._term_names)), dtype=torch.float32, device=self._device
@@ -110,6 +117,40 @@ class RewardManager(ManagerBase):
     @property
     def active_terms(self) -> list[str]:
         return self._term_names
+
+    @property
+    def finite_verdict(self) -> torch.Tensor:
+        """Device-resident reward verdict accumulated since the last poll."""
+        return self._finite_verdict
+
+    def reset_finite_verdict(self) -> None:
+        self._finite_verdict.fill_(True)
+
+    def clear_finite_verdict(self) -> None:
+        self.reset_finite_verdict()
+
+    def poll_finite_validation(self) -> bool:
+        """Report a deferred reward failure at the host validation boundary."""
+        valid = bool(self._finite_verdict.detach().cpu().item())
+        self.reset_finite_verdict()
+        if valid:
+            return True
+        finite = torch.isfinite(self._step_reward)
+        for term_idx, name in enumerate(self._term_names):
+            if not bool(finite[:, term_idx].all()):
+                value = self._step_reward[:, term_idx]
+                has_nan = bool(torch.isnan(value).any())
+                has_inf = bool(torch.isinf(value).any())
+                invalid_kind = "NaN/Inf" if has_nan and has_inf else "NaN" if has_nan else "Inf"
+                rows = torch.nonzero(~finite[:, term_idx]).flatten()[:10].detach().cpu().tolist()
+                raise ValueError(
+                    f"RewardManager term '{name}' returned {invalid_kind} for environments {rows}."
+                )
+        rows = torch.nonzero(~torch.isfinite(self._reward_buf)).flatten()[:10]
+        raise ValueError(
+            "RewardManager returned a non-finite reward for environments "
+            f"{rows.detach().cpu().tolist()}."
+        )
 
     # Methods.
 
@@ -223,9 +264,10 @@ class RewardManager(ManagerBase):
         finite = self._finite_scratch
         torch.eq(finite_value, 0.0, out=finite)
         torch.all(finite, out=self._finite_valid)
-        finite = bool(self._finite_valid)
-        finite_ms = time.perf_counter() - finite_started
-        if not finite:
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(self._finite_valid)
+            self._finite_verdict.logical_and_(torch.isfinite(self._step_reward).all())
+        elif not bool(self._finite_valid):
             finite = torch.isfinite(self._step_reward)
             for term_idx, name in enumerate(self._term_names):
                 if not bool(finite[:, term_idx].all()):
@@ -239,6 +281,7 @@ class RewardManager(ManagerBase):
                         f"environments {invalid_rows.tolist()}."
                     )
             raise ValueError("RewardManager returned a non-finite reward.")
+        finite_ms = time.perf_counter() - finite_started
         timing["update_state_reward_term_dispatch_ms"] = dispatch_ms * 1000.0
         timing["update_state_reward_aggregation_ms"] = aggregation_ms * 1000.0
         timing["update_state_reward_finite_validation_ms"] = finite_ms * 1000.0
