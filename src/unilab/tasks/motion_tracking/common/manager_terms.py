@@ -32,6 +32,14 @@ from .tensor_rotation import (
 from .tensor_sampler import MotionSampler
 
 
+def _float32_half_ulp_upper_bound(value: float) -> float:
+    """Bound one round-to-nearest float32 error at this nonnegative magnitude."""
+    if value <= 0.0:
+        return math.ldexp(1.0, -150)
+    exponent = math.frexp(value)[1]
+    return math.ldexp(1.0, max(exponent - 25, -150))
+
+
 def _quat_error_squared_torch(reference: torch.Tensor, actual: torch.Tensor) -> torch.Tensor:
     """Return the absolute-dot shortest-path angular error."""
     rel = quat_mul(quat_conjugate(reference), actual)
@@ -529,6 +537,14 @@ class MotionCommand(CommandTerm):
     def __init__(self, cfg: MotionCommandCfg, env: ManagerBasedRlEnv):
         _validate_motion_command_cfg(cfg)
         super().__init__(cfg, env)
+        # A full reset establishes a conservative host-side lower bound for
+        # every resample timer. The G1 tracking profile uses a fixed 1e9-second
+        # interval, so ordinary steps cannot resample during a training run.
+        # The bound only skips the empty-mask CPU probe; base timer/RNG work
+        # still runs in its original order.
+        self._timer_lower_bound_s = 0.0
+        self._inside_step_compute = False
+        self._skip_timer_resample = False
         device = env.device
         if device.type == "cuda" and device.index is None:
             device = torch.device("cuda", index=torch.cuda.current_device())
@@ -850,9 +866,12 @@ class MotionCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        torch.all(torch.isfinite(self._command), out=self._command_finite_valid)
-        if not bool(self._command_finite_valid):
-            self._refresh_motion_torch()
+        # The command/observation aggregate owns the deferred verdict. Strict
+        # mode keeps the immediate recovery check for interactive debugging.
+        if not getattr(getattr(self, "_env", None), "defer_finite_validation", False):
+            torch.all(torch.isfinite(self._command), out=self._command_finite_valid)
+            if not bool(self._command_finite_valid):
+                self._refresh_motion_torch()
         return self._command
 
     @property
@@ -926,6 +945,24 @@ class MotionCommand(CommandTerm):
         )
         self.time_left.copy_(torch.where(reset_mask, sampled, self.time_left))
         self._resample_command(reset_mask)
+        if (
+            env_ids is None
+            or (
+                isinstance(env_ids, slice)
+                and len(range(*env_ids.indices(self.num_envs))) == self.num_envs
+            )
+            or (
+                isinstance(env_ids, torch.Tensor)
+                and env_ids.numel() == self.num_envs
+                and bool(reset_mask.all())
+            )
+        ):
+            # Float32 sampling may round slightly below the configured lower
+            # bound. Keep a conservative margin before declaring any timer
+            # mask provably empty.
+            self._timer_lower_bound_s = max(
+                0.0, resample_lower - max(1.0, abs(resample_lower)) * 1.0e-6
+            )
         self._tensor_resample_ingested_mask = reset_mask
         self._last_reset_payload_validated = False
         return {}
@@ -954,8 +991,50 @@ class MotionCommand(CommandTerm):
         """Whether the current reset payload already passed owner validation."""
         return bool(self._last_reset_payload_validated)
 
+    def compute(self, dt: float | torch.Tensor) -> None:
+        """Track a safe timer horizon without inspecting a CUDA scalar."""
+        remaining = self._timer_lower_bound_s
+        if remaining > 0.0:
+            if isinstance(dt, torch.Tensor):
+                # Only the owner-controlled, bounded per-step carrier has a
+                # known upper bound without a device read. Other tensor dt
+                # callers fall back to the original mask probe.
+                owned_dt = getattr(self._env, "_command_dt", None)
+                consumed = (
+                    float(self._env.step_dt) * (1.0 + 1.0e-6) if dt is owned_dt else float("inf")
+                )
+            elif isinstance(dt, (int, float)) and math.isfinite(dt) and dt >= 0.0:
+                consumed = float(dt)
+            else:
+                consumed = float("inf")
+            if math.isfinite(consumed):
+                # time_left is float32. A subtraction can round *down* by half
+                # an ULP of the timer, while the dt carrier can round *up* by
+                # half an ULP of dt. Account for both errors before using the
+                # host lower bound to prove that every device timer is positive.
+                timer_upper = max(self._resampling_time_range[1], 0.0)
+                consumed += _float32_half_ulp_upper_bound(consumed)
+                consumed += _float32_half_ulp_upper_bound(timer_upper)
+            self._timer_lower_bound_s = max(0.0, remaining - consumed)
+        self._inside_step_compute = True
+        try:
+            super().compute(dt)
+        finally:
+            self._inside_step_compute = False
+
+    def _resample(self, reset_mask: torch.Tensor) -> None:
+        # Only this timer dispatch may use the conservative bound. A clip-wrap
+        # resample from _update_command still honors its actual device mask.
+        self._skip_timer_resample = self._inside_step_compute and self._timer_lower_bound_s > 0.0
+        try:
+            super()._resample(reset_mask)
+        finally:
+            self._skip_timer_resample = False
+
     def _resample_command(self, reset_mask: torch.Tensor) -> None:
         """Full-width motion sampling and masked state publication."""
+        if getattr(self, "_skip_timer_resample", False):
+            return
         if not bool(reset_mask.any()):
             # An empty selected-reset mask is a no-op semantic boundary. It must
             # not consume sampler or task RNG merely to preserve a fixed-width

@@ -75,6 +75,9 @@ class CommandTerm(ManagerTermBase):
         # another term still holds.
         self._reset_mask_buffer = ResetMaskBuffer(self.num_envs, self._device)
         self.metrics: dict[str, torch.Tensor] = {}
+        self._pending_metric_sums: dict[str, torch.Tensor] = {}
+        self._pending_metric_count = torch.zeros((), dtype=torch.int64, device=self._device)
+        self._pending_metric_dirty = False
         self.time_left = torch.zeros(self.num_envs, dtype=torch.float32, device=self._device)
         self.command_counter = torch.zeros(self.num_envs, dtype=torch.int64, device=self._device)
         self.last_reset_timing_ms: dict[str, float] = {}
@@ -114,30 +117,53 @@ class CommandTerm(ManagerTermBase):
                 # Publish reset means and the finite check through one
                 # fixed-width device boundary instead of materializing rows.
                 values = torch.stack([value for _, value in metric_values], dim=0)
-                selected_values = values * reset_mask[None, :]
-                reduced = torch.stack(
-                    (
-                        selected_values.sum(dim=1) / reset_mask.sum().clamp_min(1),
-                        (torch.isfinite(values) | ~reset_mask[None, :])
-                        .all(dim=1)
-                        .to(torch.float32),
-                    ),
-                    dim=0,
-                ).detach()
-                host_reduced = reduced.cpu()
-                means = host_reduced[0].tolist()
-                finite = bool(host_reduced[1].min().item() == 1.0)
-                if not finite:
-                    for metric_name, metric_value in metric_values:
-                        if not bool((torch.isfinite(metric_value) | ~reset_mask).all()):
-                            raise ValueError(
-                                f"CommandTerm '{self.name}' metric '{metric_name}' contains "
-                                "NaN or Inf."
-                            )
-                for (metric_name, metric_value), mean in zip(metric_values, means, strict=True):
-                    extras[metric_name] = float(mean)
+                selected_values = torch.where(reset_mask[None, :], values, 0.0)
+                if self._deferred_validation_enabled():
+                    self._record_metric_finite(metric_values, reset_mask)
+                    runtime_reset = int(getattr(self._env, "step_counter", 0)) > 0 or bool(
+                        getattr(self._env, "_has_transition", False)
+                    )
+                    selected_rows = not (isinstance(env_ids, torch.Tensor) and env_ids.numel() == 0)
+                    if isinstance(env_ids, slice):
+                        selected_rows = bool(range(*env_ids.indices(self.num_envs)))
+                    if runtime_reset and selected_rows:
+                        self._pending_metric_count += reset_mask.sum()
+                        for (metric_name, _), selected in zip(
+                            metric_values, selected_values, strict=True
+                        ):
+                            pending = self._pending_metric_sums.get(metric_name)
+                            if pending is None:
+                                pending = torch.zeros((), dtype=torch.float32, device=self._device)
+                                self._pending_metric_sums[metric_name] = pending
+                            pending.add_(selected.sum())
+                        self._pending_metric_dirty = True
+                else:
+                    reduced = torch.stack(
+                        (
+                            selected_values.sum(dim=1) / reset_mask.sum().clamp_min(1),
+                            (torch.isfinite(values) | ~reset_mask[None, :])
+                            .all(dim=1)
+                            .to(torch.float32),
+                        ),
+                        dim=0,
+                    ).detach()
+                    host_reduced = reduced.cpu()
+                    means = host_reduced[0].tolist()
+                    finite = bool(host_reduced[1].min().item() == 1.0)
+                    if not finite:
+                        for metric_name, metric_value in metric_values:
+                            if not bool((torch.isfinite(metric_value) | ~reset_mask).all()):
+                                raise ValueError(
+                                    f"CommandTerm '{self.name}' metric '{metric_name}' contains "
+                                    "NaN or Inf."
+                                )
+                    for (metric_name, _), mean in zip(metric_values, means, strict=True):
+                        extras[metric_name] = float(mean)
+                for _, metric_value in metric_values:
                     metric_value.masked_fill_(reset_mask, 0.0)
         else:
+            if self._deferred_validation_enabled():
+                self._record_metric_finite(metric_values, reset_mask)
             self.clear_episode_metrics(reset_mask)
         metrics_ms = (time.perf_counter() - metrics_started) * 1000.0
         self.command_counter.masked_fill_(reset_mask, 0)
@@ -149,6 +175,42 @@ class CommandTerm(ManagerTermBase):
             time.perf_counter() - resample_started
         ) * 1000.0
         return extras
+
+    def _deferred_validation_enabled(self) -> bool:
+        return bool(getattr(self._env, "defer_finite_validation", False))
+
+    def publish_pending_reset_metrics(self) -> dict[str, float]:
+        """Drain completed episodes only at the environment's host boundary."""
+        if not self._pending_metric_dirty:
+            return {}
+        names = list(self._pending_metric_sums)
+        divisor = self._pending_metric_count.clamp_min(1)
+        means = (
+            torch.stack([self._pending_metric_sums[name] / divisor for name in names])
+            .detach()
+            .cpu()
+            .tolist()
+        )
+        for pending in self._pending_metric_sums.values():
+            pending.zero_()
+        self._pending_metric_count.zero_()
+        self._pending_metric_dirty = False
+        return {name: float(value) for name, value in zip(names, means, strict=True)}
+
+    def _record_metric_finite(
+        self,
+        metric_values: list[tuple[str, torch.Tensor]],
+        reset_mask: torch.Tensor,
+    ) -> None:
+        record = getattr(self._env, "record_finite_validation", None)
+        for metric_name, metric_value in metric_values:
+            selected = torch.where(reset_mask, metric_value, 0.0)
+            if callable(record):
+                record(selected, f"command/{self.name}/metric/{metric_name}")
+            elif not _finite(selected):
+                raise ValueError(
+                    f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
+                )
 
     def clear_episode_metrics(self, reset_mask: torch.Tensor) -> None:
         """Clear command metrics without a host metric reduction."""
@@ -199,7 +261,15 @@ class CommandTerm(ManagerTermBase):
                 )
         if tensor_dt:
             assert dt_tensor is not None
-            dt_is_finite = bool(torch.isfinite(dt_tensor).all())
+            if self._deferred_validation_enabled():
+                record = getattr(self._env, "record_finite_validation", None)
+                if callable(record):
+                    record(dt_tensor, f"command/{self.name}/dt")
+                    dt_is_finite = True
+                else:
+                    dt_is_finite = bool(torch.isfinite(dt_tensor).all())
+            else:
+                dt_is_finite = bool(torch.isfinite(dt_tensor).all())
         else:
             assert dt_scalar is not None
             dt_is_finite = math.isfinite(dt_scalar)
@@ -233,6 +303,10 @@ class CommandTerm(ManagerTermBase):
     def _validate_metrics(self) -> None:
         metric_values = list(self.metrics.items())
         for metric_name, metric_value in metric_values:
+            if not isinstance(metric_value, torch.Tensor):
+                raise TypeError(
+                    f"CommandTerm '{self.name}' metric '{metric_name}' must be a torch.Tensor"
+                )
             if metric_value.ndim == 0 or metric_value.shape[0] != self.num_envs:
                 raise ValueError(
                     f"CommandTerm '{self.name}' metric '{metric_name}' returned shape "
@@ -240,14 +314,12 @@ class CommandTerm(ManagerTermBase):
                 )
         if not metric_values:
             return
-        non_tensor = [
-            (name, value) for name, value in metric_values if not isinstance(value, torch.Tensor)
-        ]
-        if non_tensor:
-            metric_name, _ = non_tensor[0]
-            raise TypeError(
-                f"CommandTerm '{self.name}' metric '{metric_name}' must be a torch.Tensor"
-            )
+        if self._deferred_validation_enabled():
+            record = getattr(self._env, "record_finite_validation", None)
+            if callable(record):
+                for metric_name, metric_value in metric_values:
+                    record(metric_value, f"command/{self.name}/metric/{metric_name}")
+                return
         if metric_values:
             finite = torch.stack([torch.isfinite(value) for _, value in metric_values]).all()
             if bool(finite):
@@ -318,6 +390,13 @@ class CommandManager(ManagerBase):
 
         self.cfg = cfg
         self._device = torch.device(getattr(env, "device", torch.device("cpu")))
+        env_cfg = getattr(env, "cfg", None)
+        self._defer_finite_validation = bool(
+            getattr(
+                env, "defer_finite_validation", getattr(env_cfg, "defer_finite_validation", False)
+            )
+        )
+        self._finite_verdict = torch.ones((), dtype=torch.bool, device=self._device)
         self._last_term_reset_timing_ms: dict[str, float] = {}
         self.last_post_compute_timing_ms: dict[str, float] = {}
         super().__init__(env)
@@ -344,6 +423,32 @@ class CommandManager(ManagerBase):
     def last_reset_timing_ms(self) -> dict[str, float]:
         return dict(self._last_term_reset_timing_ms)
 
+    @property
+    def finite_verdict(self) -> torch.Tensor:
+        """Device-resident command verdict accumulated since the last poll."""
+        return self._finite_verdict
+
+    def reset_finite_verdict(self) -> None:
+        self._finite_verdict.fill_(True)
+
+    def poll_finite_validation(self) -> bool:
+        """Raise a command error when the deferred boundary finds invalid data."""
+        valid = bool(self._finite_verdict.detach().cpu().item())
+        self.reset_finite_verdict()
+        if valid:
+            return True
+        for name, term in self._terms.items():
+            command = term.command
+            finite = torch.isfinite(command)
+            if not bool(finite.all()):
+                rows = ~finite.reshape(self.num_envs, -1).all(dim=1)
+                invalid_rows = torch.nonzero(rows, as_tuple=False).flatten()[:10]
+                raise ValueError(
+                    f"CommandManager term '{name}' returned NaN or Inf for "
+                    f"environments {invalid_rows.detach().cpu().tolist()}."
+                )
+        raise ValueError("CommandManager returned a non-finite command.")
+
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         terms = []
         for name, term in self._terms.items():
@@ -369,6 +474,14 @@ class CommandManager(ManagerBase):
         self._last_term_reset_timing_ms.clear()
         for name, term in self._terms.items():
             self._last_term_reset_timing_ms.update(term.last_reset_timing_ms)
+        return extras
+
+    def publish_pending_reset_metrics(self) -> dict[str, float]:
+        """Drain deferred command metrics after the shared validation poll."""
+        extras: dict[str, float] = {}
+        for name, term in self._terms.items():
+            for metric_name, metric_value in term.publish_pending_reset_metrics().items():
+                extras[f"Metrics/{name}/{metric_name}"] = metric_value
         return extras
 
     def compute(self, dt: float | torch.Tensor) -> None:
@@ -482,7 +595,9 @@ class CommandManager(ManagerBase):
         valid = torch.isfinite(command).all()
         term = self._terms[name]
         term._command_finite_valid.copy_(valid)
-        if not bool(valid):
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(valid)
+        elif not bool(valid):
             raise ValueError(f"CommandManager term '{name}' returned NaN or Inf.")
         return command
 
@@ -518,6 +633,9 @@ class NullCommandManager:
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
         del env_ids
+        return {}
+
+    def publish_pending_reset_metrics(self) -> dict[str, float]:
         return {}
 
     def reset_diagnostics(self) -> dict[str, float]:

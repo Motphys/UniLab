@@ -923,33 +923,40 @@ def _run_collector(
                 _record_timing_ms(timing_accum_ms, timing_counts, key, value)
 
     finally:
-        flush_final_collector_metrics()
-        cleanup = getattr(env, "cleanup", None)
-        if callable(cleanup):
-            cleanup()
-        else:
-            env.close()
-        inference_slot.close()
-        replay_buffer.release_ipc()
-        # Drop the final tensor/state references before the spawn process
-        # exits. This prevents CUDA IPC handles from outliving explicit env
-        # teardown until interpreter finalization.
-        state = None
-        obs_t = None
-        critic_t = None
-        next_obs_t = None
-        next_critic_t = None
-        terminal_obs_t = None
-        terminal_critic_t = None
-        collector_metrics = None
-        inference_slot = None
-        replay_buffer = None
-        env = None
-        import gc
-
-        gc.collect()
-        if metrics_queue is not None and trace_recorder:
+        try:
             try:
-                metrics_queue.put_nowait({"trace_events": trace_recorder.drain_events()})
-            except Exception:
-                pass
+                flush_final_collector_metrics()
+            finally:
+                try:
+                    cleanup = getattr(env, "cleanup", None)
+                    if callable(cleanup):
+                        cleanup()
+                    else:
+                        env.close()
+                finally:
+                    try:
+                        inference_slot.close()
+                    finally:
+                        replay_buffer.release_ipc()
+        finally:
+            # Drop the final tensor/state references before the spawn process
+            # exits, including when final validation or cleanup raises.
+            state = None
+            obs_t = None
+            critic_t = None
+            next_obs_t = None
+            next_critic_t = None
+            terminal_obs_t = None
+            terminal_critic_t = None
+            collector_metrics = None
+            inference_slot = None
+            replay_buffer = None
+            env = None
+            import gc
+
+            gc.collect()
+            if metrics_queue is not None and trace_recorder:
+                try:
+                    metrics_queue.put_nowait({"trace_events": trace_recorder.drain_events()})
+                except Exception:
+                    pass

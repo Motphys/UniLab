@@ -76,6 +76,11 @@ training:
     buffer_size: 100
     max_envs_to_dump: 5
     output_dir: null
+    defer_validation: true
+    check_interval: 32
+    capture_interval: 32
+  defer_finite_validation: true
+  finite_validation_interval: 32
   use_amp: true
   play_only: false
   no_play: false
@@ -94,7 +99,7 @@ training:
   # serialized (one request in flight per collector).
   inference_slot_capacity: 1
   # Tensor-collector steps between metric compaction and one host flush.
-  collector_metrics_interval: 1
+  collector_metrics_interval: 32
   # Fixed replay-ingress chunks that may be published before learner commit.
   replay_ingress_depth: 2
   # Rows per replay-ingress chunk; null means one chunk per collector vector.

@@ -56,6 +56,7 @@ from unilab.training.experiment import (
     patch_rsl_rl_tensorboard_logging,
     patch_rsl_rl_wandb_writer,
 )
+from unilab.training.run import finite_validation_env_overrides
 from unilab.training.seed import apply_configured_training_seed
 from unilab.training.tensor_runtime import (
     resolve_recorded_collector_tensor_device,
@@ -112,6 +113,7 @@ def build_ppo_env_cfg_override(cfg: DictConfig) -> dict[str, Any]:
         collector_tensor_device=select_collector_tensor_device(cfg),
         learner_device=learner_device,
     )
+    result.update(finite_validation_env_overrides(cfg))
     if world_size > 1:
         explicit = OmegaConf.select(cfg, "training.dp_collector_cpu_ids", default=None)
         explicit = OmegaConf.to_container(explicit, resolve=True) if explicit is not None else None

@@ -10,6 +10,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 import os
+import sys
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -104,8 +105,9 @@ class TorchEnv(ABEnv):
         self._truncated_scratch = torch.zeros((num_envs,), dtype=torch.bool, device=self._device)
         self._final_observation_scratch: dict[str, torch.Tensor] | None = None
         self._action_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
+        self._control_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
         self._state_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
-        self._pending_control_finite_check: bool | None = None
+        self._pending_control_finite_check: torch.Tensor | bool | None = None
         self._reset_obs_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
         self._reset_done_count = torch.zeros((), dtype=torch.int64, device=self._device)
         self._tensor_runtime_bound = False
@@ -117,6 +119,12 @@ class TorchEnv(ABEnv):
         self._rgb_array_renderer_ready = False
         self._nan_guard: "NanGuard | None" = None
         self._pending_backend_step_completion: CompletionToken | None = None
+        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", False))
+        interval = getattr(cfg, "finite_validation_interval", 1)
+        if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
+            raise ValueError("finite_validation_interval must be a positive integer")
+        self._finite_validation_interval = interval
+        self._finite_verdict = torch.ones((), dtype=torch.bool, device=self._device)
 
     @property
     def device(self) -> torch.device:
@@ -248,17 +256,15 @@ class TorchEnv(ABEnv):
 
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
-        # Manager action owners publish one device-resident control verdict
-        # during this phase; it must not leak into the next step.
+        # Action terms publish into one device-resident control verdict. Clear
+        # both publication carriers before each new action is processed.
+        self._control_finite_valid.fill_(True)
         self._pending_control_finite_check = None
         ctrl = self.apply_action(actions, self._state)
+        guard_defer = self._defer_finite_validation
         if self._nan_guard is not None:
-            bad_ctrl_ids = self._nan_guard.check_ctrl(ctrl, step=self.step_counter)
-            if bad_ctrl_ids is not None:
-                self._nan_guard.dump(
-                    bad_ctrl_ids, self._resolve_nan_guard_model_file(), self.step_counter
-                )
-        self._validate_control(ctrl)
+            guard_defer = self._defer_finite_validation or self._nan_guard.defer_validation
+        self._validate_control_with_nan_guard(ctrl, defer=guard_defer)
         apply_action_ms = (time.perf_counter() - phase) * 1000.0
         apply_action_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
 
@@ -296,14 +302,29 @@ class TorchEnv(ABEnv):
         finally:
             self._pending_backend_step_completion = None
         if self._nan_guard is not None:
-            self._nan_guard.capture(self._tensor_diagnostics_state())
+            transition_step = self.step_counter + 1
+            if self._nan_guard.capture_due(transition_step):
+                self._nan_guard.capture(self._tensor_diagnostics_state(), step=transition_step)
             nan_ids = self._nan_guard.check(
-                self._state.obs, self._state.reward, step=self.step_counter
+                self._state.obs,
+                self._state.reward,
+                step=transition_step,
+                defer=guard_defer,
             )
             if nan_ids is not None:
-                self._nan_guard.dump(
-                    nan_ids, self._resolve_nan_guard_model_file(), self.step_counter
-                )
+                self._nan_guard.dump(nan_ids, self._resolve_nan_guard_model_file(), transition_step)
+            if not self._defer_finite_validation and self._nan_guard.defer_validation:
+                deferred_nan_ids = self._nan_guard.poll(step=self.step_counter, force=True)
+                if deferred_nan_ids is not None:
+                    self._nan_guard.dump(
+                        deferred_nan_ids,
+                        self._resolve_nan_guard_model_file(),
+                        transition_step,
+                    )
+                    raise ValueError(
+                        "NanGuard detected NaN or Inf for environments "
+                        f"{deferred_nan_ids[:10].detach().cpu().tolist()}"
+                    )
         self._validate_state(self._state)
         update_state_ms = (time.perf_counter() - phase) * 1000.0
         update_state_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
@@ -339,6 +360,7 @@ class TorchEnv(ABEnv):
             self._reset_done_envs()
         reset_done_ms = (time.perf_counter() - phase) * 1000.0
         reset_done_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
+        self.poll_finite_validation()
 
         timing = self._state.info.setdefault("timing", {})
         if not did_reset:
@@ -393,7 +415,11 @@ class TorchEnv(ABEnv):
         for substep in range(self._cfg.sim_substeps):
             if substep > 0:
                 ctrl = self.apply_substep_action()
-                self._validate_control(ctrl)
+                self._validate_control_with_nan_guard(
+                    ctrl,
+                    defer=self._defer_finite_validation
+                    or (self._nan_guard is not None and self._nan_guard.defer_validation),
+                )
             result = self._backend.step_tensor(ctrl, 1)
             if not isinstance(result, dict):
                 continue
@@ -410,7 +436,7 @@ class TorchEnv(ABEnv):
     def _validate_action(self, actions: torch.Tensor) -> None:
         self._validate_action_contract(actions)
         self._record_action_finite(actions)
-        if not bool(self._action_finite_valid):
+        if not self._defer_finite_validation and not bool(self._action_finite_valid):
             raise ValueError("TorchEnv action contains NaN or Inf")
 
     def _validate_action_contract(self, actions: torch.Tensor) -> None:
@@ -431,6 +457,26 @@ class TorchEnv(ABEnv):
         if actions.device != self.device:
             raise ValueError(f"TorchEnv action device must be {self.device}, got {actions.device}")
 
+    def _validate_control_with_nan_guard(self, ctrl: torch.Tensor, *, defer: bool) -> None:
+        """Validate one control, including state-feedback substeps, on the same guard path."""
+        guard = self._nan_guard
+        if guard is not None:
+            bad_ctrl_ids = guard.check_ctrl(ctrl, step=self.step_counter, defer=defer)
+            if bad_ctrl_ids is not None:
+                guard.dump(bad_ctrl_ids, self._resolve_nan_guard_model_file(), self.step_counter)
+        try:
+            self._validate_control(ctrl)
+        except ValueError:
+            # A deferred diagnostic guard attached to a strict environment
+            # still needs its abnormal control dump before the strict raise.
+            if guard is not None and not self._defer_finite_validation:
+                ctrl_nan_ids = guard.poll(step=self.step_counter, force=True)
+                if ctrl_nan_ids is not None:
+                    guard.dump(
+                        ctrl_nan_ids, self._resolve_nan_guard_model_file(), self.step_counter
+                    )
+            raise
+
     def _validate_control(self, ctrl: torch.Tensor) -> None:
         if not isinstance(ctrl, torch.Tensor):
             raise TypeError(f"TorchEnv control must be a torch.Tensor, got {type(ctrl).__name__}")
@@ -445,15 +491,18 @@ class TorchEnv(ABEnv):
             raise ValueError("TorchEnv control must be contiguous")
         if ctrl.device != self.device:
             raise ValueError(f"TorchEnv control device must be {self.device}, got {ctrl.device}")
+        # Check the final tensor after every action term and encoder-bias
+        # adjustment. A term's earlier verdict cannot certify this value.
+        valid = self._control_finite_valid
+        valid.logical_and_(torch.isfinite(ctrl).all())
         verdict = self._publish_control_finite_verdict()
-        if verdict is not None:
-            # The action owner records one device-resident control verdict per
-            # step. Publishing it here keeps the fail-closed contract while
-            # removing the per-step scalar host read from the CUDA hot path.
-            if not verdict:
-                raise ValueError("TorchEnv control contains NaN or Inf")
+        if isinstance(verdict, torch.Tensor):
+            valid.logical_and_(verdict)
+        elif verdict is False:
+            valid.fill_(False)
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(valid)
             return
-        valid = torch.isfinite(ctrl).all()
         if not bool(valid):
             raise ValueError("TorchEnv control contains NaN or Inf")
 
@@ -489,6 +538,9 @@ class TorchEnv(ABEnv):
         valid.fill_(True)
         for value in (state.reward, *state.obs.values()):
             torch.logical_and(valid, torch.isfinite(value).all(), out=valid)
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(valid)
+            return
         if not bool(valid):
             for label, value in (
                 *((f"obs[{name!r}]", value) for name, value in state.obs.items()),
@@ -506,8 +558,22 @@ class TorchEnv(ABEnv):
     def _record_action_finite(self, actions: torch.Tensor) -> None:
         """Record the public action finite verdict on its persistent carrier."""
         self._action_finite_valid.copy_(torch.isfinite(actions).all())
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(self._action_finite_valid)
 
-    def _publish_control_finite_verdict(self) -> bool | None:
+    def record_control_finite_verdict(self, verdict: torch.Tensor) -> None:
+        """Accumulate an action term's device verdict before control publication."""
+        if (
+            not isinstance(verdict, torch.Tensor)
+            or verdict.dtype != torch.bool
+            or verdict.ndim != 0
+        ):
+            raise TypeError("TorchEnv control finite verdict must be a scalar bool tensor")
+        if verdict.device != self.device:
+            raise ValueError(f"TorchEnv control finite verdict device must be {self.device}")
+        self._control_finite_valid.logical_and_(verdict)
+
+    def _publish_control_finite_verdict(self) -> torch.Tensor | bool | None:
         """Publish and consume the manager control verdict, if recorded."""
         verdict = self._pending_control_finite_check
         self._pending_control_finite_check = None
@@ -552,7 +618,11 @@ class TorchEnv(ABEnv):
                 raise ValueError(
                     f"TorchEnvState.final_observation[{name!r}] device must be {expected.device}"
                 )
-            self._validate_finite_float(value, f"final_observation[{name!r}]")
+            if self._defer_finite_validation:
+                self._require_floating_float(value)
+                self._record_finite_validation(value, f"final_observation[{name!r}]")
+            else:
+                self._validate_finite_float(value, f"final_observation[{name!r}]")
 
     def _compute_truncated(self, state: TorchEnvState) -> torch.Tensor:
         self._truncated_scratch.fill_(False)
@@ -654,6 +724,9 @@ class TorchEnv(ABEnv):
         valid.fill_(True)
         for value in obs.values():
             torch.logical_and(valid, torch.isfinite(value).all(), out=valid)
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(valid)
+            return
         if not bool(valid):
             for name, value in obs.items():
                 if not bool(torch.isfinite(value).all()):
@@ -887,6 +960,89 @@ class TorchEnv(ABEnv):
     def set_autoreset(self, enabled: bool) -> None:
         self._autoreset = bool(enabled)
 
+    @property
+    def defer_finite_validation(self) -> bool:
+        """Whether finite checks accumulate on the device between polls."""
+        return self._defer_finite_validation
+
+    @property
+    def finite_validation_interval(self) -> int:
+        """Number of steps between deferred finite-validation polls."""
+        return self._finite_validation_interval
+
+    def _record_finite_validation(self, value: torch.Tensor, label: str = "") -> None:
+        """Accumulate one finite verdict without a scalar host read."""
+        del label
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(torch.isfinite(value).all())
+
+    def record_finite_validation(self, value: torch.Tensor, label: str = "") -> None:
+        """Allow a manager to add a finite verdict to the shared boundary."""
+        self._record_finite_validation(value, label)
+
+    def poll_finite_validation(self, *, force: bool = False) -> bool:
+        """Publish all deferred verdicts at one fixed host boundary."""
+        if not self._defer_finite_validation:
+            return True
+        if not force and self.step_counter % self._finite_validation_interval != 0:
+            return True
+
+        verdicts = [self._finite_verdict]
+        managers: list[Any] = []
+        for name in (
+            "action_manager",
+            "reward_manager",
+            "observation_manager",
+            "command_manager",
+            "metrics_manager",
+        ):
+            manager = getattr(self, name, None)
+            verdict = getattr(manager, "finite_verdict", None)
+            if isinstance(verdict, torch.Tensor):
+                verdicts.append(verdict)
+                managers.append(manager)
+
+        guard = self._nan_guard
+        guard_bad: torch.Tensor | None = None
+        if guard is not None:
+            bad_verdict = guard.device_verdict
+            if isinstance(bad_verdict, torch.Tensor):
+                guard_bad = bad_verdict
+                verdicts.append(torch.logical_not(bad_verdict))
+
+        valid = bool(torch.stack(verdicts).all().detach().cpu().item())
+        if valid:
+            self._finite_verdict.fill_(True)
+            for manager in managers:
+                reset = getattr(manager, "reset_finite_verdict", None)
+                if callable(reset):
+                    reset()
+                else:
+                    manager.finite_verdict.fill_(True)
+            if guard is not None and guard_bad is not None:
+                guard.reset_verdict()
+            return True
+
+        # Detailed scans and diagnostics are reserved for the abnormal path.
+        base_valid = bool(self._finite_verdict.detach().cpu().item())
+        self._finite_verdict.fill_(True)
+        if guard is not None and guard_bad is not None:
+            nan_ids = guard.poll(step=self.step_counter, force=True)
+            if nan_ids is not None:
+                guard.dump(nan_ids, self._resolve_nan_guard_model_file(), self.step_counter)
+                raise ValueError(
+                    "NanGuard detected NaN or Inf at validation boundary for environments "
+                    f"{nan_ids[:10].detach().cpu().tolist()}"
+                )
+        handled_nonfatal = False
+        for manager in managers:
+            poll = getattr(manager, "poll_finite_validation", None)
+            if callable(poll) and poll() is False:
+                handled_nonfatal = True
+        if handled_nonfatal and base_valid:
+            return True
+        raise ValueError("TorchEnv deferred finite validation detected NaN or Inf")
+
     def set_nan_guard(self, guard: NanGuard) -> None:
         """Attach the owner-provided diagnostic guard.
 
@@ -969,7 +1125,13 @@ class TorchEnv(ABEnv):
         self.step_counter = counter
 
     def close(self) -> None:
-        self._backend.cleanup_scene_assets()
+        try:
+            # A short final cycle still owns device verdicts. Preserve an
+            # existing training error when close runs from a finally block.
+            if sys.exc_info()[0] is None:
+                self.poll_finite_validation(force=True)
+        finally:
+            self._backend.cleanup_scene_assets()
 
     @abc.abstractmethod
     def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:

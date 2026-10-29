@@ -119,6 +119,8 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     scale_rewards_by_dt: bool = True
     policy_observation_group: str = "policy"
     critic_observation_group: str | None = None
+    defer_finite_validation: bool = False
+    finite_validation_interval: int = 1
 
     def validate(self) -> None:
         if self.collector_tensor_device is not None:
@@ -180,9 +182,22 @@ class ManagerBasedRlEnvCfg(EnvCfg):
         ):
             if not isinstance(getattr(self, name), dict):
                 raise TypeError(f"ManagerBasedRlEnvCfg {name} must be a dict")
-        for name in ("is_finite_horizon", "auto_reset", "scale_rewards_by_dt"):
+        for name in (
+            "is_finite_horizon",
+            "auto_reset",
+            "scale_rewards_by_dt",
+            "defer_finite_validation",
+        ):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"ManagerBasedRlEnvCfg {name} must be bool")
+        if (
+            isinstance(self.finite_validation_interval, bool)
+            or not isinstance(self.finite_validation_interval, int)
+            or self.finite_validation_interval <= 0
+        ):
+            raise ValueError(
+                "ManagerBasedRlEnvCfg finite_validation_interval must be a positive integer"
+            )
         if not isinstance(self.policy_observation_group, str) or not self.policy_observation_group:
             raise ValueError("policy_observation_group must be a non-empty string")
         if self.critic_observation_group is not None:
@@ -372,6 +387,8 @@ class ManagerBasedRlEnv(TorchEnv):
             reset_state=self._reset_state,
             default_qpos=default_qpos,
         )
+        for entity in self.scene.entities.values():
+            entity.data.set_defer_finite_validation(self.defer_finite_validation)
 
         self.common_step_counter = 0
         self._sim_step_counter = 0
@@ -1226,6 +1243,20 @@ class ManagerBasedRlEnv(TorchEnv):
         self._sim_step_counter += 1
         self.action_manager.apply_action()
         return self._control_to_backend_boundary()
+
+    def poll_finite_validation(self, *, force: bool = False) -> bool:
+        """Publish completed episodes at the same fixed host boundary as finite checks."""
+        valid = super().poll_finite_validation(force=force)
+        if not self.defer_finite_validation:
+            return valid
+        if not force and self.step_counter % self.finite_validation_interval != 0:
+            return valid
+        if self._state is None or self.step_counter == 0:
+            return valid
+        log = self._state.info.setdefault("log", {})
+        log.update(self.command_manager.publish_pending_reset_metrics())
+        log.update(self.metrics_manager.publish_pending_reset_metrics())
+        return valid
 
     def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
         del state

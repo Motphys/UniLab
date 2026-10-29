@@ -37,6 +37,13 @@ class _StubCfg(EnvCfg):
     sim_dt: float = 0.1
 
 
+@dataclass
+class _DeferredStubCfg(_StubCfg):
+    max_episode_seconds: float | None = 1000.0
+    defer_finite_validation: bool = True
+    finite_validation_interval: int = 32
+
+
 def _backend() -> MagicMock:
     backend = MagicMock(spec=SimBackend)
     backend.backend_type = "mujoco"
@@ -489,6 +496,87 @@ def test_nonfinite_manager_control_verdict_fails_closed_without_host_read() -> N
         env.step(_actions(env))
 
 
+def test_final_control_is_checked_after_a_finite_term_verdict() -> None:
+    class _OverflowControlEnv(_StubTorchEnv):
+        def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
+            self.record_control_finite_verdict(torch.ones((), dtype=torch.bool, device=self.device))
+            return actions * torch.inf
+
+    strict = _OverflowControlEnv(terminate=False)
+    strict.init_state()
+    with pytest.raises(ValueError, match="control contains NaN or Inf"):
+        strict.step(_actions(strict))
+
+    deferred = _OverflowControlEnv(cfg=_DeferredStubCfg(), terminate=False)
+    deferred.init_state()
+    deferred.step(_actions(deferred))
+    with pytest.raises(ValueError, match="deferred finite validation"):
+        deferred.poll_finite_validation(force=True)
+
+
+def test_control_verdict_accumulates_across_action_terms() -> None:
+    class _TwoTermControlEnv(_StubTorchEnv):
+        def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
+            self.record_control_finite_verdict(
+                torch.zeros((), dtype=torch.bool, device=self.device)
+            )
+            self.record_control_finite_verdict(torch.ones((), dtype=torch.bool, device=self.device))
+            return actions
+
+    strict = _TwoTermControlEnv(terminate=False)
+    strict.init_state()
+    with pytest.raises(ValueError, match="control contains NaN or Inf"):
+        strict.step(_actions(strict))
+
+    env = _TwoTermControlEnv(cfg=_DeferredStubCfg(), terminate=False)
+    env.init_state()
+    env.step(_actions(env))
+    with pytest.raises(ValueError, match="deferred finite validation"):
+        env.poll_finite_validation(force=True)
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+def test_nan_guard_records_nonfinite_state_feedback_substep_control(
+    tmp_path, deferred: bool
+) -> None:
+    class _FeedbackEnv(_StubTorchEnv):
+        @property
+        def requires_substep_state_feedback(self) -> bool:
+            return True
+
+        def apply_substep_action(self) -> torch.Tensor:
+            return torch.full((self.num_envs, 4), torch.inf, device=self.device)
+
+    cfg = (
+        _DeferredStubCfg(ctrl_dt=0.2)
+        if deferred
+        else _StubCfg(ctrl_dt=0.2, max_episode_seconds=1000.0)
+    )
+    env = _FeedbackEnv(cfg=cfg, terminate=False)
+    env.init_state()
+    env.set_nan_guard(
+        NanGuard(
+            NanGuardCfg(
+                enabled=True,
+                defer_validation=True,
+                check_interval=32,
+                capture_interval=0,
+                output_dir=str(tmp_path),
+            ),
+            num_envs=env.num_envs,
+            supports_state_playback=False,
+        )
+    )
+    if deferred:
+        env.step(_actions(env))
+        with pytest.raises(ValueError, match="NanGuard detected NaN or Inf"):
+            env.poll_finite_validation(force=True)
+    else:
+        with pytest.raises(ValueError, match="control contains NaN or Inf"):
+            env.step(_actions(env))
+    assert [path for path in tmp_path.glob("nan_dump_*.npz") if not path.is_symlink()]
+
+
 def test_manager_control_verdict_does_not_leak_between_steps() -> None:
     class _SpuriousVerdictEnv(_StubTorchEnv):
         first = True
@@ -506,6 +594,247 @@ def test_manager_control_verdict_does_not_leak_between_steps() -> None:
         env.step(_actions(env))
     state = env.step(_actions(env))
     assert state.obs["obs"].shape == (env.num_envs, 3)
+
+
+def test_deferred_finite_validation_polls_once_at_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _StubTorchEnv(cfg=_DeferredStubCfg(), terminate=False)
+    env.init_state()
+    env.set_nan_guard(
+        NanGuard(
+            NanGuardCfg(
+                enabled=True,
+                defer_validation=False,
+                check_interval=1,
+                capture_interval=0,
+            ),
+            num_envs=env.num_envs,
+            supports_state_playback=False,
+        )
+    )
+
+    item_calls = 0
+    original_item = torch.Tensor.item
+
+    def counted_item(tensor: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
+        nonlocal item_calls
+        item_calls += 1
+        return original_item(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "item", counted_item)
+    for _ in range(31):
+        env.step(_actions(env))
+    assert item_calls == 0
+    env.step(_actions(env))
+    assert item_calls == 1
+
+
+def test_deferred_finite_validation_retains_bad_action_until_boundary() -> None:
+    env = _StubTorchEnv(cfg=_DeferredStubCfg(), terminate=False)
+    env.init_state()
+    bad_action = _actions(env)
+    bad_action[0, 0] = torch.nan
+    env.step(bad_action)
+    for _ in range(30):
+        env.step(_actions(env))
+    with pytest.raises(ValueError, match="deferred finite validation"):
+        env.step(_actions(env))
+
+
+def test_deferred_finite_validation_reports_first_step_failure_on_close() -> None:
+    backend = _backend()
+    env = _StubTorchEnv(cfg=_DeferredStubCfg(), backend=backend, terminate=False)
+    env.init_state()
+    bad_action = _actions(env)
+    bad_action[1, 0] = torch.nan
+
+    env.step(bad_action)
+    assert env.step_counter == 1
+    with pytest.raises(ValueError, match="deferred finite validation"):
+        env.close()
+
+    backend.cleanup_scene_assets.assert_called_once()
+
+
+def test_deferred_nan_guard_reports_short_cycle_on_close(tmp_path) -> None:
+    class _NonfiniteObsEnv(_StubTorchEnv):
+        def update_state(self, state: TorchEnvState) -> TorchEnvState:
+            result = super().update_state(state)
+            obs = {key: value.clone() for key, value in result.obs.items()}
+            obs["critic"][2, 0] = torch.nan
+            return result.replace(obs=obs)
+
+    backend = _backend()
+    env = _NonfiniteObsEnv(cfg=_DeferredStubCfg(), backend=backend, terminate=False)
+    env.init_state()
+    env.set_nan_guard(
+        NanGuard(
+            NanGuardCfg(
+                enabled=True,
+                defer_validation=True,
+                check_interval=32,
+                capture_interval=0,
+                output_dir=str(tmp_path),
+            ),
+            num_envs=env.num_envs,
+            supports_state_playback=False,
+        )
+    )
+
+    env.step(_actions(env))
+    assert env.step_counter == 1
+    with pytest.raises(ValueError, match=r"NanGuard.*environments \[2\]"):
+        env.close()
+
+    backend.cleanup_scene_assets.assert_called_once()
+    assert [path for path in tmp_path.glob("nan_dump_*.npz") if not path.is_symlink()]
+
+
+def test_close_preserves_active_error_and_cleans_backend() -> None:
+    backend = _backend()
+    env = _StubTorchEnv(cfg=_DeferredStubCfg(), backend=backend, terminate=False)
+    env.init_state()
+    bad_action = _actions(env)
+    bad_action[1, 0] = torch.nan
+    env.step(bad_action)
+
+    with pytest.raises(RuntimeError, match="original training failure"):
+        try:
+            raise RuntimeError("original training failure")
+        finally:
+            env.close()
+
+    backend.cleanup_scene_assets.assert_called_once()
+
+
+def test_nan_guard_reads_physics_only_at_capture_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _StubTorchEnv(cfg=_DeferredStubCfg(), terminate=False)
+    env.init_state()
+    guard = NanGuard(
+        NanGuardCfg(
+            enabled=True,
+            defer_validation=True,
+            check_interval=32,
+            capture_interval=32,
+        ),
+        num_envs=env.num_envs,
+        supports_state_playback=False,
+    )
+    env.set_nan_guard(guard)
+    reads: list[int] = []
+
+    def counted_read() -> torch.Tensor | None:
+        transition_step = env.step_counter + 1
+        reads.append(transition_step)
+        return torch.full((env.num_envs, 1), float(transition_step))
+
+    monkeypatch.setattr(env, "_tensor_diagnostics_state", counted_read)
+    for _ in range(31):
+        env.step(_actions(env))
+    assert reads == []
+    env.step(_actions(env))
+    assert reads == [32]
+    for _ in range(31):
+        env.step(_actions(env))
+    assert reads == [32]
+    env.step(_actions(env))
+    assert reads == [32, 64]
+    assert len(guard._buffer) == 2  # noqa: SLF001 - snapshot boundary contract
+    torch.testing.assert_close(guard._buffer[0], torch.full((env.num_envs, 1), 32.0))
+    torch.testing.assert_close(guard._buffer[1], torch.full((env.num_envs, 1), 64.0))
+
+
+def test_strict_env_with_deferred_guard_polls_once_after_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _StubTorchEnv(cfg=_StubCfg(max_episode_seconds=1000.0), terminate=False)
+    env.init_state()
+    env.set_nan_guard(
+        NanGuard(
+            NanGuardCfg(
+                enabled=True,
+                defer_validation=True,
+                check_interval=32,
+                capture_interval=0,
+            ),
+            num_envs=env.num_envs,
+            supports_state_playback=False,
+        )
+    )
+    item_calls = 0
+    original_item = torch.Tensor.item
+
+    def counted_item(tensor: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
+        nonlocal item_calls
+        item_calls += 1
+        return original_item(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "item", counted_item)
+    env.step(_actions(env))
+    assert item_calls == 1
+
+
+def test_strict_env_with_deferred_guard_dumps_bad_control(tmp_path) -> None:
+    class _NonfiniteControlEnv(_StubTorchEnv):
+        def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
+            del state
+            return actions * torch.inf
+
+    env = _NonfiniteControlEnv(cfg=_StubCfg(max_episode_seconds=1000.0), terminate=False)
+    env.init_state()
+    env.set_nan_guard(
+        NanGuard(
+            NanGuardCfg(
+                enabled=True,
+                defer_validation=True,
+                check_interval=32,
+                capture_interval=0,
+                output_dir=str(tmp_path),
+            ),
+            num_envs=env.num_envs,
+            supports_state_playback=False,
+        )
+    )
+    with pytest.raises(ValueError, match="control contains NaN or Inf"):
+        env.step(_actions(env))
+    assert [path for path in tmp_path.glob("nan_dump_*.npz") if not path.is_symlink()]
+
+
+def test_nonfatal_manager_verdict_does_not_hide_base_failure() -> None:
+    env = _StubTorchEnv(cfg=_DeferredStubCfg(), terminate=False)
+    env.init_state()
+
+    class _NonfatalVerdict:
+        def __init__(self) -> None:
+            self.finite_verdict = torch.tensor(False)
+
+        def poll_finite_validation(self) -> bool:
+            self.finite_verdict.fill_(True)
+            return False
+
+    env.observation_manager = _NonfatalVerdict()  # type: ignore[attr-defined]
+    env.record_finite_validation(torch.tensor([float("nan")]), "base")
+    with pytest.raises(ValueError, match="deferred finite validation"):
+        env.poll_finite_validation(force=True)
+
+
+def test_deferred_and_strict_paths_preserve_finite_rollout() -> None:
+    strict = _StubTorchEnv(cfg=_StubCfg(max_episode_seconds=1000.0), terminate=False)
+    deferred = _StubTorchEnv(cfg=_DeferredStubCfg(), terminate=False)
+    strict.init_state()
+    deferred.init_state()
+    action = _actions(strict)
+    for _ in range(35):
+        expected = strict.step(action)
+        actual = deferred.step(action)
+        torch.testing.assert_close(actual.obs["obs"], expected.obs["obs"])
+        torch.testing.assert_close(actual.obs["critic"], expected.obs["critic"])
+        torch.testing.assert_close(actual.reward, expected.reward)
+        torch.testing.assert_close(actual.terminated, expected.terminated)
+        torch.testing.assert_close(actual.truncated, expected.truncated)
 
 
 def test_tensor_nan_guard_detects_and_dumps_at_explicit_host_boundary(tmp_path) -> None:
@@ -527,7 +856,7 @@ def test_tensor_nan_guard_detects_and_dumps_at_explicit_host_boundary(tmp_path) 
 
     with pytest.raises(ValueError, match="obs\\['critic'\\] contains NaN or Inf"):
         env.step(_actions(env))
-    assert list(tmp_path.glob("nan_dump_*.npz")) == []
+    assert [path for path in tmp_path.glob("nan_dump_*.npz") if not path.is_symlink()]
 
     class _FiniteObsEnv(_StubTorchEnv):
         pass
@@ -542,7 +871,7 @@ def test_tensor_nan_guard_detects_and_dumps_at_explicit_host_boundary(tmp_path) 
     finite_env.set_nan_guard(finite_guard)
     finite_state = finite_env.step(_actions(finite_env))
     assert finite_state.info["timing"]["env_step_total_ms"] >= 0.0
-    assert list(tmp_path.glob("nan_dump_*.npz")) == []
+    assert list((tmp_path / "unused").glob("nan_dump_*.npz")) == []
 
     def finite_update(state: TorchEnvState) -> TorchEnvState:
         return state.replace(
@@ -567,6 +896,7 @@ def test_tensor_nan_guard_detects_and_dumps_at_explicit_host_boundary(tmp_path) 
     assert dump["meta_nan_env_ids"].tolist() == [1]
     assert (tmp_path / "unused" / "nan_dump_latest.npz").is_symlink()
     assert dump["meta_num_envs_total"].item() == finite_env.num_envs
+    assert dump["meta_detection_step"].item() == 2
     assert dump["meta_supports_state_playback"].item() is False
 
 
@@ -590,7 +920,7 @@ def test_tensor_nan_guard_keeps_detection_input_strict() -> None:
     )
     assert isinstance(ids, torch.Tensor)
     assert ids.dtype == torch.int64
-    assert ids.tolist() == [1]
+    assert ids.tolist() == [0, 1]
 
 
 def test_tensor_nan_guard_rejects_non_tensor_guard_and_resolves_model_lazily() -> None:

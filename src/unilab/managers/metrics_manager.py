@@ -69,6 +69,19 @@ class MetricsManager(ManagerBase):
         super().__init__(env=env)
 
         self._device = getattr(env, "device", torch.device("cpu"))
+        env_cfg = getattr(env, "cfg", None)
+        self._defer_finite_validation = bool(
+            getattr(
+                env, "defer_finite_validation", getattr(env_cfg, "defer_finite_validation", False)
+            )
+        )
+        self._finite_verdict = torch.ones((), dtype=torch.bool, device=self._device)
+        self._pending_episode_sums = {
+            name: torch.zeros((), dtype=torch.float32, device=self._device)
+            for name in self._term_names
+        }
+        self._pending_episode_count = torch.zeros((), dtype=torch.int64, device=self._device)
+        self._pending_episode_dirty = False
         self._episode_sums: dict[str, torch.Tensor] = {}
         self._episode_max: dict[str, torch.Tensor] = {}
         for idx, term_name in enumerate(self._term_names):
@@ -122,6 +135,24 @@ class MetricsManager(ManagerBase):
     def active_terms(self) -> list[str]:
         return self._term_names
 
+    @property
+    def finite_verdict(self) -> torch.Tensor:
+        """Device-resident metric verdict accumulated since the last poll."""
+        return self._finite_verdict
+
+    def reset_finite_verdict(self) -> None:
+        self._finite_verdict.fill_(True)
+
+    def poll_finite_validation(self) -> bool:
+        """Report a deferred metric failure at the host validation boundary."""
+        valid = bool(self._finite_verdict.detach().cpu().item())
+        self.reset_finite_verdict()
+        if valid:
+            return True
+        invalid_rows = (~torch.isfinite(self._step_values).all(dim=1)).nonzero(as_tuple=False)
+        rows = invalid_rows.flatten()[:10].detach().cpu().tolist()
+        raise ValueError(f"MetricsManager returned non-finite values for environments {rows}.")
+
     # Methods.
 
     def clear_episode_state(self, env_ids: torch.Tensor | slice | None = None) -> None:
@@ -143,6 +174,30 @@ class MetricsManager(ManagerBase):
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="MetricsManager.reset"
         )
+        if self._defer_finite_validation:
+            reset_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self._device)
+            reset_mask[ids] = True
+            runtime_reset = int(getattr(self._env, "step_counter", 0)) > 0 or bool(
+                getattr(self._env, "_has_transition", False)
+            )
+            if runtime_reset and ids.numel() > 0:
+                completed = reset_mask & (self._step_count > 0)
+                self._pending_episode_count += completed.sum()
+                safe_counts = self._step_count.to(torch.float32).clamp_min(1.0)
+                for idx, key in enumerate(self._episode_sums):
+                    reduce = self._term_cfgs[idx].reduce
+                    if reduce == "max":
+                        values = self._episode_max[key]
+                    elif reduce == "last":
+                        values = self._step_values[:, idx]
+                    elif reduce == "sum":
+                        values = self._episode_sums[key]
+                    else:
+                        values = self._episode_sums[key] / safe_counts
+                    self._pending_episode_sums[key].add_(torch.where(completed, values, 0.0).sum())
+                self._pending_episode_dirty = True
+            self._clear_episode_state(ids)
+            return {}
         extras: dict[str, float] = {}
         counts = self._step_count[ids].to(torch.float32)
         safe_counts = torch.clamp(counts, min=1.0)
@@ -160,6 +215,26 @@ class MetricsManager(ManagerBase):
                 extras["Episode_Metrics/" + key] = self._log_mean(values)
         self._clear_episode_state(ids)
         return extras
+
+    def publish_pending_reset_metrics(self) -> dict[str, float]:
+        """Drain completed-episode summaries at a fixed host boundary."""
+        if not self._pending_episode_dirty or not self._term_names:
+            return {}
+        divisor = self._pending_episode_count.clamp_min(1)
+        means = (
+            torch.stack([self._pending_episode_sums[name] / divisor for name in self._term_names])
+            .detach()
+            .cpu()
+            .tolist()
+        )
+        for pending in self._pending_episode_sums.values():
+            pending.zero_()
+        self._pending_episode_count.zero_()
+        self._pending_episode_dirty = False
+        return {
+            "Episode_Metrics/" + name: float(value)
+            for name, value in zip(self._term_names, means, strict=True)
+        }
 
     def _clear_episode_state(self, env_ids: torch.Tensor) -> None:
         """Clear episode accumulators for the selected rows."""
@@ -256,7 +331,9 @@ class MetricsManager(ManagerBase):
                 f"MetricsManager term '{name}' returned shape {tuple(result.shape)}; "
                 f"expected ({self.num_envs},)."
             )
-        if not bool(torch.isfinite(result).all()):
+        if self._defer_finite_validation:
+            self._finite_verdict.logical_and_(torch.isfinite(result).all())
+        elif not bool(torch.isfinite(result).all()):
             raise ValueError(f"MetricsManager term '{name}' returned non-finite values.")
         return result
 
@@ -285,6 +362,9 @@ class NullMetricsManager:
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
         del env_ids
+        return {}
+
+    def publish_pending_reset_metrics(self) -> dict[str, float]:
         return {}
 
     def clear_episode_state(self, env_ids: torch.Tensor | slice | None = None) -> None:

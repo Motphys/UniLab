@@ -59,6 +59,7 @@ from unilab.training.cuda_process_sharing import (
 from unilab.training.dp_config import apply_dp_rank_config
 from unilab.training.experiment import ExperimentTracker
 from unilab.training.onnx_export import export_policy_onnx, verify_policy_onnx
+from unilab.training.run import finite_validation_env_overrides
 from unilab.training.seed import apply_configured_training_seed
 from unilab.training.tensor_runtime import (
     resolve_collector_tensor_placement,
@@ -225,6 +226,8 @@ def _genesis_probe_para_level(sim_backend: str):
 
 def build_offpolicy_env_cfg_override(algo_name: str, cfg: DictConfig) -> dict[str, Any] | None:
     base = _build_offpolicy_env_cfg_override(algo_name, cfg, root_dir=Path.cwd())
+    base = dict(base or {})
+    base.update(finite_validation_env_overrides(cfg))
     rank = current_dp_rank()
     from unilab.utils.device import get_default_device
 

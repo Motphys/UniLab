@@ -635,6 +635,62 @@ def test_motion_command_finite_verdict_gates_refresh() -> None:
     assert refreshes == 1
 
 
+def test_motion_timer_safe_horizon_skips_only_the_empty_step_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    dt = torch.full((3,), 0.02)
+    command._env = SimpleNamespace(_command_dt=dt, step_dt=0.02)
+    command._resampling_time_range = (1.0, 1.0)
+    command._timer_lower_bound_s = 1.0
+    command._inside_step_compute = False
+    command._skip_timer_resample = False
+    probes: list[bool] = []
+
+    class _Mask:
+        def any(self) -> bool:
+            probes.append(True)
+            return False
+
+    mask = _Mask()
+    monkeypatch.setattr(mt.CommandTerm, "compute", lambda owner, value: owner._resample(mask))
+    monkeypatch.setattr(
+        mt.CommandTerm, "_resample", lambda owner, value: owner._resample_command(value)
+    )
+
+    command.compute(dt)
+    assert probes == []
+    assert command._timer_lower_bound_s < 1.0
+    assert not command._skip_timer_resample
+
+    # When the conservative bound expires, the real mask probe is restored.
+    command._timer_lower_bound_s = 0.01
+    command.compute(dt)
+    assert probes == [True]
+
+
+def test_motion_timer_lower_bound_covers_float32_subtraction_rounding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = mt.MotionCommand.__new__(mt.MotionCommand)
+    dt = torch.full((1,), 0.02, dtype=torch.float32)
+    command._env = SimpleNamespace(_command_dt=dt, step_dt=0.02)
+    command._resampling_time_range = (1.0e5, 1.0e5)
+    command._timer_lower_bound_s = 1.0e5
+    command._inside_step_compute = False
+    command.time_left = torch.full((1,), 1.0e5, dtype=torch.float32)
+
+    def base_compute(owner: mt.MotionCommand, value: torch.Tensor) -> None:
+        owner.time_left.sub_(value)
+
+    monkeypatch.setattr(mt.CommandTerm, "compute", base_compute)
+    command.compute(dt)
+
+    actual = float(command.time_left[0])
+    assert 1.0e5 - actual > 0.02 * (1.0 + 1.0e-6)
+    assert command._timer_lower_bound_s <= actual
+
+
 def test_motion_packet_gathers_requested_frames() -> None:
     command = mt.MotionCommand.__new__(mt.MotionCommand)
     command._device = torch.device("cpu")

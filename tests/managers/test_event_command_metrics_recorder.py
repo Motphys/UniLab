@@ -219,6 +219,29 @@ def test_command_resample_metrics_validation_and_null(fake_env: FakeEnv) -> None
     assert manager.get_term("goal").command_counter.tolist() == [1, 2, 2, 1]
 
 
+def test_deferred_command_metrics_drain_without_reset_on_boundary(fake_env: FakeEnv) -> None:
+    setattr(fake_env, "defer_finite_validation", True)
+    setattr(fake_env, "finite_validation_interval", 4)
+    command = DummyCommand(DummyCommandCfg(resampling_time_range=(1.0, 1.0)), fake_env)
+
+    setattr(fake_env, "step_counter", 1)
+    assert command.reset(torch.tensor([1], dtype=torch.int64)) == {}
+    command.metrics["error"].copy_(torch.tensor([4.0, 5.0, 6.0, 7.0]))
+    setattr(fake_env, "step_counter", 5)
+    assert command.reset(torch.tensor([2], dtype=torch.int64)) == {}
+    command.metrics["error"].copy_(torch.tensor([8.0, 9.0, 10.0, 11.0]))
+    setattr(fake_env, "step_counter", 9)
+    assert command.reset(torch.tensor([0], dtype=torch.int64)) == {}
+
+    # No reset lands on a multiple of four. The environment drains this
+    # accumulator independently of reset at the next validation boundary.
+    setattr(fake_env, "step_counter", 12)
+    extras = command.publish_pending_reset_metrics()
+
+    assert extras["error"] == pytest.approx((1.0 + 6.0 + 8.0) / 3.0)
+    assert command.publish_pending_reset_metrics() == {}
+
+
 def test_command_reset_rejects_out_of_range_env_ids(fake_env: FakeEnv) -> None:
     manager = CommandManager({"goal": DummyCommandCfg(resampling_time_range=(1.0, 1.0))}, fake_env)
     with pytest.raises(ValueError, match="CommandManager.reset"):
@@ -369,6 +392,49 @@ def test_metrics_reductions_substeps_reset_and_finite_failure(fake_env: FakeEnv)
     with pytest.raises(TypeError, match="expected torch.Tensor"):
         numpy_carrier.compute()
     assert NullMetricsManager().reset(torch.empty(0, dtype=torch.int64)) == {}
+
+
+def test_metrics_deferred_finite_verdict_is_polled_at_boundary(fake_env: FakeEnv) -> None:
+    setattr(fake_env, "defer_finite_validation", True)
+    manager = MetricsManager(
+        {"value": MetricsTermCfg(func=lambda env: torch.as_tensor(env.value))},
+        fake_env,
+    )
+
+    manager.compute()
+    assert manager.poll_finite_validation()
+
+    fake_env.value[1] = torch.inf
+    manager.compute()
+    with pytest.raises(ValueError, match="MetricsManager returned non-finite"):
+        manager.poll_finite_validation()
+
+
+def test_deferred_metrics_drain_without_reset_on_boundary(fake_env: FakeEnv) -> None:
+    setattr(fake_env, "defer_finite_validation", True)
+    setattr(fake_env, "finite_validation_interval", 4)
+    manager = MetricsManager(
+        {"value": MetricsTermCfg(func=lambda env: env.value, reduce="mean")},
+        fake_env,
+    )
+
+    setattr(fake_env, "step_counter", 1)
+    manager.compute()
+    assert manager.reset(torch.tensor([1], dtype=torch.int64)) == {}
+    fake_env.value = torch.tensor([4.0, 5.0, 6.0, 7.0])
+    setattr(fake_env, "step_counter", 5)
+    manager.compute()
+    assert manager.reset(torch.tensor([2], dtype=torch.int64)) == {}
+    fake_env.value = torch.tensor([8.0, 9.0, 10.0, 11.0])
+    setattr(fake_env, "step_counter", 9)
+    manager.compute()
+    assert manager.reset(torch.tensor([0], dtype=torch.int64)) == {}
+
+    setattr(fake_env, "step_counter", 12)
+    extras = manager.publish_pending_reset_metrics()
+
+    assert extras["Episode_Metrics/value"] == pytest.approx(3.0)
+    assert manager.publish_pending_reset_metrics() == {}
 
 
 def test_metrics_reset_publishes_and_clears_only_selected_rows(fake_env: FakeEnv) -> None:

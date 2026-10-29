@@ -189,28 +189,28 @@ class UniformVelocityCommand(CommandTerm):
             self._is_heading_env.copy_(
                 torch.where(
                     reset_mask,
-                    self._sample_uniform(0.0, 1.0, self.num_envs) <= self.cfg.rel_heading_envs,
+                    self._sample_uniform(0.0, 1.0, self.num_envs) < self.cfg.rel_heading_envs,
                     self._is_heading_env,
                 )
             )
         self._is_standing_env.copy_(
             torch.where(
                 reset_mask,
-                self._sample_uniform(0.0, 1.0, self.num_envs) <= self.cfg.rel_standing_envs,
+                self._sample_uniform(0.0, 1.0, self.num_envs) < self.cfg.rel_standing_envs,
                 self._is_standing_env,
             )
         )
         self._is_world_env.copy_(
             torch.where(
                 reset_mask,
-                self._sample_uniform(0.0, 1.0, self.num_envs) <= self.cfg.rel_world_envs,
+                self._sample_uniform(0.0, 1.0, self.num_envs) < self.cfg.rel_world_envs,
                 self._is_world_env,
             )
         )
         self._is_forward_env.copy_(
             torch.where(
                 reset_mask,
-                self._sample_uniform(0.0, 1.0, self.num_envs) <= self.cfg.rel_forward_envs,
+                self._sample_uniform(0.0, 1.0, self.num_envs) < self.cfg.rel_forward_envs,
                 self._is_forward_env,
             )
         )
@@ -254,7 +254,7 @@ class UniformVelocityCommand(CommandTerm):
             )
             tensor[:, 2] = torch.where(self._is_heading_env, heading_command, tensor[:, 2])
 
-        if bool(self._is_world_env.any()):
+        if self.cfg.rel_world_envs > 0.0:
             heading = self._heading()
             cos_heading = torch.cos(heading)
             sin_heading = torch.sin(heading)
@@ -265,7 +265,7 @@ class UniformVelocityCommand(CommandTerm):
             tensor[:, 0] = torch.where(self._is_world_env, world_x, tensor[:, 0])
             tensor[:, 1] = torch.where(self._is_world_env, world_y, tensor[:, 1])
 
-        if bool(self._is_standing_env.any()):
+        if self.cfg.rel_standing_envs > 0.0:
             tensor.copy_(
                 torch.where(
                     self._is_standing_env[:, None],

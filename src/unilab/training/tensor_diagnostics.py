@@ -1,9 +1,9 @@
 """Finite-state diagnostics for the tensor-native environment runtime.
 
 The guard's detection path stays in Torch: it never converts observations,
-rewards, controls, or physics snapshots to host arrays.  Host conversion and
-artifact writing happen only in :meth:`NanGuard.dump`, which is an
-explicit abnormal-diagnostic boundary.
+rewards, controls, or physics snapshots to host arrays. Deferred mode copies
+only a scalar verdict at :meth:`NanGuard.poll`; row/state host conversion and
+artifact writing happen in :meth:`NanGuard.dump`, an explicit abnormal boundary.
 """
 
 from __future__ import annotations
@@ -29,6 +29,12 @@ class NanGuardCfg:
     buffer_size: int = 100
     max_envs_to_dump: int = 5
     output_dir: str | None = None
+    # Zero disables snapshots; one retains the debug behavior. Production
+    # profiles use 32 to avoid cloning the full physics state every step.
+    capture_interval: int = 1
+    # Zero means the owner must invoke poll explicitly at its cycle boundary.
+    check_interval: int = 1
+    defer_validation: bool = False
 
 
 def _bad_row_mask(value: torch.Tensor, num_envs: int) -> torch.Tensor:
@@ -39,7 +45,7 @@ def _bad_row_mask(value: torch.Tensor, num_envs: int) -> torch.Tensor:
         )
     if not value.is_floating_point():
         raise TypeError("tensor diagnostics finite checks require floating-point tensors")
-    return ~torch.isfinite(value).reshape(num_envs, -1).any(dim=1)
+    return ~torch.isfinite(value).reshape(num_envs, -1).all(dim=1)
 
 
 def _snapshot(value: torch.Tensor) -> torch.Tensor:
@@ -61,6 +67,12 @@ class NanGuard:
             raise ValueError("tensor diagnostics buffer_size must be positive")
         if cfg.max_envs_to_dump < 0:
             raise ValueError("tensor diagnostics max_envs_to_dump must be non-negative")
+        for label, interval in (
+            ("capture_interval", cfg.capture_interval),
+            ("check_interval", cfg.check_interval),
+        ):
+            if isinstance(interval, bool) or not isinstance(interval, int) or interval < 0:
+                raise ValueError(f"tensor diagnostics {label} must be non-negative (integer)")
         self._cfg = cfg
         self._num_envs = num_envs
         self._supports_state_playback = supports_state_playback
@@ -68,6 +80,58 @@ class NanGuard:
         self._buffer_idx = 0
         self._buffer_full = False
         self._dumped = False
+        # Both latches live on the first input's device. They retain all bad
+        # rows until a single explicit host poll closes the validation interval.
+        self._device: torch.device | None = None
+        self._device_bad_rows: torch.Tensor | None = None
+        self._device_verdict: torch.Tensor | None = None
+        self._capture_counter = 0
+
+    def _ensure_device_state(self, device: torch.device) -> None:
+        device = torch.device(device)
+        if self._device_bad_rows is None or self._device_verdict is None:
+            self._device = device
+            self._device_bad_rows = torch.zeros((self._num_envs,), dtype=torch.bool, device=device)
+            self._device_verdict = torch.zeros((), dtype=torch.bool, device=device)
+        elif self._device != device:
+            raise ValueError(
+                "tensor diagnostics inputs must share one device: "
+                f"expected {self._device}, got {device}"
+            )
+
+    def _record_bad_rows(self, bad_rows: torch.Tensor) -> None:
+        if bad_rows.dtype != torch.bool or bad_rows.ndim != 1:
+            raise ValueError("tensor diagnostics bad-row mask must be one-dimensional bool")
+        if bad_rows.shape[0] != self._num_envs:
+            raise ValueError(
+                f"tensor diagnostics bad-row mask must have {self._num_envs} rows, "
+                f"got {bad_rows.shape[0]}"
+            )
+        self._ensure_device_state(bad_rows.device)
+        assert self._device_bad_rows is not None
+        assert self._device_verdict is not None
+        self._device_bad_rows.logical_or_(bad_rows)
+        self._device_verdict.logical_or_(bad_rows.any())
+
+    @property
+    def device_verdict(self) -> torch.Tensor | None:
+        """Persistent device-side bad flag, without a host transfer."""
+        return self._device_verdict
+
+    @property
+    def defer_validation(self) -> bool:
+        return self._cfg.defer_validation
+
+    def capture_due(self, step: int) -> bool:
+        """Allow the owner to skip even the backend state read on ordinary steps."""
+        interval = self._cfg.capture_interval
+        return self._cfg.enabled and interval > 0 and step % interval == 0
+
+    def reset_verdict(self) -> None:
+        if self._device_bad_rows is not None:
+            self._device_bad_rows.zero_()
+        if self._device_verdict is not None:
+            self._device_verdict.zero_()
 
     def _validate_finite_float(self, value: torch.Tensor, label: str) -> None:
         if not isinstance(value, torch.Tensor):
@@ -75,7 +139,7 @@ class NanGuard:
         if not value.is_floating_point():
             raise TypeError(f"{label} must be a floating-point tensor, got {value.dtype}")
 
-    def capture(self, physics_state: torch.Tensor | None) -> None:
+    def capture(self, physics_state: torch.Tensor | None, step: int | None = None) -> None:
         """Retain a detached device tensor snapshot for a later abnormal dump."""
         if physics_state is None:
             return
@@ -85,6 +149,16 @@ class NanGuard:
                 "physics_state must have shape "
                 f"({self._num_envs}, ...), got {tuple(physics_state.shape)}"
             )
+        if self._cfg.capture_interval == 0:
+            return
+        if step is None:
+            step = self._capture_counter
+            self._capture_counter += 1
+        else:
+            self._capture_counter = max(self._capture_counter, step + 1)
+        if step % self._cfg.capture_interval != 0:
+            return
+        self._ensure_device_state(physics_state.device)
         snapshot = physics_state.detach().clone()
         if not self._buffer_full and len(self._buffer) < self._cfg.buffer_size:
             self._buffer.append(snapshot)
@@ -98,53 +172,62 @@ class NanGuard:
         obs: Mapping[str, torch.Tensor],
         reward: torch.Tensor,
         step: int = 0,
+        *,
+        defer: bool | None = None,
     ) -> torch.Tensor | None:
-        """Return device-resident bad-row indices, or ``None`` when every row is finite."""
+        """Latch bad rows on-device; publish them only at an explicit poll."""
         if not self._cfg.enabled:
             return None
         if not isinstance(obs, Mapping):
             raise TypeError(f"observations must be a mapping, got {type(obs).__name__}")
-        bad_mask = torch.zeros((self._num_envs,), dtype=torch.bool)
+        masks: list[torch.Tensor] = []
         for name, value in obs.items():
             self._validate_finite_float(value, f"obs[{name!r}]")
-            bad_mask |= _bad_row_mask(value, self._num_envs).to(bad_mask.device)
+            masks.append(_bad_row_mask(value, self._num_envs))
         self._validate_finite_float(reward, "reward")
-        reward_mask = _bad_row_mask(reward, self._num_envs)
-        bad_mask |= reward_mask.to(bad_mask.device)
-        if not bool(bad_mask.any()):
-            return None
-        nan_ids = (
-            torch.nonzero(bad_mask, as_tuple=False)
-            .flatten()
-            .to(device=reward.device, dtype=torch.int64)
-        )
-        logger.warning(
-            "NanGuard: NaN/Inf detected in obs/reward at step %d (envs=%d, sample_ids=%s)",
-            step,
-            nan_ids.numel(),
-            nan_ids[: min(5, nan_ids.numel())].detach().cpu().tolist(),
-        )
-        return nan_ids
+        masks.append(_bad_row_mask(reward, self._num_envs))
+        if any(mask.device != reward.device for mask in masks):
+            raise ValueError("tensor diagnostics inputs must share one device")
+        bad_rows = masks[0]
+        for mask in masks[1:]:
+            bad_rows.logical_or_(mask)
+        self._record_bad_rows(bad_rows)
+        should_defer = self._cfg.defer_validation if defer is None else bool(defer)
+        return None if should_defer else self.poll(step=step, force=defer is False)
 
-    def check_ctrl(self, ctrl: torch.Tensor, step: int = 0) -> torch.Tensor | None:
-        """Return device-resident bad control-row indices, or ``None`` when finite."""
+    def check_ctrl(
+        self, ctrl: torch.Tensor, step: int = 0, *, defer: bool | None = None
+    ) -> torch.Tensor | None:
+        """Latch bad control rows on-device; publish at a poll boundary."""
         if not self._cfg.enabled:
             return None
         self._validate_finite_float(ctrl, "ctrl")
-        bad_mask = _bad_row_mask(ctrl, self._num_envs)
-        if not bool(bad_mask.any()):
+        self._record_bad_rows(_bad_row_mask(ctrl, self._num_envs))
+        should_defer = self._cfg.defer_validation if defer is None else bool(defer)
+        return None if should_defer else self.poll(step=step, force=defer is False)
+
+    def poll(self, step: int = 0, *, force: bool = False) -> torch.Tensor | None:
+        """Read one scalar verdict at a cycle boundary; materialize rows on error."""
+        if not self._cfg.enabled:
             return None
-        nan_ids = (
-            torch.nonzero(bad_mask, as_tuple=False)
-            .flatten()
-            .to(device=ctrl.device, dtype=torch.int64)
-        )
+        if (
+            not force
+            and self._cfg.defer_validation
+            and (self._cfg.check_interval == 0 or step % self._cfg.check_interval != 0)
+        ):
+            return None
+        if self._device_verdict is None or self._device_bad_rows is None:
+            return None
+        if not bool(self._device_verdict.detach().to(device="cpu").item()):
+            return None
+        nan_ids = torch.nonzero(self._device_bad_rows, as_tuple=False).flatten().to(torch.int64)
         logger.warning(
-            "NanGuard: NaN/Inf detected in ctrl at step %d (envs=%d, sample_ids=%s)",
+            "NanGuard: NaN/Inf detected at step %d (envs=%d, sample_ids=%s)",
             step,
             nan_ids.numel(),
             nan_ids[: min(5, nan_ids.numel())].detach().cpu().tolist(),
         )
+        self.reset_verdict()
         return nan_ids
 
     def dump(

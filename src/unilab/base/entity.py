@@ -1142,6 +1142,7 @@ class EntityData:
         self._backend = backend
         self._entity_name = entity_name
         self._backend_type = backend_type
+        self._defer_finite_validation = False
         self._root_body_ids = root_body_ids
         self._root_body_state_key = _state_selector_key(root_body_ids)
         self._joint_pos_index = None if joint_pos_ids is None else _as_column_index(joint_pos_ids)
@@ -1175,6 +1176,10 @@ class EntityData:
         self._tensor_actuator_id_cache: torch.Tensor | None = None
         self._encoder_bias_tensor: torch.Tensor | None = None
         self._state_read_cache = state_read_cache
+
+    def set_defer_finite_validation(self, enabled: bool) -> None:
+        """Let the environment aggregate tensor-write verdicts at its boundary."""
+        self._defer_finite_validation = bool(enabled)
 
     def _cached_getter(
         self,
@@ -1701,10 +1706,9 @@ class EntityData:
                 )
             selected_actuator_ids = entity_actuator_ids[local_actuator_ids]
 
-        column_index = torch.from_numpy(np.asarray(selected_actuator_ids, dtype=np.int64)).to(
-            device=control.device
-        )
-        expected = (row_count, int(column_index.numel()))
+        selected_ids_array = np.asarray(selected_actuator_ids, dtype=np.int64)
+        entity_ids_array = np.asarray(entity_actuator_ids, dtype=np.int64)
+        expected = (row_count, int(selected_ids_array.size))
         if tuple(values.shape) != expected:
             raise ValueError(
                 f"Entity '{self._entity_name}' tensor write_ctrl expected shape "
@@ -1713,15 +1717,18 @@ class EntityData:
         full_width = (
             isinstance(row_index, slice)
             and row_index == slice(None)
-            and int(column_index.numel()) == len(entity_actuator_ids)
-            and bool(torch.equal(column_index, self._tensor_actuator_ids(control.device)))
+            and selected_ids_array.size == entity_ids_array.size
+            and np.array_equal(selected_ids_array, entity_ids_array)
         )
-        if not bool(torch.isfinite(values).all()):
+        if not self._defer_finite_validation and not bool(torch.isfinite(values).all()):
             raise ValueError(f"Entity '{self._entity_name}' tensor write_ctrl got NaN or Inf")
 
         if full_width:
             control.copy_(values)
-        elif isinstance(row_index, slice):
+            return
+
+        column_index = torch.from_numpy(selected_ids_array).to(device=control.device)
+        if isinstance(row_index, slice):
             control[:, column_index] = values
         else:
             control[row_index[:, None], column_index[None, :]] = values
