@@ -493,7 +493,14 @@ def create_rsl_rl_playback_session(
             playback_cfg.log_root,
         )
         if checkpoint_path is not None and sim2sim_preflight is not None:
-            sim2sim_preflight(str(Path(checkpoint_path).parent))
+            checkpoint_run_dir = Path(checkpoint_path).parent
+            standalone = Path(playback_cfg.load_run).is_absolute()
+            source_run_dir = (
+                None
+                if standalone and not (checkpoint_run_dir / "run_config.json").is_file()
+                else str(checkpoint_run_dir)
+            )
+            sim2sim_preflight(source_run_dir)
 
     env = env_factory(int(playback_cfg.num_envs))
     if env is None:
@@ -559,6 +566,7 @@ def create_rsl_rl_playback_session(
                             "iteration": False,
                             "rnd": False,
                         },
+                        map_location=device_name,
                     )
             policy = runner.get_inference_policy(device=device_name)
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -130,9 +131,10 @@ def test_create_rsl_rl_playback_session_loads_checkpoint_and_runner_log_dir() ->
             captured["train_cfg"] = train_cfg
             captured["runner_device"] = device
 
-        def load(self, checkpoint, load_cfg):
+        def load(self, checkpoint, load_cfg, map_location):
             captured["checkpoint"] = checkpoint
             captured["load_cfg"] = load_cfg
+            captured["map_location"] = map_location
 
         def get_inference_policy(self, *, device):
             captured["policy_device"] = device
@@ -169,6 +171,7 @@ def test_create_rsl_rl_playback_session_loads_checkpoint_and_runner_log_dir() ->
     assert checkpoint == "/tmp/model_10.pt"
     assert captured["runner_log_dir"].replace("\\", "/") == "/tmp/custom_ppo/MyTask/play_temp"
     assert captured["checkpoint"] == "/tmp/model_10.pt"
+    assert captured["map_location"] == "cpu"
     assert captured["train_cfg"]["runner"]["logger"] == "none"
 
 
@@ -323,18 +326,30 @@ def test_make_sim2sim_preflight_builds_closure_for_dictconfig() -> None:
     assert preflight(None) is None
 
 
-def test_create_rsl_rl_playback_session_runs_sim2sim_preflight(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("standalone", "has_snapshot", "expects_source_run"),
+    [
+        pytest.param(False, False, True, id="training-run"),
+        pytest.param(True, True, True, id="standalone-with-snapshot"),
+        pytest.param(True, False, False, id="standalone-without-snapshot"),
+    ],
+)
+def test_create_rsl_rl_playback_session_runs_sim2sim_preflight(
+    tmp_path: Path, *, standalone: bool, has_snapshot: bool, expects_source_run: bool
+) -> None:
     run_dir = tmp_path / "run_1"
     run_dir.mkdir()
     checkpoint = run_dir / "model_10.pt"
     torch.save({"actor": {}}, checkpoint)
+    if has_snapshot:
+        (run_dir / "run_config.json").write_text("{}", encoding="utf-8")
     calls: list[str] = []
 
     class Runner:
         def __init__(self, wrapped_env, train_cfg, log_dir, device):
             pass
 
-        def load(self, checkpoint, load_cfg):
+        def load(self, checkpoint, load_cfg, map_location):
             pass
 
         def get_inference_policy(self, *, device):
@@ -344,11 +359,15 @@ def test_create_rsl_rl_playback_session_runs_sim2sim_preflight(tmp_path: Path) -
         calls.append("env")
         return _rsl_rl_session_test_env()
 
+    expected_source_run = str(run_dir) if expects_source_run else None
+
     def preflight(source_run_dir: str | None) -> None:
-        assert source_run_dir == str(run_dir)
+        assert source_run_dir == expected_source_run
         calls.append("preflight")
 
     kwargs = _rsl_rl_session_kwargs(tmp_path)
+    if standalone:
+        kwargs["playback_cfg"] = replace(kwargs["playback_cfg"], load_run=str(checkpoint))
     kwargs["checkpoint_resolver"] = lambda *args: str(checkpoint)
     kwargs["runner_cls"] = Runner
     kwargs["env_factory"] = env_factory
@@ -390,7 +409,7 @@ def test_create_rsl_rl_playback_session_wraps_load_with_dim_guard(tmp_path: Path
         def __init__(self, wrapped_env, train_cfg, log_dir, device):
             pass
 
-        def load(self, checkpoint, load_cfg):
+        def load(self, checkpoint, load_cfg, map_location):
             raise RuntimeError("size mismatch for actor.mlp.0.weight: ...")
 
         def get_inference_policy(self, *, device):
@@ -946,7 +965,7 @@ def test_create_rsl_rl_playback_session_uses_runner_loader_and_exposes_runner(
         def __init__(self, wrapped_env, train_cfg, log_dir, device):
             pass
 
-        def load(self, checkpoint, load_cfg):
+        def load(self, checkpoint, load_cfg, map_location):
             raise AssertionError("runner.load must be bypassed when runner_loader is injected")
 
         def get_inference_policy(self, *, device):
@@ -985,7 +1004,7 @@ def test_create_rsl_rl_playback_session_forwards_guard_algo_name(
         def __init__(self, wrapped_env, train_cfg, log_dir, device):
             pass
 
-        def load(self, checkpoint, load_cfg):
+        def load(self, checkpoint, load_cfg, map_location):
             pass
 
         def get_inference_policy(self, *, device):
