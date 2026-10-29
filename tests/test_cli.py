@@ -1018,12 +1018,16 @@ def test_demo_teaser_uses_mxpython_subprocess_on_macos(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[list[str], dict[str, str]]] = []
+    resolved_scenes: list[str] = []
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     monkeypatch.setattr(demo.platform, "system", lambda: "Darwin")
     monkeypatch.setattr(demo.sys, "executable", "/tmp/unilab/.venv/bin/python")
     monkeypatch.setattr(demo, "_motrix_python_executable", lambda: "/tmp/unilab/.venv/bin/mxpython")
+    monkeypatch.setattr(demo, "resolve_scene_dir", resolved_scenes.append)
 
     def fake_run(command: list[str], *, check: bool, env: dict[str, str]) -> SimpleNamespace:
         assert check is False
+        assert resolved_scenes == ["scenes/teaser"]
         calls.append((command, env))
         return SimpleNamespace(returncode=0)
 
@@ -1044,6 +1048,7 @@ def test_demo_teaser_uses_mxpython_subprocess_on_macos(
         "/tmp/unilab/.venv/bin/mxpython",
         str(demo._package_root() / "visualization" / "teaser.py"),
     ]
+    assert env["PYTHONPATH"] == str(demo._package_root().parent)
     dev_venv = demo._dev_venv()
     if dev_venv is not None:
         assert env["UV_PROJECT_ENVIRONMENT"] == str(dev_venv)
