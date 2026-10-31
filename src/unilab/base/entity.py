@@ -367,7 +367,9 @@ class SceneTensorReadPlan:
         self._packet_body_blocks = packet_body_blocks
         self._aggregate_body_views: dict[str, EntityTensorBodyStateView] = {}
         self._joint_column_indices: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
-        self._packet_body_index_cache: dict[tuple[str, tuple[str, ...]], torch.Tensor] = {}
+        self._packet_body_index_cache: dict[
+            tuple[str, tuple[str, ...], tuple[str, ...]], torch.Tensor
+        ] = {}
         self._packet: Mapping[str, torch.Tensor] = MappingProxyType({})
         self._refreshed = False
         self._closed = False
@@ -839,7 +841,11 @@ class SceneTensorReadPlan:
     def _packet_body_indices(
         self, requested: tuple[str, ...], compiled: tuple[str, ...]
     ) -> torch.Tensor:
-        key: tuple[str, tuple[str, ...]] = ("body", compiled)
+        # Cache key includes `requested`: two entities may request different
+        # subsets of the same aggregate body axis (e.g. robot vs mocap obstacle
+        # bodies), and a key on `compiled` alone would return the first entity's
+        # row indices for the second.
+        key = ("body", tuple(requested), compiled)
         cached = self._packet_body_index_cache.get(key)
         if cached is not None:
             return cached
