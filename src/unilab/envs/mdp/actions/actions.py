@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import torch
 
 from unilab.base.torch_env import TorchEnv
+from unilab.managers._buffers.delay_buffer import DelayBuffer
 from unilab.managers.action_manager import ActionTerm, ActionTermCfg
 
 if TYPE_CHECKING:
@@ -236,6 +237,22 @@ class JointPositionActionCfg(BaseActionCfg):
     """Configuration for joint-position control."""
 
     use_default_offset: bool = True
+    delay_min_lag: int = 0
+    """Minimum position-target delay in physical substeps (inclusive)."""
+    delay_max_lag: int = 0
+    """Maximum position-target delay in physical substeps (inclusive)."""
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("delay_min_lag", self.delay_min_lag),
+            ("delay_max_lag", self.delay_max_lag),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise TypeError(f"JointPositionActionCfg {name} must be an int")
+            if value < 0:
+                raise ValueError(f"JointPositionActionCfg {name} must be >= 0")
+        if self.delay_max_lag < self.delay_min_lag:
+            raise ValueError("JointPositionActionCfg delay_max_lag must be >= delay_min_lag")
 
     def build(self, env: ManagerBasedRlEnv) -> JointPositionAction:
         return JointPositionAction(self, env)
@@ -260,6 +277,35 @@ class JointPositionAction(BaseAction):
         ) == self._entity.num_joints and tuple(self._target_ids) == tuple(
             range(self._entity.num_joints)
         )
+        self._delay_buffer: DelayBuffer | None = None
+        self._requires_substep_state_feedback = cfg.delay_max_lag > 0
+        if cfg.delay_max_lag > 0:
+            self._delay_buffer = DelayBuffer(
+                min_lag=cfg.delay_min_lag,
+                max_lag=cfg.delay_max_lag,
+                batch_size=self.num_envs,
+                torch_generator=env.rng.generator,
+                device=self._device,
+            )
+
+    @property
+    def requires_substep_state_feedback(self) -> bool:
+        return self._requires_substep_state_feedback
+
+    @requires_substep_state_feedback.setter
+    def requires_substep_state_feedback(self, value: bool) -> None:
+        self._requires_substep_state_feedback = value
+
+    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+        super().reset(env_ids)
+        if self._delay_buffer is not None:
+            self._delay_buffer.reset(env_ids)
+
+    def _delay_target(self, target: torch.Tensor) -> torch.Tensor:
+        if self._delay_buffer is None:
+            return target
+        self._delay_buffer.append(target)
+        return self._delay_buffer.compute()
 
     def apply_actions(self) -> None:
         control = self._entity.data.control_buffer
@@ -276,12 +322,11 @@ class JointPositionAction(BaseAction):
                 encoder_bias.index_select(1, self._target_index),
                 out=self._tensor_target,
             )
+            target = self._delay_target(self._tensor_target)
             if self._full_width_natural_target:
-                self._entity.set_full_width_joint_position_target(self._tensor_target)
+                self._entity.set_full_width_joint_position_target(target)
             else:
-                self._entity.set_joint_position_target(
-                    self._tensor_target, joint_ids=self._target_ids
-                )
+                self._entity.set_joint_position_target(target, joint_ids=self._target_ids)
             if isinstance(self._env, TorchEnv):
                 # Accumulate every term's processed-action verdict on device.
                 # TorchEnv also checks the final control after this adjustment.
@@ -291,7 +336,8 @@ class JointPositionAction(BaseAction):
         encoder_bias = self._entity.data.encoder_bias_tensor.to(
             device=self._device, non_blocking=True
         ).index_select(1, self._target_index)
-        self._entity.set_joint_position_target(processed - encoder_bias, joint_ids=self._target_ids)
+        target = self._delay_target(processed - encoder_bias)
+        self._entity.set_joint_position_target(target, joint_ids=self._target_ids)
 
 
 @dataclass(kw_only=True)

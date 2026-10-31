@@ -1492,6 +1492,9 @@ class MotionJointPositionAction(JointPositionAction):
                 control_adjustment,
                 out=self._tensor_motion_target,
             )
+            target = self._delay_target(self._tensor_motion_target)
+            if target is not self._tensor_motion_target:
+                self._tensor_motion_target.copy_(target)
             self._entity.set_joint_position_target(
                 self._tensor_motion_target, joint_ids=self._target_ids
             )

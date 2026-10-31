@@ -137,6 +137,42 @@ cold path. Unknown fields, unresolved `_target_`/`func` references, and wrong
 config types fail before reset or step. Direct Python config construction is
 reserved for focused lower-level tests.
 
+#### Actuator model and command delay
+
+Keep actuator dynamics in the robot or task MJCF rather than restoring an
+`EntityCfg` actuator layer. For rotor inertia `J` and gear ratio `N`, write the
+reflected inertia `I = J * N**2` to the joint's `armature`. For natural
+frequency `omega` and damping ratio `zeta`, derive `kp = I * omega**2` and
+`kv = 2 * zeta * I * omega`, then declare them on the position actuator:
+
+```xml
+<joint name="knee" armature="0.02"/>
+<actuator>
+  <position name="knee_drive" joint="knee" kp="40" kv="1.2"/>
+</actuator>
+```
+
+`JointPositionActionCfg` and `MotionJointPositionActionCfg` also accept
+`delay_min_lag` and `delay_max_lag`. Lags are inclusive physical-substep counts,
+so the corresponding time range is `lag * env.sim_dt`, not a multiple of
+`ctrl_dt`:
+
+```yaml
+env:
+  actions:
+    joint_pos:
+      _target_: unilab.envs.mdp.JointPositionActionCfg
+      entity_name: robot
+      actuator_names: [".*"]
+      delay_min_lag: 0
+      delay_max_lag: 2
+```
+
+The Manager samples delay independently per environment and physical substep,
+and selected resets clear only the selected histories. The first target after
+initialization or reset backfills the history. These fields cover command
+delay, not a DC motor's torque-speed saturation curve.
+
 ### 5. Register one generic runtime path
 
 The task module registers `ManagerBasedRlEnvCfg` and

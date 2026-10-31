@@ -37,6 +37,33 @@ reward:
 `joint_pos_limits` 从 entity facade 读取 soft joint limits。
 两者返回非负代价，惩罚符号由负的 `weight` 提供，不要重复取负。
 
+## 执行器力读回
+
+在机器人或任务的源 XML 中，为每个执行器声明一个命名的
+`<actuatorfrc>` 传感器。每个传感器读取 MuJoCo 执行空间中的标量作用力，
+而不是关节空间中的广义力：
+
+```xml
+<sensor>
+  <actuatorfrc name="hip_force" actuator="hip"/>
+  <actuatorfrc name="knee_force" actuator="knee"/>
+</sensor>
+```
+
+基于类的 Manager term 通过 `tensor_sensor_names` 声明相同的名称。在 packed
+Torch 路径上，按执行器顺序读取这些视图；需要矩阵时，将各个
+`(num_envs, 1)` 视图拼接：
+
+```python
+names = ("hip_force", "knee_force")
+entity = env.scene["robot"]
+views = env.scene.read_plan.sensor_tensor_views(entity, names).values
+actuator_force = torch.cat([views[name] for name in names], dim=1)
+```
+
+结果形状为 `(num_envs, num_actuators)`。L2 力矩惩罚应使用相同的 packed
+视图，不要根据 PD 增益重建力矩。
+
 ## 接触条件奖励
 
 接触历史不是通用 `state.prev_contact` 字段。需要计时或边沿检测的 reward

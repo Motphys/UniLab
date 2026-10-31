@@ -3623,6 +3623,132 @@ def test_multisubstep_state_independent_action_keeps_batched_step() -> None:
         env.close()
 
 
+def test_multisubstep_joint_position_without_delay_keeps_batched_step() -> None:
+    cfg = _make_cfg(
+        sim_substeps=3,
+        actions={
+            "joint": mdp.JointPositionActionCfg(
+                entity_name="robot",
+                actuator_names=("joint",),
+                use_default_offset=False,
+            )
+        },
+    )
+    cfg.scene.entities["robot"] = EntityCfg(joint_names=("joint",), actuator_names=("motor",))
+    backend = _ResetBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        env.init_state()
+        env.step(torch.ones((2, 1), dtype=torch.float32))
+
+        assert not env.action_manager.requires_substep_state_feedback
+        assert backend.step_nsteps == [3]
+        assert len(backend.tensor_controls) == 1
+        torch.testing.assert_close(
+            backend.tensor_controls[0], torch.ones((2, 1), dtype=torch.float32)
+        )
+    finally:
+        env.close()
+
+
+def test_multisubstep_joint_position_delay_advances_each_physics_substep() -> None:
+    cfg = _make_cfg(
+        sim_substeps=3,
+        actions={
+            "joint": mdp.JointPositionActionCfg(
+                entity_name="robot",
+                actuator_names=("joint",),
+                use_default_offset=False,
+                delay_min_lag=1,
+                delay_max_lag=1,
+            )
+        },
+    )
+    cfg.scene.entities["robot"] = EntityCfg(joint_names=("joint",), actuator_names=("motor",))
+    backend = _ResetBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        env.init_state()
+        env.set_episode_length_buf(torch.zeros(2, dtype=torch.int64))
+        env.step(torch.full((2, 1), 0.1, dtype=torch.float32))
+        env.step(torch.full((2, 1), 0.2, dtype=torch.float32))
+
+        assert env.action_manager.requires_substep_state_feedback
+        assert backend.step_nsteps == [1] * 6
+        controls = torch.stack(backend.tensor_controls).squeeze(-1)
+        expected = torch.tensor(
+            [
+                [0.1, 0.1],
+                [0.1, 0.1],
+                [0.1, 0.1],
+                [0.1, 0.1],
+                [0.2, 0.2],
+                [0.2, 0.2],
+            ]
+        )
+        torch.testing.assert_close(controls, expected)
+    finally:
+        env.close()
+
+
+def test_multisubstep_motion_joint_position_delay_and_selected_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unilab.tasks.motion_tracking.common import manager_terms as motion_terms
+
+    command = motion_terms.MotionCommand.__new__(motion_terms.MotionCommand)
+    command.joint_default_bias = torch.tensor([[0.05], [-0.05]], dtype=torch.float32)
+    monkeypatch.setattr(motion_terms, "_command", lambda env, name: command)
+    cfg = _make_cfg(
+        sim_substeps=2,
+        include_optional_managers=False,
+        actions={
+            "joint": motion_terms.MotionJointPositionActionCfg(
+                entity_name="robot",
+                actuator_names=("joint",),
+                use_default_offset=False,
+                delay_min_lag=1,
+                delay_max_lag=1,
+            )
+        },
+    )
+    cfg.scene.entities["robot"] = EntityCfg(joint_names=("joint",), actuator_names=("motor",))
+    cfg.terminations = {}
+    backend = _ResetBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        env.init_state()
+        env.set_episode_length_buf(torch.zeros(2, dtype=torch.int64))
+        action = env.action_manager.get_term("joint")
+        assert isinstance(action, motion_terms.MotionJointPositionAction)
+        assert env.action_manager.requires_substep_state_feedback
+
+        env.step(torch.full((2, 1), 0.1, dtype=torch.float32))
+        torch.testing.assert_close(action.tensor_target, backend.tensor_controls[-1])
+        env.step(torch.full((2, 1), 0.2, dtype=torch.float32))
+        torch.testing.assert_close(action.tensor_target, backend.tensor_controls[-1])
+
+        env.reset(env_ids=torch.tensor([1], dtype=torch.int64))
+        env.step(torch.full((2, 1), 0.3, dtype=torch.float32))
+        torch.testing.assert_close(action.tensor_target, backend.tensor_controls[-1])
+
+        assert backend.step_nsteps == [1] * 6
+        controls = torch.stack(backend.tensor_controls).squeeze(-1)
+        expected = torch.tensor(
+            [
+                [0.15, 0.05],
+                [0.15, 0.05],
+                [0.15, 0.05],
+                [0.25, 0.15],
+                [0.25, 0.25],
+                [0.35, 0.25],
+            ]
+        )
+        torch.testing.assert_close(controls, expected)
+    finally:
+        env.close()
+
+
 def test_multisubstep_state_feedback_action_steps_without_host_callback() -> None:
     cfg = _make_cfg(
         sim_substeps=5,

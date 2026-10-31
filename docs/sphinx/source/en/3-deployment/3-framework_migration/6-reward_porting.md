@@ -41,6 +41,33 @@ dimensions.
 Both return nonnegative costs; a negative `weight` supplies the penalty sign.
 Do not negate the cost a second time.
 
+## Actuator force readback
+
+Declare one named `<actuatorfrc>` sensor per actuator in the robot or task
+source XML. Each sensor reads MuJoCo's scalar actuation-space force, not the
+joint-space generalized force:
+
+```xml
+<sensor>
+  <actuatorfrc name="hip_force" actuator="hip"/>
+  <actuatorfrc name="knee_force" actuator="knee"/>
+</sensor>
+```
+
+A class-based Manager term declares the same names through
+`tensor_sensor_names`. On the packed Torch path, read them in actuator order
+and concatenate the `(num_envs, 1)` views when a matrix is needed:
+
+```python
+names = ("hip_force", "knee_force")
+entity = env.scene["robot"]
+views = env.scene.read_plan.sensor_tensor_views(entity, names).values
+actuator_force = torch.cat([views[name] for name in names], dim=1)
+```
+
+The resulting shape is `(num_envs, num_actuators)`. Use the same packed views
+for an L2 torque penalty instead of reconstructing force from PD gains.
+
 ## Contact-conditional rewards
 
 Contact history is not a generic `state.prev_contact` field. Rewards needing

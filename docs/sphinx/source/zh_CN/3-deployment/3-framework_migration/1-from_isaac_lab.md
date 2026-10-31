@@ -121,6 +121,39 @@ Hydra compose 在冷路径把这份声明物化为 plain typed config。未知�
 `_target_`/`func` 和错误 config 类型都会在 reset/step 之前报错。直接用 Python 构造
 config 只用于 focused 底层测试。
 
+#### 执行器模型与指令延迟
+
+执行器动力学保留在机器人或任务的 MJCF 中，不要恢复 `EntityCfg` 执行器层。
+对于转子惯量 `J` 和减速比 `N`，将反射惯量 `I = J * N**2` 写入关节的
+`armature`。对于固有频率 `omega` 和阻尼比 `zeta`，推导
+`kp = I * omega**2`、`kv = 2 * zeta * I * omega`，并在 position 执行器上声明：
+
+```xml
+<joint name="knee" armature="0.02"/>
+<actuator>
+  <position name="knee_drive" joint="knee" kp="40" kv="1.2"/>
+</actuator>
+```
+
+`JointPositionActionCfg` 与 `MotionJointPositionActionCfg` 还支持
+`delay_min_lag` 和 `delay_max_lag`。lag 是包含端点的物理子步数，对应时间范围为
+`lag * env.sim_dt`，而不是 `ctrl_dt` 的倍数：
+
+```yaml
+env:
+  actions:
+    joint_pos:
+      _target_: unilab.envs.mdp.JointPositionActionCfg
+      entity_name: robot
+      actuator_names: [".*"]
+      delay_min_lag: 0
+      delay_max_lag: 2
+```
+
+Manager 按环境、按物理子步独立采样延迟，局部 reset 只清除所选环境的历史。
+初始化或 reset 后的首个目标会回填历史。这些字段覆盖指令延迟，不覆盖 DC
+电机的转矩—转速饱和曲线。
+
 ### 5. 只注册一条通用 runtime 路径
 
 Task module 为仓库已经实际支持的每个 backend 注册 `ManagerBasedRlEnvCfg` 与
