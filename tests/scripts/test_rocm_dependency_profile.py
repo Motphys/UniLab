@@ -69,12 +69,13 @@ def test_rocm_profile_publishes_genesis_extra() -> None:
 
 
 def test_ray_optional_dependencies_use_published_packages() -> None:
-    for path in (ROOT / "pyproject.toml", ROOT / "pyproject.rocm.toml"):
-        project = _project(path)
-        extras = project["project"]["optional-dependencies"]
-        assert extras["ray"] == ["uniray[warp]==0.1.0"]
-        assert "uniray" not in _dependencies(path)
+    default_project = _project(ROOT / "pyproject.toml")
+    assert default_project["project"]["optional-dependencies"]["ray"] == ["uniray[warp]==0.1.1"]
 
+    rocm_project = _project(ROOT / "pyproject.rocm.toml")
+    assert "ray" not in rocm_project["project"]["optional-dependencies"]
+
+    for project in (default_project, rocm_project):
         sources = project["tool"]["uv"]["sources"]
         assert "unisim-core" not in sources
         assert "uniray" not in sources
