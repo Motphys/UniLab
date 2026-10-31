@@ -118,13 +118,14 @@ class _SceneTensorBackend:
         )
 
     def get_actuator_names(self) -> tuple[str, ...]:
-        return ("hip_motor",)
+        return ("hip_motor", "knee_motor")[: self.num_actuators]
 
     def get_actuator_joint_names(self) -> tuple[str, ...]:
-        return ("hip",)
+        return ("hip", "knee")[: self.num_actuators]
 
     def get_actuator_ctrl_range(self):
-        return torch.tensor([[-1.0, 1.0]], dtype=torch.float32).numpy()
+        ctrl_range = torch.tensor([[-1.0, 1.0]], dtype=torch.float32)
+        return torch.tile(ctrl_range, (self.num_actuators, 1)).numpy()
 
     def get_joint_range(self, names=None):
         count = len(names) if names is not None else 1
@@ -199,6 +200,7 @@ class _SceneTensorBackend:
             def __init__(self, plan_spec: TensorIOSpec) -> None:
                 self._spec = plan_spec
                 self.last_timing: dict[str, float] = {}
+                self._published_packet: dict[str, torch.Tensor] | None = None
 
             @property
             def spec(self) -> TensorIOSpec:
@@ -213,11 +215,20 @@ class _SceneTensorBackend:
 
             def read_state_sensors(self):
                 backend.full_reads += 1
-                return backend._packet()
+                self._published_packet = backend._packet()
+                return self._published_packet
 
             def read_selected_state_sensors(self):
                 backend.selected_reads += 1
-                return backend._packet()
+                source = backend._packet()
+                if self._published_packet is None:
+                    self._published_packet = source
+                else:
+                    packet = {name: value.clone() for name, value in self._published_packet.items()}
+                    for name, value in source.items():
+                        packet[name][backend._selected_rows] = value[backend._selected_rows]
+                    self._published_packet = packet
+                return self._published_packet
 
             def get_body_pose_views(self):
                 return SimpleNamespace(
@@ -322,6 +333,55 @@ def test_host_bridge_scene_plan_packs_all_reads_into_one_phase_transfer(
         "selected_post_reset_h2d": 1,
     }
 
+    plan.close()
+
+
+def test_scene_plan_packs_actuator_force_sensors_in_request_order() -> None:
+    backend = _SceneTensorBackend()
+    backend.num_actuators = 2
+    force_names = ("force_knee", "force_hip")
+    backend.sensors.update(
+        {
+            "force_hip": torch.tensor([[1.0], [2.0]], dtype=torch.float32),
+            "force_knee": torch.tensor([[10.0], [20.0]], dtype=torch.float32),
+        }
+    )
+    plan = _scene(backend).compile_tensor_reads(
+        "cpu", (SceneTensorReadSpec(entity="robot", sensor_names=force_names),)
+    )
+    assert plan.host_plan is not None
+    assert plan.host_plan.spec.sensor_names == force_names
+
+    def force_tensor() -> torch.Tensor:
+        views = plan.sensor_tensor_views("robot", force_names).values
+        return torch.cat([views[name] for name in force_names], dim=1)
+
+    plan.refresh()
+    initial_force = force_tensor()
+    assert initial_force.shape == (backend.num_envs, backend.num_actuators)
+    torch.testing.assert_close(initial_force, torch.tensor([[10.0, 1.0], [20.0, 2.0]]))
+    assert backend.sensor_view_calls == 0
+
+    backend.sensors["force_hip"] = torch.tensor([[101.0], [102.0]])
+    backend.sensors["force_knee"] = torch.tensor([[110.0], [120.0]])
+    rows = torch.tensor([1], dtype=torch.int64)
+    plan.host_plan.apply_reset(
+        rows,
+        torch.zeros((1, backend.qpos.shape[1]), dtype=torch.float32),
+        torch.zeros((1, backend.qvel.shape[1]), dtype=torch.float32),
+    )
+    plan.refresh_selected()
+    selected_force = force_tensor()
+
+    torch.testing.assert_close(selected_force[0], initial_force[0])
+    torch.testing.assert_close(selected_force[1], torch.tensor([120.0, 102.0]))
+    assert backend.full_reads == 1
+    assert backend.selected_reads == 1
+    assert backend.sensor_view_calls == 0
+    assert plan.transfer_stats == {
+        "state_sensor_h2d": 2,
+        "selected_post_reset_h2d": 1,
+    }
     plan.close()
 
 

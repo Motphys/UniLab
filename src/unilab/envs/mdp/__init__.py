@@ -20,6 +20,7 @@ from unilab.envs.mdp.curriculums import command_curriculum as command_curriculum
 from unilab.envs.mdp.curriculums import event_curriculum as event_curriculum
 from unilab.envs.mdp.curriculums import reward_curriculum as reward_curriculum
 from unilab.envs.mdp.curriculums import termination_curriculum as termination_curriculum
+from unilab.envs.mdp.curriculums import terrain_levels_by_progress as terrain_levels_by_progress
 from unilab.envs.mdp.events import apply_body_impulse as apply_body_impulse
 from unilab.envs.mdp.events import dof_armature as dof_armature
 from unilab.envs.mdp.events import geom_friction as geom_friction
@@ -157,6 +158,7 @@ __all__ = [
     "root_height_below_minimum",
     "root_height",
     "termination_curriculum",
+    "terrain_levels_by_progress",
     "time_out",
     "track_angular_velocity",
     "track_linear_velocity",

@@ -26,10 +26,9 @@ env:
         seed: 42
 ```
 
-UniLab does not retain a procedural-terrain production owner. Generator
-composition and backend materialization are covered by core terrain and
-materialization tests; task owners that enable the capability carry their own
-training evidence.
+UniLab owns the runtime terrain spawn state in `src/unilab/base/terrain.py`;
+UniSim owns generator composition and backend materialization. Task owners that
+enable the capability carry their own training evidence.
 
 ## Materialization boundary
 
@@ -54,6 +53,30 @@ grid and seed through Hydra:
 env.scene.terrain.generator.num_rows=4
 env.scene.terrain.generator.seed=42
 ```
+
+## Runtime curriculum
+
+With `env.scene.terrain.generator.curriculum=true`, `env.scene.terrain` exposes
+`terrain_origins` with shape `(num_rows, num_cols, 3)`, per-environment
+`terrain_levels` and `terrain_types`, and the selected `env_origins`. The
+origin tensor is updated in place so root reset and cached command references
+observe the new tile without rebuilding terrain geometry.
+
+Add the progress term to the owner YAML to unlock rows by training progress:
+
+```yaml
+curriculum:
+  terrain_levels:
+    func: unilab.envs.mdp.terrain_levels_by_progress
+    params:
+      steps: 10000
+```
+
+At each reset, the term samples levels from the unlocked rows only for the
+reset environments, preserves their terrain types, and updates their origins
+before root-state reset events. `steps` must be a positive integer. Configure a
+root reset term such as `unilab.envs.mdp.reset_root_state_uniform` to place the
+robot at the selected origin.
 
 ## Core validation
 

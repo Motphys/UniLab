@@ -8,13 +8,16 @@ an environment, backend, runner, or IPC implementation.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import torch
 from unisim.backend.base import SimBackend
 
 from unilab.base.reset_selectors import ResetMaskBuffer
 from unilab.managers.rng import ManagerRng
+
+if TYPE_CHECKING:
+    from unilab.base.terrain import Terrain
 
 
 class ManagerEntity(Protocol):
@@ -176,6 +179,9 @@ class ManagerScene(Protocol):
 
     @property
     def entities(self) -> Mapping[str, ManagerEntity]: ...
+
+    @property
+    def terrain(self) -> Terrain: ...
 
     def compile_tensor_reads(self, device: str | torch.device, specs: Sequence[Any]) -> Any: ...
 

@@ -47,8 +47,11 @@ from unisim.dr.types import (
 )
 
 from unilab.base.rotation import np_quat_apply, np_quat_apply_inverse_batched
+from unilab.base.terrain import Terrain
 
 if TYPE_CHECKING:
+    from unisim.scene import TerrainSceneCfg
+
     from unilab.base.reset_state import ResetStateTransaction
     from unilab.base.scene import SceneCfg
 
@@ -4532,6 +4535,8 @@ class EntityScene(Mapping[str, Entity]):
         *,
         reset_state: ResetStateTransaction | None = None,
         default_qpos: np.ndarray | None = None,
+        terrain_cfg: TerrainSceneCfg | None = None,
+        device: str | torch.device | None = None,
     ) -> None:
         self._backend = backend
         self._state_read_cache = _EntityStateReadCache()
@@ -4555,11 +4560,9 @@ class EntityScene(Mapping[str, Entity]):
             )
         self._entities = MappingProxyType(materialized)
         self._reset_state = reset_state
-        env_origins = np.zeros((backend.num_envs, 3), dtype=np.float32)
-        env_origins.setflags(write=False)
-        self._env_origins = env_origins
-        self._has_nonzero_env_origins = bool(np.any(env_origins))
-        self._env_origins_tensor: torch.Tensor | None = None
+        if device is None:
+            device = control_buffer.device if isinstance(control_buffer, torch.Tensor) else "cpu"
+        self.terrain = Terrain(terrain_cfg, backend, device=device)
 
     @classmethod
     def from_scene_cfg(
@@ -4570,6 +4573,7 @@ class EntityScene(Mapping[str, Entity]):
         *,
         reset_state: ResetStateTransaction | None = None,
         default_qpos: np.ndarray | None = None,
+        device: str | torch.device | None = None,
     ) -> EntityScene:
         return cls(
             cast(Mapping[str, EntityCfg], cfg.entities),
@@ -4577,6 +4581,8 @@ class EntityScene(Mapping[str, Entity]):
             control_buffer,
             reset_state=reset_state,
             default_qpos=default_qpos,
+            terrain_cfg=cfg.terrain,
+            device=device,
         )
 
     @property
@@ -4585,13 +4591,14 @@ class EntityScene(Mapping[str, Entity]):
         return self._entities
 
     def env_origins(self, device: str | torch.device) -> torch.Tensor:
-        """Return immutable per-environment origins as a cached tensor table."""
+        """Return stable owner-device origins or a fresh requested-device copy."""
         resolved = torch.device(device)
-        if self._env_origins_tensor is None or self._env_origins_tensor.device != resolved:
-            self._env_origins_tensor = torch.from_numpy(np.array(self._env_origins, copy=True)).to(
-                device=resolved, dtype=torch.float32
-            )
-        return self._env_origins_tensor
+        if resolved.type == "cuda" and resolved.index is None:
+            resolved = torch.device("cuda", index=torch.cuda.current_device())
+        origins = self.terrain.env_origins
+        if resolved == origins.device:
+            return origins
+        return origins.to(device=resolved, copy=True)
 
     def compile_tensor_reads(
         self,
@@ -4862,11 +4869,6 @@ class EntityScene(Mapping[str, Entity]):
             raise NotImplementedError(
                 f"EventManager term '{term_name}' reset-state capability is unavailable: "
                 "EntityScene was materialized without an env-owned reset transaction"
-            )
-        if self._has_nonzero_env_origins:
-            raise NotImplementedError(
-                f"EventManager term '{term_name}' cannot apply non-zero env_origins without "
-                "a formal backend root-state layout"
             )
         self._reset_state.reset_to_default(reset_mask, term_name=term_name)
 

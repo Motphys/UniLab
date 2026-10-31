@@ -156,6 +156,30 @@ def _apply_stages(
 # Public wrappers.
 
 
+def terrain_levels_by_progress(
+    env: ManagerBasedRlEnv, env_ids: torch.Tensor, steps: int
+) -> dict[str, torch.Tensor]:
+    """Resample selected environments over the terrain rows unlocked by progress."""
+    if isinstance(steps, bool) or not isinstance(steps, int) or steps <= 0:
+        raise ValueError("terrain_levels_by_progress steps must be a positive integer")
+    terrain = getattr(env.scene, "terrain", None)
+    if terrain is None or not terrain.is_curriculum:
+        raise NotImplementedError(
+            "terrain_levels_by_progress requires generated terrain with curriculum=True"
+        )
+    rows = terrain.terrain_origins.shape[0]
+    progress = min(1.0, env.common_step_counter / steps)
+    max_level = min(rows - 1, int(progress * rows))
+    levels = env.rng.integers(0, max_level + 1, len(env_ids), dtype=torch.int64).to(
+        device=terrain.terrain_levels.device
+    )
+    terrain.select_levels(env_ids, levels)
+    return {"max_level": torch.tensor(float(max_level))}
+
+
+setattr(terrain_levels_by_progress, "reset_scoped", terrain_levels_by_progress)
+
+
 class reward_curriculum:
     """Update a reward term's weight and/or params based on training steps.
 

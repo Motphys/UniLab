@@ -329,7 +329,6 @@ class ManagerBasedRlEnv(TorchEnv):
     metrics_manager: MetricsManager | NullMetricsManager
     recorder_manager: RecorderManager | NullRecorderManager
     _last_reset_manager_timing_ms: dict[str, float]
-    _tensor_reset_env_origins_nonzero: bool | None
     tensor_reset_pose_bounds: torch.Tensor | None
     tensor_reset_velocity_bounds: torch.Tensor | None
     tensor_reset_bounds_key: tuple[Any, ...] | None
@@ -363,7 +362,6 @@ class ManagerBasedRlEnv(TorchEnv):
         self._reward_log_names: tuple[str, ...] = ()
         self._reward_log_means = torch.empty(0, dtype=torch.float32, device=self.device)
         self._last_reset_manager_timing_ms = {}
-        self._tensor_reset_env_origins_nonzero = None
         self.tensor_reset_pose_bounds = None
         self.tensor_reset_velocity_bounds = None
         self.tensor_reset_bounds_key = None
@@ -386,6 +384,7 @@ class ManagerBasedRlEnv(TorchEnv):
             self._control,
             reset_state=self._reset_state,
             default_qpos=default_qpos,
+            device=self.device,
         )
         for entity in self.scene.entities.values():
             entity.data.set_defer_finite_validation(self.defer_finite_validation)

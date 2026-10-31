@@ -39,6 +39,8 @@ from unilab.envs.mdp.actions import (
 from unilab.envs.mdp.actions import (
     JointPositionActionCfg as ExportedJointPositionActionCfg,
 )
+from unilab.managers._buffers.delay_buffer import DelayBuffer
+from unilab.managers.rng import ManagerRng
 from unilab.managers.types import ManagerBasedRlEnv
 
 
@@ -114,13 +116,11 @@ class _Backend:
         }
 
 
-def _action(
-    **overrides,
-) -> tuple[JointPositionAction, np.ndarray, EntityScene]:
-    return _build_action(JointPositionActionCfg, **overrides)
+def _action(seed: int = 0, **overrides) -> tuple[JointPositionAction, np.ndarray, EntityScene]:
+    return _build_action(JointPositionActionCfg, seed=seed, **overrides)
 
 
-def _build_action(action_cfg_type, **overrides):
+def _build_action(action_cfg_type, *, seed: int = 0, **overrides):
     backend = _Backend()
     control = torch.zeros((backend.num_envs, backend.num_actuators), dtype=torch.float32)
     scene = EntityScene(
@@ -139,7 +139,14 @@ def _build_action(action_cfg_type, **overrides):
         **overrides,
     }
     cfg = action_cfg_type(**cfg_values)
-    env = cast(ManagerBasedRlEnv, SimpleNamespace(num_envs=backend.num_envs, scene=scene))
+    env = cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=backend.num_envs,
+            scene=scene,
+            rng=ManagerRng.seeded(seed),
+        ),
+    )
     return cfg.build(env), control, scene
 
 
@@ -190,6 +197,101 @@ def test_tensor_control_writes_stay_on_control_plane() -> None:
     np.testing.assert_array_equal(control[:, 2].cpu().numpy(), 0.0)
 
 
+def _assert_control_targets(control: torch.Tensor, expected: torch.Tensor) -> None:
+    natural_order = torch.stack((control[:, 1], control[:, 0]), dim=1)
+    torch.testing.assert_close(natural_order, expected)
+
+
+def test_fixed_delay_applies_after_target_processing() -> None:
+    action, control, scene = _action(
+        scale=2.0,
+        delay_min_lag=2,
+        delay_max_lag=2,
+    )
+    scene["robot"].data.encoder_bias[:, 0] = np.asarray([0.05, 0.1])
+    raw = torch.tensor(
+        [
+            [[1.0, 2.0], [3.0, 4.0]],
+            [[5.0, 6.0], [7.0, 8.0]],
+            [[9.0, 10.0], [11.0, 12.0]],
+            [[13.0, 14.0], [15.0, 16.0]],
+        ],
+        dtype=torch.float32,
+    )
+    default = torch.tensor([0.1, 0.2])
+    encoder_bias = torch.tensor([[0.05, 0.0], [0.1, 0.0]])
+    targets = raw * 2.0 + default - encoder_bias
+
+    assert action.requires_substep_state_feedback
+    for step in range(3):
+        action.process_actions(raw[step])
+        action.apply_actions()
+        _assert_control_targets(control, targets[0])
+    action.process_actions(raw[3])
+    action.apply_actions()
+    _assert_control_targets(control, targets[1])
+
+
+def test_seeded_random_delay_matches_manager_delay_buffer() -> None:
+    seed = 19
+    action, control, _ = _action(
+        seed=seed,
+        use_default_offset=False,
+        delay_min_lag=0,
+        delay_max_lag=2,
+    )
+    reference = DelayBuffer(
+        min_lag=0,
+        max_lag=2,
+        batch_size=2,
+        torch_generator=ManagerRng.seeded(seed).generator,
+    )
+    raw = torch.arange(32, dtype=torch.float32).reshape(8, 2, 2) / 10.0
+    sampled_lags = []
+
+    for actions in raw:
+        reference.append(actions)
+        expected = reference.compute()
+        sampled_lags.append(reference.current_lags.clone())
+        action.process_actions(actions)
+        action.apply_actions()
+        _assert_control_targets(control, expected)
+
+    assert torch.unique(torch.stack(sampled_lags)).numel() > 1
+
+
+def test_delay_partial_reset_clears_only_selected_history() -> None:
+    action, control, _ = _action(
+        use_default_offset=False,
+        delay_min_lag=1,
+        delay_max_lag=1,
+    )
+    raw = torch.tensor(
+        [
+            [[1.0, 2.0], [10.0, 20.0]],
+            [[3.0, 4.0], [30.0, 40.0]],
+            [[5.0, 6.0], [50.0, 60.0]],
+            [[7.0, 8.0], [70.0, 80.0]],
+        ],
+        dtype=torch.float32,
+    )
+
+    action.process_actions(raw[0])
+    action.apply_actions()
+    action.process_actions(raw[1])
+    action.apply_actions()
+    _assert_control_targets(control, raw[0])
+
+    action.reset(torch.tensor([1], dtype=torch.int64))
+    action.process_actions(raw[2])
+    action.apply_actions()
+    _assert_control_targets(control, torch.stack((raw[1, 0], raw[2, 1])))
+
+    action.process_actions(raw[3])
+    action.apply_actions()
+    _assert_control_targets(control, raw[2])
+
+
 def test_regex_scale_offset_clip_and_local_reset() -> None:
     action, _, _ = _action(
         scale={"hip": 2.0, "knee": 3.0},
@@ -234,6 +336,16 @@ def test_base_action_accepts_noncontiguous_term_slice() -> None:
         ({"clip": {"hip": (1.0, -1.0)}}, ValueError, "exceeds upper"),
         ({"offset": float("nan")}, ValueError, "must be finite"),
         ({"use_default_offset": 1}, TypeError, "must be bool"),
+        ({"delay_min_lag": True}, TypeError, "delay_min_lag must be an int"),
+        ({"delay_max_lag": False}, TypeError, "delay_max_lag must be an int"),
+        ({"delay_min_lag": 1.0}, TypeError, "delay_min_lag must be an int"),
+        ({"delay_min_lag": -1}, ValueError, "delay_min_lag must be >= 0"),
+        ({"delay_max_lag": -1}, ValueError, "delay_max_lag must be >= 0"),
+        (
+            {"delay_min_lag": 2, "delay_max_lag": 1},
+            ValueError,
+            "delay_max_lag must be >= delay_min_lag",
+        ),
     ],
 )
 def test_invalid_action_config_fails_at_construction(overrides, error, message) -> None:
@@ -249,6 +361,23 @@ def test_non_finite_and_wrong_shape_actions_fail_before_control_write() -> None:
     with pytest.raises(ValueError, match="NaN or Inf"):
         action.publish_validation_verdict()
     np.testing.assert_array_equal(control, 0.0)
+
+
+def test_delayed_non_finite_action_fails_validation_before_control_write() -> None:
+    action, control, _ = _action(
+        use_default_offset=False,
+        delay_min_lag=1,
+        delay_max_lag=1,
+    )
+    action.process_actions(torch.ones((2, 2), dtype=torch.float32))
+    action.apply_actions()
+    previous_control = control.clone()
+
+    action.process_actions(torch.full((2, 2), torch.nan, dtype=torch.float32))
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        action.validate_actions()
+
+    torch.testing.assert_close(control, previous_control)
 
 
 @pytest.mark.parametrize(
