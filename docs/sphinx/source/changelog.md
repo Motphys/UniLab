@@ -13,6 +13,53 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.5.4 (2026-10-31)
+
+### Changed / 变更
+
+- APPO, PPO, SAC, and FlashSAC now accumulate action, control, reward,
+  observation, command, and metrics finite-validation verdicts on device and
+  poll them every 32 steps by default, avoiding per-step GPU/CPU
+  synchronization. NanGuard physics snapshots also default to every 32 steps;
+  nonfinite values may therefore be reported at the next validation boundary.
+  The documented debug overrides restore immediate per-step validation
+  ([#2554](https://github.com/Motphys/UniLab/pull/2554)).
+  APPO、PPO、SAC 与 FlashSAC 现在在设备端累积 action、control、reward、
+  observation、command 与 metrics 的有限值校验结果，并默认每 32 步轮询一次，
+  避免逐步 GPU/CPU 同步。NanGuard 物理状态快照也默认每 32 步采集一次；因此
+  非有限值可能到下一个校验边界才会报告。文档中的调试覆盖项可恢复逐步即时
+  校验（[#2554](https://github.com/Motphys/UniLab/pull/2554)）。
+- The default and ROCm profiles now pin `unisim-core==2.2.5`, including the
+  Motrix and SuperDex extras
+  ([UniSim #492](https://github.com/unilabsim/unisim/pull/492)).
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.2.5`，包括 Motrix 与
+  SuperDex extra（[UniSim #492](https://github.com/unilabsim/unisim/pull/492)）。
+
+### Fixed / 修复
+
+- Motrix whole-MJCF rotated-root resets now preserve body-frame generalized
+  angular velocity on full, tensor, and selected-row `qvel` reads through
+  UniSim 2.2.5; world-frame angular sensors remain unchanged
+  ([UniSim #492](https://github.com/unilabsim/unisim/pull/492)).
+  通过 UniSim 2.2.5，Motrix whole-MJCF 旋转根节点 reset 现在在完整、tensor 与
+  选中行 `qvel` 读回中保持 body-frame 广义角速度；world-frame 角速度传感器
+  保持不变（[UniSim #492](https://github.com/unilabsim/unisim/pull/492)）。
+- Standalone absolute-path demo checkpoints without `run_config.json` now use
+  the explicit no-source-run playback path, and rsl-rl checkpoints load onto
+  the selected playback device. This restores `uv run demo dance` on CPU and
+  MPS ([#2557](https://github.com/Motphys/UniLab/issues/2557)).
+  没有 `run_config.json` 的独立绝对路径 demo checkpoint 现在使用显式的
+  no-source-run 回放路径，rsl-rl checkpoint 也会加载到所选回放设备。这恢复了
+  CPU 与 MPS 上的 `uv run demo dance`
+  （[#2557](https://github.com/Motphys/UniLab/issues/2557)）。
+- The macOS teaser now exposes the UniLab package parent to external
+  `mxpython` and resolves scene assets in the active uv environment before
+  launching the renderer, restoring `uv run demo teaser`
+  ([#2555](https://github.com/Motphys/UniLab/issues/2555)).
+  macOS teaser 现在会向外部 `mxpython` 暴露 UniLab 包父目录，并在启动渲染器前
+  从当前 uv 环境解析场景资产，从而恢复 `uv run demo teaser`
+  （[#2555](https://github.com/Motphys/UniLab/issues/2555)）。
+
 ## 1.5.3 (2026-10-29)
 
 ### Added / 新增
