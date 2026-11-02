@@ -27,6 +27,12 @@ class SceneCfg(_UniSimSceneCfg):
     Physics scene fields and all backend-facing behavior are implemented by
     UniSim.  UniLab only converts Hydra/OmegaConf entity mappings into the
     manager facade's :class:`EntityCfg` records on the cold configuration path.
+
+    ``tracked_body_names`` is an explicit, ordered selection for backends that
+    inject named body-state sensors. ``None`` preserves the backend's existing
+    full request; EntityCfg selectors remain the source of truth for Manager
+    body reads. Concrete (non-pattern) EntityCfg selectors may still derive the
+    default selection on MuJoCo and MJWarp for backward compatibility.
     """
 
     model_file: str = ""
@@ -36,6 +42,7 @@ class SceneCfg(_UniSimSceneCfg):
     entity_assets: tuple[SceneEntitySpec, ...] = ()
     entity_variant: EntityVariantBinding | None = None
     primary_entity: str | None = None
+    tracked_body_names: tuple[str, ...] | list[str] | None = None
 
     def materialize_entities(self) -> None:
         """Convert task/Hydra physical records without importing a physics SDK."""
@@ -90,6 +97,15 @@ class SceneCfg(_UniSimSceneCfg):
             else:
                 materialized[name] = value
         self.entities = materialized
+        if self.tracked_body_names is not None:
+            if isinstance(self.tracked_body_names, str):
+                raise TypeError("SceneCfg tracked_body_names must be a sequence of body names")
+            names = tuple(self.tracked_body_names)
+            if not names or any(not isinstance(name, str) or not name for name in names):
+                raise ValueError("SceneCfg tracked_body_names must contain non-empty body names")
+            if len(set(names)) != len(names):
+                raise ValueError(f"SceneCfg tracked_body_names must be unique: {names}")
+            self.tracked_body_names = names
         super().__post_init__()
 
 

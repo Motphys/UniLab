@@ -32,6 +32,17 @@ Env 契约由 `src/unilab/base/base.py` 与 `src/unilab/base/torch_env.py`
 - runner 与 learner 不得在 env owner 层之外通过拼接字段来自行构造 critic 观测。
 - 如果某个第三方库仍将 critic 观测称为 "privileged"，请把该名称转换保留在适配器
   内部。在 UniLab 内部，该 key 始终是 `critic`。
+- Manager term 在冷路径声明 tensor 读取。普通
+  `tensor_sensor_names` / `tensor_body_names` 请求仍进入 packed 标量/body 读取。
+  消费 UniSim 有序 body-pair 聚合的 term 声明
+  `tensor_body_pair_contact_names`；`EntityScene.compile_tensor_reads` 在请求的
+  Torch device 上冷绑定有序名称，并通过
+  `SceneTensorReadPlan.body_pair_contact_view` 暴露校验后的 live batch。访问本身
+  不做绑定或刷新；reset、普通 update、阶段内 mutation 重打包以及 state-feedback
+  substep 都调用 read plan 的显式刷新边界。
+  event、reward、termination 与 observation 函数都可以声明该属性。同一 entity
+  的声明必须使用完全相同的有序名称元组，从而在不逐 term 重绑定的情况下保持
+  slot 语义明确。
 
 ## 仓库中的证据
 

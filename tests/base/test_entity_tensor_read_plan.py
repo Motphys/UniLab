@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 import torch
 from unisim.backend.base import (
+    BodyPairContactBatch,
     HostBridgeTransferPlan,
     SimBackend,
     TensorDataPlane,
@@ -20,7 +21,12 @@ from unisim.backend.base import (
     TrackedBodyStateViews,
 )
 
-from unilab.base.entity import EntityCfg, EntityScene, SceneTensorReadSpec
+from unilab.base.entity import (
+    EntityCfg,
+    EntityScene,
+    SceneBodyPairContactReadSpec,
+    SceneTensorReadSpec,
+)
 
 
 class _SceneTensorBackend:
@@ -36,6 +42,11 @@ class _SceneTensorBackend:
         self.selected_reads = 0
         self.sensor_view_calls = 0
         self.aggregate_body_view_calls = 0
+        self.body_pair_binds: list[tuple[tuple[str, ...], torch.device]] = []
+        self.body_pair_refreshes = 0
+        self.body_pair_refresh_names: list[tuple[str, ...]] = []
+        self.body_pair_capability = False
+        self.body_pair_step = 0
         self.closes = 0
         self.io_specs: list[TensorIOSpec] = []
         self.qpos = torch.tensor([[0.1], [0.3]], dtype=torch.float32)
@@ -68,6 +79,8 @@ class _SceneTensorBackend:
                 sensor_views=True,
                 selected_reset=True,
                 tracked_body_views=True,
+                stepping=self.body_pair_capability,
+                batched_body_pair_contacts=self.body_pair_capability,
                 process_topology=TensorProcessTopology.IN_PROCESS,
                 data_plane=TensorDataPlane.DIRECT,
                 stream_event_ownership="caller owns the Torch stream",
@@ -84,6 +97,9 @@ class _SceneTensorBackend:
             stream_event_ownership="backend synchronizes at the packed host boundary",
             torch_devices=("cpu",),
         )
+
+    def set_body_pair_capability(self, enabled: bool) -> None:
+        self.body_pair_capability = enabled
 
     def get_tensor_execution(self) -> TensorExecution:
         return (
@@ -116,6 +132,34 @@ class _SceneTensorBackend:
             lin_vel_w=self.sensors["track_linvel_w_hip"].unsqueeze(1).to(target),
             ang_vel_w=self.sensors["track_angvel_w_hip"].unsqueeze(1).to(target),
         )
+
+    def bind_body_pair_contact_views(self, names, device=None) -> BodyPairContactBatch:
+        requested = tuple(names)
+        self.body_pair_binds.append((requested, torch.device(device)))
+        if not self.body_pair_capability:
+            raise NotImplementedError(
+                "fake-scene-tensor does not support batched body-pair contacts"
+            )
+        target = torch.device(device) if device is not None else torch.device("cpu")
+        slots = len(requested)
+        return BodyPairContactBatch(
+            sensor_names=requested,
+            active=torch.full((self.num_envs, slots), self.body_pair_step > 0, device=target),
+            count=torch.full(
+                (self.num_envs, slots), self.body_pair_step, dtype=torch.int32, device=target
+            ),
+            position_w=torch.full(
+                (self.num_envs, slots, 3), float(self.body_pair_step), device=target
+            ),
+            force_w=torch.full(
+                (self.num_envs, slots, 3), -float(self.body_pair_step), device=target
+            ),
+        )
+
+    def refresh_body_pair_contact_views(self, names=None) -> None:
+        self.body_pair_refreshes += 1
+        self.body_pair_refresh_names.append(tuple(names or ()))
+        self.body_pair_step += 1
 
     def get_actuator_names(self) -> tuple[str, ...]:
         return ("hip_motor", "knee_motor")[: self.num_actuators]
@@ -302,6 +346,84 @@ def _specs() -> tuple[SceneTensorReadSpec, ...]:
         SceneTensorReadSpec(entity="robot", sensor_names=("imu_gyro",)),
         SceneTensorReadSpec(entity="robot", body_names=("hip",)),
     )
+
+
+def test_scene_plan_cold_binds_and_explicitly_refreshes_body_pair_contacts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _SceneTensorBackend(device_resident=True)
+    backend.set_body_pair_capability(True)
+    scene = _scene(backend)
+    names = ("right_gripper_object", "left_gripper_object")
+    plan = scene.compile_tensor_reads(
+        "cpu",
+        _specs(),
+        (SceneBodyPairContactReadSpec(entity="robot", sensor_names=names),),
+    )
+
+    assert backend.body_pair_binds == [(names, torch.device("cpu"))]
+    assert backend.body_pair_refreshes == 0
+    with pytest.raises(RuntimeError, match="body-pair contact reads must be refreshed"):
+        plan.body_pair_contact_view("robot", names)
+    with pytest.raises(ValueError, match="were not compiled"):
+        plan.body_pair_contact_view("robot", names[::-1])
+
+    plan.refresh()
+    view = plan.body_pair_contact_view("robot", names)
+    assert view.sensor_names == names
+    assert view.active.shape == view.count.shape == (2, 2)
+    assert view.position_w.shape == view.force_w.shape == (2, 2, 3)
+    assert view.active.dtype == torch.bool
+    assert view.count.dtype == torch.int32
+    assert view.position_w.dtype == view.force_w.dtype == torch.float32
+    assert view.active.device == view.count.device == plan.device
+    assert backend.body_pair_refreshes == 1
+    assert backend.body_pair_refresh_names == [names]
+    assert backend.sensor_view_calls == 1  # one compiled ordinary sensor, once
+
+    plan.refresh_selected()
+    assert backend.body_pair_refreshes == 2
+    plan.invalidate()
+    with pytest.raises(RuntimeError, match="body-pair contact reads must be refreshed"):
+        plan.body_pair_contact_view("robot", names)
+
+
+def test_scene_plan_requires_one_consistent_entity_contact_request() -> None:
+    backend = _SceneTensorBackend(device_resident=True)
+    backend.set_body_pair_capability(True)
+    scene = _scene(backend)
+    first = SceneBodyPairContactReadSpec(entity="robot", sensor_names=("a_pair", "b_pair"))
+    second = SceneBodyPairContactReadSpec(entity="robot", sensor_names=("b_pair", "a_pair"))
+    disjoint = SceneBodyPairContactReadSpec(entity="robot", sensor_names=("c_pair",))
+
+    with pytest.raises(ValueError, match="must be identical across Manager terms"):
+        scene.compile_tensor_reads("cpu", _specs()[:1], (first, second))
+    with pytest.raises(ValueError, match="must be identical across Manager terms"):
+        scene.compile_tensor_reads("cpu", _specs()[:1], (first, disjoint))
+
+    same = SceneBodyPairContactReadSpec(entity="robot", sensor_names=("a_pair", "b_pair"))
+    scene.compile_tensor_reads("cpu", _specs()[:1], (first, same))
+    assert backend.body_pair_binds == [(("a_pair", "b_pair"), torch.device("cpu"))]
+
+
+def test_scene_plan_body_pair_contacts_fail_closed_and_validate_contract() -> None:
+    backend = _SceneTensorBackend(device_resident=True)
+    scene = _scene(backend)
+    names = ("right_gripper_object",)
+    request = (SceneBodyPairContactReadSpec(entity="robot", sensor_names=names),)
+    with pytest.raises(NotImplementedError, match="batched_body_pair_contacts capability"):
+        scene.compile_tensor_reads("cpu", _specs()[:1], request)
+
+    with pytest.raises(ValueError, match="sensor_names cannot be empty"):
+        SceneBodyPairContactReadSpec(entity="robot", sensor_names=())
+    with pytest.raises(ValueError, match="sensor_names must be unique"):
+        SceneBodyPairContactReadSpec(entity="robot", sensor_names=("pair", "pair"))
+    with pytest.raises(KeyError, match="'missing' not found"):
+        scene.compile_tensor_reads(
+            "cpu",
+            _specs()[:1],
+            (SceneBodyPairContactReadSpec(entity="missing", sensor_names=names),),
+        )
 
 
 def test_host_bridge_scene_plan_packs_all_reads_into_one_phase_transfer(
