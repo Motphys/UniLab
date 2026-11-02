@@ -332,27 +332,24 @@ def test_motrix_body_sensor_views_use_canonical_world_state() -> None:
     np.testing.assert_allclose(views["track_angvel_w_base"], [[13, 14, 15], [16, 17, 18]])
 
 
-def test_motrix_root_layout_uses_selected_body_floating_base_indices() -> None:
+def test_motrix_root_layout_gates_on_configured_base_and_returns_fixed_columns() -> None:
     import unisim.backend.motrix.backend as mod
 
-    floating_base = SimpleNamespace(
-        dof_pos_indices=[4, 5, 6, 7, 8, 9, 10],
-        dof_vel_indices=[3, 4, 5, 6, 7, 8],
-    )
     bodies = {
         "fixed": SimpleNamespace(floatingbase=None),
-        "floating": SimpleNamespace(floatingbase=floating_base),
+        "floating": SimpleNamespace(floatingbase=SimpleNamespace()),
     }
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
+    backend._base_name = "floating"
     backend._model = SimpleNamespace(get_body=lambda name: bodies.get(name))
 
     layout = backend.get_root_state_layout("floating")
-    assert layout.qpos_indices == tuple(range(4, 11))
-    assert layout.qvel_indices == tuple(range(3, 9))
-    with pytest.raises(NotImplementedError, match="fixed.*floating base"):
+    assert layout.qpos_indices == tuple(range(7))
+    assert layout.qvel_indices == tuple(range(6))
+    with pytest.raises(NotImplementedError, match="configured base"):
         backend.get_root_state_layout("fixed")
-    with pytest.raises(ValueError, match="missing.*not found"):
+    with pytest.raises(NotImplementedError, match="configured base"):
         backend.get_root_state_layout("missing")
 
 
