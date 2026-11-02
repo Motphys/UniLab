@@ -13,6 +13,15 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.5.5 (2026-11-02)
+
+### Changed / 变更
+
+- The default and ROCm profiles now pin `unisim-core==2.4.0`, including the
+  Motrix and SuperDex extras.
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.4.0`，包括 Motrix 与
+  SuperDex extra。
+
 ## 1.5.4 (2026-10-31)
 
 ### Changed / 变更

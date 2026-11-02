@@ -4688,7 +4688,7 @@ wheels = [
 
 [[package]]
 name = "unilab"
-version = "1.5.4"
+version = "1.5.5"
 source = { editable = "." }
 dependencies = [
     { name = "etils", version = "1.13.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -4782,8 +4782,8 @@ requires-dist = [
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "triton-rocm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==3.8.0", index = "https://download.pytorch.org/whl/rocm7.2" },
     { name = "typing-extensions" },
-    { name = "unisim-core", specifier = "==2.3.0" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.3.0" },
+    { name = "unisim-core", specifier = "==2.4.0" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.4.0" },
     { name = "viser", specifier = ">=1.0.26" },
     { name = "wandb", marker = "extra == 'unirl'", specifier = ">=0.22.3" },
 ]
@@ -4800,15 +4800,15 @@ dev = [
 
 [[package]]
 name = "unisim-core"
-version = "2.3.0"
+version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/ba/960eb850827015f38c9533aa634fdd9cecfdfe9bfcb13c5ab73afc8dc9fe/unisim_core-2.3.0.tar.gz", hash = "sha256:72a2cf426c871bbc8ebdd9fe67aceac605bb7f565f6a089a4c2d4a6979e50b08", size = 760373, upload-time = "2026-10-31T09:33:04.774Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/15/2d/e7bc4b34ae8151d9c60cc9a71999f75a0a836f694b25f5d9fff62ee6fe28/unisim_core-2.4.0.tar.gz", hash = "sha256:2e02996c0d8e0cd8a3835778dead20f9b9d85a6ede3993e4f9f4d053c4280cb3", size = 761193, upload-time = "2026-11-02T08:35:07.48Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1c/01/eae91b154d0873f61aa35e3a8b1887feb4230aa0c4c0421109fc4bd922d9/unisim_core-2.3.0-py3-none-any.whl", hash = "sha256:5525bf7260c50d9ec684c1cc43cb0761fc7e65ac9ba3d44731e7dcfb0c96157b", size = 808722, upload-time = "2026-10-31T09:33:02.623Z" },
+    { url = "https://files.pythonhosted.org/packages/71/b8/9dadd2628879d3f4d288a7ed7a12a52020d5a172d2214cea334d5ae57208/unisim_core-2.4.0-py3-none-any.whl", hash = "sha256:e4244848a9a1baa40f6986c3b887c28df243a0ea259b007ee2ca2012e28104aa", size = 809541, upload-time = "2026-11-02T08:35:05.731Z" },
 ]
 
 [package.optional-dependencies]
