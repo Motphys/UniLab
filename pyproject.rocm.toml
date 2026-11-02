@@ -89,6 +89,8 @@ url = "https://download.pytorch.org/whl/rocm7.2"
 explicit = true
 
 [tool.uv.sources]
+# Integration-branch development consumes the sibling checkout directly.
+unisim-core = { path = "../unisim", editable = true }
 torch = [
     { index = "pytorch-rocm72", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
 ]
