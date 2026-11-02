@@ -22,9 +22,8 @@ Backend 差异是契约边界，而不是脚本层面的特殊处理。play/rend
   批量 body-pair contact 能力。UniLab 仅在 MuJoCo 与 MJWarp 上消费选择性
   `tracked_body_names`；Newton 与 SuperDex 保持各自的 native body-state 构造，
   其它 backend 的直接选择性请求 fail closed。Manager body-pair 请求要求
-  `batched_body_pair_contacts` 以及公共 bind/refresh 方法，当前在 Newton 上完成
-  数值验收。MJWarp 支持选择性 tracked body，但在 UniSim #498 完成前，批量
-  body-pair contact term fail closed。
+  `batched_body_pair_contacts` 以及公共 bind/refresh 方法，已在 Newton 与 MJWarp
+  上完成数值验收。其它未声明该能力的 backend 保持 fail closed。
 - 不支持的可选方法会从基类抛出 `NotImplementedError`。
 
 ## 新增能力的规则

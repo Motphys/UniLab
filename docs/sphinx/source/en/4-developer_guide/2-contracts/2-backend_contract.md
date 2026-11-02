@@ -21,8 +21,8 @@ Optional capabilities are explicit:
   their native body-state construction, while direct selective requests to every
   other backend fail closed. A Manager body-pair request requires
   `batched_body_pair_contacts` and the public bind/refresh methods, and is
-  currently validated on Newton. MJWarp selectively tracks bodies but fails
-  closed for batched body-pair contact terms until UniSim #498 lands.
+  validated on Newton and MJWarp. Other backends without the declared capability
+  fail closed.
 - `HeightScanner` and `bind_height_scanner(...)` expose terrain scan
   support through a reusable backend-owned object.
 - `SensorView` and `bind_sensor_data(...)` validate ordered named sensors
