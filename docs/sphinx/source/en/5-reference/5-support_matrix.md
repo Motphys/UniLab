@@ -29,10 +29,10 @@ support beyond the evidence grade shown below.
 - Isaac support grades remain task/evidence gated. `superdex` remains limited
   to its configured research owner.
 - Selective `SceneCfg.tracked_body_names` injection applies to MuJoCo and
-  MJWarp. Batched Manager body-pair contact reads are currently Newton-only;
-  MJWarp fails closed until UniSim #498 lands. These optional capability
-  dimensions are specified by the backend contract rather than the generated
-  platform columns above.
+  MJWarp. Batched Manager body-pair contact reads are validated on Newton and
+  MJWarp; other backends without the declared capability fail closed. These
+  optional capability dimensions are specified by the backend contract rather
+  than the generated platform columns above.
 
 ## Playback Differences
 
