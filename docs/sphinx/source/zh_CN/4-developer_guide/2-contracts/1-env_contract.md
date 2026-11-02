@@ -23,6 +23,12 @@ Env 契约由 `src/unilab/base/base.py` 与 `src/unilab/base/torch_env.py`
 
 - env 代码拥有 MDP 语义、观测构造、奖励、termination、truncation、reset 行为
   以及 final-observation 处理。
+- 异步 backend 发布 `CompletionToken` 时，`TorchEnv` 通过这个公开 receipt
+  在下一次 state-feedback Manager action/状态读取/控制写入之前，以及最终
+  Manager state update 之前，为当前 Torch stream 建立顺序。feed-forward
+  仍保持一次批量 backend 调用；无 receipt 的同步 producer 不执行 read gate。
+  任务代码不得为建立该顺序覆写 physics stepping，也不得使用 backend 私有
+  stream/event。
 - runner 与 learner 不得在 env owner 层之外通过拼接字段来自行构造 critic 观测。
 - 如果某个第三方库仍将 critic 观测称为 "privileged"，请把该名称转换保留在适配器
   内部。在 UniLab 内部，该 key 始终是 `critic`。

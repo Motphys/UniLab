@@ -69,6 +69,11 @@ from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
 
 
+class _ImmediateCompletion(CompletionToken):
+    def wait_before_read(self, stream: object | None = None) -> None:
+        del stream
+
+
 class _FakeBackend:
     backend_type = "fake"
 
@@ -277,7 +282,7 @@ class _FakeBackend:
         return {"timing": {}, "completion": self.record_step_completion()}
 
     def _step_completion(self):
-        return CompletionToken(
+        return _ImmediateCompletion(
             contract_version=COMPLETION_CONTRACT_VERSION,
             operation="step",
             sequence=len(self.tensor_controls),
@@ -3822,6 +3827,107 @@ def test_multisubstep_state_feedback_refreshes_public_state_and_control(
         torch.testing.assert_close(state.obs["obs"][0], torch.zeros(2))
         torch.testing.assert_close(state.info["steps"], torch.tensor([0, 1]))
         assert state.info["completion"] is backend.completions[-1]
+    finally:
+        env.close()
+
+
+def test_multisubstep_state_feedback_gates_async_completions_at_manager_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(
+        sim_substeps=3,
+        include_optional_managers=False,
+        actions={
+            "tilt": _FeedbackTensorBodyActionCfg(
+                entity_name="robot",
+                top_body_name="platform",
+                ball_body_name="ball",
+            )
+        },
+    )
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
+    )
+
+    class _TracedCompletion(CompletionToken):
+        def __init__(self, sequence: int, trace: list[str]) -> None:
+            object.__setattr__(self, "contract_version", COMPLETION_CONTRACT_VERSION)
+            object.__setattr__(self, "operation", "step")
+            object.__setattr__(self, "sequence", sequence)
+            object.__setattr__(self, "producer_id", "test-producer")
+            self.trace = trace
+
+        def wait_before_read(self, stream: object | None = None) -> None:
+            del stream
+            self.trace.append(f"gate:{self.sequence}")
+
+    class _TracedBackend(_ScenePlanBackend):
+        def __init__(self, num_envs: int) -> None:
+            super().__init__(num_envs)
+            self.async_trace: list[str] = []
+
+        def _step_completion(self):
+            completion = _TracedCompletion(len(self.tensor_controls), self.async_trace)
+            self.completions.append(completion)
+            return completion
+
+        def step_tensor(self, ctrl: torch.Tensor, nsteps: int = 1) -> dict[str, object]:
+            self.async_trace.append(f"step:{len(self.tensor_controls)}")
+            return cast(dict[str, object], super().step_tensor(ctrl, nsteps))
+
+    backend = _TracedBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        env.init_state()
+        env.set_episode_length_buf(torch.full((2,), 1000, dtype=torch.int64))
+        backend.async_trace.clear()
+        plan = env.scene.read_plan
+        assert plan is not None
+        original_refresh = plan.refresh
+
+        def refresh() -> None:
+            backend.async_trace.append("read")
+            original_refresh()
+
+        monkeypatch.setattr(plan, "refresh", refresh)
+        original_apply_substep_action = env.apply_substep_action
+
+        def apply_substep_action() -> torch.Tensor:
+            control = original_apply_substep_action()
+            backend.async_trace.append("action")
+            return control
+
+        monkeypatch.setattr(env, "apply_substep_action", apply_substep_action)
+        original_update_state = env.update_state
+
+        def update_state(state: TorchEnvState) -> TorchEnvState:
+            backend.async_trace.append("update")
+            return original_update_state(state)
+
+        monkeypatch.setattr(env, "update_state", update_state)
+        state = env.step(torch.zeros((2, 1), dtype=torch.float32))
+
+        assert backend.async_trace[:13] == [
+            "read",
+            "step:0",
+            "gate:1",
+            "read",
+            "action",
+            "step:1",
+            "gate:2",
+            "read",
+            "action",
+            "step:2",
+            "gate:3",
+            "update",
+            "read",
+        ]
+        assert backend.step_nsteps == [1, 1, 1]
+        assert state.info["completion"] is backend.completions[-1]
+        assert env._pending_backend_step_completion is None
     finally:
         env.close()
 

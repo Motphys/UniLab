@@ -76,6 +76,28 @@ def _unsupported_backend() -> MagicMock:
     return backend
 
 
+class _GateCompletion(CompletionToken):
+    """Test receipt that records public read-gate calls."""
+
+    def __init__(
+        self,
+        sequence: int,
+        calls: list[tuple[int, Any]],
+        lifecycle: list[tuple[str, int]] | None = None,
+    ) -> None:
+        object.__setattr__(self, "contract_version", COMPLETION_CONTRACT_VERSION)
+        object.__setattr__(self, "operation", "step")
+        object.__setattr__(self, "sequence", sequence)
+        object.__setattr__(self, "producer_id", "test-producer")
+        self.calls = calls
+        self.lifecycle = lifecycle
+
+    def wait_before_read(self, stream: Any | None = None) -> None:
+        self.calls.append((self.sequence, stream))
+        if self.lifecycle is not None:
+            self.lifecycle.append(("gate", self.sequence))
+
+
 class _StubTorchEnv(TorchEnv):
     OBS_SPEC = {"obs": 3, "critic": 2}
 
@@ -223,6 +245,7 @@ def test_substep_feedback_preserves_control_timing_and_final_completion() -> Non
             super().__init__(**kwargs)
             self.feedback_control = torch.zeros((self.num_envs, 4), dtype=torch.float32)
             self.substep_applies = 0
+            self.lifecycle: list[tuple[str, int]] = []
 
         def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
             self.feedback_control = super().apply_action(actions, state)
@@ -231,29 +254,28 @@ def test_substep_feedback_preserves_control_timing_and_final_completion() -> Non
         def apply_substep_action(self) -> torch.Tensor:
             self.substep_applies += 1
             self.feedback_control.add_(1.0)
+            self.lifecycle.append(("action", self.substep_applies))
             return self.feedback_control
 
+        def update_state(self, state: TorchEnvState) -> TorchEnvState:
+            self.lifecycle.append(("update", 0))
+            return super().update_state(state)
+
     backend = _backend()
-    completions = [
-        CompletionToken(
-            contract_version=COMPLETION_CONTRACT_VERSION,
-            operation="step",
-            sequence=index,
-            producer_id="test",
-        )
-        for index in range(5)
-    ]
+    gate_calls: list[tuple[int, Any]] = []
     controls: list[torch.Tensor] = []
 
     def step_tensor(ctrl: torch.Tensor, nsteps: int) -> dict[str, Any]:
         assert nsteps == 1
         controls.append(ctrl.clone())
         index = len(controls) - 1
+        env.lifecycle.append(("step", index))
         return {"timing": {"physics_ms": float(index + 1)}, "completion": completions[index]}
 
     backend.step_tensor.side_effect = step_tensor
     cfg = _StubCfg(ctrl_dt=0.5)
     env = _FeedbackEnv(cfg=cfg, backend=backend, terminate=False)
+    completions = [_GateCompletion(index, gate_calls, env.lifecycle) for index in range(5)]
     env.init_state()
     state = env.step(_actions(env))
 
@@ -263,6 +285,151 @@ def test_substep_feedback_preserves_control_timing_and_final_completion() -> Non
     torch.testing.assert_close(torch.stack(controls), expected)
     assert state.info["timing"]["backend_physics_ms"] == 15.0
     assert state.info["completion"] is completions[-1]
+    assert env._pending_backend_step_completion is None
+    assert [sequence for sequence, _stream in gate_calls] == [0, 1, 2, 3, 4]
+    assert all(stream is None for _sequence, stream in gate_calls)
+    assert env.lifecycle == [
+        ("step", 0),
+        ("gate", 0),
+        ("action", 1),
+        ("step", 1),
+        ("gate", 1),
+        ("action", 2),
+        ("step", 2),
+        ("gate", 2),
+        ("action", 3),
+        ("step", 3),
+        ("gate", 3),
+        ("action", 4),
+        ("step", 4),
+        ("gate", 4),
+        ("update", 0),
+    ]
+
+
+def test_feedforward_step_gates_final_completion_before_update_state() -> None:
+    lifecycle: list[tuple[str, int]] = []
+    gate_calls: list[tuple[int, Any]] = []
+
+    class _TracedEnv(_StubTorchEnv):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.lifecycle: list[tuple[str, int]] = []
+
+        def update_state(self, state: TorchEnvState) -> TorchEnvState:
+            self.lifecycle.append(("update", 0))
+            return super().update_state(state)
+
+    backend = _backend()
+    completion = _GateCompletion(0, gate_calls, lifecycle)
+
+    def step_tensor(ctrl: torch.Tensor, nsteps: int) -> dict[str, Any]:
+        assert nsteps == 5
+        lifecycle.append(("step", 0))
+        return {"completion": completion}
+
+    backend.step_tensor.side_effect = step_tensor
+    env = _TracedEnv(cfg=_StubCfg(ctrl_dt=0.5), backend=backend, terminate=False)
+    env.lifecycle = lifecycle
+    env.init_state()
+    state = env.step(_actions(env))
+
+    assert gate_calls == [(0, None)]
+    assert lifecycle == [("step", 0), ("gate", 0), ("update", 0)]
+    assert state.info["completion"] is completion
+    assert env._pending_backend_step_completion is None
+
+
+def test_state_feedback_without_completion_receipts_keeps_sync_path() -> None:
+    class _FeedbackEnv(_StubTorchEnv):
+        @property
+        def requires_substep_state_feedback(self) -> bool:
+            return True
+
+        def apply_substep_action(self) -> torch.Tensor:
+            self.substep_applies += 1
+            return torch.full((self.num_envs, 4), float(self.substep_applies))
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.substep_applies = 0
+
+    backend = _backend()
+    backend.step_tensor.return_value = None
+    env = _FeedbackEnv(cfg=_StubCfg(ctrl_dt=0.3), backend=backend, terminate=False)
+    env.init_state()
+    state = env.step(_actions(env))
+
+    assert backend.step_tensor.call_count == 3
+    assert [call.args[1] for call in backend.step_tensor.call_args_list] == [1, 1, 1]
+    assert env.substep_applies == 2
+    assert "completion" not in state.info
+    assert env._pending_backend_step_completion is None
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA stream identity requires CUDA")
+def test_cuda_completion_gate_uses_current_consumer_stream() -> None:
+    backend = _backend()
+    capabilities = backend.get_tensor_capabilities.return_value
+    backend.get_tensor_capabilities.return_value = dataclasses.replace(
+        capabilities, torch_devices=("cuda",)
+    )
+    gate_calls: list[tuple[int, Any]] = []
+    completion = _GateCompletion(0, gate_calls)
+    backend.step_tensor.return_value = {"completion": completion}
+    env = _StubTorchEnv(cfg=_StubCfg(), backend=backend, device="cuda", terminate=False)
+    env.init_state()
+    stream = torch.cuda.Stream(device=env.device)
+    actions = torch.zeros((env.num_envs, 4), dtype=torch.float32, device=env.device)
+
+    with torch.cuda.stream(stream):
+        env.step(actions)
+    stream.synchronize()
+
+    assert gate_calls == [(0, stream)]
+
+
+def test_substep_metadata_completion_fails_before_next_action() -> None:
+    class _FeedbackEnv(_StubTorchEnv):
+        @property
+        def requires_substep_state_feedback(self) -> bool:
+            return True
+
+        def apply_substep_action(self) -> torch.Tensor:
+            raise AssertionError("an ungated receipt must not reach the next action")
+
+    backend = _backend()
+    backend.step_tensor.return_value = {
+        "completion": CompletionToken(
+            contract_version=COMPLETION_CONTRACT_VERSION,
+            operation="step",
+            sequence=0,
+            producer_id="test-producer",
+        )
+    }
+    cfg = _StubCfg(sim_dt=0.1, ctrl_dt=0.2)
+    env = _FeedbackEnv(cfg=cfg, backend=backend, terminate=False)
+    env.init_state()
+
+    with pytest.raises(NotImplementedError, match="does not implement a read gate"):
+        env.step(_actions(env))
+
+    assert backend.step_tensor.call_count == 1
+    assert env._pending_backend_step_completion is None
+    assert "completion" not in env._state.info
+
+
+def test_event_backed_step_without_receipt_fails_closed() -> None:
+    backend = _backend()
+    backend.backend_type = "mjwarp"
+    backend.step_tensor.return_value = {"timing": {}}
+    env = _StubTorchEnv(backend=backend, terminate=False)
+    env.init_state()
+
+    with pytest.raises(ValueError, match="did not publish a completion receipt"):
+        env.step(_actions(env))
+
+    assert backend.step_tensor.call_count == 1
     assert env._pending_backend_step_completion is None
 
 
@@ -326,6 +493,7 @@ def test_step_reattributes_update_state_drain_to_step_core(monkeypatch) -> None:
 
     async_backend = _backend()
     async_backend.backend_type = "mjwarp"
+    async_backend.step_tensor.return_value = {"completion": _GateCompletion(0, [])}
     env = _DrainEnv(backend=async_backend, terminate=False)
     env.init_state()
     timing = env.step(_actions(env)).info["timing"]
