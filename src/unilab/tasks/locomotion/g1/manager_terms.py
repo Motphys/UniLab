@@ -1379,11 +1379,11 @@ def make_g1_walk_env(
 
     cfg.validate()
     assert cfg.scene is not None
-    base_name, body_state_requested, tracked_body_names = _resolve_backend_entity_contract(cfg)
+    base_name, body_state_requested, tracked_body_names = _resolve_backend_entity_contract(
+        cfg, backend_type=backend_type
+    )
     backend_kwargs = env_backend_kwargs(cfg)
     backend_kwargs["base_name"] = base_name
-    if backend_type == "mujoco" and tracked_body_names is not None:
-        backend_kwargs["tracked_body_names"] = tracked_body_names
 
     backend = create_backend(
         backend_type,
@@ -1391,6 +1391,7 @@ def make_g1_walk_env(
         num_envs,
         cfg.sim_dt,
         body_state_required=body_state_requested,
+        tracked_body_names=tracked_body_names,
         **backend_kwargs,
     )
     try:

@@ -183,7 +183,12 @@ class ManagerScene(Protocol):
     @property
     def terrain(self) -> Terrain: ...
 
-    def compile_tensor_reads(self, device: str | torch.device, specs: Sequence[Any]) -> Any: ...
+    def compile_tensor_reads(
+        self,
+        device: str | torch.device,
+        specs: Sequence[Any],
+        body_pair_specs: Sequence[Any] = (),
+    ) -> Any: ...
 
     def env_origins(self, device: str | torch.device) -> torch.Tensor: ...
 

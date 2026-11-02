@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 import numpy as np
 import torch
 from unisim.backend.base import (
+    BodyPairContactBatch,
     HostBridgeTransferPlan,
     RootStateLayout,
     SensorView,
@@ -320,6 +321,33 @@ class SceneTensorReadSpec:
         object.__setattr__(self, "body_fields", fields)
 
 
+@dataclass(frozen=True)
+class SceneBodyPairContactReadSpec:
+    """Declare one entity's ordered batched body-pair contact reads.
+
+    Names are public backend sensor names because UniSim owns the body-pair
+    contract and its aggregation semantics. The entity records ownership only;
+    names are not translated to EntityCfg body selectors.
+    """
+
+    entity: str
+    sensor_names: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.entity, str) or not self.entity:
+            raise TypeError("Scene body-pair contact read entity must be a non-empty string")
+        if isinstance(self.sensor_names, (str, bytes)):
+            raise TypeError("Scene body-pair contact sensor_names must be a sequence of strings")
+        names = tuple(self.sensor_names)
+        if not names:
+            raise ValueError("Scene body-pair contact sensor_names cannot be empty")
+        if any(not isinstance(name, str) or not name for name in names):
+            raise TypeError("Scene body-pair contact sensor_names must be non-empty strings")
+        if len(set(names)) != len(names):
+            raise ValueError(f"Scene body-pair contact sensor_names must be unique: {names}")
+        object.__setattr__(self, "sensor_names", names)
+
+
 class SceneTensorReadPlan:
     """Phase-scoped packed tensor reads for one ``EntityScene``.
 
@@ -344,6 +372,8 @@ class SceneTensorReadPlan:
         packet_body_axes: Mapping[str, tuple[str, ...]],
         packet_body_blocks: bool,
         host_plan: HostBridgeTransferPlan | None,
+        body_pair_contact_names: Mapping[str, tuple[str, ...]],
+        body_pair_contact_batches: Mapping[str, BodyPairContactBatch] | None = None,
     ) -> None:
         self._scene = scene
         self._device = torch.device(device)
@@ -371,6 +401,11 @@ class SceneTensorReadPlan:
             tuple[str, tuple[str, ...], tuple[str, ...]], torch.Tensor
         ] = {}
         self._packet: Mapping[str, torch.Tensor] = MappingProxyType({})
+        self._body_pair_contact_names = MappingProxyType(dict(body_pair_contact_names))
+        self._body_pair_contact_batches: dict[str, BodyPairContactBatch] = dict(
+            body_pair_contact_batches or {}
+        )
+        self._contact_reads_ready = False
         self._refreshed = False
         self._closed = False
 
@@ -418,6 +453,11 @@ class SceneTensorReadPlan:
         """Return the immutable backend sensor names compiled into this plan."""
         return self._packet_names
 
+    @property
+    def body_pair_contact_names(self) -> Mapping[str, tuple[str, ...]]:
+        """Return each entity's immutable ordered body-pair contact request."""
+        return self._body_pair_contact_names
+
     def ray_pose_view(
         self, entity: "str | Entity", body_names: Sequence[str] | None = None
     ) -> SceneTensorPoseView:
@@ -453,6 +493,8 @@ class SceneTensorReadPlan:
     def refresh(self) -> None:
         """Publish one full-batch packet for the current read phase."""
         self._require_not_closed()
+        self._contact_reads_ready = False
+        self._refresh_body_pair_contacts()
         if self._host_plan_value is not None:
             if self._packet_body_blocks:
 
@@ -468,6 +510,7 @@ class SceneTensorReadPlan:
         else:
             packet = self._read_device_resident_packet()
         self._publish_packet(packet)
+        self._contact_reads_ready = True
 
     def refresh_selected(self) -> None:
         """Publish the post-selected-reset packet for the current read phase.
@@ -477,6 +520,8 @@ class SceneTensorReadPlan:
         their stable public views through the same normal read path.
         """
         self._require_not_closed()
+        self._contact_reads_ready = False
+        self._refresh_body_pair_contacts()
         if self._host_plan_value is not None:
             if self._packet_body_blocks:
 
@@ -492,6 +537,7 @@ class SceneTensorReadPlan:
         else:
             packet = self._read_device_resident_packet()
         self._publish_packet(packet)
+        self._contact_reads_ready = True
 
     def _read_device_resident_packet(self) -> dict[str, torch.Tensor]:
         """Publish one authoritative device-resident packet for this phase.
@@ -524,7 +570,45 @@ class SceneTensorReadPlan:
         """Drop phase values after an in-phase simulation mutation."""
         self._require_not_closed()
         self._packet = MappingProxyType({})
+        self._contact_reads_ready = False
         self._refreshed = False
+
+    def body_pair_contact_view(
+        self, entity: "str | Entity", names: Sequence[str]
+    ) -> BodyPairContactBatch:
+        """Return a validated entity-owned batched body-pair contact view.
+
+        Access never refreshes or binds. :meth:`refresh` owns the only hot
+        publication boundary, so a term cannot accidentally make “read the first
+        sensor” part of the Manager lifecycle.
+        """
+        self._require_not_closed()
+        name = entity if isinstance(entity, str) else entity.name
+        try:
+            owner = self._entities[name]
+        except KeyError as exc:
+            raise KeyError(
+                f"Scene tensor read entity '{name}' was not compiled into this plan; "
+                f"compiled={list(self._entities)}"
+            ) from exc
+        if isinstance(names, (str, bytes)):
+            raise TypeError(
+                f"Entity '{owner.name}' body-pair contact names must be a sequence of strings"
+            )
+        requested = tuple(names)
+        compiled = self._body_pair_contact_names.get(owner.name, ())
+        if requested != compiled:
+            raise ValueError(
+                f"Entity '{owner.name}' body-pair contacts {requested} were not compiled "
+                f"into this plan; compiled={list(compiled)}"
+            )
+        if not self._contact_reads_ready:
+            raise RuntimeError(
+                "Scene body-pair contact reads must be refreshed before the read phase"
+            )
+        batch = self._body_pair_contact_batches[owner.name]
+        self._validate_body_pair_contact_batch(owner.name, requested, batch)
+        return batch
 
     def joint_tensor_view(self, entity: "str | Entity") -> EntityTensorStateView:
         """Return one entity's validated joint state from the phase packet."""
@@ -890,6 +974,73 @@ class SceneTensorReadPlan:
             ang_vel_w=fields["ang_vel_w"],
         )
 
+    def _refresh_body_pair_contacts(self) -> None:
+        """Publish every bound body-pair batch as one explicit backend phase."""
+        if not self._body_pair_contact_names:
+            return
+        backend = self._scene._backend
+        names = tuple(
+            name
+            for entity_name in self._body_pair_contact_names
+            for name in self._body_pair_contact_names[entity_name]
+        )
+        try:
+            backend.refresh_body_pair_contact_views(names)
+        except (AttributeError, KeyError, TypeError, ValueError, NotImplementedError) as exc:
+            raise type(exc)(
+                "Manager scene batched body-pair contact refresh on backend "
+                f"'{backend.backend_type}': {exc}"
+            ) from exc
+
+    @staticmethod
+    def _static_validate_body_pair_contact_batch(
+        backend: SimBackend,
+        device: torch.device,
+        entity_name: str,
+        requested: tuple[str, ...],
+        batch: BodyPairContactBatch,
+    ) -> None:
+        label = f"Entity '{entity_name}' batched body-pair contacts"
+        if batch.sensor_names != requested:
+            raise ValueError(
+                f"{label} on backend '{backend.backend_type}' returned slots "
+                f"{batch.sensor_names}; expected {requested}"
+            )
+        num_envs = backend.num_envs
+        slots = len(requested)
+        specifications = (
+            ("active", (num_envs, slots), torch.bool),
+            ("count", (num_envs, slots), torch.int32),
+            ("position_w", (num_envs, slots, 3), torch.float32),
+            ("force_w", (num_envs, slots, 3), torch.float32),
+        )
+        for field, shape, dtype in specifications:
+            value = getattr(batch, field, None)
+            if not isinstance(value, torch.Tensor):
+                raise TypeError(
+                    f"{label} field '{field}' is {type(value).__name__}, expected torch.Tensor"
+                )
+            if tuple(value.shape) != shape:
+                raise ValueError(
+                    f"{label} field '{field}' has shape {tuple(value.shape)}; expected {shape}"
+                )
+            if value.dtype != dtype or value.device != device:
+                raise TypeError(
+                    f"{label} field '{field}' must be {dtype} on {device}; "
+                    f"got {value.dtype} on {value.device}"
+                )
+
+    def _validate_body_pair_contact_batch(
+        self, entity_name: str, requested: tuple[str, ...], batch: BodyPairContactBatch
+    ) -> None:
+        self._static_validate_body_pair_contact_batch(
+            self._scene._backend,
+            self._device,
+            entity_name,
+            requested,
+            batch,
+        )
+
     @property
     def transfer_stats(self) -> dict[str, int]:
         self._require_open()
@@ -913,6 +1064,8 @@ class SceneTensorReadPlan:
                 self._host_plan_value.close()
         finally:
             self._aggregate_body_views.clear()
+            self._body_pair_contact_batches.clear()
+            self._contact_reads_ready = False
             self._packet_body_index_cache.clear()
             self._packet = MappingProxyType({})
             self._refreshed = False
@@ -4610,6 +4763,7 @@ class EntityScene(Mapping[str, Entity]):
         self,
         device: str | torch.device,
         specs: Sequence[SceneTensorReadSpec],
+        body_pair_specs: Sequence[SceneBodyPairContactReadSpec] = (),
     ) -> "SceneTensorReadPlan":
         """Compile the scene's only packed tensor read layout for one device.
 
@@ -4621,11 +4775,21 @@ class EntityScene(Mapping[str, Entity]):
         """
         if isinstance(specs, SceneTensorReadSpec):
             raise TypeError("Scene tensor read specs must be a sequence of SceneTensorReadSpec")
+        if isinstance(body_pair_specs, SceneBodyPairContactReadSpec):
+            raise TypeError(
+                "Scene body-pair contact read specs must be a sequence of "
+                "SceneBodyPairContactReadSpec"
+            )
         normalized = tuple(specs)
-        if not normalized:
+        contact_specs = tuple(body_pair_specs)
+        if not normalized and not contact_specs:
             raise ValueError("Scene tensor read request is empty")
         if any(not isinstance(spec, SceneTensorReadSpec) for spec in normalized):
             raise TypeError("Scene tensor read specs must be SceneTensorReadSpec instances")
+        if any(not isinstance(spec, SceneBodyPairContactReadSpec) for spec in contact_specs):
+            raise TypeError(
+                "Scene body-pair contact read specs must be SceneBodyPairContactReadSpec instances"
+            )
 
         entities: dict[str, Entity] = {}
         per_entity_sensors: dict[str, tuple[str, ...]] = {}
@@ -4656,6 +4820,36 @@ class EntityScene(Mapping[str, Entity]):
             per_entity_bodies[spec.entity] = (*bodies, *spec.body_names)
             if spec.body_names:
                 fields.update(spec.body_fields)
+
+        body_pair_entities: dict[str, Entity] = {}
+        body_pair_contact_names: dict[str, tuple[str, ...]] = {}
+        body_pair_request_owners: dict[str, str] = {}
+        entity_contact_requests: dict[str, tuple[str, ...]] = {}
+        for contact_spec in contact_specs:
+            try:
+                body_pair_entities[contact_spec.entity] = self._entities[contact_spec.entity]
+            except KeyError as exc:
+                raise KeyError(
+                    f"Scene body-pair contact read entity '{contact_spec.entity}' not found; "
+                    f"available={list(self._entities)}"
+                ) from exc
+            for name in contact_spec.sensor_names:
+                owner = body_pair_request_owners.get(name)
+                if owner is not None and owner != contact_spec.entity:
+                    raise ValueError(
+                        f"Scene body-pair contact '{name}' is requested by entities "
+                        f"'{owner}' and '{contact_spec.entity}'"
+                    )
+                body_pair_request_owners[name] = contact_spec.entity
+            previous = entity_contact_requests.get(contact_spec.entity)
+            if previous is not None and previous != contact_spec.sensor_names:
+                raise ValueError(
+                    f"Entity '{contact_spec.entity}' body-pair contact declarations must "
+                    f"be identical across Manager terms; got {previous} and "
+                    f"{contact_spec.sensor_names}"
+                )
+            entity_contact_requests[contact_spec.entity] = contact_spec.sensor_names
+            body_pair_contact_names.setdefault(contact_spec.entity, contact_spec.sensor_names)
 
         expanded_bodies: dict[str, tuple[str, ...]] = {}
         for entity_name, body_names in per_entity_bodies.items():
@@ -4745,6 +4939,42 @@ class EntityScene(Mapping[str, Entity]):
                     f"'{self._backend.backend_type}': {exc}"
                 ) from exc
 
+        body_pair_batches: dict[str, BodyPairContactBatch] = {}
+        if body_pair_contact_names:
+            if not bool(getattr(capabilities, "batched_body_pair_contacts", False)):
+                raise NotImplementedError(
+                    "backend does not declare the batched_body_pair_contacts capability "
+                    "required by Manager body-pair contact terms: "
+                    "SimBackend.bind_body_pair_contact_views"
+                )
+            for entity_name, names in body_pair_contact_names.items():
+                try:
+                    batch = self._backend.bind_body_pair_contact_views(
+                        names, device=resolved_device
+                    )
+                except (
+                    AttributeError,
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                    NotImplementedError,
+                ) as exc:
+                    raise type(exc)(
+                        "Manager scene batched body-pair contact binding on backend "
+                        f"'{self._backend.backend_type}': {exc}"
+                    ) from exc
+                body_pair_batches[entity_name] = batch
+            entities.update(body_pair_entities)
+            entities = {name: entities[name] for name in dict.fromkeys(entities)}
+            for entity_name, batch in body_pair_batches.items():
+                SceneTensorReadPlan._static_validate_body_pair_contact_batch(
+                    self._backend,
+                    resolved_device,
+                    entity_name,
+                    body_pair_contact_names[entity_name],
+                    batch,
+                )
+
         return SceneTensorReadPlan(
             scene=self,
             device=resolved_device,
@@ -4764,6 +4994,8 @@ class EntityScene(Mapping[str, Entity]):
             packet_body_axes=packet_body_axes,
             packet_body_blocks=packet_body_blocks,
             host_plan=host_plan,
+            body_pair_contact_names=body_pair_contact_names,
+            body_pair_contact_batches=body_pair_batches,
         )
 
     @staticmethod
@@ -4956,4 +5188,5 @@ __all__ = [
     "SceneTensorReadPlan",
     "SceneTensorPoseView",
     "SceneTensorReadSpec",
+    "SceneBodyPairContactReadSpec",
 ]
