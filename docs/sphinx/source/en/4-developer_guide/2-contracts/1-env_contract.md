@@ -24,6 +24,13 @@ The environment contract is code-owned by `src/unilab/base/base.py` and
 
 - Env code owns MDP semantics, observation construction, rewards, termination,
   truncation, reset behavior, and final-observation handling.
+- When an async backend publishes a `CompletionToken`, `TorchEnv` uses that
+  public receipt to order the current Torch stream before the next
+  state-feedback Manager action/read/control write and before final Manager
+  state update. Feed-forward stepping remains one batched backend call, and
+  synchronous producers without a receipt perform no read gate. Task code must
+  not override physics stepping or use backend-private streams/events for this
+  ordering.
 - Runners and learners must not invent critic observations by concatenating
   fields outside the env owner layer.
 - If a third-party library still calls critic observations "privileged", keep
