@@ -757,16 +757,13 @@ wheels = [
 
 [[package]]
 name = "drake-uni"
-version = "0.1.0"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/95/3a/248c89902111de84dd8bbaa947da87f80a4ec6e251197f4b82f6636eb0fc/drake_uni-0.1.0.tar.gz", hash = "sha256:46875ba06685ab73ab9b77a955f04c441c2aef21f8e15a9199a2d2c0ebb328f3", size = 36819, upload-time = "2026-09-02T07:22:39.204Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/58/ac1b25a33b34965c3ef0a414fa595cea21cb2c9b6d18fe10da0da67a23d3/drake_uni-0.1.0-py3-none-any.whl", hash = "sha256:7acb6c39b5c343c6875137cc2589d7708f1d9afd5ed5da1cc93b7647e09ef5f0", size = 34949, upload-time = "2026-09-02T07:22:37.386Z" },
-]
+sdist = { url = "https://files.pythonhosted.org/packages/92/f7/e501abb16add353dcc9cbb817fb03d2b65398ff9f3c331e7ef46ac64558f/drake_uni-0.2.0.tar.gz", hash = "sha256:cd01dc1187cb85131ad7413797b02e5f6235d2124b8cc9df249dc8069bcc8d85", size = 58843, upload-time = "2026-11-04T08:07:41.198Z" }
 
 [[package]]
 name = "embreex"
@@ -4688,7 +4685,7 @@ wheels = [
 
 [[package]]
 name = "unilab"
-version = "1.5.6"
+version = "1.5.7"
 source = { editable = "." }
 dependencies = [
     { name = "etils", version = "1.13.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -4752,7 +4749,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "drake-uni", marker = "extra == 'drake'", specifier = "==0.1.0" },
+    { name = "drake-uni", marker = "extra == 'drake'", specifier = "==0.2.0" },
     { name = "etils" },
     { name = "genesis-world", marker = "extra == 'genesis'", specifier = "==1.3.3" },
     { name = "gymnasium" },
@@ -4782,8 +4779,8 @@ requires-dist = [
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "triton-rocm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'", specifier = "==3.8.0", index = "https://download.pytorch.org/whl/rocm7.2" },
     { name = "typing-extensions" },
-    { name = "unisim-core", specifier = "==2.5.0" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.5.0" },
+    { name = "unisim-core", specifier = "==2.6.0" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.6.0" },
     { name = "viser", specifier = ">=1.0.26" },
     { name = "wandb", marker = "extra == 'unirl'", specifier = ">=0.22.3" },
 ]
@@ -4800,15 +4797,15 @@ dev = [
 
 [[package]]
 name = "unisim-core"
-version = "2.5.0"
+version = "2.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/02/21/7a72c2f5c3f71c25cc377e28c54e223b464b12981385b91e20dafa5b24e6/unisim_core-2.5.0.tar.gz", hash = "sha256:b544f7b2114ced799cdffb26a500a7fda50b1cb349602057ef6b8bdd325a3fe7", size = 777900, upload-time = "2026-11-02T12:01:04.156Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9b/f2/d5e3ce5e2a78c3260dfaceb36c609c22b045f36517219656eac3c9add5e2/unisim_core-2.6.0.tar.gz", hash = "sha256:3f323684b9c5305fa05e1db843208664d2b61b81602c7033bb56cc603966dd32", size = 778984, upload-time = "2026-11-04T08:52:52.766Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/c1/f45946117f4f30b0ac13271734b27c1d254fbfe964e36a91d6647994ef80/unisim_core-2.5.0-py3-none-any.whl", hash = "sha256:42120e2dfb8289b096279903a5d13ca6b64a6e5267e9d0e9f1e3b4e9bed6ed0f", size = 826928, upload-time = "2026-11-02T12:01:02.331Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/5a/7ae88ca4f39d4cb8c7b1259e063dbf6903d21ea317f5295f2c55f0b84115/unisim_core-2.6.0-py3-none-any.whl", hash = "sha256:b113b029a887ff1daa7d262d9b793827415f9e685c2dd7443aaf8acf7eec1831", size = 828039, upload-time = "2026-11-04T08:52:50.84Z" },
 ]
 
 [package.optional-dependencies]

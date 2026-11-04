@@ -13,6 +13,22 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.5.7 (2026-11-04)
+
+### Changed / 变更
+
+- The default and ROCm profiles now pin `unisim-core==2.6.0`, including the
+  Motrix and SuperDex extras, and the Drake extra now pins
+  `drake-uni==0.2.0`. The new DrakeUni release adds the typed batch physics
+  configuration (`DrakePhysicsConfig`) and the native effective-settings
+  readback consumed through `create_backend(..., drake_physics=...)`
+  (unilabsim/drake_uni#5).
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.6.0`（包括 Motrix 与
+  SuperDex extra）,Drake extra 现在钉定 `drake-uni==0.2.0`。新版
+  DrakeUni 增加了类型化的批量物理配置（`DrakePhysicsConfig`）与原生生效
+  设置回读，可经 `create_backend(..., drake_physics=...)` 使用
+  (unilabsim/drake_uni#5)。
+
 ## 1.5.6 (2026-11-02)
 
 ### Changed / 变更
