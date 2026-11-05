@@ -28,7 +28,8 @@ source/
 ├── _static/
 └── _templates/
     ├── sidebar/
-    │   └── lang_switcher.html   # language dropdown in sidebar
+    │   ├── lang_switcher.html   # language dropdown in sidebar
+    │   └── versioning.html      # version dropdown (rendered only under sphinx-multiversion)
     └── autosummary/
 ```
 

@@ -1,7 +1,8 @@
 # UniLab Documentation
 
 UniLab 的全部文档源码统一在 [`docs/sphinx/`](sphinx/) 下,通过 Sphinx 构建,部署到
-<https://unilabsim.github.io/UniLab-doc/>。
+<https://unilabsim.github.io/UniLab-doc/>。站点按版本子路径发布(当前仅 `main/`,
+如 `/UniLab-doc/main/en/0-index.html`),根路径自动重定向到 `main/`。
 
 发布入口:
 

@@ -35,6 +35,12 @@ Generated backend × task evidence and selection notes.
 Shared architecture decisions and their status.
 :::
 
+:::{grid-item-card} Manager terms
+:link: 6-manager_terms/0-index
+:link-type: doc
+Built-in reward, observation, and termination terms with parameters.
+:::
+
 ::::
 
 ```{toctree}
@@ -46,4 +52,5 @@ Shared architecture decisions and their status.
 3-changelog
 4-adr
 5-support_matrix
+6-manager_terms/0-index
 ```
