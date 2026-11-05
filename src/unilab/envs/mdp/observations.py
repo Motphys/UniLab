@@ -37,6 +37,7 @@ def quat_apply_inverse(quat_wxyz: torch.Tensor, vector: torch.Tensor) -> torch.T
 
 
 def require_read_plan(env: ManagerBasedRlEnv, term_name: str) -> Any:
+    """Return the scene's packed Torch read plan or fail closed for ``term_name``."""
     read_plan = getattr(env.scene, "read_plan", None)
     if read_plan is None:
         raise NotImplementedError(
@@ -46,6 +47,7 @@ def require_read_plan(env: ManagerBasedRlEnv, term_name: str) -> Any:
 
 
 def _root_body_name(asset: "Entity", term_name: str) -> str:
+    """Return the entity's declared root body name or fail closed for ``term_name``."""
     root_body_name = getattr(asset, "root_body_name", None)
     if not isinstance(root_body_name, str) or not root_body_name:
         raise NotImplementedError(
@@ -60,12 +62,19 @@ def root_body_view(
     asset_cfg: SceneEntityCfg,
     term_name: str,
 ) -> tuple[Entity, Any]:
+    """Return the entity and its packed root-body tensor view for ``term_name``."""
     asset = cast("Entity", env.scene[asset_cfg.name])
     read_plan = require_read_plan(env, term_name)
     return asset, read_plan.body_tensor_view(asset, (_root_body_name(asset, term_name),))
 
 
 def joint_view(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg, term_name: str) -> Any:
+    """Return the packed joint tensor view for the configured entity.
+
+    Before the packed read plan is compiled, returns a zero-valued probe view
+    with the declared joint width so shape probing works during manager
+    construction.
+    """
     asset = env.scene[asset_cfg.name]
     read_plan = getattr(env.scene, "read_plan", None)
     if read_plan is None:
@@ -88,6 +97,7 @@ def joint_view(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg, term_name: str
 
 
 def world_to_body_vector(quat_wxyz: torch.Tensor, vector_w: torch.Tensor) -> torch.Tensor:
+    """Rotate a world-frame vector into the body frame given by ``quat_wxyz``."""
     return quat_apply_inverse(quat_wxyz, vector_w)
 
 
@@ -98,6 +108,7 @@ class _NamedSensorObservation(ManagerTermBase):
     _tensor_sensor_names: tuple[str, ...] = ()
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        """Resolve the ``sensor_name``/``entity_name`` params and bind the sensor view."""
         super().__init__(env)
         sensor_name = cfg.params.get("sensor_name")
         if not isinstance(sensor_name, str) or not sensor_name:
@@ -117,12 +128,14 @@ class _NamedSensorObservation(ManagerTermBase):
             ) from exc
 
     def _resolve_entity_name(self, cfg: ManagerTermBaseCfg) -> str:
+        """Return the configured ``entity_name`` param, defaulting to ``"robot"``."""
         entity_name = cfg.params.get("entity_name")
         if not isinstance(entity_name, str) or not entity_name:
             return "robot"
         return entity_name
 
     def _validate_call_name(self, sensor_name: str) -> None:
+        """Reject a call-time sensor name that differs from the bound one."""
         if sensor_name != self._sensor_name:
             raise ValueError(
                 f"Observation term '{self._term_name}' was bound to sensor "
@@ -130,6 +143,7 @@ class _NamedSensorObservation(ManagerTermBase):
             )
 
     def _read(self) -> Any:
+        """Read the cached sensor view with the term name attached to failures."""
         try:
             return self._view.read()
         except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
@@ -139,6 +153,7 @@ class _NamedSensorObservation(ManagerTermBase):
             ) from exc
 
     def _read_tensor(self, env: ManagerBasedRlEnv) -> torch.Tensor:
+        """Read the sensor through the packed Torch read plan as a finite tensor."""
         read_plan = getattr(env.scene, "read_plan", None)
         if read_plan is None:
             # Manager construction probes immutable observation shape before
@@ -173,6 +188,7 @@ class _NamedSensorObservation(ManagerTermBase):
 
     @property
     def tensor_sensor_names(self) -> tuple[str, ...]:
+        """Sensor names this term requires in the packed Torch read plan."""
         return self._tensor_sensor_names
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
@@ -191,6 +207,7 @@ class builtin_sensor(_NamedSensorObservation):
         sensor_name: str,
         entity_name: str | None = None,
     ) -> torch.Tensor:
+        """Return the bound sensor's latest finite tensor reading."""
         del entity_name
         self._validate_call_name(sensor_name)
         return self._read_tensor(env)
@@ -202,6 +219,7 @@ class projected_gravity_from_sensor(_NamedSensorObservation):
     _term_name = "projected_gravity_from_sensor"
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        """Bind the sensor view and require a 3-D up-vector output."""
         super().__init__(cfg, env)
         if self._view.dimensions != (3,):
             raise ValueError(
@@ -216,6 +234,7 @@ class projected_gravity_from_sensor(_NamedSensorObservation):
         sensor_name: str,
         entity_name: str | None = None,
     ) -> torch.Tensor:
+        """Return the negated 3-D up-vector reading (projected gravity)."""
         del entity_name
         self._validate_call_name(sensor_name)
         return -self._read_tensor(env)
@@ -225,6 +244,16 @@ def base_lin_vel(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
+    """Root body linear velocity expressed in the root body frame.
+
+    Args:
+        env: Manager-based RL environment providing the packed read plan.
+        asset_cfg: Scene entity selection; defaults to the ``"robot"`` entity.
+
+    Returns:
+        A ``(num_envs, 3)`` tensor with the world-frame linear velocity
+        rotated into the root body frame.
+    """
     _, view = root_body_view(env, asset_cfg, "base_lin_vel")
     return world_to_body_vector(view.quat_w[:, 0, :], view.lin_vel_w[:, 0, :])
 
@@ -233,6 +262,16 @@ def base_ang_vel(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
+    """Root body angular velocity expressed in the root body frame.
+
+    Args:
+        env: Manager-based RL environment providing the packed read plan.
+        asset_cfg: Scene entity selection; defaults to the ``"robot"`` entity.
+
+    Returns:
+        A ``(num_envs, 3)`` tensor with the world-frame angular velocity
+        rotated into the root body frame.
+    """
     _, view = root_body_view(env, asset_cfg, "base_ang_vel")
     return world_to_body_vector(view.quat_w[:, 0, :], view.ang_vel_w[:, 0, :])
 
@@ -241,6 +280,16 @@ def projected_gravity(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
+    """Gravity vector projected into the root body frame.
+
+    Args:
+        env: Manager-based RL environment providing the packed read plan.
+        asset_cfg: Scene entity selection; defaults to the ``"robot"`` entity.
+
+    Returns:
+        A ``(num_envs, 3)`` tensor with the world gravity vector expressed in
+        the root body frame.
+    """
     asset, view = root_body_view(env, asset_cfg, "projected_gravity")
     gravity = asset.data.gravity_vec_w(getattr(env, "device", torch.device("cpu")))[0]
     return quat_apply_inverse(view.quat_w[:, 0, :], gravity.expand((view.quat_w.shape[0], 3)))
@@ -296,6 +345,7 @@ class _ImuMisalignedObservation(ManagerTermBase):
     _term_name = "imu_misaligned"
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        """Validate ``max_angle_deg`` and bind the per-env misalignment quaternion."""
         super().__init__(env)
         max_angle_deg = cfg.params.get("max_angle_deg", 1.0)
         if isinstance(max_angle_deg, bool) or not isinstance(max_angle_deg, (int, float)):
@@ -313,6 +363,7 @@ class _ImuMisalignedObservation(ManagerTermBase):
         self._quat = _imu_misalignment_quat(env, math.radians(max_angle_deg))
 
     def _validate_max_angle(self, max_angle_deg: float) -> None:
+        """Reject a call-time ``max_angle_deg`` that differs from the bound one."""
         if float(max_angle_deg) != self._max_angle_deg:
             raise ValueError(
                 f"Observation term '{self._term_name}' was bound to max_angle_deg "
@@ -320,6 +371,7 @@ class _ImuMisalignedObservation(ManagerTermBase):
             )
 
     def _rotate(self, values: Any) -> torch.Tensor:
+        """Rotate vectors by this term's cached per-env misalignment quaternion."""
         device = getattr(self._env, "device", torch.device("cpu"))
         vectors = torch.as_tensor(values, dtype=torch.float32, device=device)
         quat = self._quat.to(device=device)
@@ -339,6 +391,7 @@ class base_ang_vel_imu_misaligned(_ImuMisalignedObservation):
         max_angle_deg: float = 1.0,
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
     ) -> torch.Tensor:
+        """Return the base angular velocity rotated by the bound IMU misalignment."""
         self._validate_max_angle(max_angle_deg)
         _, view = root_body_view(env, asset_cfg, self._term_name)
         return self._rotate(world_to_body_vector(view.quat_w[:, 0, :], view.ang_vel_w[:, 0, :]))
@@ -355,6 +408,7 @@ class projected_gravity_imu_misaligned(_ImuMisalignedObservation):
         max_angle_deg: float = 1.0,
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
     ) -> torch.Tensor:
+        """Return projected gravity rotated by the bound IMU misalignment."""
         self._validate_max_angle(max_angle_deg)
         asset, view = root_body_view(env, asset_cfg, self._term_name)
         gravity = asset.data.gravity_vec_w(getattr(env, "device", torch.device("cpu")))[0]
@@ -369,6 +423,21 @@ def joint_pos_rel(
     biased: bool = False,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
+    """Joint positions relative to the default joint positions.
+
+    Args:
+        env: Manager-based RL environment.
+        biased: When True, add the per-joint encoder bias to the relative
+            positions.
+        asset_cfg: Scene entity selection; defaults to the ``"robot"`` entity.
+
+    Returns:
+        A ``(num_envs, len(asset_cfg.joint_ids))`` tensor of relative joint
+        positions.
+
+    Raises:
+        TypeError: If ``biased`` is not a ``bool``.
+    """
     if not isinstance(biased, bool):
         raise TypeError(f"joint_pos_rel biased must be bool, got {type(biased).__name__}")
     joint_ids = asset_cfg.joint_ids
@@ -387,6 +456,16 @@ def joint_vel_rel(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
+    """Joint velocities relative to the default joint velocities.
+
+    Args:
+        env: Manager-based RL environment.
+        asset_cfg: Scene entity selection; defaults to the ``"robot"`` entity.
+
+    Returns:
+        A ``(num_envs, len(asset_cfg.joint_ids))`` tensor of relative joint
+        velocities.
+    """
     joint_ids = asset_cfg.joint_ids
     device = getattr(env, "device", torch.device("cpu"))
     asset = env.scene[asset_cfg.name]
@@ -395,6 +474,19 @@ def joint_vel_rel(
 
 
 def last_action(env: ManagerBasedRlEnv, action_name: str | None = None) -> torch.Tensor:
+    """Latest raw action tensor published by the action manager.
+
+    Args:
+        env: Manager-based RL environment.
+        action_name: When given, return only this action term's raw action
+            instead of the manager's combined action buffer.
+
+    Returns:
+        A ``(num_envs, action_dim)`` tensor with the most recent raw actions.
+
+    Raises:
+        KeyError: If ``action_name`` does not name an action term.
+    """
     if action_name is None:
         return env.action_manager.action
     try:
@@ -405,6 +497,18 @@ def last_action(env: ManagerBasedRlEnv, action_name: str | None = None) -> torch
 
 
 def generated_commands(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """Latest command tensor generated by the named command term.
+
+    Args:
+        env: Manager-based RL environment.
+        command_name: Name of the command term to read.
+
+    Returns:
+        The command term's current command tensor.
+
+    Raises:
+        KeyError: If ``command_name`` does not name an active command term.
+    """
     try:
         command = env.command_manager.get_command(command_name)
     except KeyError as exc:

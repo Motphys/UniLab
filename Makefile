@@ -39,6 +39,10 @@ check: format type check-tests
 check-tests:
 	uv run ruff check tests --select F401,F821,F811,F841 --output-format concise
 
+.PHONY: check-docstrings
+check-docstrings:
+	uv run interrogate src/unilab
+
 .PHONY: test
 test:
 	uv run pytest -m "not slow"

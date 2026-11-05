@@ -1,6 +1,8 @@
 # Derived from mujocolab/mjlab v1.6.0 (0fb8a681), src/mjlab/managers/manager_base.py.
 # Copyright 2025, The mjlab Developers.
 # Modified by UniLab for NumPy and UniLab contracts; licensed under Apache-2.0.
+"""Base classes for manager terms and managers in the Manager-Based runtime."""
+
 from __future__ import annotations
 
 import abc
@@ -73,17 +75,22 @@ class ManagerTermBaseCfg:
 
 
 class ManagerTermBase:
+    """Base class for class-based manager terms instantiated with ``(cfg, env)``."""
+
     def __init__(self, env: ManagerBasedRlEnv):
+        """Retain the owning environment for later calls."""
         self._env = env
 
     # Properties.
 
     @property
     def num_envs(self) -> int:
+        """Number of vectorized environment rows."""
         return self._env.num_envs
 
     @property
     def name(self) -> str:
+        """Term name, defaulting to the class name."""
         return self.__class__.__name__
 
     # Methods.
@@ -97,6 +104,7 @@ class ManagerBase(abc.ABC):
     """Base class for all managers."""
 
     def __init__(self, env: ManagerBasedRlEnv):
+        """Retain the owning environment and prepare the configured terms."""
         self._env = env
 
         self._prepare_terms()
@@ -105,11 +113,13 @@ class ManagerBase(abc.ABC):
 
     @property
     def num_envs(self) -> int:
+        """Number of vectorized environment rows."""
         return self._env.num_envs
 
     @property
     @abc.abstractmethod
     def active_terms(self) -> list[str] | dict[Any, list[str]]:
+        """Names of the active terms, grouped per category when applicable."""
         raise NotImplementedError
 
     # Methods.
@@ -125,13 +135,16 @@ class ManagerBase(abc.ABC):
         return {}
 
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
+        """Return ``(term_name, values)`` pairs iterated by the given environment row."""
         raise NotImplementedError
 
     @abc.abstractmethod
     def _prepare_terms(self) -> None:
+        """Resolve and instantiate the configured terms."""
         raise NotImplementedError
 
     def _resolve_common_term_cfg(self, term_name: str, term_cfg: ManagerTermBaseCfg) -> None:
+        """Resolve ``SceneEntityCfg`` params and instantiate class-based term callables."""
         for param_name, value in term_cfg.params.items():
             if isinstance(value, SceneEntityCfg):
                 try:

@@ -60,10 +60,12 @@ class TorchEnvState:
     final_observation: dict[str, torch.Tensor] | None = None
 
     def replace(self, **updates: Any) -> "TorchEnvState":
+        """Return a copy of this transition with ``updates`` applied."""
         return dataclasses.replace(self, **updates)
 
 
 def _cpu_time() -> float:
+    """Return the process CPU time (user + system) in seconds."""
     process = os.times()
     return process.user + process.system
 
@@ -92,6 +94,19 @@ class TorchEnv(ABEnv):
         *,
         device: torch.device | str = "cpu",
     ):
+        """Initialize the backend-agnostic tensor lifecycle.
+
+        Args:
+            cfg: Environment configuration.
+            backend: Physics backend bound to this environment.
+            num_envs: Number of vectorized environment rows.
+            device: Torch device owning the environment tensors; a bare
+                ``cuda`` device is resolved to the current device index.
+
+        Raises:
+            ValueError: If ``finite_validation_interval`` is not a positive
+                integer.
+        """
         apply_cpu_confinement(cfg.cpu_ids)
         self._cfg = cfg
         self._backend = backend
@@ -128,9 +143,11 @@ class TorchEnv(ABEnv):
 
     @property
     def device(self) -> torch.device:
+        """Torch device owning the environment tensors."""
         return self._device
 
     def _bind_tensor_runtime(self) -> None:
+        """Validate and record the backend's tensor lifecycle capabilities once."""
         if self._tensor_runtime_bound:
             return
         capabilities = self._backend.get_tensor_capabilities()
@@ -155,6 +172,7 @@ class TorchEnv(ABEnv):
 
     @property
     def cfg(self) -> EnvCfg:
+        """Environment configuration."""
         return self._cfg
 
     @property
@@ -177,24 +195,33 @@ class TorchEnv(ABEnv):
 
     @property
     def num_envs(self) -> int:
+        """Number of vectorized environment rows."""
         return self._num_envs
 
     @property
     def state(self) -> Optional[TorchEnvState]:
+        """Latest environment transition, or ``None`` before :meth:`init_state`."""
         return self._state
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
+        """Observation group names and per-group dimensions."""
         raise NotImplementedError(
             f"{type(self).__name__} must declare observation group dimensions"
         )
 
     @property
     def observation_space(self) -> gym.Space:
+        """Flat Box space spanning the concatenated observation groups."""
         total = sum(self.obs_groups_spec.values())
         return gym.spaces.Box(-np.inf, np.inf, shape=(total,), dtype=np.float32)
 
     def init_state(self) -> TorchEnvState:
+        """Allocate the zeroed initial state and run the bootstrap reset.
+
+        Returns:
+            The initial ``TorchEnvState`` after the bootstrap reset.
+        """
         self._bind_tensor_runtime()
         action_shape = self.action_space.shape
         if action_shape is not None:
@@ -243,6 +270,19 @@ class TorchEnv(ABEnv):
         raise NotImplementedError(f"{type(self).__name__} must define a tensor reset lifecycle")
 
     def step(self, actions: torch.Tensor) -> TorchEnvState:
+        """Advance the environment by one policy step.
+
+        Validates the action contract, applies action terms, steps the
+        backend, updates the tensor state, and runs the selected-row
+        autoreset. Per-phase timings are published under ``info["timing"]``.
+
+        Args:
+            actions: Float32 action tensor of shape
+                ``(num_envs, *action_space.shape)`` on the env device.
+
+        Returns:
+            The updated ``TorchEnvState``.
+        """
         started = time.perf_counter()
         cpu_started = _cpu_time()
         phase = time.perf_counter()
@@ -404,6 +444,7 @@ class TorchEnv(ABEnv):
         )
 
     def _step_physics(self, ctrl: torch.Tensor) -> dict[str, Any] | None:
+        """Step the backend ``sim_substeps`` times, merging timing and step receipts."""
         if not self.requires_substep_state_feedback:
             return cast(
                 dict[str, Any] | None,
@@ -434,12 +475,14 @@ class TorchEnv(ABEnv):
         return {"timing": backend_timing, "completion": backend_result.get("completion")}
 
     def _validate_action(self, actions: torch.Tensor) -> None:
+        """Validate the action contract and its finite verdict."""
         self._validate_action_contract(actions)
         self._record_action_finite(actions)
         if not self._defer_finite_validation and not bool(self._action_finite_valid):
             raise ValueError("TorchEnv action contains NaN or Inf")
 
     def _validate_action_contract(self, actions: torch.Tensor) -> None:
+        """Check type, shape, dtype, contiguity, and device of an action tensor."""
         if not isinstance(actions, torch.Tensor):
             raise TypeError(f"TorchEnv action must be a torch.Tensor, got {type(actions).__name__}")
         action_shape = self.action_space.shape
@@ -478,6 +521,7 @@ class TorchEnv(ABEnv):
             raise
 
     def _validate_control(self, ctrl: torch.Tensor) -> None:
+        """Validate the final control tensor after action-term adjustment."""
         if not isinstance(ctrl, torch.Tensor):
             raise TypeError(f"TorchEnv control must be a torch.Tensor, got {type(ctrl).__name__}")
         if ctrl.dtype != torch.float32:
@@ -507,6 +551,7 @@ class TorchEnv(ABEnv):
             raise ValueError("TorchEnv control contains NaN or Inf")
 
     def _validate_state(self, state: TorchEnvState) -> None:
+        """Validate the transition contract, aggregating finite verdicts on device."""
         expected_keys = set(self.obs_groups_spec)
         if not isinstance(state.obs, dict) or set(state.obs) != expected_keys:
             raise ValueError("TorchEnvState.obs keys do not match obs_groups_spec")
@@ -550,6 +595,7 @@ class TorchEnv(ABEnv):
                     raise ValueError(f"TorchEnvState {label} contains NaN or Inf")
 
     def _validate_finite_float(self, value: torch.Tensor, label: str) -> None:
+        """Require a floating-point, finite tensor."""
         if not value.is_floating_point():
             raise TypeError(f"TorchEnvState {label} must be floating-point")
         if not bool(torch.isfinite(value).all()):
@@ -580,10 +626,12 @@ class TorchEnv(ABEnv):
         return verdict
 
     def _require_floating_float(self, value: torch.Tensor) -> None:
+        """Require a floating-point tensor."""
         if not value.is_floating_point():
             raise TypeError("TorchEnvState floating outputs must be floating-point")
 
     def _validate_vector(self, value: Any, label: str, dtype: torch.dtype) -> None:
+        """Validate one ``(num_envs,)`` state vector's type, shape, dtype, and device."""
         if not isinstance(value, torch.Tensor):
             raise TypeError(f"TorchEnvState {label} must be a torch.Tensor")
         if value.shape != (self._num_envs,):
@@ -596,6 +644,7 @@ class TorchEnv(ABEnv):
     def _validate_final_observation(
         self, final_observation: dict[str, torch.Tensor] | None
     ) -> None:
+        """Validate the terminal observation carrier against ``obs``."""
         if final_observation is None:
             return
         assert self._state is not None
@@ -625,6 +674,7 @@ class TorchEnv(ABEnv):
                 self._validate_finite_float(value, f"final_observation[{name!r}]")
 
     def _compute_truncated(self, state: TorchEnvState) -> torch.Tensor:
+        """Return per-row truncation flags from the episode step limit."""
         self._truncated_scratch.fill_(False)
         max_steps = self._cfg.max_episode_steps
         if max_steps is not None:
@@ -701,6 +751,7 @@ class TorchEnv(ABEnv):
         timing.update(detail_timing)
 
     def _validate_reset_observation_mask(self, obs: Mapping[str, torch.Tensor]) -> None:
+        """Validate full-width reset observations against the observation contract."""
         if not isinstance(obs, dict) or set(obs) != set(self.obs_groups_spec):
             raise ValueError("TorchEnv mask reset observations do not match obs_groups_spec")
         for name, dim in self.obs_groups_spec.items():
@@ -735,6 +786,7 @@ class TorchEnv(ABEnv):
     def _scatter_reset_info_mask(
         self, reset_info: Mapping[str, Any], reset_mask: torch.Tensor
     ) -> None:
+        """Scatter per-row reset info tensors into the state info by mask."""
         assert self._state is not None
         for key, value in reset_info.items():
             current = self._state.info.get(key)
@@ -747,6 +799,7 @@ class TorchEnv(ABEnv):
             current.copy_(torch.where(selected_reset_mask, value.to(device=self.device), current))
 
     def _ensure_final_observation_scratch(self) -> dict[str, torch.Tensor]:
+        """Return the reusable terminal-observation scratch buffers."""
         assert self._state is not None
         obs = self._state.obs
         scratch = self._final_observation_scratch
@@ -765,6 +818,7 @@ class TorchEnv(ABEnv):
         return scratch
 
     def _clear_reset_done_detail_timing(self, timing: dict[str, Any]) -> None:
+        """Zero the reset detail timing keys in ``timing``."""
         for key in RESET_DONE_DETAIL_TIMING_KEYS:
             timing[key] = 0.0
 
@@ -785,6 +839,7 @@ class TorchEnv(ABEnv):
         return 0.0
 
     def _clear_step_final_observation(self) -> None:
+        """Clear the terminal observation carrier for the new step."""
         assert self._state is not None
         self._state.final_observation = None
 
@@ -887,6 +942,7 @@ class TorchEnv(ABEnv):
 
     @property
     def play_capabilities(self) -> EnvPlayCapabilities:
+        """Playback capabilities declared by the bound backend."""
         capabilities = self._backend.get_play_capabilities()
         return EnvPlayCapabilities(
             supports_native_interactive_renderer=capabilities.supports_native_interactive_renderer,
@@ -958,6 +1014,7 @@ class TorchEnv(ABEnv):
         return cast(str | None, self._backend.get_scene_visual_model_file())
 
     def set_autoreset(self, enabled: bool) -> None:
+        """Enable or disable the selected-row autoreset after each step."""
         self._autoreset = bool(enabled)
 
     @property
@@ -1112,9 +1169,19 @@ class TorchEnv(ABEnv):
         return payload
 
     def export_training_state(self) -> dict[str, Any]:
+        """Export the training-resume state.
+
+        Returns:
+            A versioned mapping carrying ``step_counter``.
+        """
         return {"version": 1, "step_counter": self.step_counter}
 
     def import_training_state(self, state: Mapping[str, Any]) -> None:
+        """Restore a training-resume state produced by :meth:`export_training_state`.
+
+        Raises:
+            ValueError: If the mapping keys, version, or counter are invalid.
+        """
         if not isinstance(state, Mapping) or set(state) != {"version", "step_counter"}:
             raise ValueError("TorchEnv training state requires version and step_counter only")
         if type(state["version"]) is not int or state["version"] != 1:
@@ -1125,6 +1192,7 @@ class TorchEnv(ABEnv):
         self.step_counter = counter
 
     def close(self) -> None:
+        """Flush deferred finite validation and release backend scene assets."""
         try:
             # A short final cycle still owns device verdicts. Preserve an
             # existing training error when close runs from a finally block.
