@@ -13,6 +13,22 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.5.8 (2026-11-05)
+
+### Changed / 变更
+
+- The default and ROCm profiles now pin `unisim-core==2.6.1`; this covers the
+  Motrix extra in both profiles and the SuperDex extra in the default profile.
+  The UniSim patch release speeds up MJWarp ordered body-pair contact
+  publication for sensor sets with at least eight views by aggregating unique
+  body pairs on device and reusing cached stable Torch references
+  ([UniSim #522](https://github.com/unilabsim/unisim/pull/522)).
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.6.1`；两个 profile 均覆盖
+  Motrix extra，默认 profile 另覆盖 SuperDex extra。UniSim patch 版本通过
+  在 device 上聚合唯一 body pair 并复用缓存的稳定 Torch reference，提升了
+  至少八个 view 的 sensor 集合下 MJWarp 有序 body-pair contact 的发布性能
+  （[UniSim #522](https://github.com/unilabsim/unisim/pull/522)）。
+
 ## 1.5.7 (2026-11-04)
 
 ### Changed / 变更
