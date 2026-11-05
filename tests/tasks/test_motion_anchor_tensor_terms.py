@@ -10,12 +10,12 @@ import pytest
 import torch
 
 from unilab.base.entity import EntityTensorBodyStateView
-from unilab.base.rotation import np_matrix_first_two_cols_from_quat
 from unilab.managers import ManagerTermBaseCfg
 from unilab.managers.types import ManagerBasedRlEnv
+from unilab.math.rotation_numpy import matrix_first_two_cols_from_quat
+from unilab.math.rotation_tensor import quat_to_rot6
 from unilab.tasks.motion_tracking.common import manager_terms as mt
 from unilab.tasks.motion_tracking.common.manager_terms import MotionCommand
-from unilab.tasks.motion_tracking.common.tensor_rotation import quat_to_rot6
 
 
 class _MotionCommand(MotionCommand):
@@ -116,7 +116,7 @@ def _view() -> EntityTensorBodyStateView:
 def test_quat_to_rot6_matches_numpy_first_two_columns() -> None:
     rng = np.random.default_rng(1818)
     quat = _unit_quat(rng.standard_normal((17, 4), dtype=np.float32))
-    expected = np_matrix_first_two_cols_from_quat(quat)
+    expected = matrix_first_two_cols_from_quat(quat)
 
     actual = quat_to_rot6(torch.as_tensor(quat))
 
@@ -124,7 +124,10 @@ def test_quat_to_rot6_matches_numpy_first_two_columns() -> None:
 
 
 def test_quat_to_rot6_rejects_invalid_width() -> None:
-    with pytest.raises(ValueError, match="quaternion must have final dimension 4"):
+    # TorchScript wraps the raised ValueError in torch.jit.Error.
+    with pytest.raises(
+        (ValueError, torch.jit.Error), match="quaternion must have final dimension 4"
+    ):
         quat_to_rot6(torch.zeros((2, 3)))
 
 

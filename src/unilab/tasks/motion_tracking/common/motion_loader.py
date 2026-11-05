@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from unilab.assets.hub import resolve_motion_files
+from unilab.math.rotation_numpy import quat_angular_velocity, quat_ensure_continuity
 
 
 @dataclass
@@ -54,84 +55,6 @@ def quat_slerp(q1: np.ndarray, q2: np.ndarray, t: float) -> np.ndarray:
     return w1 * q1 + w2 * q2
 
 
-def ensure_quat_continuity(q: np.ndarray) -> np.ndarray:
-    """Flip quaternion signs in a time sequence to keep adjacent dots positive."""
-    if q.ndim != 2 or q.shape[1] != 4:
-        raise ValueError(f"Expected quaternion sequence with shape (T, 4), got {q.shape}")
-
-    result = np.array(q, copy=True)
-    for index in range(1, result.shape[0]):
-        if float(np.dot(result[index - 1], result[index])) < 0.0:
-            result[index] *= -1.0
-    return result
-
-
-def _quat_conjugate(q: np.ndarray) -> np.ndarray:
-    result = q.copy()
-    result[..., 1:] *= -1
-    return result
-
-
-def _quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-    w1, x1, y1, z1 = q1[..., 0], q1[..., 1], q1[..., 2], q1[..., 3]
-    w2, x2, y2, z2 = q2[..., 0], q2[..., 1], q2[..., 2], q2[..., 3]
-    return np.stack(
-        [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ],
-        axis=-1,
-    )
-
-
-def _quat_to_axis_angle(q: np.ndarray) -> np.ndarray:
-    sign = np.where(q[:, 0:1] < 0.0, -1.0, 1.0)
-    q = q * sign
-    xyz = q[:, 1:]
-    w = q[:, 0:1]
-    xyz_norm = np.linalg.norm(xyz, axis=-1, keepdims=True)
-    half_angle = np.arctan2(xyz_norm, w)
-    angle = 2.0 * half_angle
-    small = np.abs(angle) < 1.0e-6
-    safe_angle = np.where(small, 1.0, angle)
-    sin_half_over_angle = np.where(
-        small,
-        0.5 - angle**2 / 48.0,
-        np.sin(half_angle) / safe_angle,
-    )
-    return xyz / sin_half_over_angle
-
-
-def _quat_angular_velocity(q: np.ndarray, dt: float) -> np.ndarray:
-    """Estimate angular velocity from a shortest-arc quaternion sequence."""
-    if q.ndim != 2 or q.shape[1] != 4:
-        raise ValueError(f"Expected quaternion sequence with shape (T, 4), got {q.shape}")
-    if dt <= 0.0:
-        raise ValueError(f"dt must be positive, got {dt}")
-
-    rotations = ensure_quat_continuity(q)
-    num_frames = rotations.shape[0]
-    omega = np.zeros((num_frames, 3), dtype=rotations.dtype)
-    if num_frames <= 1:
-        return omega
-
-    if num_frames == 2:
-        q_rel = _quat_mul(rotations[1], _quat_conjugate(rotations[0]))
-        sign = np.where(q_rel[0] < 0.0, -1.0, 1.0)
-        omega[:] = _quat_to_axis_angle((q_rel * sign)[None, :])[0] / dt
-        return omega
-
-    q_prev = rotations[:-2]
-    q_next = rotations[2:]
-    q_rel = _quat_mul(q_next, _quat_conjugate(q_prev))
-    omega[1:-1] = _quat_to_axis_angle(q_rel) / (2.0 * dt)
-    omega[0] = omega[1]
-    omega[-1] = omega[-2]
-    return omega
-
-
 @dataclass
 class InterpolatedMotion:
     """Root/joint trajectory resampled to the output frame rate."""
@@ -154,7 +77,7 @@ def compute_motion_velocities(
     """Numerically differentiate a trajectory into base/dof velocities."""
     base_lin_vels = np.gradient(base_poss, dt, axis=0)
     dof_vels = np.gradient(dof_poss, dt, axis=0)
-    base_ang_vels = _quat_angular_velocity(base_rots, dt)
+    base_ang_vels = quat_angular_velocity(base_rots, dt)
     return base_lin_vels, base_ang_vels, dof_vels
 
 
@@ -203,7 +126,7 @@ def interpolate_motion(
         base_rots[i] = quat_slerp(
             base_rots_input[index_0[i]], base_rots_input[index_1[i]], blend[i]
         )
-    base_rots = ensure_quat_continuity(base_rots)
+    base_rots = quat_ensure_continuity(base_rots)
 
     # Linear interpolation for joint positions
     dof_poss = (

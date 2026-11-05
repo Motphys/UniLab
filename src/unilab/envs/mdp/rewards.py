@@ -14,13 +14,12 @@ import torch
 
 from unilab.envs.mdp.observations import (
     joint_view,
-    quat_apply_inverse,
     require_read_plan,
     root_body_view,
-    world_to_body_vector,
 )
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.math.rotation_tensor import quat_apply_inverse
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -200,7 +199,7 @@ def track_linear_velocity(
     scale = _positive_std("track_linear_velocity", std)
     _, view = root_body_view(env, asset_cfg, "track_linear_velocity")
     command = _command(env, command_name)
-    actual = world_to_body_vector(view.quat_w[:, 0, :], view.lin_vel_w[:, 0, :])
+    actual = quat_apply_inverse(view.quat_w[:, 0, :], view.lin_vel_w[:, 0, :])
     command_t = torch.as_tensor(
         command, dtype=torch.float32, device=getattr(env, "device", torch.device("cpu"))
     )
@@ -219,7 +218,7 @@ def track_angular_velocity(
     scale = _positive_std("track_angular_velocity", std)
     _, view = root_body_view(env, asset_cfg, "track_angular_velocity")
     command = _command(env, command_name)
-    actual = world_to_body_vector(view.quat_w[:, 0, :], view.ang_vel_w[:, 0, :])
+    actual = quat_apply_inverse(view.quat_w[:, 0, :], view.ang_vel_w[:, 0, :])
     command_t = torch.as_tensor(
         command, dtype=torch.float32, device=getattr(env, "device", torch.device("cpu"))
     )

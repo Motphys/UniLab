@@ -51,6 +51,11 @@ architecture changes.
   training and stop only the services you own after clients exit. The default
   `training.cuda_process_sharing=null` uses independent contexts; explicit `mps`
   validates existing services. Do not add automatic MPS lifecycle here.
+- `unisim.math` is the sole owner of rotation/quaternion math primitives
+  (wxyz, XYZ Euler, `(..., 4)` broadcast); UniLab consumes them only through
+  the thin re-export package `src/unilab/math` (`rotation_numpy` /
+  `rotation_tensor`). Do not add local rotation implementations in UniLab
+  (ADR-0022).
 
 - UniLab provides environments and adapters, and now also owns the RL
   algorithm and training-execution stack in `unilab.rl` (merged from the

@@ -11,7 +11,6 @@ import torch
 from unisim.backend.base import SimBackend
 
 from unilab.base.entity import EntityCfg, EntityScene
-from unilab.base.rotation import np_yaw_to_quat
 from unilab.envs.mdp import UniformVelocityCommand, UniformVelocityCommandCfg
 from unilab.envs.mdp.commands import (
     UniformVelocityCommand as ExportedUniformVelocityCommand,
@@ -22,6 +21,7 @@ from unilab.envs.mdp.commands import (
 from unilab.managers import CommandManager
 from unilab.managers.rng import ManagerRng
 from unilab.managers.types import ManagerBasedRlEnv
+from unilab.math.rotation_numpy import yaw_to_quat
 
 
 class _Backend:
@@ -262,7 +262,7 @@ def test_heading_world_forward_and_standing_modes() -> None:
     np.testing.assert_allclose(heading.get_command("twist")[:, 2], 0.5)
 
     world_env, world_backend = _env()
-    world_backend.body_quat[:, 0] = np_yaw_to_quat(np.full(4, np.pi / 2))
+    world_backend.body_quat[:, 0] = yaw_to_quat(np.full(4, np.pi / 2))
     world = _manager(
         world_env,
         rel_world_envs=1.0,

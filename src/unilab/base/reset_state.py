@@ -41,7 +41,7 @@ from unisim.dr.types import (
 from unisim.entities import EntityStatePatch, SceneResetRequest
 from unisim.scene_layout import CompiledSceneLayout
 
-from unilab.base.rotation import quat_apply_inverse
+from unilab.math.rotation_tensor import quat_apply_inverse
 
 if TYPE_CHECKING:
     from unisim.backend.packed_reset import PackedResetTransaction

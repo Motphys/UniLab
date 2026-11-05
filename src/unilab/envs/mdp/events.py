@@ -20,6 +20,7 @@ from unilab.managers.event_manager import EventTermCfg
 from unilab.managers.manager_base import ManagerTermBase
 from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.math.rotation_tensor import quat_apply, quat_from_euler_xyz, quat_mul
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -1689,7 +1690,7 @@ class ApplyBodyImpulse(ManagerTermBase):
                     dtype=quat_rows.dtype,
                     device=quat_rows.device,
                 ).expand(count * num_bodies, 3)
-                offset_w = _quat_apply(quat_rows, offsets).reshape(count, num_bodies, 3)
+                offset_w = quat_apply(quat_rows, offsets).reshape(count, num_bodies, 3)
                 torques = torques + torch.linalg.cross(offset_w, forces)
             self._active_forces[trigger_ids] = forces
             self._active_torques[trigger_ids] = torques
@@ -1868,10 +1869,10 @@ def reset_root_state_uniform(
         + pose_samples[:, 0:3].to(dtype=root_states.dtype)
         + env.scene.env_origins(torch.device(env.device))
     )
-    orientation_delta = _quat_from_euler_xyz(
+    orientation_delta = quat_from_euler_xyz(
         pose_samples[:, 3], pose_samples[:, 4], pose_samples[:, 5]
     )
-    root_states[:, 3:7] = _quat_mul(root_states[:, 3:7], orientation_delta.to(root_states.dtype))
+    root_states[:, 3:7] = quat_mul(root_states[:, 3:7], orientation_delta.to(root_states.dtype))
 
     velocity_samples = _sample_se3_range(
         velocity_range, (env.num_envs, 6), _require_rng(env, "reset_root_state_uniform")
@@ -1901,48 +1902,6 @@ def _se3_bounds(range_dict: dict[str, tuple[float, float]] | None) -> torch.Tens
     return bounds
 
 
-def _quat_from_euler_xyz(
-    roll: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor
-) -> torch.Tensor:
-    """Convert XYZ Euler angles to device-resident wxyz quaternions."""
-    cos_roll, sin_roll = torch.cos(0.5 * roll), torch.sin(0.5 * roll)
-    cos_pitch, sin_pitch = torch.cos(0.5 * pitch), torch.sin(0.5 * pitch)
-    cos_yaw, sin_yaw = torch.cos(0.5 * yaw), torch.sin(0.5 * yaw)
-    return torch.stack(
-        (
-            cos_roll * cos_pitch * cos_yaw + sin_roll * sin_pitch * sin_yaw,
-            sin_roll * cos_pitch * cos_yaw - cos_roll * sin_pitch * sin_yaw,
-            cos_roll * sin_pitch * cos_yaw + sin_roll * cos_pitch * sin_yaw,
-            cos_roll * cos_pitch * sin_yaw - sin_roll * sin_pitch * cos_yaw,
-        ),
-        dim=-1,
-    )
-
-
-def _quat_apply(quat_wxyz: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
-    """Apply broadcast-compatible wxyz quaternions to device-resident vectors."""
-    quat_xyz = quat_wxyz[..., 1:4]
-    if vector.ndim < quat_xyz.ndim:
-        vector = vector.expand_as(quat_xyz)
-    cross = torch.linalg.cross(quat_xyz, vector, dim=-1)
-    second_cross = torch.linalg.cross(quat_xyz, cross, dim=-1)
-    return vector + 2.0 * quat_wxyz[..., 0:1] * cross + 2.0 * second_cross
-
-
-def _quat_mul(left_wxyz: torch.Tensor, right_wxyz: torch.Tensor) -> torch.Tensor:
-    """Multiply broadcast-compatible device-resident wxyz quaternions."""
-    left_w, left_xyz = left_wxyz[..., 0:1], left_wxyz[..., 1:4]
-    right_w, right_xyz = right_wxyz[..., 0:1], right_wxyz[..., 1:4]
-    cross = torch.linalg.cross(left_xyz, right_xyz, dim=-1)
-    return torch.cat(
-        (
-            left_w * right_w - (left_xyz * right_xyz).sum(dim=-1, keepdim=True),
-            left_w * right_xyz + right_w * left_xyz + cross,
-        ),
-        dim=-1,
-    )
-
-
 def _root_reset_kernel(
     default_rows: torch.Tensor,
     origins_rows: torch.Tensor | None,
@@ -1955,8 +1914,8 @@ def _root_reset_kernel(
     if origins_rows is not None:
         output[:, 0:3] += origins_rows[:, 0:3]
     output[:, 0:3] += pose_delta[:, 0:3]
-    orientation_delta = _quat_from_euler_xyz(pose_delta[:, 3], pose_delta[:, 4], pose_delta[:, 5])
-    output[:, 3:7] = _quat_mul(output[:, 3:7], orientation_delta)
+    orientation_delta = quat_from_euler_xyz(pose_delta[:, 3], pose_delta[:, 4], pose_delta[:, 5])
+    output[:, 3:7] = quat_mul(output[:, 3:7], orientation_delta)
     output[:, 7:13] += velocity_delta
 
 

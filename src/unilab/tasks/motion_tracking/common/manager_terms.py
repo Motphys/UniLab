@@ -19,16 +19,18 @@ from unilab.managers import (
     ObservationTermCfg,
 )
 from unilab.managers.scene_entity_config import SceneEntityCfg
-
-from .motion_loader import MotionData, MotionLoader
-from .tensor_rotation import (
+from unilab.math.rotation_tensor import (
     quat_apply,
     quat_apply_inverse,
     quat_conjugate,
     quat_from_euler_xyz,
     quat_mul,
     quat_to_rot6,
+    yaw_from_quat,
+    yaw_to_quat,
 )
+
+from .motion_loader import MotionData, MotionLoader
 from .tensor_sampler import MotionSampler
 
 
@@ -133,20 +135,7 @@ def _update_motion_relative_state_torch(
     robot_anchor_quat = robot_body_quat_w[target][anchor]
 
     yaw = quat_mul(robot_anchor_quat, quat_conjugate(motion_anchor_quat))
-    yaw_w, yaw_z = yaw[..., 0], yaw[..., 3]
-    half_yaw = 0.5 * torch.atan2(
-        2.0 * (yaw_w * yaw_z + yaw[..., 1] * yaw[..., 2]),
-        1.0 - 2.0 * (yaw[..., 2].square() + yaw_z.square()),
-    )
-    delta = torch.stack(
-        (
-            torch.cos(half_yaw),
-            torch.zeros_like(half_yaw),
-            torch.zeros_like(half_yaw),
-            torch.sin(half_yaw),
-        ),
-        dim=-1,
-    )
+    delta = yaw_to_quat(0.5 * yaw_from_quat(yaw))
     delta_body = delta[:, None, :]
     body_quat_relative_w[target] = quat_mul(delta_body, motion_body_quat_w[target])
 
@@ -230,32 +219,9 @@ def _motion_reset_values_kernel(
     joint_output.add_(joint_noise)
     joint_output.clamp_(soft_limits[:, 0], soft_limits[:, 1])
 
-    half_roll = 0.5 * pose[:, 3]
-    half_pitch = 0.5 * pose[:, 4]
-    half_yaw = 0.5 * pose[:, 5]
-    cos_roll, sin_roll = torch.cos(half_roll), torch.sin(half_roll)
-    cos_pitch, sin_pitch = torch.cos(half_pitch), torch.sin(half_pitch)
-    cos_yaw, sin_yaw = torch.cos(half_yaw), torch.sin(half_yaw)
-    pose_quat = torch.stack(
-        (
-            cos_roll * cos_pitch * cos_yaw + sin_roll * sin_pitch * sin_yaw,
-            sin_roll * cos_pitch * cos_yaw - cos_roll * sin_pitch * sin_yaw,
-            cos_roll * sin_pitch * cos_yaw + sin_roll * cos_pitch * sin_yaw,
-            cos_roll * cos_pitch * sin_yaw - sin_roll * sin_pitch * cos_yaw,
-        ),
-        dim=-1,
-    )
+    pose_quat = quat_from_euler_xyz(pose[:, 3], pose[:, 4], pose[:, 5])
     motion_quat = packet_body_quat_w[:, 0]
-    left_w, left_xyz = pose_quat[:, 0:1], pose_quat[:, 1:4]
-    right_w, right_xyz = motion_quat[:, 0:1], motion_quat[:, 1:4]
-    cross = torch.linalg.cross(left_xyz, right_xyz, dim=-1)
-    root_quat = torch.cat(
-        (
-            left_w * right_w - (left_xyz * right_xyz).sum(dim=-1, keepdim=True),
-            left_w * right_xyz + right_w * left_xyz + cross,
-        ),
-        dim=-1,
-    )
+    root_quat = quat_mul(pose_quat, motion_quat)
 
     root_output[:, :3] = packet_body_pos_w[:, 0] + origins + pose[:, :3]
     root_output[:, 3:7] = root_quat

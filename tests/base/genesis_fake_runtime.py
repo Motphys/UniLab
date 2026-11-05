@@ -21,7 +21,7 @@ import types
 import numpy as np
 import torch
 
-from unilab.base.rotation import np_quat_apply_batched
+from unilab.math.rotation_numpy import quat_apply
 
 # Mirrors TINY_MODEL_XML.  INIT_QPOS equals mj.qpos0 of that document
 # (pelvis body pos z=0.8) so materialize-time state matches the MJCF scan.
@@ -156,9 +156,7 @@ class _FakeEntity:
             offset = np.broadcast_to(
                 np.asarray(LINK_OFFSET[link_idx], dtype=np.float32), (self.built_envs, 3)
             )
-            pos[:, link_idx, :] = self.qpos[:, 0:3].cpu().numpy() + np_quat_apply_batched(
-                quat, offset
-            )
+            pos[:, link_idx, :] = self.qpos[:, 0:3].cpu().numpy() + quat_apply(quat, offset)
             quat_out[:, link_idx, :] = quat
         return pos, quat_out
 
@@ -178,7 +176,7 @@ class _FakeEntity:
     def get_links_ang(self, links_idx_local=None, envs_idx=None):
         quat = self.qpos[:, 3:7].cpu().numpy()
         ang = np.zeros((self.built_envs, N_LINKS, 3), dtype=np.float32)
-        ang[:, 1:, :] = np_quat_apply_batched(quat, self.qvel[:, 3:6].cpu().numpy())[:, None, :]
+        ang[:, 1:, :] = quat_apply(quat, self.qvel[:, 3:6].cpu().numpy())[:, None, :]
         return torch.from_numpy(ang)
 
     def get_links_net_contact_force(self, envs_idx=None):

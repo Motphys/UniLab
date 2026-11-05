@@ -33,6 +33,7 @@ orphan: true
 | [ADR-0019 CUDA Learner Forbids CPU Carrier](ADR-0019-cuda-learner-forbids-cpu-carrier.md) | Training config / carrier pairing contract | Proposed |
 | [ADR-0020 FlashSAC DP Graph Ownership And Wire Precision](ADR-0020-flashsac-dp-graph-and-wire-precision.md) | RL algorithm / distributed runtime | Proposed |
 | [ADR-0021 Genesis Device-Resident DR Lifecycle](ADR-0021-genesis-device-resident-dr-lifecycle.md) | Backend DR / Manager reset plane | Accepted |
+| [ADR-0022 UniSim Owns Math Rotation Primitives](ADR-0022-unisim-owns-math-rotation-primitives.md) | Math primitives / package ownership | Proposed |
 | [ADR-0231 Integration-only K=1 MJWarp Collector CUDA Graph](ADR-0231-k1-mjwarp-collector-cuda-graph-integration-only.md) | Collector CUDA graph / historical pre-registration | Rejected / no-go at M2 |
 | [ADR-0238 State-Update-Only CUDA Graph Boundary](ADR-0238-state-update-only-cuda-graph-boundary.md) | Manager CUDA graph / historical pre-registration | Rejected / no-go |
 
