@@ -2,7 +2,8 @@
 
 把 Legged Gym 的 `_reward_*` 方法映射到 owner YAML 的 `reward` term。
 Manager-Based reward 接收 env，通过 entity facade 和各 manager 读取批量状态，
-返回形状为 `(num_envs,)` 的 NumPy 数组。
+返回 env 设备上形状为 `(num_envs,)` 的 float32 `torch.Tensor`。1.3.4 起
+Manager 运行时是 Torch-only：reward manager 会对非 Tensor 的返回值抛类型错误。
 
 ## 跟踪、平滑与关节限制
 
@@ -13,10 +14,11 @@ Manager-Based reward 接收 env，通过 entity facade 和各 manager 读取批�
 ```yaml
 reward:
   tracking_lin_vel:
-    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
+    func: unilab.tasks.locomotion.common.sensor_reward_terms.track_lin_vel
     weight: 1.0
     params:
-      std: 0.5
+      sensor_name: local_linvel
+      tracking_sigma: 0.5
       command_name: twist
   action_rate:
     func: unilab.envs.mdp.action_rate_l2
@@ -29,9 +31,14 @@ reward:
     weight: -1.0
 ```
 
-`track_lin_vel_xy_exp` 使用底盘坐标系的 xy 速度误差，公式为
-`exp(-error_squared / std**2)`。若源实现分母为 `tracking_sigma`，
-应令 `std = sqrt(tracking_sigma)`，并保持坐标系与 command 维度一致。
+`track_lin_vel` 是类形式的 term
+（`src/unilab/tasks/locomotion/common/sensor_reward_terms.py`），在构造期绑定一个
+具名 3-D 速度传感器，并相对 `twist` command 计算
+`exp(-||cmd_xy - v_xy||^2 / tracking_sigma)`。`tracking_sigma` 直接作为分母
+（默认 0.25；Go2 PPO owner 设为 0.5）；速度坐标系取决于所绑定传感器的输出——
+Go2 owner 绑定的是 IMU site 上的 velocimeter `local_linvel`。传感器或 command
+缺失时都会在构造期 fail closed。移植时保持传感器坐标系与 command 维度与源实现
+一致。
 
 `action_rate_l2` 从 action manager 读取当前与前一步动作。
 `joint_pos_limits` 从 entity facade 读取 soft joint limits。
@@ -81,6 +88,9 @@ command gating，再通过固定轨迹比较逐项输出。
 ## 参考
 
 - {doc}`5-task_config_translation`
+- {doc}`../../4-developer_guide/3-extending/6-custom_reward` —— 端到端定义并验证
+  新 reward term 的演练
 - `src/unilab/envs/mdp/rewards.py`
 - `src/unilab/tasks/locomotion/common/manager_terms.py`
+- `src/unilab/tasks/locomotion/common/sensor_reward_terms.py`
 - `src/unilab/tasks/locomotion/common/gait_terms.py`

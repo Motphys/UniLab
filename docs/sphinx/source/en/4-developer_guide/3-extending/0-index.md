@@ -30,6 +30,18 @@ Add configs, runner code, and script-level assembly.
 Extend terrain generation on cold paths.
 :::
 
+:::{grid-item-card} Onboard a new robot
+:link: 5-onboard_new_robot
+:link-type: doc
+End-to-end walkthrough from URDF/MJCF assets to a first training run.
+:::
+
+:::{grid-item-card} Custom reward term
+:link: 6-custom_reward
+:link-type: doc
+Walkthrough: define, wire, and verify a reward term in the training log.
+:::
+
 ::::
 
 ```{toctree}
@@ -39,4 +51,6 @@ Extend terrain generation on cold paths.
 2-new_backend
 3-new_algorithm
 4-new_terrain
+5-onboard_new_robot
+6-custom_reward
 ```

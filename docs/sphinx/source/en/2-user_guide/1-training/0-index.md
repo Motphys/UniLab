@@ -50,6 +50,12 @@ Run UniLab inside the checked-in Linux NVIDIA image workflow.
 Reproduce and operate the scoped single-GPU G1 FlashSAC/MJWarp long soak.
 :::
 
+:::{grid-item-card} Training diagnostics
+:link: 8-training_diagnostics
+:link-type: doc
+NaN guard dumps, `info["log"]` keys, and common failure-mode playbooks.
+:::
+
 ::::
 
 ## When to Drop to `scripts/train_*.py`
@@ -78,4 +84,5 @@ Day-to-day runs should use the unified CLI. Reach for the low-level
 5-resume_and_checkpoints
 6-docker
 7-tensor_runtime_production
+8-training_diagnostics
 ```
