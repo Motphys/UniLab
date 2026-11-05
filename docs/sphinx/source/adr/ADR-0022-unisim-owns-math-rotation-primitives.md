@@ -37,12 +37,12 @@ adapter 零调用，现有调用方仅为
 ## Decision
 
 - unisim 是 backend-neutral 数学原语（math/rotation/transform）的唯一 owner。实现
-  位于 `unisim/src/unisim/math/rotation_numpy.py`（NumPy）与
-  `unisim/src/unisim/math/rotation_tensor.py`（Torch）。约定：四元数 wxyz 顺序、
-  XYZ Euler 角顺序、`(..., 4)` 广播语义；Torch 热路径算子使用 `@torch.jit.script`。
-- unilab 仅通过薄 re-export 包 `src/unilab/math` 消费这些原语，不保留任何兼容
-  shim、别名或 deprecation fallback。迁移后 `src/unilab/base/rotation.py` 与任务内
-  的本地旋转实现被删除或收缩为 re-export。
+  位于单模块 `unisim/src/unisim/utils/math.py`：NumPy 原语带 `np_` 前缀，Torch
+  热路径算子无前缀并使用 `@torch.jit.script`，命名与行为对齐 mjlab。约定：四元数
+  wxyz 顺序、XYZ Euler 角顺序、`(..., 4)` 广播语义。
+- unilab 仅通过薄 re-export 单文件 `src/unilab/utils/math.py` 消费这些原语，不保留
+  任何兼容 shim、别名或 deprecation fallback。迁移后 `src/unilab/base/rotation.py`
+  与任务内的本地旋转实现被删除或收缩为 re-export。
 - 基础 wheel 保持 NumPy-only：`import unisim` 不加载 torch，Torch 实现按可选依赖
   惰性导入。
 - 训练热路径禁止 host 侧旋转：`_host_root_link_lin_vel_b` /
@@ -53,12 +53,12 @@ adapter 零调用，现有调用方仅为
 
 ## Stable Contracts
 
-- 四元数布局为 wxyz，Euler 为 XYZ 顺序，批量语义为 `(..., 4)` 广播；两个 backend
-  实现共享同一语义，禁止出现第三份实现。
-- `import unisim` 保持 NumPy-only，不引入 torch import；torch 算子仅在
-  `unisim.math.rotation_tensor` 被显式导入时加载。
-- unilab 侧只存在 `src/unilab/math` 薄 re-export；不在 unilab 内新增旋转/变换
-  原语实现。
+- 四元数布局为 wxyz，Euler 为 XYZ 顺序，批量语义为 `(..., 4)` 广播；NumPy 与
+  Torch 实现共享同一语义，禁止出现第三份实现。
+- `import unisim` 保持 NumPy-only，不引入 torch import；`unisim.utils.math` 仅在
+  被显式导入时才加载 Torch 算子。
+- unilab 侧只存在 `src/unilab/utils/math.py` 薄 re-export（Torch 无前缀、NumPy
+  加 `np_` 前缀）；不在 unilab 内新增旋转/变换原语实现。
 - 训练热路径对 host 根速度 adapter 零调用，由
   `tests/architecture/test_host_rotation_sync_boundary.py` 守护；冷路径豁免须在
   测试中登记并携带源码标记注释。
@@ -79,12 +79,12 @@ adapter 零调用，现有调用方仅为
   实现及语义测试；unilab 侧 review 拒绝任何新本地实现。
 - 迁移后 `src/unilab/base/rotation.py`、`src/unilab/envs/mdp/observations.py` 与
   `src/unilab/tasks/motion_tracking/common/tensor_rotation.py` 中的本地算子被删除
-  或收缩为对 `src/unilab/math` 的引用；本 ADR Evidence 中的迁移前路径仅作历史
-  证据。
+  或收缩为对 `src/unilab/utils/math.py` 的引用；本 ADR Evidence 中的迁移前路径仅作
+  历史证据。
 - 训练热路径出现 `.cpu()`/`.numpy()` 后紧跟四元数调用的代码必须在 review 中
   拦截；确属冷路径的，在架构测试中逐文件登记豁免并加源码标记。
-- 下游消费方（tasks/managers/mdp）统一从 `src/unilab/math` 导入，import 位置
-  单一，便于后续审计。
+- 下游消费方（tasks/managers/mdp）统一从 `src/unilab/utils/math.py` 导入，import
+  位置单一，便于后续审计。
 
 ## Evidence In Repo
 
@@ -98,9 +98,8 @@ adapter 零调用，现有调用方仅为
 - 热路径零调用审计：全仓库 `rg` 仅命中 `tests/base/test_entity_facade.py` 与
   `tests/envs/mdp/test_uniform_velocity_command.py` 的显式测试调用。
 - 守护测试：`tests/architecture/test_host_rotation_sync_boundary.py`。
-- 迁移目标位置：`unisim/src/unisim/math/rotation_numpy.py`、
-  `unisim/src/unisim/math/rotation_tensor.py`、`src/unilab/math`（由 issue #2583
-  其他 Child 落地）。
+- 迁移目标位置：`unisim/src/unisim/utils/math.py` 与 `src/unilab/utils/math.py`
+  （由 issue #2583 其他 Child 落地）。
 
 ## Related Documents
 

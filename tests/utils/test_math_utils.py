@@ -1,23 +1,23 @@
-"""Tests for the unisim-owned rotation primitives re-exported by unilab.math."""
+"""Tests for the unisim-owned rotation primitives re-exported by unilab.utils.math."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from unilab.math.rotation_numpy import (
-    matrix_first_two_cols_from_quat,
-    matrix_from_quat,
-    quat_angular_velocity,
-    quat_apply,
-    quat_apply_inverse,
-    quat_ensure_continuity,
-    quat_error_magnitude,
-    quat_error_magnitude_squared,
-    quat_from_angle_axis,
-    quat_from_euler_xyz,
-    quat_mul,
-    quat_to_axis_angle,
-    subtract_anchor_frame_transforms,
+from unilab.utils.math import (
+    np_matrix_first_two_cols_from_quat,
+    np_matrix_from_quat,
+    np_quat_angular_velocity,
+    np_quat_apply,
+    np_quat_apply_inverse,
+    np_quat_ensure_continuity,
+    np_quat_error_magnitude,
+    np_quat_error_magnitude_squared,
+    np_quat_from_angle_axis,
+    np_quat_from_euler_xyz,
+    np_quat_mul,
+    np_quat_to_axis_angle,
+    np_subtract_anchor_frame_transforms,
 )
 
 
@@ -31,7 +31,7 @@ def test_quat_error_invariant_to_sign_flip() -> None:
     q = _quat_from_axis_angle_z(np.deg2rad(170.0))
     neg_q = -q
 
-    err = quat_error_magnitude(q, neg_q)
+    err = np_quat_error_magnitude(q, neg_q)
     assert np.isclose(err, 0.0, atol=1e-7)
 
 
@@ -41,8 +41,8 @@ def test_quat_error_uses_shortest_arc() -> None:
     q_target = _quat_from_axis_angle_z(np.deg2rad(170.0))
     q_target_neg = -q_target
 
-    err_pos = quat_error_magnitude(q_ref, q_target)
-    err_neg = quat_error_magnitude(q_ref, q_target_neg)
+    err_pos = np_quat_error_magnitude(q_ref, q_target)
+    err_neg = np_quat_error_magnitude(q_ref, q_target_neg)
 
     expected = np.deg2rad(170.0)
     assert np.isclose(err_pos, expected, atol=1e-7)
@@ -59,7 +59,7 @@ def test_quat_error_vectorized_batch() -> None:
         axis=0,
     )
 
-    err = quat_error_magnitude(q_ref, q_target)
+    err = np_quat_error_magnitude(q_ref, q_target)
 
     np.testing.assert_allclose(err, np.deg2rad([30.0, 45.0]), atol=1e-7)
 
@@ -69,25 +69,25 @@ def test_quat_from_angle_axis_round_trips_through_axis_angle() -> None:
     axes = rng.standard_normal((8, 3))
     angles = rng.uniform(0.0, np.pi, size=8)
 
-    quats = quat_from_angle_axis(angles, axes)
+    quats = np_quat_from_angle_axis(angles, axes)
 
     np.testing.assert_allclose(np.linalg.norm(quats, axis=-1), 1.0, atol=1e-12)
-    recovered = quat_to_axis_angle(quats)
+    recovered = np_quat_to_axis_angle(quats)
     expected = axes / np.linalg.norm(axes, axis=-1, keepdims=True) * angles[:, None]
     np.testing.assert_allclose(recovered, expected, atol=1e-7)
 
 
 def test_quat_from_angle_axis_normalizes_axis_and_matches_z_reference() -> None:
     angle = np.deg2rad(170.0)
-    quats = quat_from_angle_axis(np.array([angle]), np.array([[0.0, 0.0, 3.0]]))
+    quats = np_quat_from_angle_axis(np.array([angle]), np.array([[0.0, 0.0, 3.0]]))
 
     np.testing.assert_allclose(quats[0], _quat_from_axis_angle_z(angle), atol=1e-12)
 
 
 def test_quat_to_axis_angle_invariant_to_sign_flip() -> None:
     q = _quat_from_axis_angle_z(np.deg2rad(170.0))
-    axis_angle = quat_to_axis_angle(q[None, :])[0]
-    axis_angle_neg = quat_to_axis_angle((-q)[None, :])[0]
+    axis_angle = np_quat_to_axis_angle(q[None, :])[0]
+    axis_angle_neg = np_quat_to_axis_angle((-q)[None, :])[0]
 
     np.testing.assert_allclose(axis_angle, axis_angle_neg, atol=1e-7)
 
@@ -103,7 +103,7 @@ def test_quat_ensure_continuity_flips_sequence_signs() -> None:
         axis=0,
     )
 
-    continuous = quat_ensure_continuity(q)
+    continuous = np_quat_ensure_continuity(q)
     dots = np.sum(continuous[:-1] * continuous[1:], axis=1)
 
     assert np.all(dots >= 0.0)
@@ -115,7 +115,7 @@ def test_quat_angular_velocity_ignores_sign_flip_spikes() -> None:
     q = np.stack([_quat_from_axis_angle_z(angle) for angle in angles], axis=0)
     q[2:] *= -1.0
 
-    angvel = quat_angular_velocity(q, dt)
+    angvel = np_quat_angular_velocity(q, dt)
     expected = np.tile(np.array([0.0, 0.0, 1.0]), (q.shape[0], 1))
 
     np.testing.assert_allclose(angvel, expected, atol=1e-6)
@@ -125,12 +125,12 @@ def test_broadcast_quaternion_helpers_match_flattened_helpers() -> None:
     num_envs = 3
     num_bodies = 4
 
-    anchor_quat = quat_from_euler_xyz(
+    anchor_quat = np_quat_from_euler_xyz(
         np.linspace(-0.2, 0.3, num_envs),
         np.linspace(0.1, -0.25, num_envs),
         np.linspace(0.4, -0.1, num_envs),
     )
-    body_quat = quat_from_euler_xyz(
+    body_quat = np_quat_from_euler_xyz(
         np.linspace(-0.3, 0.4, num_envs * num_bodies),
         np.linspace(0.2, -0.15, num_envs * num_bodies),
         np.linspace(-0.5, 0.25, num_envs * num_bodies),
@@ -141,37 +141,37 @@ def test_broadcast_quaternion_helpers_match_flattened_helpers() -> None:
     body_quat_flat = body_quat.reshape(num_envs * num_bodies, 4)
     vectors_flat = vectors.reshape(num_envs * num_bodies, 3)
 
-    expected_mul = quat_mul(anchor_quat_tiled, body_quat_flat).reshape(num_envs, num_bodies, 4)
-    expected_apply = quat_apply(anchor_quat_tiled, vectors_flat).reshape(num_envs, num_bodies, 3)
-    expected_error = quat_error_magnitude(anchor_quat_tiled, body_quat_flat).reshape(
+    expected_mul = np_quat_mul(anchor_quat_tiled, body_quat_flat).reshape(num_envs, num_bodies, 4)
+    expected_apply = np_quat_apply(anchor_quat_tiled, vectors_flat).reshape(num_envs, num_bodies, 3)
+    expected_error = np_quat_error_magnitude(anchor_quat_tiled, body_quat_flat).reshape(
         num_envs, num_bodies
     )
-    expected_matrix_cols = matrix_from_quat(body_quat_flat)[:, :, :2].reshape(
+    expected_matrix_cols = np_matrix_from_quat(body_quat_flat)[:, :, :2].reshape(
         num_envs, num_bodies, 6
     )
 
     np.testing.assert_allclose(
-        quat_mul(anchor_quat[:, None, :], body_quat),
+        np_quat_mul(anchor_quat[:, None, :], body_quat),
         expected_mul,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        quat_apply(anchor_quat[:, None, :], vectors),
+        np_quat_apply(anchor_quat[:, None, :], vectors),
         expected_apply,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        quat_error_magnitude(anchor_quat[:, None, :], body_quat),
+        np_quat_error_magnitude(anchor_quat[:, None, :], body_quat),
         expected_error,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        quat_error_magnitude_squared(anchor_quat[:, None, :], body_quat),
+        np_quat_error_magnitude_squared(anchor_quat[:, None, :], body_quat),
         expected_error * expected_error,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        matrix_first_two_cols_from_quat(body_quat),
+        np_matrix_first_two_cols_from_quat(body_quat),
         expected_matrix_cols,
         atol=1e-12,
     )
@@ -182,24 +182,24 @@ def test_quat_apply_inverse_matches_matrix_transpose() -> None:
     num_envs = 3
     num_bodies = 4
 
-    quat = quat_from_euler_xyz(
+    quat = np_quat_from_euler_xyz(
         np.linspace(-0.3, 0.4, num_envs * num_bodies),
         np.linspace(0.2, -0.15, num_envs * num_bodies),
         np.linspace(-0.5, 0.25, num_envs * num_bodies),
     ).reshape(num_envs, num_bodies, 4)
     vectors = np.linspace(-0.6, 0.7, num_envs * num_bodies * 3).reshape(num_envs, num_bodies, 3)
 
-    mats = matrix_from_quat(quat.reshape(-1, 4))
+    mats = np_matrix_from_quat(quat.reshape(-1, 4))
     expected = np.einsum("nji,nj->ni", mats, vectors.reshape(-1, 3))
 
     np.testing.assert_allclose(
-        quat_apply_inverse(quat, vectors).reshape(-1, 3),
+        np_quat_apply_inverse(quat, vectors).reshape(-1, 3),
         expected,
         atol=1e-12,
     )
     # Round-trip: applying q after q^-1 must recover the original vector.
     np.testing.assert_allclose(
-        quat_apply(quat, quat_apply_inverse(quat, vectors)),
+        np_quat_apply(quat, np_quat_apply_inverse(quat, vectors)),
         vectors,
         atol=1e-12,
     )
@@ -211,12 +211,12 @@ def test_anchor_frame_transform_matches_flattened_path() -> None:
 
     anchor_pos = np.linspace(-0.2, 0.4, num_envs * 3).reshape(num_envs, 3)
     body_pos = np.linspace(-0.5, 0.7, num_envs * num_bodies * 3).reshape(num_envs, num_bodies, 3)
-    anchor_quat = quat_from_euler_xyz(
+    anchor_quat = np_quat_from_euler_xyz(
         np.linspace(0.0, 0.2, num_envs),
         np.linspace(-0.1, 0.1, num_envs),
         np.linspace(0.3, -0.2, num_envs),
     )
-    body_quat = quat_from_euler_xyz(
+    body_quat = np_quat_from_euler_xyz(
         np.linspace(-0.25, 0.35, num_envs * num_bodies),
         np.linspace(0.15, -0.2, num_envs * num_bodies),
         np.linspace(-0.4, 0.3, num_envs * num_bodies),
@@ -227,14 +227,14 @@ def test_anchor_frame_transform_matches_flattened_path() -> None:
     flattened_pos = body_pos.reshape(num_envs * num_bodies, 3) - anchor_pos_tiled
     expected_pos = np.empty_like(flattened_pos)
     for row, (quaternion, vector) in enumerate(zip(anchor_quat_tiled, flattened_pos)):
-        expected_pos[row] = quat_apply_inverse(quaternion, vector)
+        expected_pos[row] = np_quat_apply_inverse(quaternion, vector)
     expected_pos = expected_pos.reshape(num_envs, num_bodies, 3)
     anchor_inverse = anchor_quat_tiled * np.array([1.0, -1.0, -1.0, -1.0])
-    expected_quat = quat_mul(anchor_inverse, body_quat.reshape(num_envs * num_bodies, 4)).reshape(
-        num_envs, num_bodies, 4
-    )
+    expected_quat = np_quat_mul(
+        anchor_inverse, body_quat.reshape(num_envs * num_bodies, 4)
+    ).reshape(num_envs, num_bodies, 4)
 
-    actual_pos, actual_quat = subtract_anchor_frame_transforms(
+    actual_pos, actual_quat = np_subtract_anchor_frame_transforms(
         anchor_pos,
         anchor_quat,
         body_pos,

@@ -16,7 +16,7 @@ from unilab.base.entity import EntityTensorStateView
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.math.rotation_tensor import quat_apply, quat_apply_inverse, quat_from_angle_axis
+from unilab.utils.math import quat_apply, quat_apply_inverse, quat_from_angle_axis
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity

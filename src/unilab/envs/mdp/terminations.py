@@ -16,7 +16,7 @@ from unilab.envs.mdp.observations import (
     root_body_view,
 )
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.math.rotation_tensor import quat_apply_inverse
+from unilab.utils.math import quat_apply_inverse
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity

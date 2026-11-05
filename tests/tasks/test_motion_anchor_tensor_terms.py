@@ -12,10 +12,9 @@ import torch
 from unilab.base.entity import EntityTensorBodyStateView
 from unilab.managers import ManagerTermBaseCfg
 from unilab.managers.types import ManagerBasedRlEnv
-from unilab.math.rotation_numpy import matrix_first_two_cols_from_quat
-from unilab.math.rotation_tensor import quat_to_rot6
 from unilab.tasks.motion_tracking.common import manager_terms as mt
 from unilab.tasks.motion_tracking.common.manager_terms import MotionCommand
+from unilab.utils.math import np_matrix_first_two_cols_from_quat, quat_to_rot6
 
 
 class _MotionCommand(MotionCommand):
@@ -103,7 +102,7 @@ def _view() -> EntityTensorBodyStateView:
     pos = torch.zeros((2, 2, 3), dtype=torch.float32)
     pos[:, 1] = torch.tensor([[0.2, -0.1, 0.4], [-0.2, 0.1, -0.4]], dtype=torch.float32)
     quat = torch.zeros((2, 2, 4), dtype=torch.float32)
-    quat[:, 0] = 1.0
+    quat[:, :, 0] = 1.0
     return EntityTensorBodyStateView(
         body_names=("torso", "pelvis"),
         pos_w=pos,
@@ -116,7 +115,7 @@ def _view() -> EntityTensorBodyStateView:
 def test_quat_to_rot6_matches_numpy_first_two_columns() -> None:
     rng = np.random.default_rng(1818)
     quat = _unit_quat(rng.standard_normal((17, 4), dtype=np.float32))
-    expected = matrix_first_two_cols_from_quat(quat)
+    expected = np_matrix_first_two_cols_from_quat(quat)
 
     actual = quat_to_rot6(torch.as_tensor(quat))
 

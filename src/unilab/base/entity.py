@@ -47,7 +47,7 @@ from unisim.dr.types import (
 )
 
 from unilab.base.terrain import Terrain
-from unilab.math.rotation_numpy import quat_apply, quat_apply_inverse
+from unilab.utils.math import np_quat_apply, np_quat_apply_inverse
 
 if TYPE_CHECKING:
     from unisim.scene import TerrainSceneCfg
@@ -1293,7 +1293,7 @@ class EntityData:
         name = self._require(self._root_body_name, "root body state")
         quat = self._tracked_table("quat_w", (name,))
         value = self._tracked_table("lin_vel_w", (name,))
-        return quat_apply_inverse(quat, value)
+        return np_quat_apply_inverse(quat, value)
 
     @property
     def _host_root_link_ang_vel_b(self) -> np.ndarray:
@@ -1301,7 +1301,7 @@ class EntityData:
         name = self._require(self._root_body_name, "root body state")
         quat = self._tracked_table("quat_w", (name,))
         value = self._tracked_table("ang_vel_w", (name,))
-        return quat_apply_inverse(quat, value)
+        return np_quat_apply_inverse(quat, value)
 
     @property
     def _host_gravity_vec_w(self) -> np.ndarray:
@@ -2646,7 +2646,7 @@ class Entity:
             )
         generalized_velocity = np.asarray(qvel_default[qvel_indices])
         velocity_w = np.array(generalized_velocity, copy=True)
-        velocity_w[3:6] = quat_apply(quaternion, generalized_velocity[3:6])
+        velocity_w[3:6] = np_quat_apply(quaternion, generalized_velocity[3:6])
         root_state = np.concatenate((pose, velocity_w))
         materialized = np.broadcast_to(root_state, (backend.num_envs, 13)).copy()
         materialized.setflags(write=False)

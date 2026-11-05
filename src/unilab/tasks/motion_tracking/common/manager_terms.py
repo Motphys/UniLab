@@ -19,7 +19,7 @@ from unilab.managers import (
     ObservationTermCfg,
 )
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.math.rotation_tensor import (
+from unilab.utils.math import (
     quat_apply,
     quat_apply_inverse,
     quat_conjugate,

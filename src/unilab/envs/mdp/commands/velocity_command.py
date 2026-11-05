@@ -15,7 +15,7 @@ import torch
 
 from unilab.managers.command_manager import CommandTerm, CommandTermCfg
 from unilab.managers.rng import ManagerRng
-from unilab.math.rotation_tensor import yaw_from_quat
+from unilab.utils.math import yaw_from_quat
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity

@@ -10,18 +10,18 @@ import pytest
 import torch
 
 from unilab.managers import RewardTermCfg, TerminationTermCfg
-from unilab.math.rotation_numpy import (
-    quat_apply_inverse,
-    quat_error_magnitude_squared,
-    quat_from_euler_xyz,
-    quat_mul,
-)
 from unilab.tasks.motion_tracking.common import manager_terms as mt
 from unilab.tasks.motion_tracking.common.motion_loader import MotionData
 from unilab.tasks.motion_tracking.common.motion_math import (
     _adaptive_failure_alpha,
     _adaptive_failure_counts,
     _gravity_z_in_body,
+)
+from unilab.utils.math import (
+    np_quat_apply_inverse,
+    np_quat_error_magnitude_squared,
+    np_quat_from_euler_xyz,
+    np_quat_mul,
 )
 
 
@@ -44,7 +44,7 @@ def test_torch_anchor_orientation_matches_manager_projected_gravity() -> None:
         dtype=np.float32,
     )
     gravity = np.tile(np.array([0.0, 0.0, -1.0], dtype=np.float32), (len(quaternions), 1))
-    expected = quat_apply_inverse(quaternions, gravity)[:, 2]
+    expected = np_quat_apply_inverse(quaternions, gravity)[:, 2]
     actual = _gravity_z_in_body(torch.from_numpy(quaternions)).numpy()
     np.testing.assert_allclose(actual, expected, rtol=0.0, atol=2e-7)
 
@@ -149,7 +149,7 @@ def _expected_body_reward(
     reference = reference[:, body_ids]
     actual = actual[:, body_ids]
     if orientation:
-        from unilab.math.rotation_tensor import (
+        from unilab.utils.math import (
             quat_conjugate,
             quat_mul,
         )
@@ -264,7 +264,7 @@ def test_tensor_anchor_orientation_reward_matches_numpy(
 
     out = mt.motion_global_anchor_orientation_error_exp(env, "motion", std=0.4)
     expected = torch.from_numpy(
-        np.exp(-quat_error_magnitude_squared(motion_quat, robot_quat) / 0.4**2)
+        np.exp(-np_quat_error_magnitude_squared(motion_quat, robot_quat) / 0.4**2)
     )
     assert isinstance(out, torch.Tensor)
     torch.testing.assert_close(out, expected, rtol=2e-6, atol=2e-7)
@@ -328,8 +328,8 @@ def test_tensor_anchor_orientation_termination_matches_numpy(
 
     out = mt.bad_anchor_ori(env, "motion", threshold=0.8)
     expected = (
-        torch.from_numpy(quat_apply_inverse(motion_quat, gravity)[:, 2])
-        - torch.from_numpy(quat_apply_inverse(robot_quat, gravity)[:, 2])
+        torch.from_numpy(np_quat_apply_inverse(motion_quat, gravity)[:, 2])
+        - torch.from_numpy(np_quat_apply_inverse(robot_quat, gravity)[:, 2])
     ).abs() > 0.8
     assert isinstance(out, torch.Tensor)
     torch.testing.assert_close(out, expected)
@@ -499,14 +499,14 @@ def test_motion_metrics_tensor_peer_matches_numpy_and_scopes_rows() -> None:
     expected = (
         np.linalg.norm(motion_pos[:, anchor_body_idx] - robot_pos[:, anchor_body_idx], axis=-1),
         np.sqrt(
-            quat_error_magnitude_squared(
+            np_quat_error_magnitude_squared(
                 motion_quat[:, anchor_body_idx], robot_quat[:, anchor_body_idx]
             )
         ),
         np.linalg.norm(motion_lin[:, anchor_body_idx] - robot_lin[:, anchor_body_idx], axis=-1),
         np.linalg.norm(motion_ang[:, anchor_body_idx] - robot_ang[:, anchor_body_idx], axis=-1),
         np.linalg.norm(relative_pos - robot_pos, axis=-1).mean(axis=-1),
-        np.sqrt(quat_error_magnitude_squared(relative_quat, robot_quat)).mean(axis=-1),
+        np.sqrt(np_quat_error_magnitude_squared(relative_quat, robot_quat)).mean(axis=-1),
         np.linalg.norm(motion_lin - robot_lin, axis=-1).mean(axis=-1),
         np.linalg.norm(motion_ang - robot_ang, axis=-1).mean(axis=-1),
         np.linalg.norm(motion_joint_pos - robot_joint_pos, axis=-1),
@@ -999,8 +999,8 @@ def test_motion_reset_values_kernel_matches_eager_and_reuses_scratch() -> None:
 
     expected_joint = packet_joint_pos + joint_noise
     np.clip(expected_joint, soft_limits[:, 0], soft_limits[:, 1], out=expected_joint)
-    expected_pose_quat = quat_from_euler_xyz(pose[:, 3], pose[:, 4], pose[:, 5])
-    expected_root_quat = quat_mul(expected_pose_quat, packet_body_quat[:, 0])
+    expected_pose_quat = np_quat_from_euler_xyz(pose[:, 3], pose[:, 4], pose[:, 5])
+    expected_root_quat = np_quat_mul(expected_pose_quat, packet_body_quat[:, 0])
     expected_root = np.concatenate(
         (
             packet_body_pos[:, 0] + origins + pose[:, :3],

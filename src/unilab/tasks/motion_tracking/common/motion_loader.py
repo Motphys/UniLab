@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from unilab.assets.hub import resolve_motion_files
-from unilab.math.rotation_numpy import quat_angular_velocity, quat_ensure_continuity
+from unilab.utils.math import np_quat_angular_velocity, np_quat_ensure_continuity
 
 
 @dataclass
@@ -77,7 +77,7 @@ def compute_motion_velocities(
     """Numerically differentiate a trajectory into base/dof velocities."""
     base_lin_vels = np.gradient(base_poss, dt, axis=0)
     dof_vels = np.gradient(dof_poss, dt, axis=0)
-    base_ang_vels = quat_angular_velocity(base_rots, dt)
+    base_ang_vels = np_quat_angular_velocity(base_rots, dt)
     return base_lin_vels, base_ang_vels, dof_vels
 
 
@@ -126,7 +126,7 @@ def interpolate_motion(
         base_rots[i] = quat_slerp(
             base_rots_input[index_0[i]], base_rots_input[index_1[i]], blend[i]
         )
-    base_rots = quat_ensure_continuity(base_rots)
+    base_rots = np_quat_ensure_continuity(base_rots)
 
     # Linear interpolation for joint positions
     dof_poss = (

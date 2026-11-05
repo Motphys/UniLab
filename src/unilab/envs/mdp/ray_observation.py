@@ -16,7 +16,7 @@ from unisim.ray_query import (
 )
 
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
-from unilab.math.rotation_tensor import quat_apply, quat_mul
+from unilab.utils.math import quat_apply, quat_mul
 
 if TYPE_CHECKING:
     from unilab.managers.types import ManagerBasedRlEnv

@@ -20,7 +20,7 @@ from unilab.managers.event_manager import EventTermCfg
 from unilab.managers.manager_base import ManagerTermBase
 from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
-from unilab.math.rotation_tensor import quat_apply, quat_from_euler_xyz, quat_mul
+from unilab.utils.math import quat_apply, quat_from_euler_xyz, quat_mul
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
