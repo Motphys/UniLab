@@ -91,7 +91,9 @@ def resolve_reset_env_ids(
         )
     ids = selector.to(device=device, dtype=torch.int64)
     if ids.numel():
-        if bool((ids < 0).any()) or bool((ids >= num_envs).any()):
+        # One fused device reduction and one host read per validation; separate
+        # lower/upper checks would synchronize twice per caller.
+        if bool(((ids < 0) | (ids >= num_envs)).any()):
             raise ValueError(f"{owner} env_ids contain rows outside [0, {num_envs})")
     return ids
 

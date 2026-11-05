@@ -65,6 +65,64 @@ def test_circular_buffer_rejects_invalid_usage() -> None:
         buffer.append(np.zeros((2, 1)))
 
 
+def test_circular_buffer_steady_state_append_reads_no_device_state() -> None:
+    """After warm-up, append must not materialize rows or read device state."""
+    buffer = CircularBuffer(max_len=3, batch_size=2)
+    buffer.append(torch.tensor([[1.0], [10.0]], dtype=torch.float32))
+    buffer.append(torch.tensor([[2.0], [20.0]], dtype=torch.float32))
+
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("steady-state append synchronized with the device")
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(torch, "nonzero", _forbidden)
+        monkeypatch.setattr(torch.Tensor, "any", _forbidden)
+        for step in range(3, 8):
+            value = float(step)
+            buffer.append(torch.tensor([[value], [10.0 * value]], dtype=torch.float32))
+    torch.testing.assert_close(
+        buffer.buffer[:, :, 0],
+        torch.tensor([[5.0, 6.0, 7.0], [50.0, 60.0, 70.0]]),
+    )
+
+
+def test_circular_buffer_reset_rearms_host_side_backfill_count() -> None:
+    """The host pending count re-arms the fixed-shape backfill after reset."""
+    buffer = CircularBuffer(max_len=3, batch_size=3)
+    for step in range(4):
+        buffer.append(torch.full((3, 1), float(step + 1), dtype=torch.float32))
+
+    buffer.reset(torch.tensor([1], dtype=torch.int64))
+    assert buffer._pending_first_push_rows == 1
+    buffer.append(torch.tensor([[5.0], [99.0], [500.0]], dtype=torch.float32))
+    assert buffer._pending_first_push_rows == 0
+    torch.testing.assert_close(buffer.buffer[1, :, 0], torch.tensor([99.0, 99.0, 99.0]))
+    torch.testing.assert_close(buffer.buffer[0, :, 0], torch.tensor([3.0, 4.0, 5.0]))
+
+    # Steady state again: no device row materialization on append.
+    def _forbidden(*args, **kwargs):
+        raise AssertionError("steady-state append synchronized with the device")
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(torch, "nonzero", _forbidden)
+        monkeypatch.setattr(torch.Tensor, "any", _forbidden)
+        buffer.append(torch.full((3, 1), 6.0, dtype=torch.float32))
+    torch.testing.assert_close(buffer.buffer[1, :, 0], torch.tensor([99.0, 99.0, 6.0]))
+
+
+def test_circular_buffer_backfill_releases_pending_rows() -> None:
+    buffer = CircularBuffer(max_len=3, batch_size=2)
+    buffer.append(torch.tensor([[1.0], [10.0]], dtype=torch.float32))
+    buffer.reset([0, 1])
+    assert buffer._pending_first_push_rows == 2
+    buffer.backfill(torch.tensor([[8.0], [9.0]], dtype=torch.float32), torch.tensor([0, 1]))
+    assert buffer._pending_first_push_rows == 0
+    buffer.append(torch.tensor([[2.0], [20.0]], dtype=torch.float32))
+    torch.testing.assert_close(
+        buffer.buffer[:, :, 0], torch.tensor([[8.0, 8.0, 2.0], [9.0, 9.0, 20.0]])
+    )
+
+
 def test_delay_buffer_constant_delay_and_partial_backfill() -> None:
     buffer = DelayBuffer(min_lag=2, max_lag=2, batch_size=2)
     outputs = []

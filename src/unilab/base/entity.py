@@ -1773,6 +1773,10 @@ class Entity:
         self.root_body_name = cfg.root_body_name
         self._backend_type = backend.backend_type
         self._backend = backend
+        # When the owning env defers finite validation, per-step write checks
+        # accumulate into the env's device-resident verdict instead of
+        # synchronizing on every call; the env's poll boundary raises.
+        self._finite_validation_recorder: Callable[[torch.Tensor, str], None] | None = None
         self._interval_operand_device_value: torch.device | None = None
         self._interval_root_body_ids_value: torch.Tensor | None = None
         self._body_tensor_layouts: dict[tuple[str, ...], np.ndarray] = {}
@@ -1998,6 +2002,17 @@ class Entity:
                 )
             self._motion_body_ids.setflags(write=False)
         return self._motion_body_ids
+
+    def set_finite_validation_recorder(
+        self, recorder: Callable[[torch.Tensor, str], None] | None
+    ) -> None:
+        """Route per-step tensor-write finite verdicts into the env boundary.
+
+        ``None`` (the default) keeps the eager fail-closed host check. A
+        recorder must only be installed while the owning environment defers
+        finite validation, since the recorder's poll boundary is what raises.
+        """
+        self._finite_validation_recorder = recorder
 
     def _capability_error(self, capability: str, detail: str) -> NotImplementedError:
         return NotImplementedError(
@@ -4081,7 +4096,14 @@ class Entity:
                 f"EventManager term '{term_name}' body {label} has shape "
                 f"{tuple(values.shape)}; expected {expected}"
             )
-        if not values.is_floating_point() or not bool(torch.isfinite(values).all()):
+        if not values.is_floating_point():
+            raise ValueError(
+                f"EventManager term '{term_name}' body {label} must be finite floating data"
+            )
+        recorder = self._finite_validation_recorder
+        if recorder is not None:
+            recorder(values, f"{term_name} body {label}")
+        elif not bool(torch.isfinite(values).all()):
             raise ValueError(
                 f"EventManager term '{term_name}' body {label} must be finite floating data"
             )

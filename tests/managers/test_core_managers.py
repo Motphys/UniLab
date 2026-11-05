@@ -668,3 +668,42 @@ def test_scene_entity_selector_resolution(fake_env: FakeEnv) -> None:
     inconsistent = SceneEntityCfg(name="robot", joint_names="hip", joint_ids=[1])
     with pytest.raises(ValueError, match="Inconsistent joint"):
         inconsistent.resolve(fake_env.scene)
+
+
+def test_termination_reset_defers_episode_counts_to_poll_boundary(fake_env: FakeEnv) -> None:
+    """Deferred mode accumulates episode counts on device and drains once."""
+    fake_env.defer_finite_validation = True
+    timeout = torch.tensor([True, False, False, True])
+    failure = torch.tensor([False, True, False, True])
+    manager = TerminationManager(
+        {
+            "timeout": TerminationTermCfg(func=lambda env: timeout.clone(), time_out=True),
+            "failure": TerminationTermCfg(func=lambda env: failure.clone()),
+        },
+        fake_env,
+    )
+    manager.compute()
+
+    # Deferred reset publishes no host counts per reset.
+    assert manager.reset(torch.tensor([0, 1], dtype=torch.int64)) == {}
+    assert manager.reset(torch.tensor([3], dtype=torch.int64)) == {}
+
+    published = manager.publish_pending_reset_metrics()
+    assert published == {
+        "Episode_Termination/timeout": 2,
+        "Episode_Termination/failure": 2,
+    }
+    assert manager.publish_pending_reset_metrics() == {}
+
+
+def test_termination_reset_eager_counts_unchanged(fake_env: FakeEnv) -> None:
+    timeout = torch.tensor([True, False, False, True])
+    manager = TerminationManager(
+        {"timeout": TerminationTermCfg(func=lambda env: timeout.clone(), time_out=True)},
+        fake_env,
+    )
+    manager.compute()
+    assert manager.reset(torch.tensor([0, 1, 3], dtype=torch.int64)) == {
+        "Episode_Termination/timeout": 2
+    }
+    assert manager.publish_pending_reset_metrics() == {}

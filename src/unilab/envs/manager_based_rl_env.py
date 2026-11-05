@@ -378,6 +378,11 @@ class ManagerBasedRlEnv(TorchEnv):
             default_qpos=default_qpos,
             scene_layout=backend.get_scene_layout() if cfg.scene.entity_assets else None,
         )
+        # Deferred finite validation carries reset-payload verdicts on the
+        # env's device-resident carrier; eager mode keeps the immediate raise.
+        self._reset_state.set_finite_verdict_sink(
+            self._finite_verdict if self.defer_finite_validation else None
+        )
         self.scene = EntityScene.from_scene_cfg(
             cfg.scene,
             backend,
@@ -388,6 +393,9 @@ class ManagerBasedRlEnv(TorchEnv):
         )
         for entity in self.scene.entities.values():
             entity.data.set_defer_finite_validation(self.defer_finite_validation)
+            entity.set_finite_validation_recorder(
+                self.record_finite_validation if self.defer_finite_validation else None
+            )
 
         self.common_step_counter = 0
         self._sim_step_counter = 0
@@ -1252,9 +1260,18 @@ class ManagerBasedRlEnv(TorchEnv):
             return valid
         if self._state is None or self.step_counter == 0:
             return valid
+        packed = self._reset_state.packed_reset_transaction
+        if packed is not None and packed.has_pending_verdict():
+            names = packed.take_verdict()
+            raise ValueError(
+                "Packed reset validation failed for slot(s): "
+                + ", ".join(names)
+                + f" (first detected at poll boundary, step {self.step_counter})"
+            )
         log = self._state.info.setdefault("log", {})
         log.update(self.command_manager.publish_pending_reset_metrics())
         log.update(self.metrics_manager.publish_pending_reset_metrics())
+        log.update(self.termination_manager.publish_pending_reset_metrics())
         return valid
 
     def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:

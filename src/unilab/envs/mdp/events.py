@@ -1627,6 +1627,14 @@ class ApplyBodyImpulse(ManagerTermBase):
         # Pre-sample the initial cooldown so the first impulse is preceded by a
         # cooldown rather than firing immediately at t=0.
         self._interval_time_left = self._sample_cooldown(self.num_envs)
+        # Host mirror of the next lifecycle event: a conservative lower bound on
+        # min(where(active, time_remaining, interval_time_left)) plus the exact
+        # any-active verdict. IEEE-754 rounding is monotone, so subtracting the
+        # same float64 dt on host and device keeps the bound valid; while it is
+        # positive no timer can expire or trigger and the step reads no device
+        # state at all. Both are refreshed at probe boundaries and at reset.
+        self._host_next_event_lb = self._cooldown_s[0]
+        self._host_any_active = False
 
     def _sample_cooldown(self, count: int) -> torch.Tensor:
         return self._host_uniform(self._cooldown_s[0], self._cooldown_s[1], count)
@@ -1649,6 +1657,20 @@ class ApplyBodyImpulse(ManagerTermBase):
     ) -> None:
         del env_ids, force_range, torque_range, duration_s, cooldown_s, asset_cfg
         dt = self._step_dt
+
+        host_lb = self._host_next_event_lb - dt
+        if host_lb > 0.0:
+            # The host lower bound proves no timer expires or triggers this
+            # step: advance the timers and, while impulses are known active,
+            # keep the wrench re-stage without reading any device state.
+            self._host_next_event_lb = host_lb
+            if self._host_any_active:
+                self._time_remaining[self._active] -= dt
+                self._interval_time_left -= dt
+                self._stage_wrench()
+            else:
+                self._interval_time_left -= dt
+            return
 
         # Decrement active impulse timers, then expire finished impulses.
         self._time_remaining[self._active] -= dt
@@ -1707,13 +1729,23 @@ class ApplyBodyImpulse(ManagerTermBase):
         # persistent channels. Idle envs skip the call entirely so the term
         # never clobbers another producer's staged forces.
         if bool(self._active.any() or expired.any()):
-            self._entity.apply_body_wrench_to_sim(
-                self._active_forces,
-                self._active_torques if self._uses_torque else None,
-                self._backend_body_ids,
-                env_ids=None,
-                term_name="apply_body_impulse",
-            )
+            self._stage_wrench()
+
+        # Refresh the host mirror at this probe boundary. The next event is the
+        # nearest active duration or inactive cooldown; the any-active verdict
+        # is exact here.
+        next_event = torch.where(self._active, self._time_remaining, self._interval_time_left)
+        self._host_next_event_lb = float(next_event.amin())
+        self._host_any_active = bool(self._active.any())
+
+    def _stage_wrench(self) -> None:
+        self._entity.apply_body_wrench_to_sim(
+            self._active_forces,
+            self._active_torques if self._uses_torque else None,
+            self._backend_body_ids,
+            env_ids=None,
+            term_name="apply_body_impulse",
+        )
 
     def reset(self, env_ids: torch.Tensor) -> None:
         """Clear transient impulse state for the selected envs (state-clearing hook)."""
@@ -1726,13 +1758,20 @@ class ApplyBodyImpulse(ManagerTermBase):
         if was_active:
             # Reset rows now stage zeros, which actively clears persistent
             # channels; other rows re-stage their unchanged wrench.
-            self._entity.apply_body_wrench_to_sim(
-                self._active_forces,
-                self._active_torques if self._uses_torque else None,
-                self._backend_body_ids,
-                env_ids=None,
-                term_name="apply_body_impulse",
+            self._stage_wrench()
+            # A full-width reset provably clears every active row; a partial
+            # reset re-reads the verdict once at this reset boundary.
+            self._host_any_active = (
+                False if env_ids.numel() == self.num_envs else bool(self._active.any())
             )
+        # Reset rows restart their cooldown at >= cooldown lower bound. A
+        # full-width reset provably retires every active row, so the next event
+        # is exactly the cooldown lower bound; a partial reset keeps the
+        # previous bound for the untouched rows.
+        if env_ids.numel() == self.num_envs:
+            self._host_next_event_lb = self._cooldown_s[0]
+        else:
+            self._host_next_event_lb = min(self._host_next_event_lb, self._cooldown_s[0])
 
     def _selected_body_quats(
         self,
