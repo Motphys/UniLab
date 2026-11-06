@@ -103,6 +103,7 @@ def _env(scene: _Scene | None = None, command: torch.Tensor | None = None) -> Ma
             num_envs=2,
             step_dt=0.02,
             device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             scene=scene or _Scene(),
             command_manager=_Commands(command),
         ),

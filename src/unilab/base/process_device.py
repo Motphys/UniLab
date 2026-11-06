@@ -102,7 +102,7 @@ def _cuda_device_index(device: str | None) -> int | None:
 
             if torch.cuda.is_available():
                 return int(torch.cuda.current_device())
-        except Exception:
+        except (ImportError, RuntimeError):
             # Device discovery is only a fallback for an unindexed alias.  A
             # configured topology below remains authoritative if available.
             pass

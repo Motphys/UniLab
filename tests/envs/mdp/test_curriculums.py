@@ -7,6 +7,7 @@ fail-closed validation error paths, and the CurriculumManager integration
 
 from __future__ import annotations
 
+import types
 from types import SimpleNamespace
 
 import numpy as np
@@ -37,6 +38,9 @@ def _termination(env: _FakeEnv, threshold: float) -> torch.Tensor:
 class _FakeEnv:
     def __init__(self, num_envs: int = 4) -> None:
         self.num_envs = num_envs
+        self.device = torch.device("cpu")
+        self.cfg = types.SimpleNamespace(defer_finite_validation=False)
+        self.rng = torch.Generator()
         self.scene = {}
         self.common_step_counter = 0
         self.reward_manager = RewardManager(

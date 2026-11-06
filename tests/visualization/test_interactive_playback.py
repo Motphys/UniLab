@@ -494,6 +494,7 @@ def test_sac_playback_session_runs_sim2sim_preflight(
 
     class FakeEnv:
         num_envs = 1
+        device = torch.device("cpu")
         obs_groups_spec = {"obs": 3, "critic": 5}
         action_space = SimpleNamespace(
             shape=(2,),

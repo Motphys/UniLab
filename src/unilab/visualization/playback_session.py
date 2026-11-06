@@ -48,8 +48,8 @@ class SnapshotPlaybackSession:
         height: int = 720,
         num_processes: int = 8,
     ) -> None:
-        capabilities = getattr(env, "play_capabilities", None)
-        if capabilities is None or not capabilities.supports_physics_state_playback:
+        capabilities = env.play_capabilities
+        if not capabilities.supports_physics_state_playback:
             raise NotImplementedError(
                 f"{type(env).__name__} does not support physics-state playback, so "
                 "SnapshotPlaybackSession is unavailable"
@@ -124,8 +124,8 @@ class SnapshotPlaybackSession:
         validated = [validate_debug_overlays(entry, num_envs) for entry in overlays]
         debug_overlays_list = validated if any(entry is not None for entry in validated) else None
         if debug_overlays_list is not None:
-            capabilities = getattr(self._env, "play_capabilities", None)
-            if capabilities is None or not capabilities.supports_debug_overlay:
+            capabilities = self._env.play_capabilities
+            if not capabilities.supports_debug_overlay:
                 raise unsupported_debug_overlay_error(type(self._env).__name__)
 
         from unisim.backend.mujoco.playback import resolve_render_play_model_files
@@ -134,7 +134,7 @@ class SnapshotPlaybackSession:
 
         spacing = self._render_spacing
         if spacing is None:
-            spacing = float(getattr(getattr(self._env, "cfg", None), "render_spacing", 1.0))
+            spacing = float(getattr(self._env.cfg, "render_spacing", 1.0))
 
         with tempfile.TemporaryDirectory(prefix="unilab-snapshot-session-") as tmp_dir:
             model_files = resolve_render_play_model_files(
@@ -185,7 +185,7 @@ class SnapshotPlaybackSession:
             ]
 
         if fps is None:
-            ctrl_dt = float(getattr(getattr(self._env, "cfg", None), "ctrl_dt", 1.0 / 60.0))
+            ctrl_dt = float(getattr(self._env.cfg, "ctrl_dt", 1.0 / 60.0))
             fps = max(1, int(round(1.0 / ctrl_dt)))
         output = str(output_video)
         write_playback_video(output, frames, fps=fps)

@@ -549,7 +549,7 @@ def patch_rsl_rl_wandb_writer() -> None:
     """Patch rsl-rl W&B writer so it can reuse an already-open run."""
     try:
         import rsl_rl.utils.wandb_utils as wandb_utils
-    except Exception:
+    except ImportError:
         return
 
     if getattr(wandb_utils, "_UNILAB_PATCHED", False):
@@ -739,7 +739,7 @@ def patch_rsl_rl_resume_state() -> None:
     """
     try:
         from rsl_rl.runners.on_policy_runner import OnPolicyRunner
-    except Exception:
+    except ImportError:
         return
 
     if getattr(OnPolicyRunner, "_UNILAB_RESUME_PATCHED", False):

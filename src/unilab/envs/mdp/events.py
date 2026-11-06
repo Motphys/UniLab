@@ -296,7 +296,7 @@ def _validate_event_term(
 
 def resolve_env_ids(env: ManagerBasedRlEnv, env_ids: torch.Tensor | None) -> torch.Tensor:
     """Return int64 env rows on the env device; no host detour for device envs."""
-    device = getattr(env, "device", torch.device("cpu"))
+    device = env.device
     if env_ids is None:
         return torch.arange(env.num_envs, dtype=torch.int64, device=device)
     if isinstance(env_ids, torch.Tensor):
@@ -1325,7 +1325,7 @@ class RandomizePhysicsSceneGravity(_ResetRandomizationTerm):
             distribution=self._distribution,
         )
         self._default_gravity = env.scene.bind_gravity_write_tensor(
-            term_name=term_name, device=getattr(env, "device", torch.device("cpu"))
+            term_name=term_name, device=env.device
         )
 
     def __call__(

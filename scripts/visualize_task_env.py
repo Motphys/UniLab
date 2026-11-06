@@ -165,8 +165,7 @@ def _motrix_camera_kwargs(env, num_envs: int) -> CameraCfg | None:
 
 
 def _env_scene(env) -> "SceneCfg | None":
-    cfg = getattr(env, "cfg", None)
-    scene = getattr(cfg, "scene", None) if cfg is not None else None
+    scene = getattr(env.cfg, "scene", None)
     if scene is None:
         return None
     model_file = getattr(scene, "model_file", None)

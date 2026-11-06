@@ -34,7 +34,7 @@ class joint_acc_l2(ManagerTermBase):
             else tuple(asset_cfg.joint_ids)
         )
         self._joint_names = tuple(self._entity.joint_names[index] for index in joint_ids)
-        self._device = torch.device(getattr(env, "device", "cpu"))
+        self._device = torch.device(env.device)
         self._joint_index = torch.tensor(joint_ids, dtype=torch.int64, device=self._device)
         self._previous = torch.zeros(
             (env.num_envs, len(self._joint_names)),

@@ -163,8 +163,8 @@ class ObservationManager(ManagerBase):
 
     def __init__(self, cfg: dict[str, ObservationGroupCfg | None], env: ManagerBasedRlEnv):
         self.cfg = deepcopy(cfg)
-        self._device = getattr(env, "device", torch.device("cpu"))
-        env_cfg = getattr(env, "cfg", None)
+        self._device = env.device
+        env_cfg = env.cfg
         self._defer_finite_validation = bool(
             getattr(
                 env, "defer_finite_validation", getattr(env_cfg, "defer_finite_validation", False)

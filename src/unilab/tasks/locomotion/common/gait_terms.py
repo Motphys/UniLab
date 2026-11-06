@@ -138,7 +138,7 @@ class _FootContactTerm(SensorTermBase):
         self._flat_width = int(sum(self._view.dimensions))
         # Per-foot column groups in the flattened sensor layout.
         self._columns: list[torch.Tensor] = []
-        device = torch.device(getattr(env, "device", "cpu"))
+        device = torch.device(env.device)
         for group in self._groups:
             self._columns.append(starts[: len(group)].to(device=device))
             starts = starts[len(group) :]
@@ -260,9 +260,7 @@ class feet_air_time(_FootContactTerm):
         ).to(dtype=torch.float32)
         gate = _command_gate(env, self.name, self._command_name, self._command_threshold)
         if gate is not None:
-            if isinstance(gate, torch.Tensor):
-                return reward.to(device=gate.device) * gate
-            return reward * torch.as_tensor(gate, device=reward.device, dtype=reward.dtype)
+            return reward * gate.to(device=reward.device, dtype=reward.dtype)
         return reward
 
 
@@ -336,7 +334,7 @@ class feet_swing_height(_FootContactTerm):
         error = self._peak_heights / self._target - 1.0
         cost = torch.sum(torch.square(error) * first_contact, dim=1)
         if gate is not None:
-            cost = cost * torch.as_tensor(gate, device=cost.device, dtype=cost.dtype)
+            cost = cost * gate.to(device=cost.device, dtype=cost.dtype)
         self._peak_heights = torch.where(
             first_contact, torch.zeros_like(self._peak_heights), self._peak_heights
         )
@@ -384,7 +382,7 @@ class feet_slip(_FootContactTerm):
         gate = _command_gate(env, self.name, self._command_name, self._command_threshold)
         cost = torch.sum(vel_xy_norm_sq * contact, dim=1)
         if gate is not None:
-            cost = cost * torch.as_tensor(gate, device=cost.device, dtype=cost.dtype)
+            cost = cost * gate.to(device=cost.device, dtype=cost.dtype)
         return cost.to(dtype=torch.float32)
 
 
