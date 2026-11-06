@@ -5271,9 +5271,9 @@ requires-dist = [
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
     { name = "uniray", extras = ["warp"], marker = "extra == 'ray'", specifier = "==0.1.1" },
-    { name = "unisim-core", specifier = "==2.7.0" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.7.0" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.7.0" },
+    { name = "unisim-core", specifier = "==2.7.1" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.7.1" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.7.1" },
     { name = "viser", specifier = ">=1.0.26" },
     { name = "wandb", marker = "extra == 'unirl'", specifier = ">=0.22.3" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
@@ -5311,15 +5311,15 @@ warp = [
 
 [[package]]
 name = "unisim-core"
-version = "2.7.0"
+version = "2.7.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/50/8e/aa83e69eb814397b8472f609e121a5d52747a7265d77036a7bc09c6f4245/unisim_core-2.7.0.tar.gz", hash = "sha256:985f1933f4224372fe31cc0ac2606d519e9601746c27159b04af1db68eb45a6c", size = 783441, upload-time = "2026-11-06T04:10:54.266Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/85/845af961fd05010451d0538581187fd03b001a27224e4755d92ec1c26890/unisim_core-2.7.1.tar.gz", hash = "sha256:be52b0ccbaec7304f32b97086530c98583a2dcbc1fb3db21b76080c493f50999", size = 783792, upload-time = "2026-11-06T14:08:56.806Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/00/bfecc2bbb002eafa3d66fd85807ce5dd9b657734b49309ea80de799e8e1c/unisim_core-2.7.0-py3-none-any.whl", hash = "sha256:066a3a469a40521467ccc4dad992e84899fb2e817b1791fa27d8e7399b17feec", size = 832476, upload-time = "2026-11-06T04:10:52.304Z" },
+    { url = "https://files.pythonhosted.org/packages/12/d7/611f4d9b43df038b6597adcbfb637340c998d11f5cb0fcdc5f80f854558e/unisim_core-2.7.1-py3-none-any.whl", hash = "sha256:338d9013a29142362fcb311fd2c8fe8fdf4cdd30dad89f5378effac90841d70d", size = 832865, upload-time = "2026-11-06T14:08:55.01Z" },
 ]
 
 [package.optional-dependencies]

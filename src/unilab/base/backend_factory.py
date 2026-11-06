@@ -267,7 +267,23 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
     result["newton_use_cuda_graph"] = cfg.newton_use_cuda_graph
+    result["mjwarp_validate_tensor_finite"] = _mjwarp_validate_tensor_finite(cfg)
     return result
+
+
+def _mjwarp_validate_tensor_finite(cfg: "EnvCfg") -> bool | None:
+    """Resolve MJWarp's blocking hot-path finite check for this env.
+
+    Deferred finite validation already checks the final control on the device
+    and publishes the verdict at a fixed poll boundary, so the backend's
+    per-call blocking read is redundant there. ``None`` keeps the UniSim
+    adapter default; other backends ignore the option.
+    """
+    if cfg.mjwarp_validate_tensor_finite is not None:
+        return cfg.mjwarp_validate_tensor_finite
+    if getattr(cfg, "defer_finite_validation", False):
+        return False
+    return None
 
 
 def create_backend(

@@ -73,6 +73,12 @@ class EnvCfg:
     # device profile never relies on an implicit backend-wide allocation size.
     mjwarp_nconmax: Optional[int] = None
     mjwarp_njmax: Optional[int] = None
+    # MJWarp's own NaN/Inf check on hot-path tensor operands (step ctrl, device
+    # pushes, wrenches, velocity deltas, generalized forces) blocks the host on
+    # every call. ``None`` disables it when ``defer_finite_validation`` already
+    # validates those values on the device, and keeps it otherwise; an
+    # explicit bool overrides that choice.
+    mjwarp_validate_tensor_finite: Optional[bool] = None
     # ``newton`` owns MuJoCo-Warp 3.11 capacity and requires explicit CUDA
     # placement; the process binder supplies the rank-local device when unset.
     newton_device: Optional[str] = None
@@ -173,6 +179,13 @@ class EnvCfg:
                 isinstance(value, bool) or not isinstance(value, int) or value <= 0
             ):
                 raise ValueError(f"{name} must be a positive integer or None, got {value!r}")
+        if self.mjwarp_validate_tensor_finite is not None and not isinstance(
+            self.mjwarp_validate_tensor_finite, bool
+        ):
+            raise ValueError(
+                "mjwarp_validate_tensor_finite must be bool or None, "
+                f"got {self.mjwarp_validate_tensor_finite!r}"
+            )
         if self.newton_device is not None and (
             not isinstance(self.newton_device, str) or not self.newton_device.strip()
         ):
