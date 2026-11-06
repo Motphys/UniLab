@@ -61,6 +61,18 @@ Contract ownership, schema policy, benchmark acceptance, and release transition.
 Add env config, registration, owner YAMLs, and tests.
 :::
 
+:::{grid-item-card} Onboard a new robot (walkthrough)
+:link: 3-extending/5-onboard_new_robot
+:link-type: doc
+End-to-end from URDF/MJCF to a first training run, with verification per step.
+:::
+
+:::{grid-item-card} Custom reward (walkthrough)
+:link: 3-extending/6-custom_reward
+:link-type: doc
+From function definition to the term appearing in training logs.
+:::
+
 :::{grid-item-card} New backend
 :link: 3-extending/2-new_backend
 :link-type: doc

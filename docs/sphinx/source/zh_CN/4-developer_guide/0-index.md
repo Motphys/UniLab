@@ -61,6 +61,18 @@ Manager-Based construction、reset、interval 与后端能力边界。
 添加 env config、注册、owner YAML 与测试。
 :::
 
+:::{grid-item-card} 接入新机器人（演练）
+:link: 3-extending/5-onboard_new_robot
+:link-type: doc
+从 URDF/MJCF 到首训跑通的端到端流程，每步带验证命令。
+:::
+
+:::{grid-item-card} 自定义 reward（演练）
+:link: 3-extending/6-custom_reward
+:link-type: doc
+从函数定义到 reward term 出现在训练日志。
+:::
+
 :::{grid-item-card} 新后端
 :link: 3-extending/2-new_backend
 :link-type: doc

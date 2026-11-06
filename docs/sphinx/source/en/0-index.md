@@ -39,6 +39,55 @@ User guide
 
 ::::
 
+## I want to…
+
+::::{grid} 1 1 2 3
+:gutter: 3
+
+:::{grid-item-card} Onboard my own robot
+:link: 4-developer_guide/3-extending/5-onboard_new_robot
+:link-type: doc
+End-to-end walkthrough from URDF/MJCF to a first training run: asset import,
+keyframe, minimal owner YAML, with a verification command per step.
+:::
+
+:::{grid-item-card} Add a custom reward
+:link: 4-developer_guide/3-extending/6-custom_reward
+:link-type: doc
+From function definition to the term showing up in training logs: owner YAML
+injection, `info["log"]` verification, weight tuning.
+:::
+
+:::{grid-item-card} Look up built-in rewards / observations / terminations
+:link: 5-reference/6-manager_terms/0-index
+:link-type: doc
+Reference tables for every built-in term: parameters, types, defaults, and
+semantics, grouped by framework-level and task-layer modules.
+:::
+
+:::{grid-item-card} Configure domain randomization
+:link: 2-user_guide/5-domain_randomization/2-field_reference
+:link-type: doc
+Every DR field with value guidance, lifecycle timing, and minimal YAML
+examples, including cross-backend setups.
+:::
+
+:::{grid-item-card} Tune training hyperparameters
+:link: 2-user_guide/2-algorithms/0-index
+:link-type: doc
+Per-algorithm configuration tables for PPO / APPO / SAC / FlashSAC: learning
+rate, GAE lam, entropy, reward weights.
+:::
+
+:::{grid-item-card} Debug training problems
+:link: 2-user_guide/1-training/8-training_diagnostics
+:link-type: doc
+Triage paths and tooling for NaNs, reward anomalies, and cross-backend
+behavior mismatches.
+:::
+
+::::
+
 ## Why UniLab
 
 ::::{grid} 1 1 3 3

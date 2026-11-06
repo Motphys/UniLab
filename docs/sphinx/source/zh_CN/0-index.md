@@ -38,6 +38,52 @@ UniLab 将任务语义变成可复用配置：组装 manager term、选择物理
 
 ::::
 
+## 我要……
+
+::::{grid} 1 1 2 3
+:gutter: 3
+
+:::{grid-item-card} 接入我自己的机器人
+:link: 4-developer_guide/3-extending/5-onboard_new_robot
+:link-type: doc
+从 URDF/MJCF 到首训跑通的端到端演练：资产导入、keyframe、最小 owner
+YAML，每步带验证命令。
+:::
+
+:::{grid-item-card} 添加自定义 reward
+:link: 4-developer_guide/3-extending/6-custom_reward
+:link-type: doc
+从函数定义到 reward term 出现在训练日志：owner YAML 注入、`info["log"]`
+验证、权重调整。
+:::
+
+:::{grid-item-card} 查内置 reward / observation / termination
+:link: 5-reference/6-manager_terms/0-index
+:link-type: doc
+全部内置 term 的参考表：参数、类型、默认值、语义，按框架级与任务层分组。
+:::
+
+:::{grid-item-card} 配置域随机化（DR）
+:link: 2-user_guide/5-domain_randomization/2-field_reference
+:link-type: doc
+全部 DR 字段的取值线索、生效时机与最小 YAML 示例，含跨 backend 写法。
+:::
+
+:::{grid-item-card} 调训练超参数
+:link: 2-user_guide/2-algorithms/0-index
+:link-type: doc
+PPO / APPO / SAC / FlashSAC 各算法页的配置参考表：learning rate、GAE
+lam、entropy、reward 权重。
+:::
+
+:::{grid-item-card} 训练出问题了
+:link: 2-user_guide/1-training/8-training_diagnostics
+:link-type: doc
+NaN 定位、reward 异常、两 backend 行为不一致的排查路径与工具链。
+:::
+
+::::
+
 ## 为什么选择 UniLab
 
 ::::{grid} 1 1 3 3
