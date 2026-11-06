@@ -66,12 +66,12 @@ def joint_view(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg, term_name: str
             joint_pos=torch.zeros(
                 (env.num_envs, width),
                 dtype=torch.float32,
-                device=getattr(env, "device", torch.device("cpu")),
+                device=env.device,
             ),
             joint_vel=torch.zeros(
                 (env.num_envs, width),
                 dtype=torch.float32,
-                device=getattr(env, "device", torch.device("cpu")),
+                device=env.device,
             ),
         )
     return require_read_plan(env, term_name).joint_tensor_view(asset)
@@ -129,7 +129,7 @@ class _NamedSensorObservation(ManagerTermBase):
         if read_plan is None:
             # Manager construction probes immutable observation shape before
             # cold packed-read compilation. This is not a hot-path read.
-            device = getattr(env, "device", torch.device("cpu"))
+            device = env.device
             return torch.as_tensor(self._read(), device=device)
         read_plan = require_read_plan(env, self._term_name)
         entity = env.scene[self._entity_name]
@@ -228,7 +228,7 @@ def projected_gravity(
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
     asset, view = root_body_view(env, asset_cfg, "projected_gravity")
-    gravity = asset.data.gravity_vec_w(getattr(env, "device", torch.device("cpu")))[0]
+    gravity = asset.data.gravity_vec_w(env.device)[0]
     return quat_apply_inverse(view.quat_w[:, 0, :], gravity.expand((view.quat_w.shape[0], 3)))
 
 
@@ -302,9 +302,9 @@ class _ImuMisalignedObservation(ManagerTermBase):
                 f"{self._max_angle_deg}, received {max_angle_deg}"
             )
 
-    def _rotate(self, values: Any) -> torch.Tensor:
-        device = getattr(self._env, "device", torch.device("cpu"))
-        vectors = torch.as_tensor(values, dtype=torch.float32, device=device)
+    def _rotate(self, values: torch.Tensor) -> torch.Tensor:
+        device = self._env.device
+        vectors = values.to(dtype=torch.float32, device=device)
         quat = self._quat.to(device=device)
         return quat_apply(quat, vectors)
 
@@ -338,7 +338,7 @@ class projected_gravity_imu_misaligned(_ImuMisalignedObservation):
     ) -> torch.Tensor:
         self._validate_max_angle(max_angle_deg)
         asset, view = root_body_view(env, asset_cfg, self._term_name)
-        gravity = asset.data.gravity_vec_w(getattr(env, "device", torch.device("cpu")))[0]
+        gravity = asset.data.gravity_vec_w(env.device)[0]
         projected = quat_apply_inverse(
             view.quat_w[:, 0, :], gravity.expand((view.quat_w.shape[0], 3))
         )
@@ -353,7 +353,7 @@ def joint_pos_rel(
     if not isinstance(biased, bool):
         raise TypeError(f"joint_pos_rel biased must be bool, got {type(biased).__name__}")
     joint_ids = asset_cfg.joint_ids
-    device = getattr(env, "device", torch.device("cpu"))
+    device = env.device
     asset = env.scene[asset_cfg.name]
     state = joint_view(env, asset_cfg, "joint_pos_rel")
     result = state.joint_pos[:, joint_ids] - asset.data.default_joint_pos(device)[:, joint_ids]
@@ -369,7 +369,7 @@ def joint_vel_rel(
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
     joint_ids = asset_cfg.joint_ids
-    device = getattr(env, "device", torch.device("cpu"))
+    device = env.device
     asset = env.scene[asset_cfg.name]
     state = joint_view(env, asset_cfg, "joint_vel_rel")
     return state.joint_vel[:, joint_ids] - asset.data.default_joint_vel(device)[:, joint_ids]

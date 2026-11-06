@@ -162,7 +162,7 @@ class UniformVelocityCommand(CommandTerm):
     def _update_metrics(self) -> None:
         max_command_steps = self.cfg.resampling_time_range[1] / self._env.step_dt
         lin_vel, ang_vel = self._metric_velocities()
-        command = torch.as_tensor(self.command, device=lin_vel.device)
+        command = self.command.to(device=lin_vel.device)
         errors = torch.stack(
             (
                 torch.linalg.vector_norm(command[:, :2] - lin_vel[:, :2], dim=-1),

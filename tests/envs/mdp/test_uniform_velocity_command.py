@@ -123,6 +123,7 @@ def _env(seed: int = 7) -> tuple[ManagerBasedRlEnv, _Backend]:
         SimpleNamespace(
             num_envs=backend.num_envs,
             device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             rng=ManagerRng.seeded(seed),
             scene=scene,
             step_dt=0.02,

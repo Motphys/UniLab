@@ -100,7 +100,7 @@ class CurriculumManager(ManagerBase):
         env_ids = resolve_reset_env_ids(
             env_ids,
             num_envs=self._env.num_envs,
-            device=torch.device(getattr(self._env, "device", "cpu")),
+            device=self._env.device,
             owner="CurriculumManager.reset",
         )
         extras: dict[str, float] = {}

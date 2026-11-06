@@ -149,7 +149,7 @@ def flat_orientation_l2(
 ) -> torch.Tensor:
     """Penalize non-flat base orientation."""
     asset, view = root_body_view(env, asset_cfg, "flat_orientation_l2")
-    gravity_w = asset.data.gravity_vec_w(getattr(env, "device", torch.device("cpu")))[0]
+    gravity_w = asset.data.gravity_vec_w(env.device)[0]
     gravity = quat_apply_inverse(view.quat_w[:, 0, :], gravity_w.expand((view.quat_w.shape[0], 3)))
     return torch.sum(torch.square(gravity[:, :2]), dim=1)
 
@@ -191,9 +191,7 @@ def track_linear_velocity(
     _, view = root_body_view(env, asset_cfg, "track_linear_velocity")
     command = _command(env, command_name)
     actual = quat_apply_inverse(view.quat_w[:, 0, :], view.lin_vel_w[:, 0, :])
-    command_t = torch.as_tensor(
-        command, dtype=torch.float32, device=getattr(env, "device", torch.device("cpu"))
-    )
+    command_t = command.to(dtype=torch.float32, device=env.device)
     xy_error = torch.sum(torch.square(command_t[:, :2] - actual[:, :2]), dim=1)
     z_error = torch.square(actual[:, 2])
     return torch.exp(-(xy_error + z_error) / scale**2)
@@ -210,9 +208,7 @@ def track_angular_velocity(
     _, view = root_body_view(env, asset_cfg, "track_angular_velocity")
     command = _command(env, command_name)
     actual = quat_apply_inverse(view.quat_w[:, 0, :], view.ang_vel_w[:, 0, :])
-    command_t = torch.as_tensor(
-        command, dtype=torch.float32, device=getattr(env, "device", torch.device("cpu"))
-    )
+    command_t = command.to(dtype=torch.float32, device=env.device)
     z_error = torch.square(command_t[:, 2] - actual[:, 2])
     xy_error = torch.sum(torch.square(actual[:, :2]), dim=1)
     return torch.exp(-(z_error + xy_error) / scale**2)
@@ -235,9 +231,7 @@ def body_angular_velocity_penalty(
             "body_angular_velocity_penalty requires exactly one body; "
             f"received state shape {ang_vel.shape}"
         )
-    velocity = torch.as_tensor(
-        ang_vel[:, 0, :2], dtype=torch.float32, device=getattr(env, "device", torch.device("cpu"))
-    )
+    velocity = ang_vel[:, 0, :2].to(dtype=torch.float32, device=env.device)
     return torch.sum(torch.square(velocity), dim=1)
 
 
@@ -247,9 +241,7 @@ def joint_pos_limits(
 ) -> torch.Tensor:
     """Penalize joint positions if they cross the soft limits."""
     asset = env.scene[asset_cfg.name]
-    limits = asset.data.soft_joint_pos_limits(getattr(env, "device", torch.device("cpu")))[
-        asset_cfg.joint_ids
-    ]
+    limits = asset.data.soft_joint_pos_limits(env.device)[asset_cfg.joint_ids]
     joint_pos = joint_view(env, asset_cfg, "joint_pos_limits").joint_pos[:, asset_cfg.joint_ids]
     lower_violation = torch.clamp_min(limits[None, :, 0] - joint_pos, 0.0)
     upper_violation = torch.clamp_min(joint_pos - limits[None, :, 1], 0.0)
@@ -292,19 +284,15 @@ class posture(ManagerTermBase):
         self._std = _resolve_std_dict(
             self.name, "std", cfg.params.get("std"), _selected_joint_names(asset, asset_cfg)
         )
-        self._default_joint_pos = asset.data.default_joint_pos(
-            getattr(env, "device", torch.device("cpu"))
-        )
-        self._std = torch.tensor(
-            self._std, dtype=torch.float32, device=getattr(env, "device", torch.device("cpu"))
-        )
+        self._default_joint_pos = asset.data.default_joint_pos(env.device)
+        self._std = torch.tensor(self._std, dtype=torch.float32, device=env.device)
 
     def __call__(self, env: ManagerBasedRlEnv, **params: object) -> torch.Tensor:
         del params
-        current = torch.as_tensor(
-            joint_view(env, self._asset_cfg, self.name).joint_pos[:, self._asset_cfg.joint_ids],
-            dtype=torch.float32,
-            device=getattr(env, "device", torch.device("cpu")),
+        current = (
+            joint_view(env, self._asset_cfg, self.name)
+            .joint_pos[:, self._asset_cfg.joint_ids]
+            .to(dtype=torch.float32, device=env.device)
         )
         desired = self._default_joint_pos[:, self._asset_cfg.joint_ids]
         error_squared = torch.square(current - desired)
@@ -366,21 +354,15 @@ class variable_posture(ManagerTermBase):
                 f"{self.name} walking_threshold must be below running_threshold, got "
                 f"{self._walking_threshold} >= {self._running_threshold}"
             )
-        self._default_joint_pos = asset.data.default_joint_pos(
-            getattr(env, "device", torch.device("cpu"))
-        )
-        device = getattr(env, "device", torch.device("cpu"))
+        self._default_joint_pos = asset.data.default_joint_pos(env.device)
+        device = env.device
         self._std_standing = torch.tensor(std_standing, dtype=torch.float32, device=device)
         self._std_walking = torch.tensor(std_walking, dtype=torch.float32, device=device)
         self._std_running = torch.tensor(std_running, dtype=torch.float32, device=device)
 
     def __call__(self, env: ManagerBasedRlEnv, **params: object) -> torch.Tensor:
         del params
-        command = torch.as_tensor(
-            _command(env, self._command_name),
-            dtype=torch.float32,
-            device=getattr(env, "device", torch.device("cpu")),
-        )
+        command = _command(env, self._command_name).to(dtype=torch.float32, device=env.device)
         linear_speed = torch.linalg.vector_norm(command[:, :2], dim=1)
         total_speed = linear_speed + torch.abs(command[:, 2])
         standing = total_speed < self._walking_threshold

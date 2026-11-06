@@ -66,9 +66,7 @@ class ActionTerm(ManagerTermBase):
         self.cfg = cfg
         super().__init__(env)
         self._entity = self._env.scene[self.cfg.entity_name]
-        self._action_finite_valid = torch.ones(
-            (), dtype=torch.bool, device=getattr(env, "device", torch.device("cpu"))
-        )
+        self._action_finite_valid = torch.ones((), dtype=torch.bool, device=env.device)
 
     def publish_validation_verdict(self) -> None:
         """Fail closed on the latest action-slice finite verdict."""
@@ -114,8 +112,8 @@ class ActionManager(ManagerBase):
         super().__init__(env=env)
 
         # Create buffers to store actions.
-        self._device = getattr(env, "device", torch.device("cpu"))
-        env_cfg = getattr(env, "cfg", None)
+        self._device = env.device
+        env_cfg = env.cfg
         self._defer_finite_validation = bool(
             getattr(
                 env, "defer_finite_validation", getattr(env_cfg, "defer_finite_validation", False)

@@ -94,10 +94,10 @@ class _CommandManager:
             [[1.0, 0.0, 0.5], [0.25, 0.0, -0.5], [0.0, 0.0, 0.0]], dtype=np.float32
         )
 
-    def get_command(self, name: str) -> np.ndarray:
+    def get_command(self, name: str) -> torch.Tensor:
         if name != "twist":
             raise KeyError(name)
-        return self.command
+        return torch.from_numpy(self.command)
 
 
 def _env() -> ManagerBasedRlEnv:
@@ -109,6 +109,7 @@ def _env() -> ManagerBasedRlEnv:
         SimpleNamespace(
             num_envs=3,
             device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             scene=_Scene(entity, plan),
             action_manager=SimpleNamespace(
                 action=action,
@@ -221,7 +222,7 @@ def test_action_history_rewards_remain_tensors_for_reward_manager() -> None:
 def test_velocity_tracking_terms_match_pinned_equations() -> None:
     env = _env()
     entity = cast(Any, env.scene["robot"])
-    command = cast(np.ndarray, env.command_manager.get_command("twist"))
+    command = env.command_manager.command
 
     linvel_b = _world_to_body(
         entity.data.body_link_quat_w[:, 0], entity.data.body_link_lin_vel_w[:, 0]

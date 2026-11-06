@@ -70,7 +70,7 @@ def bad_orientation(
     if not math.isfinite(limit_angle):
         raise ValueError("bad_orientation limit_angle must be finite")
     asset, view = root_body_view(env, asset_cfg, "bad_orientation")
-    gravity = asset.data.gravity_vec_w(getattr(env, "device", torch.device("cpu")))[0]
+    gravity = asset.data.gravity_vec_w(env.device)[0]
     projected_gravity = quat_apply_inverse(
         view.quat_w[:, 0, :], gravity.expand((view.quat_w.shape[0], 3))
     )
@@ -114,9 +114,9 @@ def nan_detection(
         joint_state.joint_pos,
         joint_state.joint_vel,
     )
-    invalid = torch.zeros(env.num_envs, dtype=torch.bool, device=getattr(env, "device", "cpu"))
+    invalid = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     for state_value in states:
-        state = torch.as_tensor(state_value, dtype=torch.float32, device=invalid.device)
+        state = state_value.to(dtype=torch.float32, device=invalid.device)
         if state.ndim < 1 or state.shape[0] != env.num_envs:
             raise ValueError(
                 f"nan_detection received entity state shape {tuple(state.shape)}, "

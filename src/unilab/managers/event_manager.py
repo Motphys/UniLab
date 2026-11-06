@@ -79,7 +79,7 @@ class EventManager(ManagerBase):
 
     def __init__(self, cfg: dict[str, EventTermCfg | None], env: ManagerBasedRlEnv):
         self.cfg = deepcopy(cfg)
-        self._device = torch.device(getattr(env, "device", torch.device("cpu")))
+        self._device = env.device
         rng = env.rng
         if not isinstance(rng, ManagerRng):
             raise RuntimeError(

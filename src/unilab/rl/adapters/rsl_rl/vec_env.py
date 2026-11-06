@@ -82,14 +82,13 @@ class RslRlVecEnvAdapter:
         # mirrored from state.info["steps"]) staggers too — otherwise only the
         # adapter's local bookkeeping would randomize. Cold path: the runner
         # calls this at most once per learn().
-        value = torch.as_tensor(value, device=self.device).clone()
+        value = value.to(device=self.device).clone()
         self.episode_lengths = value
         set_env_episode_lengths = getattr(self.env, "set_episode_length_buf", None)
         if callable(set_env_episode_lengths):
-            env_device = getattr(self.env, "device", None)
-            if env_device is None:
-                raise TypeError("TorchEnv must expose its authoritative device")
-            set_env_episode_lengths(value.to(device=env_device, dtype=torch.int64).contiguous())
+            set_env_episode_lengths(
+                value.to(device=self.env.device, dtype=torch.int64).contiguous()
+            )
 
     def _policy_obs(self, obs: dict[str, Any]) -> torch.Tensor:
         if self.policy_obs_mode == "actor":
@@ -116,7 +115,7 @@ class RslRlVecEnvAdapter:
         return TensorDict(td_dict, batch_size=self.num_envs, device=self.device)
 
     def step(self, actions: torch.Tensor) -> tuple[TensorDict, torch.Tensor, torch.Tensor, dict]:
-        env_device = getattr(self.env, "device", self.device)
+        env_device = self.env.device
         if not isinstance(actions, torch.Tensor):
             raise TypeError(
                 f"RslRlVecEnvAdapter action must be a torch.Tensor, got {type(actions).__name__}"
@@ -144,9 +143,6 @@ class RslRlVecEnvAdapter:
         if self.env.state is None:
             self.env.init_state()
 
-        env_device = getattr(self.env, "device", None)
-        if env_device is None:
-            raise TypeError("TorchEnv must expose its authoritative device")
         obs_out, info = self.env.reset()
         self.episode_returns[:] = 0
         self.episode_lengths[:] = 0

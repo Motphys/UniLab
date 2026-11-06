@@ -146,6 +146,7 @@ def _env(counter: int = 0, scene: _Scene | None = None, device: str = "cpu") -> 
         SimpleNamespace(
             num_envs=2,
             device=torch.device(device),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             common_step_counter=counter,
             episode_length_buf=np.array([counter, 0]),
             step_dt=0.02,

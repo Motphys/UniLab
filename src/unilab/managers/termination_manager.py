@@ -46,7 +46,7 @@ class TerminationManager(ManagerBase):
         self.cfg = deepcopy(cfg)
         super().__init__(env)
 
-        self._device = getattr(env, "device", torch.device("cpu"))
+        self._device = env.device
         self._term_dones: dict[str, torch.Tensor] = {}
         for term_name in self._term_names:
             self._term_dones[term_name] = torch.zeros(
