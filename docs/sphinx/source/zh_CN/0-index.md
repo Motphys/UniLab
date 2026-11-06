@@ -38,6 +38,49 @@ UniLab 将任务语义变成可复用配置：组装 manager term、选择物理
 
 ::::
 
+## 我要……
+
+::::{grid} 1 1 2 3
+:gutter: 3
+
+:::{grid-item-card} 接入我自己的机器人
+:link: 6-how_to/1-onboard_new_robot
+:link-type: doc
+从 URDF/MJCF 到首训跑通的端到端演练，每步带验证命令。
+:::
+
+:::{grid-item-card} 添加自定义 reward
+:link: 6-how_to/2-custom_reward
+:link-type: doc
+从函数定义到 reward term 出现在训练日志。
+:::
+
+:::{grid-item-card} 查内置 reward / observation / termination
+:link: 5-reference/6-manager_terms/0-index
+:link-type: doc
+全部内置 term 的参考表：参数、类型、默认值、语义。
+:::
+
+:::{grid-item-card} 配置域随机化（DR）
+:link: 2-user_guide/5-domain_randomization/2-field_reference
+:link-type: doc
+全部 DR 字段的取值线索、生效时机与最小 YAML 示例。
+:::
+
+:::{grid-item-card} 调训练超参数
+:link: 2-user_guide/2-algorithms/0-index
+:link-type: doc
+PPO / APPO / SAC / FlashSAC 各算法页的配置参考表。
+:::
+
+:::{grid-item-card} 训练出问题了
+:link: 6-how_to/3-training_diagnostics
+:link-type: doc
+NaN 定位、reward 异常、backend 不一致的排查路径。
+:::
+
+::::
+
 ## 为什么选择 UniLab
 
 ::::{grid} 1 1 3 3
@@ -161,4 +204,5 @@ why_unilab
 3-deployment/0-index
 4-developer_guide/0-index
 5-reference/0-index
+6-how_to/0-index
 ```

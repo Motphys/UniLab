@@ -46,4 +46,4 @@
   `make_manager_based_rl_env` 按后端注册 `Go2JoystickFlat`，owner YAML 位于
   `src/unilab/conf/ppo/task/go2_joystick_flat/`。任务自有 term 库示例：
   `src/unilab/tasks/motion_tracking/g1/manager_terms.py`。端到端演练见
-  {doc}`5-onboard_new_robot`。
+  {doc}`../../6-how_to/1-onboard_new_robot`。

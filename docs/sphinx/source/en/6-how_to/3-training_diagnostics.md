@@ -49,14 +49,14 @@ on-device and writes one state dump at an explicit host boundary. The chain:
    replays the buffered states. Backends without physics-state playback ship
    no states in the dump — the viewer prints the metadata only.
 
-Details and the viewer walkthrough: {doc}`../7-tooling/3-nan_visualizer`.
+Details and the viewer walkthrough: {doc}`../2-user_guide/7-tooling/3-nan_visualizer`.
 Round-trip coverage: `tests/training/test_tensor_diagnostics.py`.
 
 ## Reading `info["log"]`
 
 Manager-Based environments place structured metrics in `info["log"]`; the
 training logger forwards slash-prefixed entries to TensorBoard / W&B. The full
-semantics table is in {doc}`3-logging`; the key families and their producers:
+semantics table is in {doc}`../2-user_guide/1-training/3-logging`; the key families and their producers:
 
 | Key | Producer | Meaning |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ semantics table is in {doc}`3-logging`; the key families and their producers:
 | `Episode_Metrics/<key>` | `MetricsManager` (`src/unilab/managers/metrics_manager.py`) | Completed-episode metric aggregates |
 
 Use `Train/mean_reward` and `Train/mean_episode_length` for overall progress
-and `reward/<term>` to attribute it; see {doc}`3-logging` for the distinction.
+and `reward/<term>` to attribute it; see {doc}`../2-user_guide/1-training/3-logging` for the distinction.
 
 ## Common Failure Modes
 
@@ -80,7 +80,7 @@ and `reward/<term>` to attribute it; see {doc}`3-logging` for the distinction.
 - Fix: retune the weight from the CLI, e.g.
   `uv run train --algo ppo --task <task> --sim mujoco
   reward.<term>.weight=-0.01` (override mechanics: the "Reward term weights"
-  section of {doc}`../2-algorithms/1-ppo`). Keep the smoothness/regularization
+  section of {doc}`../2-user_guide/2-algorithms/1-ppo`). Keep the smoothness/regularization
   terms (`action_rate`-style penalties) enabled; dropping them commonly
   destabilizes the action stream.
 
@@ -88,7 +88,7 @@ and `reward/<term>` to attribute it; see {doc}`3-logging` for the distinction.
 
 - Symptom: `Train/mean_reward` stays flat while iterations advance.
 - Check the hyperparameters against the per-algorithm reference tables
-  ({doc}`../2-algorithms/1-ppo` for PPO): `algo.algorithm.learning_rate`,
+  ({doc}`../2-user_guide/2-algorithms/1-ppo` for PPO): `algo.algorithm.learning_rate`,
   `algo.algorithm.entropy_coef`, `algo.algorithm.lam`. Check
   `algo.num_envs` — it is a per-rank count, and very small counts starve the
   gradient estimate. Check observation conditioning:
@@ -111,8 +111,8 @@ and `reward/<term>` to attribute it; see {doc}`3-logging` for the distinction.
   `CrossBackendIncompatibleError`; WARNING_LIST fields only print a warning.
   Audit the shipped pairs with `uv run scripts/audit_sim2sim_contracts.py`.
 - Check capability differences per backend:
-  {doc}`../../3-deployment/2-sim_to_sim/6-capability_gaps`; exact support
-  grades: {doc}`../../5-reference/5-support_matrix`.
+  {doc}`../3-deployment/2-sim_to_sim/6-capability_gaps`; exact support
+  grades: {doc}`../5-reference/5-support_matrix`.
 
 ### NaN appears mid-run
 
@@ -129,7 +129,7 @@ and `reward/<term>` to attribute it; see {doc}`3-logging` for the distinction.
   `training.trace_output_dir`, `training.trace_thread_time`, and
   `training.trace_cuda_events` (`src/unilab/conf/sac/config.yaml`), plus
   `training.nvtx_profile_ranges` for NVTX annotations on CUDA. Traces are
-  Perfetto JSON; scalar timing keys are documented in {doc}`3-logging`.
+  Perfetto JSON; scalar timing keys are documented in {doc}`../2-user_guide/1-training/3-logging`.
 - Analyze a captured trace host-side (no GPU needed):
 
   ```bash
@@ -140,4 +140,4 @@ and `reward/<term>` to attribute it; see {doc}`3-logging` for the distinction.
   The script reports mean/median/p90/p95/p99 durations per event name;
   `--steps-per-cycle` and `--drop-first` adjust the throughput summary.
 - For the production long-soak setup and its failure classification fields,
-  see {doc}`7-tensor_runtime_production`.
+  see {doc}`../2-user_guide/1-training/7-tensor_runtime_production`.

@@ -84,7 +84,7 @@ Manager-Based 环境把逐项 reward 诊断以 `reward/<term>` 键发布到
 `info["log"]`——由 `RewardManager.step_reward_extras()` 产生
 （`src/unilab/managers/reward_manager.py`，跨环境对 `raw_value * weight`
 取均值，未乘 `dt`）——训练 logger 再把它们转发到 TensorBoard / W&B
-（{doc}`../../2-user_guide/1-training/3-logging`）：
+（{doc}`../2-user_guide/1-training/3-logging`）：
 
 ```bash
 uv run tensorboard --logdir logs/rsl_rl_ppo/<task>
@@ -95,7 +95,7 @@ term 出错时失败是显式的：构造错误会指出 term 名；返回类型
 `RewardManager` 抛出；返回 NaN/Inf 会抛出
 `RewardManager term '<term>' returned NaN/Inf`（启用 NaN guard 时还会写出
 状态 dump）。诊断流程见
-{doc}`../../2-user_guide/1-training/8-training_diagnostics`。
+{doc}`3-training_diagnostics`。
 
 ## 4. 调整权重
 
@@ -107,9 +107,9 @@ uv run train --algo ppo --task <task> --sim mujoco \
 ```
 
 这可行是因为 `reward` 是组合配置顶层的 Hydra section（见
-{doc}`../../2-user_guide/2-algorithms/1-ppo` 的 “Reward term weights” 小节）。
+{doc}`../2-user_guide/2-algorithms/1-ppo` 的 “Reward term weights” 小节）。
 新增 term 请写进 owner YAML 以保证任务可复现；CLI override 适合扫参。
 
 从其他框架移植 term 时先查内置表——该 term 可能已经存在：
-{doc}`../../5-reference/6-manager_terms/1-rewards`。Legged Gym 的映射指南见
-{doc}`../../3-deployment/3-framework_migration/6-reward_porting`。
+{doc}`../5-reference/6-manager_terms/1-rewards`。Legged Gym 的映射指南见
+{doc}`../3-deployment/3-framework_migration/6-reward_porting`。

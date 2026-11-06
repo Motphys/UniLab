@@ -3,9 +3,9 @@
 本演练从 URDF/MJCF 资产出发，一步步走到首次 PPO 训练跑通——
 `uv run train --algo ppo --task <task> --sim <backend>`——每步都带验证。
 它只组合现有的 owner 层，不新增代码路径：资产
-（{doc}`../../2-user_guide/7-tooling/5-robot_import`）、任务/场景 keyframe、
-owner YAML（{doc}`../../2-user_guide/1-training/2-hydra_config`）以及 registry
-条目（清单视角见 {doc}`1-new_task`）。
+（{doc}`../2-user_guide/7-tooling/5-robot_import`）、任务/场景 keyframe、
+owner YAML（{doc}`../2-user_guide/1-training/2-hydra_config`）以及 registry
+条目（清单视角见 {doc}`../4-developer_guide/3-extending/1-new_task`）。
 
 需要安装仿真器、显示器或 GPU 的步骤都已标注。纯组合检查（`--cfg job`）仍会
 经过 CLI 的后端预检，因此 `--sim mujoco` 需要 `mujoco` extra
@@ -23,7 +23,7 @@ owner YAML（{doc}`../../2-user_guide/1-training/2-hydra_config`）以及 regist
 
 ## 1. 准备资产
 
-按 {doc}`../../2-user_guide/7-tooling/5-robot_import` 操作。URDF 源：
+按 {doc}`../2-user_guide/7-tooling/5-robot_import` 操作。URDF 源：
 
 ```bash
 uv run scripts/tools/import_robot.py <urdf_path> [robot_name]
@@ -88,7 +88,7 @@ grep -c '<keyframe' src/unilab/assets/robots/<robot>/<robot>.xml
 ## 3. 编写 owner YAML
 
 PPO 把每个 task×backend 组合解析为两个文件（组合规则见
-{doc}`../../2-user_guide/1-training/2-hydra_config`）：
+{doc}`../2-user_guide/1-training/2-hydra_config`）：
 
 - `src/unilab/conf/ppo/task/<task>/base.yaml` —— 共享的任务声明。
 - `src/unilab/conf/ppo/task/<task>/mujoco.yaml` —— 后端 owner：继承 base，
@@ -194,7 +194,7 @@ reward:
 - 框架级跟踪 term（`unilab.envs.mdp.track_linear_velocity` /
   `track_angular_velocity`）读 root state 而不是具名传感器，只要 command 名为
   `twist` 就能用于任意机器人；参数与语义见
-  {doc}`../../5-reference/6-manager_terms/1-rewards`。
+  {doc}`../5-reference/6-manager_terms/1-rewards`。
 - 当算法需要消费特权观测时，再加 `critic` 观测组和
   `env.critic_observation_group: critic`（Go2 owner 两者都有）。
 
@@ -242,7 +242,7 @@ registry.register_env("<RegistryName>", make_manager_based_rl_env, sim_backend="
 然后把该模块加入 `src/unilab/tasks/__init__.py`（或你的家族包
 `__init__.py`）的 `__unilab_registry_modules__` 元组，让
 `ensure_registries()` 导入它。仓库外的第三方任务包改用 `unilab.tasks`
-entry-point 组注册——见 {doc}`../1-architecture/5-registry` 与
+entry-point 组注册——见 {doc}`../4-developer_guide/1-architecture/5-registry` 与
 `src/unilab/base/registry.py`。
 
 验证——纯主机侧，不需要后端：
@@ -264,8 +264,8 @@ print(registry.list_registered_envs()['<RegistryName>'])
 2. 对应的 owner YAML `src/unilab/conf/ppo/task/<task>/<backend>.yaml`，其中
    `training.sim_backend: <backend>`；
 3. 该后端能提供你的任务所绑定 term 的证据——查生成的
-   {doc}`../../5-reference/5-support_matrix`，DR term 另查
-   {doc}`../../2-user_guide/5-domain_randomization/2-field_reference`。
+   {doc}`../5-reference/5-support_matrix`，DR term 另查
+   {doc}`../2-user_guide/5-domain_randomization/2-field_reference`。
    不支持的能力在构造期 fail closed；后端无法服务的 term 在该后端 owner 里
    置为 `null`（模式：`src/unilab/conf/ppo/task/go2_joystick_flat/motrix.yaml`
    中的 `pd_gains: null`）。
@@ -286,12 +286,12 @@ uv run train --algo ppo --task <task> --sim mujoco \
 1. 组合与 env 构造会快速失败并指出有问题的 term 或字段——例如观测 term
    绑定了不存在的传感器时会在 manager 构造期抛错。修 owner YAML 后重跑。
 2. 运行目录出现在 `logs/rsl_rl_ppo/<task>/`，其中包含 `run_config.json`
-   （细节见 {doc}`../../2-user_guide/1-training/3-logging`）。
+   （细节见 {doc}`../2-user_guide/1-training/3-logging`）。
 3. TensorBoard 中出现逐项 reward 键 `reward/<term>` 与终止计数器
    `Episode_Termination/<term>`
    （`uv run tensorboard --logdir logs/rsl_rl_ppo/<task>`）。任何 reward 或
    观测出现 NaN/Inf 时，训练会带着 term 名抛错，并且 NaN guard 会写出状态
-   dump——见 {doc}`../../2-user_guide/1-training/8-training_diagnostics`。
+   dump——见 {doc}`3-training_diagnostics`。
 
 然后恢复到 owner 的规模（`algo.num_envs` / `algo.max_iterations`），并评估
 最近一次运行：
@@ -302,8 +302,8 @@ uv run eval --algo ppo --task <task> --sim mujoco --load-run -1
 
 ## 下一步
 
-- 添加或调权 reward term：{doc}`6-custom_reward`。
-- 内置 term 速查表：{doc}`../../5-reference/6-manager_terms/0-index`。
-- 同一契约的清单视角：{doc}`1-new_task`。
+- 添加或调权 reward term：{doc}`2-custom_reward`。
+- 内置 term 速查表：{doc}`../5-reference/6-manager_terms/0-index`。
+- 同一契约的清单视角：{doc}`../4-developer_guide/3-extending/1-new_task`。
 - 对出生场景做交互式目视冒烟检查（需要显示器）：
   `uv run scripts/visualize_task_env.py --task <RegistryName> --backend mujoco --num_envs 4`。

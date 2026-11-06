@@ -47,4 +47,4 @@ Start from the contracts: {doc}`../2-contracts/1-env_contract`,
   per backend, and the owner YAMLs live under
   `src/unilab/conf/ppo/task/go2_joystick_flat/`. Task-owned term library
   example: `src/unilab/tasks/motion_tracking/g1/manager_terms.py`. End-to-end
-  walkthrough: {doc}`5-onboard_new_robot`.
+  walkthrough: {doc}`../../6-how_to/1-onboard_new_robot`.

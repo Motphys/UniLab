@@ -88,7 +88,7 @@ Manager-Based environments publish per-term reward diagnostics as
 `RewardManager.step_reward_extras()`
 (`src/unilab/managers/reward_manager.py`, mean across environments of
 `raw_value * weight`, before `dt` scaling) — and the training logger forwards
-them to TensorBoard / W&B ({doc}`../../2-user_guide/1-training/3-logging`):
+them to TensorBoard / W&B ({doc}`../2-user_guide/1-training/3-logging`):
 
 ```bash
 uv run tensorboard --logdir logs/rsl_rl_ppo/<task>
@@ -99,7 +99,7 @@ If the term misbehaves, the failure is explicit: construction errors name the
 term, a wrong return type/shape raises from `RewardManager`, and a NaN/Inf
 return raises `RewardManager term '<term>' returned NaN/Inf` (plus a NaN-guard
 state dump when enabled). Diagnosis workflow:
-{doc}`../../2-user_guide/1-training/8-training_diagnostics`.
+{doc}`3-training_diagnostics`.
 
 ## 4. Tune the Weight
 
@@ -112,10 +112,10 @@ uv run train --algo ppo --task <task> --sim mujoco \
 
 This works because `reward` is a root-level Hydra section of the composed
 config (see the "Reward term weights" section of
-{doc}`../../2-user_guide/2-algorithms/1-ppo`). Add new terms in the owner YAML
+{doc}`../2-user_guide/2-algorithms/1-ppo`). Add new terms in the owner YAML
 itself so the task stays reproducible; the CLI override is for sweeps.
 
 When porting terms from another framework, check the built-in tables first —
-the term may already exist: {doc}`../../5-reference/6-manager_terms/1-rewards`.
+the term may already exist: {doc}`../5-reference/6-manager_terms/1-rewards`.
 The Legged Gym mapping guide is
-{doc}`../../3-deployment/3-framework_migration/6-reward_porting`.
+{doc}`../3-deployment/3-framework_migration/6-reward_porting`.

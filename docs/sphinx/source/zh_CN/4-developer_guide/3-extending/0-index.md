@@ -24,18 +24,6 @@
 添加配置、runner 代码与脚本层组装。
 :::
 
-:::{grid-item-card} 接入新机器人
-:link: 5-onboard_new_robot
-:link-type: doc
-端到端演练：从 URDF/MJCF 资产到首次训练跑通。
-:::
-
-:::{grid-item-card} 自定义 reward term
-:link: 6-custom_reward
-:link-type: doc
-演练：定义、接入并在训练日志中验证一个 reward term。
-:::
-
 ::::
 
 ```{toctree}
@@ -45,6 +33,4 @@
 2-new_backend
 3-new_algorithm
 4-new_terrain
-5-onboard_new_robot
-6-custom_reward
 ```

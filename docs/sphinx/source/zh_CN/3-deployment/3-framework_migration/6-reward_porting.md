@@ -88,7 +88,7 @@ command gating，再通过固定轨迹比较逐项输出。
 ## 参考
 
 - {doc}`5-task_config_translation`
-- {doc}`../../4-developer_guide/3-extending/6-custom_reward` —— 端到端定义并验证
+- {doc}`../../6-how_to/2-custom_reward` —— 端到端定义并验证
   新 reward term 的演练
 - `src/unilab/envs/mdp/rewards.py`
 - `src/unilab/tasks/locomotion/common/manager_terms.py`

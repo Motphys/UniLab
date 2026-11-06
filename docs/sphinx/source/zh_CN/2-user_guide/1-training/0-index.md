@@ -49,12 +49,6 @@ TensorBoard、W&B、运行元数据以及 trace 选项。
 复现并运维 scoped 单 GPU G1 FlashSAC/MJWarp 长 soak。
 :::
 
-:::{grid-item-card} 训练诊断
-:link: 8-training_diagnostics
-:link-type: doc
-NaN guard dump、`info["log"]` 键与常见失败模式排查手册。
-:::
-
 ::::
 
 ## 什么时候下沉到 `scripts/train_*.py`
@@ -83,5 +77,4 @@ NaN guard dump、`info["log"]` 键与常见失败模式排查手册。
 5-resume_and_checkpoints
 6-docker
 7-tensor_runtime_production
-8-training_diagnostics
 ```

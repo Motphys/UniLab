@@ -96,7 +96,7 @@ whether timeouts should contribute to the source task's penalty separately.
 ## See also
 
 - {doc}`5-task_config_translation`
-- {doc}`../../4-developer_guide/3-extending/6-custom_reward` — walkthrough for
+- {doc}`../../6-how_to/2-custom_reward` — walkthrough for
   defining and verifying a new reward term end to end
 - `src/unilab/envs/mdp/rewards.py`
 - `src/unilab/tasks/locomotion/common/manager_terms.py`

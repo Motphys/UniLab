@@ -3,9 +3,9 @@
 This walkthrough goes from a URDF/MJCF asset to a first PPO training run —
 `uv run train --algo ppo --task <task> --sim <backend>` — one verified step at a
 time. It composes existing owner layers instead of adding new code paths: assets
-({doc}`../../2-user_guide/7-tooling/5-robot_import`), a task/scene keyframe,
-owner YAMLs ({doc}`../../2-user_guide/1-training/2-hydra_config`), and a
-registry entry (checklist view: {doc}`1-new_task`).
+({doc}`../2-user_guide/7-tooling/5-robot_import`), a task/scene keyframe,
+owner YAMLs ({doc}`../2-user_guide/1-training/2-hydra_config`), and a
+registry entry (checklist view: {doc}`../4-developer_guide/3-extending/1-new_task`).
 
 Steps that need a simulator install, a display, or a GPU are marked. The
 compose-only checks (`--cfg job`) still pass through the CLI's backend
@@ -25,7 +25,7 @@ Three names, used consistently everywhere:
 
 ## 1. Prepare the Assets
 
-Follow {doc}`../../2-user_guide/7-tooling/5-robot_import`. For a URDF source:
+Follow {doc}`../2-user_guide/7-tooling/5-robot_import`. For a URDF source:
 
 ```bash
 uv run scripts/tools/import_robot.py <urdf_path> [robot_name]
@@ -96,7 +96,7 @@ grep -c '<keyframe' src/unilab/assets/robots/<robot>/<robot>.xml
 ## 3. Write the Owner YAMLs
 
 PPO resolves each task×backend pair to two files (composition rules:
-{doc}`../../2-user_guide/1-training/2-hydra_config`):
+{doc}`../2-user_guide/1-training/2-hydra_config`):
 
 - `src/unilab/conf/ppo/task/<task>/base.yaml` — the shared task declaration.
 - `src/unilab/conf/ppo/task/<task>/mujoco.yaml` — the backend owner: inherits
@@ -202,7 +202,7 @@ Notes on the minimal set:
 - The framework tracking terms (`unilab.envs.mdp.track_linear_velocity` /
   `track_angular_velocity`) read root state instead of named sensors, so they
   work on any robot whose command is named `twist`; parameters and semantics
-  are in {doc}`../../5-reference/6-manager_terms/1-rewards`.
+  are in {doc}`../5-reference/6-manager_terms/1-rewards`.
 - Add a `critic` observation group plus `env.critic_observation_group: critic`
   when the algorithm should consume privileged observations (the Go2 owner
   does both).
@@ -253,7 +253,7 @@ Then make `ensure_registries()` import the module by adding it to the
 `__unilab_registry_modules__` tuple in `src/unilab/tasks/__init__.py` (or in
 your family package's `__init__.py`). Third-party packages outside this repo
 register through the `unilab.tasks` entry-point group instead — see
-{doc}`../1-architecture/5-registry` and `src/unilab/base/registry.py`.
+{doc}`../4-developer_guide/1-architecture/5-registry` and `src/unilab/base/registry.py`.
 
 Verify — host-only, no backend needed:
 
@@ -274,8 +274,8 @@ Start with `mujoco` (the default backend). Each additional backend needs:
 2. a matching owner YAML `src/unilab/conf/ppo/task/<task>/<backend>.yaml` with
    `training.sim_backend: <backend>`;
 3. evidence that the backend serves the terms your task binds — check the
-   generated {doc}`../../5-reference/5-support_matrix` and, for DR terms,
-   {doc}`../../2-user_guide/5-domain_randomization/2-field_reference`.
+   generated {doc}`../5-reference/5-support_matrix` and, for DR terms,
+   {doc}`../2-user_guide/5-domain_randomization/2-field_reference`.
    Unsupported capabilities fail closed at construction; set a term the
    backend cannot serve to `null` in that backend's owner (pattern:
    `pd_gains: null` in `src/unilab/conf/ppo/task/go2_joystick_flat/motrix.yaml`).
@@ -298,13 +298,13 @@ First-run checkpoints:
    field — for example, an observation term bound to a missing sensor raises
    at manager construction. Fix the owner YAML and rerun.
 2. The run directory appears under `logs/rsl_rl_ppo/<task>/` with
-   `run_config.json` (details: {doc}`../../2-user_guide/1-training/3-logging`).
+   `run_config.json` (details: {doc}`../2-user_guide/1-training/3-logging`).
 3. Per-term reward keys `reward/<term>` and termination counters
    `Episode_Termination/<term>` show up in TensorBoard
    (`uv run tensorboard --logdir logs/rsl_rl_ppo/<task>`). If any reward or
    observation goes NaN/Inf, training raises with the term name and the NaN
    guard writes a state dump — see
-   {doc}`../../2-user_guide/1-training/8-training_diagnostics`.
+   {doc}`3-training_diagnostics`.
 
 Then scale back up (the owner values for `algo.num_envs` /
 `algo.max_iterations`) and evaluate the latest run:
@@ -315,8 +315,8 @@ uv run eval --algo ppo --task <task> --sim mujoco --load-run -1
 
 ## Where to Go Next
 
-- Add or tune reward terms: {doc}`6-custom_reward`.
-- Built-in term tables: {doc}`../../5-reference/6-manager_terms/0-index`.
-- Checklist view of the same contract: {doc}`1-new_task`.
+- Add or tune reward terms: {doc}`2-custom_reward`.
+- Built-in term tables: {doc}`../5-reference/6-manager_terms/0-index`.
+- Checklist view of the same contract: {doc}`../4-developer_guide/3-extending/1-new_task`.
 - Interactive visual smoke check of the spawned scene (needs a display):
   `uv run scripts/visualize_task_env.py --task <RegistryName> --backend mujoco --num_envs 4`.

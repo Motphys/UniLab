@@ -42,13 +42,13 @@ NaN guard 在设备侧检查观测、reward 与控制量中的非有限行，并
    （`pyproject.toml`）；它先打印检出步数与 NaN env id，再回放缓冲状态。
    不支持物理状态回放的后端 dump 中没有状态——viewer 只打印元数据。
 
-细节与 viewer 操作见 {doc}`../7-tooling/3-nan_visualizer`。往返加载覆盖：
+细节与 viewer 操作见 {doc}`../2-user_guide/7-tooling/3-nan_visualizer`。往返加载覆盖：
 `tests/training/test_tensor_diagnostics.py`。
 
 ## 读懂 `info["log"]`
 
 Manager-Based 环境把结构化指标放进 `info["log"]`；训练 logger 把带斜杠前缀的
-条目转发到 TensorBoard / W&B。完整语义表见 {doc}`3-logging`；键族与生产者：
+条目转发到 TensorBoard / W&B。完整语义表见 {doc}`../2-user_guide/1-training/3-logging`；键族与生产者：
 
 | 键 | 生产者 | 含义 |
 | --- | --- | --- |
@@ -57,7 +57,7 @@ Manager-Based 环境把结构化指标放进 `info["log"]`；训练 logger 把�
 | `Episode_Metrics/<key>` | `MetricsManager`（`src/unilab/managers/metrics_manager.py`） | 已完成 episode 的指标聚合 |
 
 整体进展看 `Train/mean_reward` 与 `Train/mean_episode_length`，归因看
-`reward/<term>`；两者区别见 {doc}`3-logging`。
+`reward/<term>`；两者区别见 {doc}`../2-user_guide/1-training/3-logging`。
 
 ## 常见失败模式
 
@@ -70,13 +70,13 @@ Manager-Based 环境把结构化指标放进 `info["log"]`；训练 logger 把�
   YAML `reward:` 块中它的原始量级与 `weight`。
 - 改：用 CLI 调权，例如 `uv run train --algo ppo --task <task> --sim mujoco
   reward.<term>.weight=-0.01`（override 机制见
-  {doc}`../2-algorithms/1-ppo` 的 “Reward term weights” 小节）。保留
+  {doc}`../2-user_guide/2-algorithms/1-ppo` 的 “Reward term weights” 小节）。保留
   平滑/正则项（`action_rate` 类惩罚）；删掉它们常常直接导致动作流不稳定。
 
 ### 策略不收敛
 
 - 症状：`Train/mean_reward` 持平但迭代在推进。
-- 对照算法参考表查超参（PPO 见 {doc}`../2-algorithms/1-ppo`）：
+- 对照算法参考表查超参（PPO 见 {doc}`../2-user_guide/2-algorithms/1-ppo`）：
   `algo.algorithm.learning_rate`、`algo.algorithm.entropy_coef`、
   `algo.algorithm.lam`。检查 `algo.num_envs`——它是按 rank 计的数量，过小会
   让梯度估计失真。检查观测条件：`algo.actor.obs_normalization`（Go2 owner
@@ -93,8 +93,8 @@ Manager-Based 环境把结构化指标放进 `info["log"]`；训练 logger 把�
   形状、`ctrl_dt` 等）必须一致——默认 `training.sim2sim_strict: true` 下不一致
   会抛 `CrossBackendIncompatibleError`；WARNING_LIST 字段只打印警告。审计已发布
   的组合用 `uv run scripts/audit_sim2sim_contracts.py`。
-- 查后端能力差异：{doc}`../../3-deployment/2-sim_to_sim/6-capability_gaps`；
-  精确支持等级：{doc}`../../5-reference/5-support_matrix`。
+- 查后端能力差异：{doc}`../3-deployment/2-sim_to_sim/6-capability_gaps`；
+  精确支持等级：{doc}`../5-reference/5-support_matrix`。
 
 ### 训练中途出现 NaN
 
@@ -109,7 +109,7 @@ Manager-Based 环境把结构化指标放进 `info["log"]`；训练 logger 把�
   `training.trace_output_dir`、`training.trace_thread_time` 与
   `training.trace_cuda_events`（`src/unilab/conf/sac/config.yaml`），另有
   CUDA 上 NVTX 标注用的 `training.nvtx_profile_ranges`。trace 是 Perfetto
-  JSON；标量计时键见 {doc}`3-logging`。
+  JSON；标量计时键见 {doc}`../2-user_guide/1-training/3-logging`。
 - 在主机侧分析已捕获的 trace（不需要 GPU）：
 
   ```bash
@@ -120,4 +120,4 @@ Manager-Based 环境把结构化指标放进 `info["log"]`；训练 logger 把�
   脚本按事件名报告 mean/median/p90/p95/p99 时长；`--steps-per-cycle` 与
   `--drop-first` 调整吞吐量汇总。
 - 生产环境长 soak 的设置与失败分类字段见
-  {doc}`7-tensor_runtime_production`。
+  {doc}`../2-user_guide/1-training/7-tensor_runtime_production`。
