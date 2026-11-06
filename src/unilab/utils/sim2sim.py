@@ -49,6 +49,12 @@ DENYLIST: list[str] = [
 
 SNAPSHOT_FIELDS: list[str] = DENYLIST + WARNING_LIST
 
+# Action-term fields that only drive playback visualization (debug overlays).
+# They never affect policy I/O or action semantics, so toggling them for
+# interactive play is not a policy-defining change; the ``env.actions``
+# comparison strips them before diffing.
+VISUALIZATION_ONLY_ACTION_FIELDS: frozenset[str] = frozenset({"log_goal", "show_rays"})
+
 ENV_STRUCTURAL_DENYLIST: list[str] = [path for path in DENYLIST if path.startswith("env.")]
 
 _MINIMUM_SUPPORTED_FORMAT = (
@@ -107,6 +113,20 @@ def _normalize(value: Any) -> Any:
     if isinstance(value, (int, float)):
         return float(value)  # 0 == 0.0; YAML-int vs JSON-float parity
     return value
+
+
+def _strip_visualization_only_fields(value: Any) -> Any:
+    """Recursively drop playback-visualization-only leaves from an action mapping."""
+    if OmegaConf.is_config(value):
+        value = OmegaConf.to_container(value, resolve=True)
+    if not isinstance(value, dict):
+        return value
+    stripped: dict[str, Any] = {}
+    for key, child in value.items():
+        if key in VISUALIZATION_ONLY_ACTION_FIELDS:
+            continue
+        stripped[str(key)] = _strip_visualization_only_fields(child)
+    return stripped
 
 
 def _values_equal(a: Any, b: Any) -> bool:
@@ -174,7 +194,9 @@ def resolve_sim2sim_config(
     run" play); otherwise returns ``target_cfg`` unchanged (never mutated).
     Raises :class:`CrossBackendIncompatibleError` under ``strict`` when any
     DENYLIST field differs, including asymmetric presence for
-    :data:`ENV_STRUCTURAL_DENYLIST` paths. A source run whose contract snapshot
+    :data:`ENV_STRUCTURAL_DENYLIST` paths. Playback-visualization-only
+    action fields (:data:`VISUALIZATION_ONLY_ACTION_FIELDS`) are exempt from
+    the ``env.actions`` comparison. A source run whose contract snapshot
     is missing, malformed, or uses keys outside the current schema fails closed
     with the same error regardless of ``strict``.
     """
@@ -202,6 +224,9 @@ def resolve_sim2sim_config(
             if path in ENV_STRUCTURAL_DENYLIST:
                 denials.append(_asymmetric_line(path, source_value, source_present=True))
             continue
+        if path == "env.actions":
+            source_value = _strip_visualization_only_fields(source_value)
+            target_value = _strip_visualization_only_fields(target_value)
         if _values_equal(source_value, target_value):
             continue
         line = _diff_line(path, source_value, target_value)

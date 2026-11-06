@@ -163,6 +163,25 @@ def append_debug_primitives_to_scene(
                 geom.rgba[:] = color
                 scene.ngeom += 1
                 added += 1
+        elif kind == "line":
+            # Plain straight segment without an arrowhead (mjGEOM_LINE).
+            # Consumed by the same duck-typed attribute contract as
+            # DebugPrimitive; not part of the UniSim primitive kinds because
+            # the offline renderer has no line channel.
+            if scene.ngeom >= scene.maxgeom:
+                return added
+            length = float(primitive.size[0]) if primitive.size else 0.0
+            rotation = np.asarray(mat, dtype=np.float64).reshape(3, 3)
+            mujoco.mjv_connector(
+                scene.geoms[scene.ngeom],
+                mujoco.mjtGeom.mjGEOM_LINE,
+                max(1e-3, 0.002 * length),
+                pos,
+                pos + rotation[:, 2] * length,
+            )
+            scene.geoms[scene.ngeom].rgba[:] = rgba
+            scene.ngeom += 1
+            added += 1
         elif kind == "text":
             continue
         else:  # pragma: no cover - DebugPrimitive validates kinds

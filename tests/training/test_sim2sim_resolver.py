@@ -201,6 +201,36 @@ def test_matching_contract_returns_same_cfg(tmp_path):
     assert resolve_sim2sim_config(tmp_path, target) is target
 
 
+def test_visualization_only_action_fields_are_exempt(tmp_path):
+    # log_goal/show_rays only drive playback debug overlays; toggling them for
+    # interactive play is not a policy-defining change and must not fail the
+    # env.actions DENYLIST comparison.
+    source = _manager_cfg()
+    source.env.actions.joint_pos.log_goal = False
+    source.env.actions.joint_pos.show_rays = False
+    _write_sidecar(tmp_path, extract_contract_snapshot(source))
+
+    target = _manager_cfg()
+    target.env.actions.joint_pos.log_goal = True
+    target.env.actions.joint_pos.show_rays = True
+
+    assert resolve_sim2sim_config(tmp_path, target) is target
+
+
+def test_visualization_only_fields_do_not_mask_policy_mismatches(tmp_path):
+    # Stripping visualization fields must not hide a real policy-I/O difference
+    # in the same action mapping.
+    source = _manager_cfg()
+    source.env.actions.joint_pos.log_goal = False
+    _write_sidecar(tmp_path, extract_contract_snapshot(source))
+    target = _manager_cfg()
+    target.env.actions.joint_pos.log_goal = True
+    target.env.actions.joint_pos.scale = 0.5
+
+    with pytest.raises(CrossBackendIncompatibleError, match="env\\.actions"):
+        resolve_sim2sim_config(tmp_path, target)
+
+
 def test_denylist_mismatch_raises_with_field_in_message(tmp_path):
     _write_sidecar(tmp_path, extract_contract_snapshot(_mujoco_cfg()))
     target = _mujoco_cfg()
