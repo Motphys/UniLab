@@ -173,18 +173,9 @@ def upright(
         raise ValueError(
             f"upright requires exactly one body; received state shape {body_quat_w.shape}"
         )
-    quat = torch.as_tensor(
-        body_quat_w[:, 0, :],
-        dtype=torch.float32,
-        device=getattr(env, "device", torch.device("cpu")),
-    )
-    gravity = asset.data.gravity_vec_w(getattr(env, "device", torch.device("cpu")))[0]
-    gravity = gravity.expand((quat.shape[0], 3))
-    quat_w, quat_xyz = quat[:, 0:1], quat[:, 1:4]
-    cross = 2.0 * torch.linalg.cross(quat_xyz.expand_as(gravity), gravity, dim=-1)
-    projected_gravity_b = gravity - (
-        quat_w * cross + torch.linalg.cross(quat_xyz.expand(gravity.shape), cross, dim=-1)
-    )
+    quat = body_quat_w[:, 0, :]
+    gravity_w = asset.data.gravity_vec_w(env.device)[0]
+    projected_gravity_b = quat_apply_inverse(quat, gravity_w.expand((quat.shape[0], 3)))
     xy_squared = torch.sum(torch.square(projected_gravity_b[:, :2]), dim=1)
     return torch.exp(-xy_squared / scale**2)
 
