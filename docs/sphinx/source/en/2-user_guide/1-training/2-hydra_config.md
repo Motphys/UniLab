@@ -70,3 +70,14 @@ is not an independent backend switch. Use the unified CLI `--sim` flag to
 select the backend.
 
 See the developer contract in {doc}`../../4-developer_guide/2-contracts/3-task_owner`.
+
+## Per-Algorithm Reference
+
+Field-by-field tables — training efficiency, policy performance (GAE lambda, entropy
+coefficient, learning rate, network shape), training runtime, and reward term weights —
+live on each algorithm page:
+
+- {doc}`../2-algorithms/1-ppo`
+- {doc}`../2-algorithms/2-appo`
+- {doc}`../2-algorithms/3-sac`
+- {doc}`../2-algorithms/4-flash_sac`

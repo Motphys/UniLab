@@ -145,6 +145,11 @@ policy. In brief: define a reviewable outcome, choose the PR base before coding,
 link the driving issue, validate the final head, and wait for current-head remote
 CI only when the PR base is `main`.
 
+New public interfaces must ship with docstrings; CI enforces the interrogate
+floor in `pyproject.toml`. PRs with user-visible changes must add an entry to
+the `Unreleased` section of `docs/sphinx/source/changelog.md` as described in
+`CONTRIBUTING.md`.
+
 When a change crosses runtime, backend, config, registry, or other public
 contracts, link the relevant ADR. Add an ADR only for a new structural decision.
 Treat new public contracts, lifecycle/protocol changes, routine CI, support

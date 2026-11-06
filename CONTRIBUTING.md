@@ -55,6 +55,20 @@ Use Conventional Commits:
 - `test:` test-related change
 - `chore:` build or tooling
 
+## Changelog Discipline
+
+Every PR with user-visible changes must add an entry to the `## Unreleased`
+section at the top of
+[docs/sphinx/source/changelog.md](docs/sphinx/source/changelog.md), grouped
+under the bilingual subsections `### Added / 新增`, `### Changed / 变更`, or
+`### Fixed / 修复` (create the subsection when it is missing). Entries follow
+the released-version style below: English prose first, then the Chinese
+translation, with the driving GitHub issue or PR linked (for example
+`([#706](https://github.com/Motphys/UniLab/issues/706))`). Purely internal
+changes (refactors, test-only, or CI plumbing) may skip the changelog. Release
+maintainers rename `## Unreleased` to the version number and PyPI upload date
+at release time.
+
 ## Pull Request Workflow
 
 1. Choose and record the intended PR base before development.

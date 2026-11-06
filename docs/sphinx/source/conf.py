@@ -70,6 +70,7 @@ extensions = [
     "sphinxcontrib.video",
     "sphinxcontrib.mermaid",
     "sphinx_sitemap",
+    "sphinx_multiversion",
 ]
 # Only enable autodoc / autosummary when UniLab is importable. Otherwise
 # autosummary's recursive import probe blows up the whole build.
@@ -174,6 +175,18 @@ source_suffix = {
     ".rst": "restructuredtext",
 }
 templates_path = ["_templates"]
+
+# ---------------------------------------------------------------------------
+# sphinx-multiversion — build one output subdirectory per whitelisted ref.
+# Defaults build only `main` and match no tags; historical releases are out
+# of scope for now. When releases are cut, allow them via the environment,
+# e.g. SMV_TAG_WHITELIST='^v[1-9]\d*\.\d+\.\d+$'.
+# Plain `sphinx-build` ignores these settings.
+# ---------------------------------------------------------------------------
+smv_remote_whitelist = r"^.*$"
+smv_branch_whitelist = os.getenv("SMV_BRANCH_WHITELIST", r"^(main)$")
+smv_tag_whitelist = os.getenv("SMV_TAG_WHITELIST", r"^$")
+
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # When autodoc is disabled, skip the entire API reference tree — its pages
 # only contain autosummary directives that would otherwise fail.
@@ -193,13 +206,18 @@ html_static_path = ["_static"]
 html_css_files = ["css/custom.css"]
 html_favicon = None  # add _static/favicon.ico when ready
 # html_logo = "_static/images/logo.png"
-html_baseurl = "https://unilabsim.github.io/UniLab-doc/"
+# The site is published one subdirectory per version by sphinx-multiversion
+# (currently only `main`), so canonical URLs live under /UniLab-doc/main/.
+# If more versions are ever enabled, this must become version-aware (e.g.
+# derived from the smv env vars) so each version's sitemap is correct.
+html_baseurl = "https://unilabsim.github.io/UniLab-doc/main/"
 sitemap_url_scheme = "{link}"
 
 html_sidebars = {
     "**": [
         "sidebar/brand.html",
         "sidebar/lang_switcher.html",
+        "sidebar/versioning.html",
         "sidebar/search.html",
         "sidebar/scroll-start.html",
         "sidebar/navigation.html",

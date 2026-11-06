@@ -41,5 +41,10 @@ Start from the contracts: {doc}`../2-contracts/1-env_contract`,
 - Registry API: `src/unilab/base/registry.py`
 - Env state contract: `src/unilab/base/torch_env.py`
 - Scene config: `src/unilab/base/scene.py`
-- Existing task examples: `src/unilab/tasks/locomotion/go2/joystick.py`,
-  `src/unilab/tasks/motion_tracking/g1/manager_terms.py`
+- Task declaration is owner YAML plus registry bootstrap — no per-task Python
+  env class: `src/unilab/tasks/locomotion/go2/__init__.py` registers
+  `Go2JoystickFlat` with `ManagerBasedRlEnvCfg` and `make_manager_based_rl_env`
+  per backend, and the owner YAMLs live under
+  `src/unilab/conf/ppo/task/go2_joystick_flat/`. Task-owned term library
+  example: `src/unilab/tasks/motion_tracking/g1/manager_terms.py`. End-to-end
+  walkthrough: {doc}`../../6-how_to/1-onboard_new_robot`.

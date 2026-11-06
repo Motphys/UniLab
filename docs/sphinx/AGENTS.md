@@ -28,7 +28,8 @@ source/
 ├── _static/
 └── _templates/
     ├── sidebar/
-    │   └── lang_switcher.html   # language dropdown in sidebar
+    │   ├── lang_switcher.html   # language dropdown in sidebar
+    │   └── versioning.html      # version dropdown (rendered only under sphinx-multiversion)
     └── autosummary/
 ```
 
@@ -47,6 +48,11 @@ language. The language switcher uses an explicit path map in `conf.py`
 (`_LANGUAGE_PATH_FORWARD`) to handle the mismatch — **when adding a new English
 page, add a corresponding entry to that map** so the switcher lands somewhere
 sensible (or omit the entry to fall back to the zh_CN index).
+
+Top-level numbered sections run `1-getting_started` through `6-how_to/`;
+`6-how_to/` is the home of user-facing, end-to-end task walkthroughs whose
+every step carries a verification command (the en/zh_CN trees mirror it 1:1,
+so its pages need no `_LANGUAGE_PATH_FORWARD` entries).
 
 Do not add per-page language button blocks or hand-written cross-language
 navigation. The sidebar language switcher handles language changes globally.

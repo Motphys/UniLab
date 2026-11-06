@@ -82,6 +82,7 @@ class BaseAction(ActionTerm):
     _entity: Entity
 
     def __init__(self, cfg: BaseActionCfg, env: ManagerBasedRlEnv):
+        """Resolve target joints and allocate the raw/processed action carriers."""
         super().__init__(cfg=cfg, env=env)
         target_ids, target_names = self._entity.find_joints_by_actuator_names(cfg.actuator_names)
         self._target_ids = tuple(target_ids)
@@ -159,33 +160,41 @@ class BaseAction(ActionTerm):
 
     @property
     def scale(self) -> float | torch.Tensor:
+        """Action scaling factor."""
         return self._scale
 
     @property
     def offset(self) -> float | torch.Tensor:
+        """Action offset."""
         return self._offset
 
     @property
     def raw_action(self) -> torch.Tensor:
+        """Latest raw action tensor."""
         return self._raw_actions
 
     @property
     def processed_action(self) -> torch.Tensor:
+        """Latest affine-transformed action tensor."""
         return self._processed_actions
 
     @property
     def action_dim(self) -> int:
+        """Number of controlled joints."""
         return self._action_dim
 
     @property
     def target_ids(self) -> tuple[int, ...]:
+        """Controlled joint indices."""
         return self._target_ids
 
     @property
     def target_names(self) -> list[str]:
+        """Controlled joint names."""
         return list(self._target_names)
 
     def process_actions(self, actions: torch.Tensor) -> None:
+        """Validate, store, and affine-transform one batch of raw actions."""
         if not isinstance(actions, torch.Tensor):
             raise TypeError(
                 f"{type(self).__name__} expected torch.Tensor, got {type(actions).__name__}"
@@ -243,6 +252,7 @@ class JointPositionActionCfg(BaseActionCfg):
     """Maximum position-target delay in physical substeps (inclusive)."""
 
     def __post_init__(self) -> None:
+        """Validate the delay-lag fields."""
         for name, value in (
             ("delay_min_lag", self.delay_min_lag),
             ("delay_max_lag", self.delay_max_lag),
@@ -255,6 +265,7 @@ class JointPositionActionCfg(BaseActionCfg):
             raise ValueError("JointPositionActionCfg delay_max_lag must be >= delay_min_lag")
 
     def build(self, env: ManagerBasedRlEnv) -> JointPositionAction:
+        """Instantiate the action term for ``env``."""
         return JointPositionAction(self, env)
 
 
@@ -264,6 +275,7 @@ class JointPositionAction(BaseAction):
     cfg: JointPositionActionCfg
 
     def __init__(self, cfg: JointPositionActionCfg, env: ManagerBasedRlEnv):
+        """Bind the default-position offset and the optional delay buffer."""
         if not isinstance(cfg.use_default_offset, bool):
             raise TypeError("JointPositionActionCfg use_default_offset must be bool")
         super().__init__(cfg=cfg, env=env)
@@ -290,13 +302,16 @@ class JointPositionAction(BaseAction):
 
     @property
     def requires_substep_state_feedback(self) -> bool:
+        """Whether the term recomputes controls between physics substeps."""
         return self._requires_substep_state_feedback
 
     @requires_substep_state_feedback.setter
     def requires_substep_state_feedback(self, value: bool) -> None:
+        """Set the substep state-feedback requirement."""
         self._requires_substep_state_feedback = value
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
+        """Zero raw actions and reset the delay buffer for the selected envs."""
         super().reset(env_ids)
         if self._delay_buffer is not None:
             self._delay_buffer.reset(env_ids)
@@ -308,6 +323,7 @@ class JointPositionAction(BaseAction):
         return self._delay_buffer.compute()
 
     def apply_actions(self) -> None:
+        """Publish joint position targets through the entity control boundary."""
         control = self._entity.data.control_buffer
         if isinstance(control, torch.Tensor):
             # Stay on the control plane for tensor-native joint transmissions.
@@ -349,6 +365,7 @@ class RelativeJointPositionActionCfg(BaseActionCfg):
     """
 
     def __post_init__(self) -> None:
+        """Reject a non-zero offset, which is meaningless for relative control."""
         if isinstance(self.offset, dict):
             resolved = [
                 _real(value, label="RelativeJointPositionActionCfg offset")
@@ -362,6 +379,7 @@ class RelativeJointPositionActionCfg(BaseActionCfg):
             raise ValueError("RelativeJointPositionActionCfg does not support a non-zero offset")
 
     def build(self, env: ManagerBasedRlEnv) -> RelativeJointPositionAction:
+        """Instantiate the action term for ``env``."""
         return RelativeJointPositionAction(self, env)
 
 
@@ -375,6 +393,7 @@ class RelativeJointPositionAction(BaseAction):
         return self._entity.joint_tensor_view(self._device)
 
     def apply_actions(self) -> None:
+        """Publish position targets relative to the current joint positions."""
         joint_state = self._joint_state()
         target = joint_state.joint_pos.index_select(1, self._target_index) + (
             self._processed_actions
@@ -391,6 +410,7 @@ class JointVelocityActionCfg(BaseActionCfg):
     use_default_offset: bool = True
 
     def build(self, env: ManagerBasedRlEnv) -> JointVelocityAction:
+        """Instantiate the action term for ``env``."""
         return JointVelocityAction(self, env)
 
 
@@ -398,6 +418,7 @@ class JointVelocityAction(BaseAction):
     """Control joints via velocity targets."""
 
     def __init__(self, cfg: JointVelocityActionCfg, env: ManagerBasedRlEnv):
+        """Bind the default velocity offset when configured."""
         super().__init__(cfg=cfg, env=env)
         if not isinstance(cfg.use_default_offset, bool):
             raise TypeError("JointVelocityActionCfg use_default_offset must be bool")
@@ -407,6 +428,7 @@ class JointVelocityAction(BaseAction):
             )
 
     def apply_actions(self) -> None:
+        """Publish joint velocity targets through the entity boundary."""
         self._entity.set_joint_velocity_target(
             self._entity_values(self._processed_actions),
             joint_ids=self._target_ids,
@@ -418,6 +440,7 @@ class JointEffortActionCfg(BaseActionCfg):
     """Configuration for joint effort (torque) control."""
 
     def build(self, env: ManagerBasedRlEnv) -> JointEffortAction:
+        """Instantiate the action term for ``env``."""
         return JointEffortAction(self, env)
 
 
@@ -425,6 +448,7 @@ class JointEffortAction(BaseAction):
     """Control joints via effort targets."""
 
     def apply_actions(self) -> None:
+        """Publish joint effort targets through the entity boundary."""
         self._entity.set_joint_effort_target(
             self._entity_values(self._processed_actions),
             joint_ids=self._target_ids,

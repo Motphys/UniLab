@@ -97,6 +97,19 @@ class ResetStateTransaction:
         default_qpos: np.ndarray | None = None,
         scene_layout: CompiledSceneLayout | None = None,
     ) -> None:
+        """Initialize the transaction over a backend's full environment batch.
+
+        Args:
+            backend: Physics backend owning the packed reset composer.
+            default_qpos: Optional preselected default qpos; when ``None`` the
+                backend default is materialized lazily.
+            scene_layout: Optional compiled scene layout enabling mapped
+                physical-entity patches; only scalar (hinge/slide) joints are
+                supported.
+
+        Raises:
+            NotImplementedError: If ``scene_layout`` declares non-scalar joints.
+        """
         self._backend = backend
         self._num_envs = backend.num_envs
         self._selected_default_qpos = default_qpos

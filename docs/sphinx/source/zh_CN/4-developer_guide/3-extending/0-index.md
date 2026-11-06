@@ -24,12 +24,6 @@
 添加配置、runner 代码与脚本层组装。
 :::
 
-:::{grid-item-card} 新地形
-:link: 4-new_terrain
-:link-type: doc
-在冷路径上扩展地形生成。
-:::
-
 ::::
 
 ```{toctree}

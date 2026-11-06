@@ -35,6 +35,12 @@
 共享的架构决策及其状态。
 :::
 
+:::{grid-item-card} Manager Term 参考
+:link: 6-manager_terms/0-index
+:link-type: doc
+内置 reward / observation / termination term 及其参数。
+:::
+
 ::::
 
 ```{toctree}
@@ -46,4 +52,5 @@
 3-changelog
 4-adr
 5-support_matrix
+6-manager_terms/0-index
 ```
