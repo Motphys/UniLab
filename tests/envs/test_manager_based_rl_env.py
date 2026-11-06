@@ -1955,7 +1955,7 @@ def test_generic_factory_routes_only_public_backend_contract(
 def test_selective_tracked_body_contract_preserves_order_and_fails_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from unilab.base.backend_factory import create_backend
+    import unilab.base.backend_factory as backend_factory_module
 
     cfg = _make_cfg(include_optional_managers=False)
     assert cfg.scene is not None
@@ -1973,6 +1973,13 @@ def test_selective_tracked_body_contract_preserves_order_and_fails_closed(
 
     monkeypatch.setattr(manager_env_module, "create_backend", fake_create_backend)
     monkeypatch.setattr(manager_env_module, "ManagerBasedRlEnv", lambda *_: object())
+    # The selective-support contract is platform-independent; keep the genesis
+    # request off the CUDA-only platform gate so CPU runners exercise it.
+    monkeypatch.setattr(
+        backend_factory_module,
+        "_validate_cuda_only_backend_platform",
+        lambda *_args: None,
+    )
 
     make_manager_based_rl_env(cfg, num_envs=1, backend_type="mjwarp")
     assert constructed[-1]["kwargs"]["tracked_body_names"] == (
