@@ -7,6 +7,7 @@ ALLOWED_UTILS_MODULES = {
     "__init__",
     "checkpoint",
     "device",
+    "math",
     "nan_viz",
     "reward",
     "sim2sim",

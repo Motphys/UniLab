@@ -32,6 +32,7 @@ def _env() -> ManagerBasedRlEnv:
             max_episode_length=10,
             device=torch.device("cpu"),
             scene=scene,
+            defer_finite_validation=False,
         ),
     )
 
@@ -194,3 +195,33 @@ def test_nan_detection_integrates_with_termination_manager() -> None:
     entity.joint_pos[0, 1] = torch.nan
     np.testing.assert_array_equal(manager.compute(), [True, False, False])
     np.testing.assert_array_equal(manager.terminated, [True, False, False])
+
+
+def test_state_check_defers_to_the_env_finite_verdict() -> None:
+    """Deferred mode records the verdict device-side instead of raising."""
+    env = _env()
+    recorded: list[tuple[torch.Tensor, str]] = []
+    setattr(env, "defer_finite_validation", True)
+    setattr(
+        env, "record_finite_validation", lambda value, label="": recorded.append((value, label))
+    )
+
+    entity = cast(Any, env.scene["robot"])
+    entity.root_pos[:] = np.nan
+
+    # No eager raise: the verdict is accumulated for the poll boundary.
+    mdp.root_height_below_minimum(env, minimum_height=0.5)
+
+    assert len(recorded) == 1
+    value, label = recorded[0]
+    assert label == "termination['root_height_below_minimum']"
+    assert not bool(torch.isfinite(value).all())
+
+
+def test_state_check_stays_eager_fail_closed_without_defer() -> None:
+    env = _env()
+    entity = cast(Any, env.scene["robot"])
+    entity.root_pos[:] = np.nan
+
+    with pytest.raises(ValueError, match="NaN or Inf entity state"):
+        mdp.root_height_below_minimum(env, minimum_height=0.5)

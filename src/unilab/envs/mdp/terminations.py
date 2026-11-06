@@ -13,10 +13,10 @@ import torch
 
 from unilab.envs.mdp.observations import (
     joint_view,
-    quat_apply_inverse,
     root_body_view,
 )
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.utils.math import quat_apply_inverse
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -26,7 +26,9 @@ if TYPE_CHECKING:
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
 
-def _state_tensor(term_name: str, value: object, num_envs: int, *, width: int) -> torch.Tensor:
+def _state_tensor(
+    env: ManagerBasedRlEnv, term_name: str, value: object, num_envs: int, *, width: int
+) -> torch.Tensor:
     state = torch.as_tensor(value, dtype=torch.float32)
     expected = (num_envs, width)
     if tuple(state.shape) != expected:
@@ -34,6 +36,12 @@ def _state_tensor(term_name: str, value: object, num_envs: int, *, width: int) -
             f"Termination term '{term_name}' received entity state shape "
             f"{tuple(state.shape)}, expected {expected}"
         )
+    if env.defer_finite_validation:
+        # Deferred mode accumulates the verdict on the env's device-resident
+        # carrier; the fixed poll boundary raises on a latched failure instead
+        # of synchronizing here on every step.
+        env.record_finite_validation(state, f"termination[{term_name!r}]")
+        return state
     if not bool(torch.isfinite(state).all()):
         invalid_rows = torch.nonzero(~torch.isfinite(state).all(dim=1)).flatten()[:10]
         raise ValueError(
@@ -66,7 +74,7 @@ def bad_orientation(
     projected_gravity = quat_apply_inverse(
         view.quat_w[:, 0, :], gravity.expand((view.quat_w.shape[0], 3))
     )
-    _state_tensor("bad_orientation", projected_gravity, env.num_envs, width=3)
+    _state_tensor(env, "bad_orientation", projected_gravity, env.num_envs, width=3)
     angle = torch.acos((-projected_gravity[:, 2]).clamp(-1.0, 1.0)).abs()
     return angle > limit_angle
 
@@ -83,7 +91,7 @@ def root_height_below_minimum(
         raise ValueError("root_height_below_minimum minimum_height must be finite")
     _, view = root_body_view(env, asset_cfg, "root_height_below_minimum")
     root_pos_w = view.pos_w[:, 0, :]
-    _state_tensor("root_height_below_minimum", root_pos_w, env.num_envs, width=3)
+    _state_tensor(env, "root_height_below_minimum", root_pos_w, env.num_envs, width=3)
     return root_pos_w[:, 2] < minimum_height
 
 

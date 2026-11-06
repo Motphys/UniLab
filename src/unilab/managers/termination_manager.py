@@ -58,6 +58,11 @@ class TerminationManager(ManagerBase):
         self._truncated_buf = output
         self._terminated_buf = torch.zeros_like(self._truncated_buf)
         self._dones_buf = torch.zeros_like(self._truncated_buf)
+        # Deferred finite validation moves the per-reset episode counts off the
+        # host: counts accumulate on this device carrier and are published once
+        # at the env's poll boundary via publish_pending_reset_metrics.
+        self._pending_term_counts: torch.Tensor | None = None
+        self._pending_counts_dirty = False
 
     def __str__(self) -> str:
         msg = f"<TerminationManager> contains {len(self._term_names)} active terms.\n"
@@ -102,9 +107,21 @@ class TerminationManager(ManagerBase):
         extras: dict[str, int] = {}
         keys = list(self._term_dones)
         counts = [self._term_dones[key][ids].sum() for key in keys]
-        host_counts = torch.stack(counts).detach().cpu().tolist() if counts else []
-        for key, count in zip(keys, host_counts, strict=True):
-            extras["Episode_Termination/" + key] = int(count)
+        if self._deferred_validation_enabled():
+            # Accumulate counts on the device; the env's poll boundary drains
+            # them through publish_pending_reset_metrics (the command/metrics
+            # pending-buffer pattern), so resets never read the device.
+            if counts and ids.numel() > 0:
+                pending = self._pending_term_counts
+                if pending is None:
+                    pending = torch.zeros(len(keys), dtype=torch.int64, device=self._device)
+                    self._pending_term_counts = pending
+                pending.add_(torch.stack(counts))
+                self._pending_counts_dirty = True
+        else:
+            host_counts = torch.stack(counts).detach().cpu().tolist() if counts else []
+            for key, count in zip(keys, host_counts, strict=True):
+                extras["Episode_Termination/" + key] = int(count)
         for term_cfg in self._class_term_cfgs:
             if not callable(getattr(term_cfg.func, "reset", None)):
                 raise NotImplementedError(
@@ -112,6 +129,21 @@ class TerminationManager(ManagerBase):
                 )
             term_cfg.func.reset(ids)
         return extras
+
+    def publish_pending_reset_metrics(self) -> dict[str, int]:
+        """Drain accumulated episode counts at the environment's host boundary."""
+        if not self._pending_counts_dirty or self._pending_term_counts is None:
+            return {}
+        host_counts = self._pending_term_counts.detach().cpu().tolist()
+        self._pending_term_counts.zero_()
+        self._pending_counts_dirty = False
+        return {
+            "Episode_Termination/" + key: int(count)
+            for key, count in zip(self._term_dones, host_counts, strict=True)
+        }
+
+    def _deferred_validation_enabled(self) -> bool:
+        return bool(getattr(self._env, "defer_finite_validation", False))
 
     def compute(self) -> torch.Tensor:
         timing = getattr(self, "last_step_timing_ms", None)

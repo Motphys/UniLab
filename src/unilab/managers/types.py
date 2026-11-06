@@ -317,6 +317,15 @@ class ManagerBasedRlEnv(Protocol):
     def episode_length_buf(self) -> torch.Tensor: ...
 
     @property
+    def defer_finite_validation(self) -> bool:
+        """Whether finite checks accumulate on the device between polls."""
+        ...
+
+    def record_finite_validation(self, value: torch.Tensor, label: str = "") -> None:
+        """Accumulate one finite verdict into the env's deferred poll boundary."""
+        ...
+
+    @property
     def reset_buf(self) -> torch.Tensor: ...
 
     @property

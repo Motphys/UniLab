@@ -35,6 +35,9 @@ class _StubCfg(EnvCfg):
     max_episode_seconds: float | None = 1.0
     ctrl_dt: float = 0.1
     sim_dt: float = 0.1
+    # These tests exercise the eager fail-closed paths; pin the pre-flip
+    # behavior explicitly instead of relying on the (now deferred) default.
+    defer_finite_validation: bool = False
 
 
 @dataclass
@@ -355,6 +358,37 @@ def test_reset_done_count_remains_device_resident_before_timing_publication() ->
     assert env._reset_done_count.dtype is torch.int64
     assert env._reset_done_count.device == env.device
     torch.testing.assert_close(env._reset_done_count, torch.full((), env.num_envs))
+
+
+def test_reset_done_envs_reuses_the_step_done_gate_verdict() -> None:
+    """A caller that proved the done mask non-empty must not re-read it."""
+    env = _StubTorchEnv()
+    env.init_state()
+    env.reset_ids.clear()
+
+    state = env.step(_actions(env))
+
+    assert [ids.tolist() for ids in env.reset_ids] == [[0, 1, 2]]
+    # The timing count comes from the nonzero row materialization, not a
+    # second device read of the counter.
+    assert state.info["timing"]["reset_done_count"] == float(env.num_envs)
+
+    def _forbidden(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("reset re-read the done mask on the host")
+
+    env.reset_ids.clear()
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(torch.Tensor, "any", _forbidden)
+        env._reset_done_envs(done_active=True)
+    assert [ids.tolist() for ids in env.reset_ids] == [[0, 1, 2]]
+
+    # Without the caller verdict the semantic no-done gate still holds.
+    env.reset_ids.clear()
+    assert env._state is not None
+    env._state.terminated.fill_(False)
+    env._state.truncated.fill_(False)
+    env._reset_done_envs()
+    assert env.reset_ids == []
 
 
 def test_partial_autoreset_preserves_non_done_rows() -> None:

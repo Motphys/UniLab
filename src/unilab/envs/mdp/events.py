@@ -20,6 +20,7 @@ from unilab.managers.event_manager import EventTermCfg
 from unilab.managers.manager_base import ManagerTermBase
 from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
+from unilab.utils.math import quat_apply, quat_from_euler_xyz, quat_mul
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -1626,6 +1627,14 @@ class ApplyBodyImpulse(ManagerTermBase):
         # Pre-sample the initial cooldown so the first impulse is preceded by a
         # cooldown rather than firing immediately at t=0.
         self._interval_time_left = self._sample_cooldown(self.num_envs)
+        # Host mirror of the next lifecycle event: a conservative lower bound on
+        # min(where(active, time_remaining, interval_time_left)) plus the exact
+        # any-active verdict. IEEE-754 rounding is monotone, so subtracting the
+        # same float64 dt on host and device keeps the bound valid; while it is
+        # positive no timer can expire or trigger and the step reads no device
+        # state at all. Both are refreshed at probe boundaries and at reset.
+        self._host_next_event_lb = self._cooldown_s[0]
+        self._host_any_active = False
 
     def _sample_cooldown(self, count: int) -> torch.Tensor:
         return self._host_uniform(self._cooldown_s[0], self._cooldown_s[1], count)
@@ -1648,6 +1657,20 @@ class ApplyBodyImpulse(ManagerTermBase):
     ) -> None:
         del env_ids, force_range, torque_range, duration_s, cooldown_s, asset_cfg
         dt = self._step_dt
+
+        host_lb = self._host_next_event_lb - dt
+        if host_lb > 0.0:
+            # The host lower bound proves no timer expires or triggers this
+            # step: advance the timers and, while impulses are known active,
+            # keep the wrench re-stage without reading any device state.
+            self._host_next_event_lb = host_lb
+            if self._host_any_active:
+                self._time_remaining[self._active] -= dt
+                self._interval_time_left -= dt
+                self._stage_wrench()
+            else:
+                self._interval_time_left -= dt
+            return
 
         # Decrement active impulse timers, then expire finished impulses.
         self._time_remaining[self._active] -= dt
@@ -1689,7 +1712,7 @@ class ApplyBodyImpulse(ManagerTermBase):
                     dtype=quat_rows.dtype,
                     device=quat_rows.device,
                 ).expand(count * num_bodies, 3)
-                offset_w = _quat_apply(quat_rows, offsets).reshape(count, num_bodies, 3)
+                offset_w = quat_apply(quat_rows, offsets).reshape(count, num_bodies, 3)
                 torques = torques + torch.linalg.cross(offset_w, forces)
             self._active_forces[trigger_ids] = forces
             self._active_torques[trigger_ids] = torques
@@ -1706,13 +1729,23 @@ class ApplyBodyImpulse(ManagerTermBase):
         # persistent channels. Idle envs skip the call entirely so the term
         # never clobbers another producer's staged forces.
         if bool(self._active.any() or expired.any()):
-            self._entity.apply_body_wrench_to_sim(
-                self._active_forces,
-                self._active_torques if self._uses_torque else None,
-                self._backend_body_ids,
-                env_ids=None,
-                term_name="apply_body_impulse",
-            )
+            self._stage_wrench()
+
+        # Refresh the host mirror at this probe boundary. The next event is the
+        # nearest active duration or inactive cooldown; the any-active verdict
+        # is exact here.
+        next_event = torch.where(self._active, self._time_remaining, self._interval_time_left)
+        self._host_next_event_lb = float(next_event.amin())
+        self._host_any_active = bool(self._active.any())
+
+    def _stage_wrench(self) -> None:
+        self._entity.apply_body_wrench_to_sim(
+            self._active_forces,
+            self._active_torques if self._uses_torque else None,
+            self._backend_body_ids,
+            env_ids=None,
+            term_name="apply_body_impulse",
+        )
 
     def reset(self, env_ids: torch.Tensor) -> None:
         """Clear transient impulse state for the selected envs (state-clearing hook)."""
@@ -1725,13 +1758,20 @@ class ApplyBodyImpulse(ManagerTermBase):
         if was_active:
             # Reset rows now stage zeros, which actively clears persistent
             # channels; other rows re-stage their unchanged wrench.
-            self._entity.apply_body_wrench_to_sim(
-                self._active_forces,
-                self._active_torques if self._uses_torque else None,
-                self._backend_body_ids,
-                env_ids=None,
-                term_name="apply_body_impulse",
+            self._stage_wrench()
+            # A full-width reset provably clears every active row; a partial
+            # reset re-reads the verdict once at this reset boundary.
+            self._host_any_active = (
+                False if env_ids.numel() == self.num_envs else bool(self._active.any())
             )
+        # Reset rows restart their cooldown at >= cooldown lower bound. A
+        # full-width reset provably retires every active row, so the next event
+        # is exactly the cooldown lower bound; a partial reset keeps the
+        # previous bound for the untouched rows.
+        if env_ids.numel() == self.num_envs:
+            self._host_next_event_lb = self._cooldown_s[0]
+        else:
+            self._host_next_event_lb = min(self._host_next_event_lb, self._cooldown_s[0])
 
     def _selected_body_quats(
         self,
@@ -1868,10 +1908,10 @@ def reset_root_state_uniform(
         + pose_samples[:, 0:3].to(dtype=root_states.dtype)
         + env.scene.env_origins(torch.device(env.device))
     )
-    orientation_delta = _quat_from_euler_xyz(
+    orientation_delta = quat_from_euler_xyz(
         pose_samples[:, 3], pose_samples[:, 4], pose_samples[:, 5]
     )
-    root_states[:, 3:7] = _quat_mul(root_states[:, 3:7], orientation_delta.to(root_states.dtype))
+    root_states[:, 3:7] = quat_mul(root_states[:, 3:7], orientation_delta.to(root_states.dtype))
 
     velocity_samples = _sample_se3_range(
         velocity_range, (env.num_envs, 6), _require_rng(env, "reset_root_state_uniform")
@@ -1901,48 +1941,6 @@ def _se3_bounds(range_dict: dict[str, tuple[float, float]] | None) -> torch.Tens
     return bounds
 
 
-def _quat_from_euler_xyz(
-    roll: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor
-) -> torch.Tensor:
-    """Convert XYZ Euler angles to device-resident wxyz quaternions."""
-    cos_roll, sin_roll = torch.cos(0.5 * roll), torch.sin(0.5 * roll)
-    cos_pitch, sin_pitch = torch.cos(0.5 * pitch), torch.sin(0.5 * pitch)
-    cos_yaw, sin_yaw = torch.cos(0.5 * yaw), torch.sin(0.5 * yaw)
-    return torch.stack(
-        (
-            cos_roll * cos_pitch * cos_yaw + sin_roll * sin_pitch * sin_yaw,
-            sin_roll * cos_pitch * cos_yaw - cos_roll * sin_pitch * sin_yaw,
-            cos_roll * sin_pitch * cos_yaw + sin_roll * cos_pitch * sin_yaw,
-            cos_roll * cos_pitch * sin_yaw - sin_roll * sin_pitch * cos_yaw,
-        ),
-        dim=-1,
-    )
-
-
-def _quat_apply(quat_wxyz: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
-    """Apply broadcast-compatible wxyz quaternions to device-resident vectors."""
-    quat_xyz = quat_wxyz[..., 1:4]
-    if vector.ndim < quat_xyz.ndim:
-        vector = vector.expand_as(quat_xyz)
-    cross = torch.linalg.cross(quat_xyz, vector, dim=-1)
-    second_cross = torch.linalg.cross(quat_xyz, cross, dim=-1)
-    return vector + 2.0 * quat_wxyz[..., 0:1] * cross + 2.0 * second_cross
-
-
-def _quat_mul(left_wxyz: torch.Tensor, right_wxyz: torch.Tensor) -> torch.Tensor:
-    """Multiply broadcast-compatible device-resident wxyz quaternions."""
-    left_w, left_xyz = left_wxyz[..., 0:1], left_wxyz[..., 1:4]
-    right_w, right_xyz = right_wxyz[..., 0:1], right_wxyz[..., 1:4]
-    cross = torch.linalg.cross(left_xyz, right_xyz, dim=-1)
-    return torch.cat(
-        (
-            left_w * right_w - (left_xyz * right_xyz).sum(dim=-1, keepdim=True),
-            left_w * right_xyz + right_w * left_xyz + cross,
-        ),
-        dim=-1,
-    )
-
-
 def _root_reset_kernel(
     default_rows: torch.Tensor,
     origins_rows: torch.Tensor | None,
@@ -1955,8 +1953,8 @@ def _root_reset_kernel(
     if origins_rows is not None:
         output[:, 0:3] += origins_rows[:, 0:3]
     output[:, 0:3] += pose_delta[:, 0:3]
-    orientation_delta = _quat_from_euler_xyz(pose_delta[:, 3], pose_delta[:, 4], pose_delta[:, 5])
-    output[:, 3:7] = _quat_mul(output[:, 3:7], orientation_delta)
+    orientation_delta = quat_from_euler_xyz(pose_delta[:, 3], pose_delta[:, 4], pose_delta[:, 5])
+    output[:, 3:7] = quat_mul(output[:, 3:7], orientation_delta)
     output[:, 7:13] += velocity_delta
 
 

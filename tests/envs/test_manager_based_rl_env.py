@@ -1353,6 +1353,53 @@ def test_deferred_episode_metrics_flush_at_fixed_step_without_reset() -> None:
         env.close()
 
 
+def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.defer_finite_validation = True
+    env, _backend = _make_env(cfg)
+    try:
+        env._reset_state.declare_packed_reset_device(env.device)
+        transaction = env._reset_state.packed_reset_transaction
+        assert transaction is not None
+        assert transaction.validation == "deferred"
+        env._reset_state.set_finite_verdict_sink(None)
+        assert transaction.validation == "strict"
+    finally:
+        env.close()
+
+    eager_cfg = _make_cfg(include_optional_managers=False)
+    eager_cfg.defer_finite_validation = False
+    eager_env, _ = _make_env(eager_cfg)
+    try:
+        eager_env._reset_state.declare_packed_reset_device(eager_env.device)
+        transaction = eager_env._reset_state.packed_reset_transaction
+        assert transaction is not None
+        assert transaction.validation == "strict"
+    finally:
+        eager_env.close()
+
+
+def test_packed_reset_deferred_verdict_raises_at_poll_boundary() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.defer_finite_validation = True
+    cfg.finite_validation_interval = 4
+    env, _backend = _make_env(cfg)
+    try:
+        env.reset()
+        env.step(torch.tensor([[0.25], [0.75]], dtype=torch.float32))
+        env._reset_state.declare_packed_reset_device(env.device)
+        transaction = env._reset_state.packed_reset_transaction
+        assert transaction is not None
+        transaction.device_verdict[0] = True
+        assert transaction.has_pending_verdict()
+        with pytest.raises(ValueError, match="Packed reset validation failed"):
+            env.poll_finite_validation(force=True)
+        assert not transaction.has_pending_verdict()
+        assert env.poll_finite_validation(force=True)
+    finally:
+        env.close()
+
+
 def test_manager_env_satisfies_rl_runtime_contract() -> None:
     env, _backend = _make_env()
     _backend.get_play_capabilities = lambda: EnvPlayCapabilities(

@@ -31,10 +31,8 @@ import numpy as np
 from unisim.backend.mujoco.motion_export import compute_tracking_fk
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.tasks.motion_tracking.common.motion_loader import (
-    ensure_quat_continuity,
-    interpolate_motion,
-)
+from unilab.tasks.motion_tracking.common.motion_loader import interpolate_motion
+from unilab.utils.math import np_quat_ensure_continuity
 
 
 def _count_csv_header_rows(motion_file: str) -> int:
@@ -100,7 +98,7 @@ def load_csv_motion(
     motion_base_poss_input = motion[:, :3]
     # Convert quaternion from xyzw to wxyz
     motion_base_rots_input = motion[:, 3:7][:, [3, 0, 1, 2]]
-    motion_base_rots_input = ensure_quat_continuity(motion_base_rots_input)
+    motion_base_rots_input = np_quat_ensure_continuity(motion_base_rots_input)
     motion_dof_poss_input = motion[:, 7:]
     return motion_base_poss_input, motion_base_rots_input, motion_dof_poss_input
 
