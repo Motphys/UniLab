@@ -1,25 +1,21 @@
-"""Tests for quaternion helpers in the base-owned host rotation boundary."""
+"""Tests for the unisim-owned rotation primitives re-exported by unilab.utils.math."""
 
 from __future__ import annotations
 
 import numpy as np
 
-from unilab.base.rotation import (
+from unilab.utils.math import (
     np_matrix_first_two_cols_from_quat,
     np_matrix_from_quat,
     np_quat_angular_velocity,
     np_quat_apply,
-    np_quat_apply_batched,
     np_quat_apply_inverse,
-    np_quat_apply_inverse_batched,
     np_quat_ensure_continuity,
     np_quat_error_magnitude,
-    np_quat_error_magnitude_batched,
-    np_quat_error_magnitude_squared_batched,
+    np_quat_error_magnitude_squared,
     np_quat_from_angle_axis,
     np_quat_from_euler_xyz,
     np_quat_mul,
-    np_quat_mul_batched,
     np_quat_to_axis_angle,
     np_subtract_anchor_frame_transforms,
 )
@@ -125,7 +121,7 @@ def test_quat_angular_velocity_ignores_sign_flip_spikes() -> None:
     np.testing.assert_allclose(angvel, expected, atol=1e-6)
 
 
-def test_batched_quaternion_helpers_match_flattened_helpers() -> None:
+def test_broadcast_quaternion_helpers_match_flattened_helpers() -> None:
     num_envs = 3
     num_bodies = 4
 
@@ -155,22 +151,22 @@ def test_batched_quaternion_helpers_match_flattened_helpers() -> None:
     )
 
     np.testing.assert_allclose(
-        np_quat_mul_batched(anchor_quat[:, None, :], body_quat),
+        np_quat_mul(anchor_quat[:, None, :], body_quat),
         expected_mul,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        np_quat_apply_batched(anchor_quat[:, None, :], vectors),
+        np_quat_apply(anchor_quat[:, None, :], vectors),
         expected_apply,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        np_quat_error_magnitude_batched(anchor_quat[:, None, :], body_quat),
+        np_quat_error_magnitude(anchor_quat[:, None, :], body_quat),
         expected_error,
         atol=1e-12,
     )
     np.testing.assert_allclose(
-        np_quat_error_magnitude_squared_batched(anchor_quat[:, None, :], body_quat),
+        np_quat_error_magnitude_squared(anchor_quat[:, None, :], body_quat),
         expected_error * expected_error,
         atol=1e-12,
     )
@@ -181,8 +177,8 @@ def test_batched_quaternion_helpers_match_flattened_helpers() -> None:
     )
 
 
-def test_quat_apply_inverse_batched_matches_matrix_transpose() -> None:
-    """Batched inverse rotation must equal R(q)^T @ v on (env, body) inputs."""
+def test_quat_apply_inverse_matches_matrix_transpose() -> None:
+    """Inverse rotation must equal R(q)^T @ v on (env, body) inputs."""
     num_envs = 3
     num_bodies = 4
 
@@ -197,13 +193,13 @@ def test_quat_apply_inverse_batched_matches_matrix_transpose() -> None:
     expected = np.einsum("nji,nj->ni", mats, vectors.reshape(-1, 3))
 
     np.testing.assert_allclose(
-        np_quat_apply_inverse_batched(quat, vectors).reshape(-1, 3),
+        np_quat_apply_inverse(quat, vectors).reshape(-1, 3),
         expected,
         atol=1e-12,
     )
     # Round-trip: applying q after q^-1 must recover the original vector.
     np.testing.assert_allclose(
-        np_quat_apply_batched(quat, np_quat_apply_inverse_batched(quat, vectors)),
+        np_quat_apply(quat, np_quat_apply_inverse(quat, vectors)),
         vectors,
         atol=1e-12,
     )
@@ -234,7 +230,7 @@ def test_anchor_frame_transform_matches_flattened_path() -> None:
         expected_pos[row] = np_quat_apply_inverse(quaternion, vector)
     expected_pos = expected_pos.reshape(num_envs, num_bodies, 3)
     anchor_inverse = anchor_quat_tiled * np.array([1.0, -1.0, -1.0, -1.0])
-    expected_quat = np_quat_mul_batched(
+    expected_quat = np_quat_mul(
         anchor_inverse, body_quat.reshape(num_envs * num_bodies, 4)
     ).reshape(num_envs, num_bodies, 4)
 

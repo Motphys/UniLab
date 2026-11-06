@@ -11,7 +11,6 @@ import torch
 from unisim.backend.base import SimBackend
 
 from unilab.base.entity import EntityCfg, EntityScene
-from unilab.base.rotation import np_yaw_to_quat
 from unilab.envs.mdp import UniformVelocityCommand, UniformVelocityCommandCfg
 from unilab.envs.mdp.commands import (
     UniformVelocityCommand as ExportedUniformVelocityCommand,
@@ -22,6 +21,7 @@ from unilab.envs.mdp.commands import (
 from unilab.managers import CommandManager
 from unilab.managers.rng import ManagerRng
 from unilab.managers.types import ManagerBasedRlEnv
+from unilab.utils.math import np_yaw_to_quat
 
 
 class _Backend:
@@ -123,6 +123,7 @@ def _env(seed: int = 7) -> tuple[ManagerBasedRlEnv, _Backend]:
         SimpleNamespace(
             num_envs=backend.num_envs,
             device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             rng=ManagerRng.seeded(seed),
             scene=scene,
             step_dt=0.02,

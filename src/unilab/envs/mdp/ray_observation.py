@@ -16,6 +16,7 @@ from unisim.ray_query import (
 )
 
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
+from unilab.utils.math import quat_apply, quat_mul
 
 if TYPE_CHECKING:
     from unilab.managers.types import ManagerBasedRlEnv
@@ -574,12 +575,12 @@ class RayScan(ManagerTermBase):
         quaternion = pose.quat_w[:, index, :]
         if self._attachment_site_local_pos is not None:
             assert self._attachment_site_local_quat is not None
-            quaternion = _quat_multiply_wxyz(
+            quaternion = quat_mul(
                 quaternion, self._attachment_site_local_quat.expand_as(quaternion)
             )
-            position = position + _quat_rotate_wxyz(
+            position = position + quat_apply(
                 pose.quat_w[:, index, :], self._attachment_site_local_pos.expand(1, 3)
-            )[:, 0, :].unsqueeze(1)
+            ).unsqueeze(1)
         rotation = _attachment_rotation_wxyz(quaternion, self.ray_pattern.alignment)
         self._ray_origins.copy_(
             position + torch.einsum("bij,rj->bri", rotation, self._local_origins)
@@ -763,7 +764,7 @@ def _attachment_rotation_wxyz(quaternion: torch.Tensor, alignment: RayAlignment)
         return identity.unsqueeze(0).expand(batch, 3, 3)
 
     basis = torch.eye(3, dtype=quaternion.dtype, device=quaternion.device)
-    rotated_basis = _quat_rotate_wxyz(quaternion, basis)
+    rotated_basis = quat_apply(quaternion[:, None, :], basis)
     if alignment == "body":
         return rotated_basis.transpose(1, 2)
 
@@ -786,31 +787,6 @@ def _attachment_rotation_wxyz(quaternion: torch.Tensor, alignment: RayAlignment)
     )
     left = torch.stack((-forward[:, 1], forward[:, 0], torch.zeros_like(forward[:, 0])), dim=1)
     return torch.stack((forward, left, up), dim=2)
-
-
-def _quat_multiply_wxyz(first: torch.Tensor, second: torch.Tensor) -> torch.Tensor:
-    """Compose batched ``wxyz`` quaternions with matching leading dimensions."""
-
-    w1, x1, y1, z1 = first.unbind(dim=-1)
-    w2, x2, y2, z2 = second.unbind(dim=-1)
-    return torch.stack(
-        (
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
-            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
-        ),
-        dim=-1,
-    )
-
-
-def _quat_rotate_wxyz(quaternion: torch.Tensor, vector: torch.Tensor) -> torch.Tensor:
-    """Rotate shared local vectors by full-batch public ``wxyz`` quaternions."""
-
-    qvec = quaternion[:, None, 1:]
-    scalar = quaternion[:, None, 0:1]
-    cross = 2.0 * torch.linalg.cross(qvec, vector[None, :, :])
-    return vector[None, :, :] + scalar * cross + torch.linalg.cross(qvec, cross)
 
 
 def _create_ray_caster(caster: str, **options: Any) -> Any:

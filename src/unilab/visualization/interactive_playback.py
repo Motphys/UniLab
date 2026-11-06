@@ -249,8 +249,8 @@ class RslRlPlaybackSession:
 
     @property
     def info(self) -> dict[str, Any]:
-        state = getattr(self.env, "state", None)
-        info = getattr(state, "info", None)
+        state = self.env.state
+        info = getattr(state, "info", None) if state is not None else None
         return info if isinstance(info, dict) else {}
 
     def _build_actions(self) -> torch.Tensor:
@@ -292,11 +292,7 @@ class OffPolicyPlaybackSession:
         self.env = env
         # A backend may remap a generic CUDA request to a concrete device.
         # ``env.device`` is authoritative once the environment exists.
-        self.policy_device = (
-            torch.device(device)
-            if getattr(env, "device", None) is None
-            else torch.device(env.device)
-        )
+        self.policy_device = torch.device(env.device)
         self.action_mode = action_mode
         self.actor = actor
         self.actor_algo_type = str(actor_algo_type)
@@ -335,8 +331,8 @@ class OffPolicyPlaybackSession:
 
     @property
     def info(self) -> dict[str, Any]:
-        state = getattr(self.env, "state", None)
-        info = getattr(state, "info", None)
+        state = self.env.state
+        info = getattr(state, "info", None) if state is not None else None
         return info if isinstance(info, dict) else {}
 
     def _build_actions(self) -> torch.Tensor:
@@ -632,7 +628,7 @@ def _build_appo_actor(
     rl_cfg_dict = deepcopy(rl_cfg)
 
     obs_dim, critic_dim = get_obs_dims(env.obs_groups_spec)
-    num_envs = int(getattr(wrapped_env, "num_envs", getattr(env, "num_envs", 1)))
+    num_envs = int(wrapped_env.num_envs)
     obs_groups = rl_cfg_dict.setdefault("obs_groups", {})
     if "obs_groups" not in rl_cfg_dict or not isinstance(obs_groups, dict):
         obs_groups = {}
@@ -772,10 +768,8 @@ def extract_play_obs(obs_dict: dict[str, torch.Tensor]) -> torch.Tensor:
     return obs_out
 
 
-def resolve_playback_device(env_device: Any, requested_device: str) -> torch.device:
+def resolve_playback_device(env_device: Any) -> torch.device:
     """Resolve actor placement from the authoritative TorchEnv device."""
-    if env_device is None:
-        return torch.device(requested_device)
     return torch.device(env_device)
 
 
@@ -1040,7 +1034,7 @@ def create_sac_playback_session(
     if action_shape is None:
         raise ValueError("env.action_space.shape must be defined")
     action_dim = int(action_shape[0])
-    session_device = resolve_playback_device(getattr(env, "device", None), device_name)
+    session_device = resolve_playback_device(env.device)
     actor_algo_type, actor_kwargs = resolve_play_actor_spec(
         algo_name,
         cfg,

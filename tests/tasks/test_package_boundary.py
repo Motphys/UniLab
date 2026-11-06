@@ -27,7 +27,6 @@ _PRODUCTION_NUMPY_IMPORT_ALLOWLIST = {
     "src/unilab/base/base.py",
     "src/unilab/base/entity.py",
     "src/unilab/base/reset_state.py",
-    "src/unilab/base/rotation.py",
     "src/unilab/base/scene.py",
     "src/unilab/base/torch_env.py",
     "src/unilab/base/variants.py",

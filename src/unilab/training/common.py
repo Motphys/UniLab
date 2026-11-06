@@ -27,7 +27,7 @@ def get_hydra_runtime_choice(cfg: DictConfig, group: str) -> str | None:
 
     try:
         runtime_choice = HydraConfig.get().runtime.choices.get(group)
-    except Exception:
+    except (AttributeError, KeyError):
         return None
     return str(runtime_choice) if runtime_choice is not None else None
 

@@ -85,7 +85,7 @@ class BaseAction(ActionTerm):
         super().__init__(cfg=cfg, env=env)
         target_ids, target_names = self._entity.find_joints_by_actuator_names(cfg.actuator_names)
         self._target_ids = tuple(target_ids)
-        self._device = getattr(env, "device", torch.device("cpu"))
+        self._device = env.device
         self._target_index = torch.tensor(self._target_ids, dtype=torch.int64, device=self._device)
         self._target_names = list(target_names)
         self._action_dim = len(target_ids)

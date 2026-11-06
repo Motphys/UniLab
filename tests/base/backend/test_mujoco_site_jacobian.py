@@ -12,7 +12,7 @@ pytest.importorskip("mujoco", reason="mujoco not installed")
 try:
     import mjbatch  # noqa: F401
     from unisim.backend.mujoco.backend import MuJoCoBackend
-except Exception:
+except ImportError:
     pytest.skip(
         "mjbatch/unisim MuJoCo backend not available (platform/build issue)",
         allow_module_level=True,

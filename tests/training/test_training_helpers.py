@@ -478,6 +478,7 @@ def test_motrix_interactive_run_playback_treats_window_close_as_done(
 
     backend = MotrixBackend.__new__(MotrixBackend)
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
     backend.bind_renderer = lambda **kwargs: None
 
     def _render():
@@ -507,6 +508,7 @@ def test_motrix_record_run_playback_does_not_swallow_render_closed(tmp_path: Pat
 
     backend = MotrixBackend.__new__(MotrixBackend)
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
     backend.bind_renderer = lambda **kwargs: None
 
     def _capture_video_frame():

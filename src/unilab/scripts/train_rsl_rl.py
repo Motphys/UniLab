@@ -187,8 +187,8 @@ def _ee_goal_debug_overlay_getter(env):
     """
     if not hasattr(env, "curr_ee_goal_world"):
         return None
-    capabilities = getattr(env, "play_capabilities", None)
-    if capabilities is None or not capabilities.supports_debug_overlay:
+    capabilities = env.play_capabilities
+    if not capabilities.supports_debug_overlay:
         return None
 
     def _get_overlay():
@@ -229,8 +229,8 @@ def _playback_debug_overlay_getter(env):
     ``supports_interactive_debug_overlay`` drops the getter with a warning
     instead of failing closed.
     """
-    capabilities = getattr(env, "play_capabilities", None)
-    if capabilities is None or not capabilities.supports_debug_overlay:
+    capabilities = env.play_capabilities
+    if not capabilities.supports_debug_overlay:
         return None
     discover = getattr(env, "get_playback_debug_overlays", None)
     if discover is not None:

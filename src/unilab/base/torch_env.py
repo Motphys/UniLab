@@ -119,7 +119,7 @@ class TorchEnv(ABEnv):
         self._rgb_array_renderer_ready = False
         self._nan_guard: "NanGuard | None" = None
         self._pending_backend_step_completion: CompletionToken | None = None
-        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", False))
+        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", True))
         interval = getattr(cfg, "finite_validation_interval", 1)
         if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
             raise ValueError("finite_validation_interval must be a positive integer")
@@ -224,7 +224,9 @@ class TorchEnv(ABEnv):
             info={"steps": initial_steps},
         )
         self._last_initial_episode_steps = initial_steps.clone()
-        self._reset_done_envs()
+        # terminated is statically all-ones here; the bootstrap reset must not
+        # re-read the done mask from the device.
+        self._reset_done_envs(done_active=True)
         self._clear_step_final_observation()
         return self._state
 
@@ -349,7 +351,7 @@ class TorchEnv(ABEnv):
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
         if did_reset:
-            self._reset_done_envs()
+            self._reset_done_envs(done_active=True)
         reset_done_ms = (time.perf_counter() - phase) * 1000.0
         reset_done_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
         self.poll_finite_validation()
@@ -678,25 +680,31 @@ class TorchEnv(ABEnv):
             torch.gt(state.info["steps"], max_steps - 1, out=self._truncated_scratch)
         return self._truncated_scratch
 
-    def _reset_done_envs(self) -> None:
+    def _reset_done_envs(self, *, done_active: bool = False) -> None:
         """Run the selected-row autoreset lifecycle.
 
-        Eager execution retains the semantic no-done gate. The public reset
-        contract speaks ``env_ids``; this boundary materializes the done rows
-        once, and the concrete env owns the ids→mask conversion at the backend
-        transaction edge (backend inputs stay fixed-width masks).
+        Eager execution retains the semantic no-done gate. Callers that already
+        proved the done mask non-empty on the host (the step autoreset gate,
+        the all-terminated bootstrap) pass ``done_active=True`` so the gate is
+        not re-read from the device. The public reset contract speaks
+        ``env_ids``; this boundary materializes the done rows once, and the
+        concrete env owns the ids→mask conversion at the backend transaction
+        edge (backend inputs stay fixed-width masks).
         """
         assert self._state is not None
         reset_total_started = time.perf_counter()
         detail_timing = {key: 0.0 for key in RESET_DONE_DETAIL_TIMING_KEYS}
         done = self._state.terminated | self._state.truncated
-        if not bool(done.any()):
+        if not done_active and not bool(done.any()):
             self._clear_reset_done_detail_timing(self._state.info.setdefault("timing", {}))
             return
         self._reset_done_count.copy_(done.sum())
+        done_env_ids = torch.nonzero(done, as_tuple=False).flatten()
 
         terminal_started = time.perf_counter()
-        detail_timing["reset_done_count"] = float(self._reset_done_count)
+        # The nonzero above already published the done-row count to the host;
+        # reuse it instead of reading the device counter back for timing.
+        detail_timing["reset_done_count"] = float(done_env_ids.numel())
         self._state.info["steps"].masked_fill_(done, 0)
         final_observation = self._ensure_final_observation_scratch()
         for name, values in self._state.obs.items():
@@ -710,9 +718,7 @@ class TorchEnv(ABEnv):
         self._autoreset_reset_active = True
         self._autoreset_scattered_reset_obs = False
         try:
-            new_obs, reset_info = self.reset(
-                torch.nonzero(done, as_tuple=False).flatten(),
-            )
+            new_obs, reset_info = self.reset(done_env_ids)
         finally:
             self._autoreset_reset_active = False
         detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - reset_started) * 1000.0

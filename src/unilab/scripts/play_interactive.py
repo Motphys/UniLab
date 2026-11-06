@@ -250,11 +250,11 @@ def _resolve_focus_body_id(mj_model, env, preferred_name: str) -> int:
     if preferred_name.strip():
         candidate_names.append(preferred_name.strip())
 
-    cfg = getattr(env, "cfg", None)
-    asset = getattr(cfg, "asset", None) if cfg is not None else None
+    cfg = env.cfg
+    asset = getattr(cfg, "asset", None)
     if asset is not None and getattr(asset, "base_name", None):
         candidate_names.append(str(asset.base_name))
-    if cfg is not None and getattr(cfg, "base_name", None):
+    if getattr(cfg, "base_name", None):
         candidate_names.append(str(cfg.base_name))
 
     candidate_names.extend(["base", "trunk", "pelvis", "torso", "torso_link"])
@@ -262,7 +262,7 @@ def _resolve_focus_body_id(mj_model, env, preferred_name: str) -> int:
     for name in candidate_names:
         try:
             body_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, name)
-        except Exception:
+        except (mujoco.FatalError, KeyError, ValueError):
             body_id = -1
         if body_id >= 0:
             return int(body_id)
@@ -272,7 +272,7 @@ def _resolve_focus_body_id(mj_model, env, preferred_name: str) -> int:
 
 
 def _has_generated_terrain(env: Any) -> bool:
-    scene = getattr(getattr(env, "cfg", None), "scene", None)
+    scene = getattr(env.cfg, "scene", None)
     return getattr(scene, "terrain", None) is not None
 
 
@@ -289,7 +289,7 @@ def _default_viewer_camera_distance(mj_model, env: Any, *, follow_body: bool) ->
 def _can_launch_glfw_viewer() -> bool:
     try:
         import glfw
-    except Exception:
+    except ImportError:
         return True
 
     with warnings.catch_warnings():
@@ -497,7 +497,7 @@ def _velocity_command_primitives(
     lateral_offset: float,
 ) -> list[DebugPrimitive]:
     """Build velocity-command overlay primitives (target and current arrows)."""
-    state = getattr(env, "state", None)
+    state = env.state
     info = getattr(state, "info", None) if state is not None else None
     commands = info.get("commands") if isinstance(info, dict) else None
     if not isinstance(commands, torch.Tensor) or commands.ndim != 2 or commands.shape[1] < 3:
@@ -575,7 +575,7 @@ def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
         return mujoco.MjModel.from_xml_path(str(backend_visual_model_file))
 
     if use_env_visual_model:
-        cfg_scene = getattr(getattr(env, "cfg", None), "scene", None)
+        cfg_scene = getattr(env.cfg, "scene", None)
         if cfg_scene is not None and not isinstance(cfg_scene, SceneCfg):
             raise TypeError("env.cfg.scene must be a SceneCfg")
         model_file = None if cfg_scene is None else cfg_scene.model_file
@@ -608,9 +608,9 @@ def _build_keyboard_commander(env: Any, args) -> KeyboardCommander | None:
     if not bool(getattr(args, "keyboard", False)):
         return None
 
-    state = getattr(env, "state", None)
+    state = env.state
     command_arr = state.info.get("commands") if state is not None else None
-    cmds_cfg = getattr(getattr(env, "cfg", None), "commands", None)
+    cmds_cfg = getattr(env.cfg, "commands", None)
     if not isinstance(command_arr, torch.Tensor) or cmds_cfg is None:
         print("[play_interactive] interactive.keyboard ignored: task has no velocity 'commands'.")
         return None
@@ -636,7 +636,7 @@ def _write_keyboard_command(env: Any, commander: KeyboardCommander) -> None:
 
 
 def _state_has_velocity_commands(env: Any) -> bool:
-    state = getattr(env, "state", None)
+    state = env.state
     info = getattr(state, "info", None) if state is not None else None
     command_arr = info.get("commands") if isinstance(info, dict) else None
     return (
@@ -648,20 +648,19 @@ def _state_has_velocity_commands(env: Any) -> bool:
 
 
 def _has_velocity_command_config(env: Any) -> bool:
-    cfg = getattr(env, "cfg", None)
-    commands_cfg = getattr(cfg, "commands", None) if cfg is not None else None
+    commands_cfg = getattr(env.cfg, "commands", None)
     return getattr(commands_cfg, "vel_limit", None) is not None
 
 
 def _is_velocity_command_locomotion_task(env: Any) -> bool:
     if not _has_velocity_command_config(env):
         return False
-    cfg = getattr(env, "cfg", None)
+    cfg = env.cfg
     candidate_names = [
         type(env).__name__,
-        type(cfg).__name__ if cfg is not None else "",
+        type(cfg).__name__,
         type(env).__module__,
-        type(cfg).__module__ if cfg is not None else "",
+        type(cfg).__module__,
     ]
     return any(
         marker in candidate
@@ -716,7 +715,7 @@ def _policy_obs_contains_command(env: Any, *, reset_fn) -> bool:
     if _state_policy_obs_contains_command(env):
         return True
 
-    cmds_cfg = getattr(getattr(env, "cfg", None), "commands", None)
+    cmds_cfg = getattr(env.cfg, "commands", None)
     if cmds_cfg is None or not hasattr(cmds_cfg, "vel_limit"):
         return False
 

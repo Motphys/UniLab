@@ -79,7 +79,7 @@ class EventManager(ManagerBase):
 
     def __init__(self, cfg: dict[str, EventTermCfg | None], env: ManagerBasedRlEnv):
         self.cfg = deepcopy(cfg)
-        self._device = torch.device(getattr(env, "device", torch.device("cpu")))
+        self._device = env.device
         rng = env.rng
         if not isinstance(rng, ManagerRng):
             raise RuntimeError(
@@ -168,6 +168,11 @@ class EventManager(ManagerBase):
                 lower, upper = term_cfg.interval_range_s
                 sampled = self._sample_interval(lower, upper, ids.numel())
                 self._interval_term_time_left[index][ids] = sampled
+                # Resampled rows restart at >= lower; untouched rows keep the
+                # previous host lower bound.
+                self._interval_host_time_left_lb[index] = min(
+                    self._interval_host_time_left_lb[index], lower
+                )
         return {}
 
     def apply(
@@ -210,23 +215,50 @@ class EventManager(ManagerBase):
                 time_left = self._interval_term_time_left[index]
                 assert dt is not None
                 time_left -= dt
+                assert term_cfg.interval_range_s is not None
+                lower, upper = term_cfg.interval_range_s
+                # Host lower bound on the minimum device timer (the MotionCommand
+                # _timer_lower_bound_s pattern): IEEE-754 rounding is monotone,
+                # so subtracting the same float64 dt on host and device keeps the
+                # bound valid. While the bound stays above the trigger threshold
+                # no timer can fire and the device is not queried at all.
+                host_lb = self._interval_host_time_left_lb[index] - float(dt)
+                if host_lb >= 1e-6:
+                    self._interval_host_time_left_lb[index] = host_lb
+                    continue
                 if term_cfg.is_global_time:
-                    if time_left < 1e-6:
-                        assert term_cfg.interval_range_s is not None
-                        lower, upper = term_cfg.interval_range_s
+                    current = float(time_left.amin())
+                    if current < 1e-6:
                         self._interval_term_time_left[index][:] = self._sample_interval(
                             lower, upper, 1
                         )
                         term_cfg.func(self._env, None, **term_cfg.params)
+                        self._interval_host_time_left_lb[index] = lower
+                    else:
+                        self._interval_host_time_left_lb[index] = current
                 else:
-                    valid_env_ids = torch.nonzero(time_left < 1e-6, as_tuple=False).flatten()
-                    if valid_env_ids.numel() > 0:
-                        assert term_cfg.interval_range_s is not None
-                        lower, upper = term_cfg.interval_range_s
-                        self._interval_term_time_left[index][valid_env_ids] = self._sample_interval(
-                            lower, upper, valid_env_ids.numel()
+                    expired = time_left < 1e-6
+                    # One packed host read publishes both the trigger verdict and
+                    # the minimum surviving timer (the next lower bound).
+                    probe = torch.stack(
+                        (
+                            expired.any().to(torch.float64),
+                            torch.where(
+                                expired, torch.full_like(time_left, float("inf")), time_left
+                            ).amin(),
                         )
-                        term_cfg.func(self._env, valid_env_ids, **term_cfg.params)
+                    ).tolist()
+                    if not probe[0]:
+                        self._interval_host_time_left_lb[index] = probe[1]
+                        continue
+                    valid_env_ids = torch.nonzero(expired, as_tuple=False).flatten()
+                    self._interval_term_time_left[index][valid_env_ids] = self._sample_interval(
+                        lower, upper, valid_env_ids.numel()
+                    )
+                    term_cfg.func(self._env, valid_env_ids, **term_cfg.params)
+                    # Triggered rows resampled to >= lower; the surviving rows
+                    # keep the measured minimum.
+                    self._interval_host_time_left_lb[index] = min(lower, probe[1])
             elif mode == "step":
                 term_cfg.func(self._env, None, **term_cfg.params)
             else:
@@ -256,6 +288,7 @@ class EventManager(ManagerBase):
 
     def _prepare_terms(self) -> None:
         self._interval_term_time_left: list[torch.Tensor] = list()
+        self._interval_host_time_left_lb: list[float] = list()
         self._reset_term_last_triggered_step_id: list[torch.Tensor] = list()
         self._reset_term_last_triggered_once: list[torch.Tensor] = list()
 
@@ -293,6 +326,9 @@ class EventManager(ManagerBase):
                     )
                 shape = 1 if term_cfg.is_global_time else self.num_envs
                 self._interval_term_time_left.append(self._sample_interval(lower, upper, shape))
+                # Samples are drawn from [lower, upper], so lower is a valid
+                # initial host lower bound for every device timer.
+                self._interval_host_time_left_lb.append(lower)
             elif term_cfg.mode == "reset":
                 step_count = torch.zeros(self.num_envs, dtype=torch.int64, device=self._device)
                 self._reset_term_last_triggered_step_id.append(step_count)

@@ -283,6 +283,7 @@ def test_motrix_backend_dr_capabilities_include_pd_gains_when_overrides_availabl
 
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
     backend._supports_position_actuator_gains = True
     backend._supports_geom_friction_override = True
     backend._supports_gravity_override = True
@@ -305,6 +306,7 @@ def test_motrix_body_sensor_views_use_canonical_world_state() -> None:
     backend = object.__new__(mod.MotrixBackend)
     backend._closed = False
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
     backend._portable_variant_assignment = None
     backend._num_envs = 2
     backend._np_dtype = np.float32
@@ -332,27 +334,25 @@ def test_motrix_body_sensor_views_use_canonical_world_state() -> None:
     np.testing.assert_allclose(views["track_angvel_w_base"], [[13, 14, 15], [16, 17, 18]])
 
 
-def test_motrix_root_layout_uses_selected_body_floating_base_indices() -> None:
+def test_motrix_root_layout_gates_on_configured_base_and_returns_fixed_columns() -> None:
     import unisim.backend.motrix.backend as mod
 
-    floating_base = SimpleNamespace(
-        dof_pos_indices=[4, 5, 6, 7, 8, 9, 10],
-        dof_vel_indices=[3, 4, 5, 6, 7, 8],
-    )
     bodies = {
         "fixed": SimpleNamespace(floatingbase=None),
-        "floating": SimpleNamespace(floatingbase=floating_base),
+        "floating": SimpleNamespace(floatingbase=SimpleNamespace()),
     }
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
+    backend._base_name = "floating"
     backend._model = SimpleNamespace(get_body=lambda name: bodies.get(name))
 
     layout = backend.get_root_state_layout("floating")
-    assert layout.qpos_indices == tuple(range(4, 11))
-    assert layout.qvel_indices == tuple(range(3, 9))
-    with pytest.raises(NotImplementedError, match="fixed.*floating base"):
+    assert layout.qpos_indices == tuple(range(7))
+    assert layout.qvel_indices == tuple(range(6))
+    with pytest.raises(NotImplementedError, match="configured base"):
         backend.get_root_state_layout("fixed")
-    with pytest.raises(ValueError, match="missing.*not found"):
+    with pytest.raises(NotImplementedError, match="configured base"):
         backend.get_root_state_layout("missing")
 
 
@@ -383,6 +383,7 @@ def test_motrix_backend_applies_body_mass_and_ipos_reset_payload() -> None:
     link1.name = "object"
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
     backend.backend_type = "motrix"
     backend._model = SimpleNamespace(num_links=2)
     backend._links_by_id = {0: link0, 1: link1}
@@ -419,6 +420,7 @@ def test_motrix_backend_applies_geom_friction_reset_payload() -> None:
     geom1.index = 1
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
     backend.backend_type = "motrix"
     backend._model = SimpleNamespace(num_links=1, num_geoms=2)
     backend._geoms_by_id = {0: geom0, 1: geom1}
@@ -482,6 +484,7 @@ def test_motrix_backend_applies_gravity_reset_payload() -> None:
     fake_model = _FakeMotrixModel()
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
     backend.backend_type = "motrix"
     backend._model = fake_model
     backend._supports_gravity_override = True
@@ -507,6 +510,7 @@ def test_motrix_backend_interval_body_force_uses_link_external_force_delta() -> 
     link = _FakeMotrixLink()
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
+    backend._whole_model_variant_mode = False
     backend._num_envs = 2
     backend._data = object()
     backend._links_by_id = {0: link}

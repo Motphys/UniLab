@@ -168,7 +168,7 @@ class base_height_l2(ManagerTermBase):
 
 def alive(env: ManagerBasedRlEnv) -> torch.Tensor:
     """Constant reward for every step, unconditional as in the legacy tasks."""
-    device = torch.device(getattr(env, "device", torch.device("cpu")))
+    device = torch.device(env.device)
     return torch.ones((env.num_envs,), dtype=torch.float32, device=device)
 
 
@@ -250,7 +250,7 @@ class _GaitTerm(ManagerTermBase):
         self._frequency = require_real(
             self.name, "frequency", cfg.params.get("frequency", 2.0), minimum=0.0
         )
-        self._device = torch.device(getattr(env, "device", "cpu"))
+        self._device = torch.device(env.device)
         self._offsets = _offsets(self.name, cfg.params.get("phase_offsets", _OFFSETS)).to(
             device=self._device
         )

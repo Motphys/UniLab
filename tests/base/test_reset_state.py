@@ -1143,3 +1143,63 @@ def test_host_commit_promotes_public_packed_reset_baseline() -> None:
     assert isinstance(randomization, TensorResetRandomizationPayload)
     torch.testing.assert_close(randomization.body_mass[:, 0], torch.tensor([6.0, 6.0]))
     torch.testing.assert_close(randomization.body_mass[:, 1], torch.tensor([9.0, 10.0]))
+
+
+def test_tensor_payload_validation_latches_deferred_verdict_without_host_read() -> None:
+    """With a verdict sink the payload check stays device-resident."""
+    backend = _TensorResetBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    verdict = torch.ones((), dtype=torch.bool)
+    transaction.set_finite_verdict_sink(verdict)
+    reset_mask = torch.tensor([True, False, True, False])
+    layout = RootStateLayout(tuple(range(7)), tuple(range(6)))
+    root_state = torch.zeros((4, 13), dtype=torch.float32)
+    root_state[:, 3] = 1.0
+    root_state[2, 0] = float("nan")
+
+    # Deferred: no raise at the write boundary; the verdict latches False.
+    with transaction.scoped_device_event_tensor(reset_mask):
+        transaction.write_root_state_tensor(reset_mask, layout, root_state, term_name="root")
+    assert not bool(verdict)
+
+    # Eager mode keeps the immediate fail-closed raise.
+    eager = _transaction(_TensorResetBackend())
+    eager.declare_packed_reset_device(torch.device("cpu"))
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        with eager.scoped_device_event_tensor(reset_mask):
+            eager.write_root_state_tensor(reset_mask, layout, root_state, term_name="root")
+
+
+def test_motion_payload_validation_latches_deferred_verdict() -> None:
+    transaction = _transaction(_TensorResetBackend())
+    verdict = torch.ones((), dtype=torch.bool)
+    transaction.set_finite_verdict_sink(verdict)
+    root_state = torch.zeros((2, 13), dtype=torch.float32)
+    root_state[:, 3] = 1.0
+    joint_position = torch.zeros((2, 2), dtype=torch.float32)
+    joint_velocity = torch.zeros((2, 2), dtype=torch.float32)
+    joint_velocity[1, 0] = float("inf")
+
+    transaction._validate_motion_tensor_payload(
+        root_state=root_state,
+        joint_position=joint_position,
+        joint_velocity=joint_velocity,
+        term_name="motion",
+    )
+    assert not bool(verdict)
+
+    eager = _transaction(_TensorResetBackend())
+    with pytest.raises(ValueError, match="NaN or Inf"):
+        eager._validate_motion_tensor_payload(
+            root_state=root_state,
+            joint_position=joint_position,
+            joint_velocity=joint_velocity,
+            term_name="motion",
+        )
+
+
+def test_finite_verdict_sink_rejects_non_scalar_carriers() -> None:
+    transaction = _transaction(_TensorResetBackend())
+    with pytest.raises(TypeError, match="scalar bool"):
+        transaction.set_finite_verdict_sink(torch.ones((2,), dtype=torch.bool))

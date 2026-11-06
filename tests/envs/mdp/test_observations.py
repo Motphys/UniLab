@@ -215,10 +215,11 @@ def _env() -> tuple[ManagerBasedRlEnv, _Backend]:
         ManagerBasedRlEnv,
         _FakeEnv(
             num_envs=backend.num_envs,
+            device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             scene=scene,
             action_manager=_ActionManager(),
             command_manager=_CommandManager(),
-            device=torch.device("cpu"),
             rng=ManagerRng.seeded(4),
         ),
     )
@@ -530,6 +531,8 @@ def test_missing_entity_capability_fails_instead_of_returning_zeros() -> None:
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=2,
+            device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             scene=scene,
             action_manager=_ActionManager(),
             command_manager=_CommandManager(),
