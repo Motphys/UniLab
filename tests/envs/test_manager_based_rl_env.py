@@ -1367,7 +1367,9 @@ def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
     finally:
         env.close()
 
-    eager_env, _ = _make_env(_make_cfg(include_optional_managers=False))
+    eager_cfg = _make_cfg(include_optional_managers=False)
+    eager_cfg.defer_finite_validation = False
+    eager_env, _ = _make_env(eager_cfg)
     try:
         eager_env._reset_state.declare_packed_reset_device(eager_env.device)
         transaction = eager_env._reset_state.packed_reset_transaction

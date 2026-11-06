@@ -35,6 +35,9 @@ class _StubCfg(EnvCfg):
     max_episode_seconds: float | None = 1.0
     ctrl_dt: float = 0.1
     sim_dt: float = 0.1
+    # These tests exercise the eager fail-closed paths; pin the pre-flip
+    # behavior explicitly instead of relying on the (now deferred) default.
+    defer_finite_validation: bool = False
 
 
 @dataclass

@@ -119,7 +119,7 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     scale_rewards_by_dt: bool = True
     policy_observation_group: str = "policy"
     critic_observation_group: str | None = None
-    defer_finite_validation: bool = False
+    defer_finite_validation: bool = True
     finite_validation_interval: int = 1
 
     def validate(self) -> None:

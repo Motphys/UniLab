@@ -119,7 +119,7 @@ class TorchEnv(ABEnv):
         self._rgb_array_renderer_ready = False
         self._nan_guard: "NanGuard | None" = None
         self._pending_backend_step_completion: CompletionToken | None = None
-        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", False))
+        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", True))
         interval = getattr(cfg, "finite_validation_interval", 1)
         if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
             raise ValueError("finite_validation_interval must be a positive integer")
