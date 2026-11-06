@@ -21,8 +21,12 @@ The owner configurations are
 owners remain out of scope and do not constitute production support claims.
 The public tensor lane exposes device-resident state views, frame/contact
 sensors, state widths, tensor stepping, and authoritative selected-reset
-publication. Reset randomization that Newton does not support stays explicitly
-disabled in the owners; it never falls back to a host composer.
+publication. Newton is also the validated backend for Manager batched
+body-pair contact reads: the scene read plan cold-binds an ordered batch and
+explicitly refreshes it at the reset/update/substep read boundaries, with no
+per-sensor refresh, host transfer, or task-side body list. Reset randomization
+that Newton does not support stays explicitly disabled in the owners; it never
+falls back to a host composer.
 
 Newton/Warp follows standard CUDA device semantics, so single-GPU runs do not
 need `CUDA_VISIBLE_DEVICES` pinning. In multi-GPU topology, the rank-local

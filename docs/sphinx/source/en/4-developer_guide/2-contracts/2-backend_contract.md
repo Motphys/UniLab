@@ -15,6 +15,14 @@ Optional capabilities are explicit:
 
 - `PlayCapabilities` reports native interactive rendering,
   physics-state playback, and native video capture support.
+- `TensorLifecycleCapabilities` declares tensor execution, reset, tracked-body,
+  and batched body-pair contact capabilities. UniLab consumes selective
+  `tracked_body_names` only for MuJoCo and MJWarp. Newton and SuperDex retain
+  their native body-state construction, while direct selective requests to every
+  other backend fail closed. A Manager body-pair request requires
+  `batched_body_pair_contacts` and the public bind/refresh methods, and is
+  validated on Newton and MJWarp. Other backends without the declared capability
+  fail closed.
 - `HeightScanner` and `bind_height_scanner(...)` expose terrain scan
   support through a reusable backend-owned object.
 - `SensorView` and `bind_sensor_data(...)` validate ordered named sensors

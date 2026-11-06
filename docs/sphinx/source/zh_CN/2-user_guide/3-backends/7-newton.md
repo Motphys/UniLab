@@ -19,8 +19,11 @@ owner 配置为 `src/unilab/conf/sac/task/g1_walk_flat/newton.yaml` 与
 `src/unilab/conf/flashsac/task/g1_motion_tracking/newton.yaml`。其他
 Newton owner 仍不在支持范围内，也不构成生产支持声明。public tensor lane
 提供 device-resident state views、frame/contact sensors、state widths、
-tensor stepping 与 authoritative selected-reset publication。Newton 不支持
-的 reset randomization 在 owner 中显式禁用，绝不回退到 host composer。
+tensor stepping 与 authoritative selected-reset publication。Newton 也是
+Manager 批量 body-pair contact 读取的数值验收 backend：scene read plan 冷绑定
+有序 batch，并在 reset/update/substep 读取边界显式刷新；没有逐 sensor 刷新、
+host transfer 或任务侧固定 body 名单。Newton 不支持的
+reset randomization 在 owner 中显式禁用，绝不回退到 host composer。
 
 Newton/Warp 遵循标准 CUDA 设备语义，单卡运行无需 `CUDA_VISIBLE_DEVICES`
 钉卡。在多 GPU topology 中，rank 本地设备以 `newton_device="cuda:N"`

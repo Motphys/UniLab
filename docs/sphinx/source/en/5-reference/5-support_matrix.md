@@ -28,6 +28,11 @@ support beyond the evidence grade shown below.
 - Do not treat `training.sim_backend` as a standalone backend switch.
 - Isaac support grades remain task/evidence gated. `superdex` remains limited
   to its configured research owner.
+- Selective `SceneCfg.tracked_body_names` injection applies to MuJoCo and
+  MJWarp. Batched Manager body-pair contact reads are validated on Newton and
+  MJWarp; other backends without the declared capability fail closed. These
+  optional capability dimensions are specified by the backend contract rather
+  than the generated platform columns above.
 
 ## Playback Differences
 

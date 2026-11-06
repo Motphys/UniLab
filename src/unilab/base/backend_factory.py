@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -30,6 +31,7 @@ _CUDA_BACKEND_INT_DEVICE_FIELDS = {
     "isaacgym": "isaacgym_device_id",
     "isaacsim": "isaacsim_device_id",
 }
+SELECTIVE_TRACKED_BODY_BACKENDS = frozenset({"mujoco", "mjwarp"})
 _EXTERNAL_WORKER_DEVICE_FIELDS = {
     "isaacgym": "isaacgym_device_id",
     "isaacsim": "isaacsim_device_id",
@@ -275,9 +277,17 @@ def create_backend(
     sim_dt: float,
     *,
     body_state_required: bool = False,
+    tracked_body_names: Sequence[str] | None = None,
     **kwargs: Any,
 ) -> SimBackend:
-    """Prepare UniLab-owned assets and construct a UniSim backend."""
+    """Prepare UniLab-owned assets and construct a UniSim backend.
+
+    ``tracked_body_names`` is the task-resolved selective body-state request.  It
+    has meaning only for backends that inject named body-state sensors; Newton
+    and Superdex derive body state from their compiled entities and therefore
+    keep the default request.  Every other backend receives an explicit owner
+    error rather than a silently altered data plane.
+    """
     if scene is None:
         raise ValueError("SceneCfg must be provided")
     _validate_cuda_only_backend_platform(backend_type, kwargs)
@@ -309,6 +319,26 @@ def create_backend(
         # DrakeBackend rejects the keywords.  Pop them at the owner boundary.
         kwargs.pop("base_name", None)
         kwargs.pop("push_body_name", None)
+    if tracked_body_names is not None and backend_type not in {
+        *SELECTIVE_TRACKED_BODY_BACKENDS,
+        "newton",
+        "superdex",
+    }:
+        raise TypeError(
+            f"{backend_type} does not support selective tracked_body_names; "
+            "selective body-state tracking is implemented by "
+            f"{', '.join(sorted(SELECTIVE_TRACKED_BODY_BACKENDS))}"
+        )
+    if tracked_body_names is not None:
+        if isinstance(tracked_body_names, (str, bytes)) or not isinstance(
+            tracked_body_names, Sequence
+        ):
+            raise TypeError("tracked_body_names must be a sequence of body names or None")
+        names = tuple(tracked_body_names)
+        if not names or any(not isinstance(name, str) or not name for name in names):
+            raise ValueError("tracked_body_names must contain non-empty body names")
+        if len(set(names)) != len(names):
+            raise ValueError(f"tracked_body_names must be unique: {names}")
     # Newton reconstructs body state from its compiled articulation and does
     # not accept MuJoCo's synthetic body-sensor injection.  Keep this
     # capability translation at the owner/backend boundary so env code remains
@@ -317,6 +347,8 @@ def create_backend(
         "newton",
         "superdex",
     }
+    if tracked_body_names is not None and backend_type in SELECTIVE_TRACKED_BODY_BACKENDS:
+        kwargs["tracked_body_names"] = tracked_body_names
     if backend_type == "genesis" and kwargs.get("genesis_device_id") is not None:
         # Bind before any unisim-core Genesis constructor can call gs.init.
         # Binding a non-zero id pins CUDA_VISIBLE_DEVICES (Quadrants only
@@ -337,4 +369,9 @@ def create_backend(
     return unisim.create_backend(backend_type, scene, num_envs, sim_dt, **kwargs)
 
 
-__all__ = ["SimBackend", "create_backend", "env_backend_kwargs"]
+__all__ = [
+    "SELECTIVE_TRACKED_BODY_BACKENDS",
+    "SimBackend",
+    "create_backend",
+    "env_backend_kwargs",
+]
