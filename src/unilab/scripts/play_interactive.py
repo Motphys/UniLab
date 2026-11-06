@@ -842,6 +842,10 @@ def create_playback_session(
 
     try:
         playback_cfg = build_playback_config(args, num_envs=num_envs)
+        # External checkpoints (e.g. converted from other training stacks) have
+        # no UniLab run_config.json contract snapshot; interactive.sim2sim=false
+        # skips the cross-backend contract preflight explicitly.
+        sim2sim_enabled = OmegaConf.select(cfg, "interactive.sim2sim", default=True)
         if algo == "ppo":
             session: Any = create_rsl_rl_playback_session(
                 playback_cfg=playback_cfg,
@@ -852,7 +856,9 @@ def create_playback_session(
                 checkpoint_resolver=resolve_checkpoint,
                 checkpoint_input_dim_reader=infer_checkpoint_actor_input_dim,
                 entrypoint_log_root=get_log_root,
-                sim2sim_preflight=make_sim2sim_preflight(cfg, algo_name="ppo"),
+                sim2sim_preflight=(
+                    make_sim2sim_preflight(cfg, algo_name="ppo") if sim2sim_enabled else None
+                ),
                 log=log,
             )
         elif algo == "appo":
@@ -975,6 +981,11 @@ def play_interactive(args, cfg: DictConfig, *, algo: str | None = None):
         env.set_autoreset(False)
 
     def _on_key(keycode: int) -> None:
+        # Task-owned hook first: navigation teleop consumes the arrows/Enter
+        # while its action term is in teleop mode; other keys fall through.
+        key_hook = getattr(env, "play_key_hook", None)
+        if callable(key_hook) and key_hook(keycode):
+            return
         if keycode == ord(" "):
             paused = controls.toggle_pause()
             status = "paused" if paused else "resumed"
