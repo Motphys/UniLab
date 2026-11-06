@@ -1,4 +1,4 @@
-"""Real-CUDA MJWarp acceptance for UniLab's selective tracked-body routing."""
+"""Real-CUDA MJWarp acceptance for selective tracked bodies and batched contact reads."""
 
 from __future__ import annotations
 
@@ -17,6 +17,9 @@ from unilab.base.entity import EntityCfg, EntityScene, SceneBodyPairContactReadS
 from unilab.base.scene import SceneCfg
 
 pytestmark = pytest.mark.slow
+
+_CONTACT_NAMES = ("bases_pair",)
+_FIELDS = ("active", "count", "position_w", "force_w")
 
 
 def _require_cuda_mjwarp() -> None:
@@ -43,7 +46,7 @@ def _source(tmp_path: Path, name: str) -> ModelSourceDescriptor:
         '<mujoco><option gravity="0 0 0" integrator="Euler"/>'
         '<worldbody><body name="base"><freejoint name="root"/>'
         '<inertial pos=".03 .01 .02" mass="1" diaginertia=".1 .2 .3"/>'
-        '<geom name="base_geom" size=".05" contype="0" conaffinity="0"/>'
+        '<geom name="base_geom" size=".05" contype="1" conaffinity="1"/>'
         '<body name="hand" pos="0 0 .3"><joint name="hinge" axis="0 1 0"/>'
         '<geom name="hand_geom" size=".03" mass=".2" contype="0" conaffinity="0"/>'
         "</body></body></worldbody>"
@@ -55,6 +58,12 @@ def _source(tmp_path: Path, name: str) -> ModelSourceDescriptor:
 
 
 def _scene(tmp_path: Path) -> SceneCfg:
+    fragment = tmp_path / "contacts.xml"
+    fragment.write_text(
+        '<mujoco><sensor><contact name="bases_pair" body1="left/base" '
+        'body2="right/base" data="found force pos" num="1"/></sensor></mujoco>',
+        encoding="utf-8",
+    )
     return SceneCfg(
         entity_assets=(
             SceneEntitySpec(
@@ -65,9 +74,10 @@ def _scene(tmp_path: Path) -> SceneCfg:
             SceneEntitySpec(
                 "right",
                 _source(tmp_path, "right"),
-                initial_state=EntityInitialState(position=(1.0, 0.0, 0.0)),
+                initial_state=EntityInitialState(position=(0.08, 0.0, 0.0)),
             ),
         ),
+        fragment_files=[str(fragment)],
         entities={
             "robot": EntityCfg(
                 root_body_name="right/base",
@@ -80,7 +90,9 @@ def _scene(tmp_path: Path) -> SceneCfg:
     )
 
 
-def test_mjwarp_factory_selective_tracking_and_body_pair_fail_closed(tmp_path: Path) -> None:
+def test_mjwarp_factory_selective_tracking_and_body_pair_contact_batch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _require_cuda_mjwarp()
     scene = _scene(tmp_path)
     scene.tracked_body_names = ("left/hand", "right/base")
@@ -115,13 +127,41 @@ def test_mjwarp_factory_selective_tracking_and_body_pair_fail_closed(tmp_path: P
             atol=2e-6,
         )
 
-        assert not backend.get_tensor_capabilities().batched_body_pair_contacts
+        assert backend.get_tensor_capabilities().batched_body_pair_contacts
         entity_scene = EntityScene.from_scene_cfg(scene, backend, device="cuda")
-        with pytest.raises(NotImplementedError, match="batched_body_pair_contacts capability"):
-            entity_scene.compile_tensor_reads(
-                "cuda",
-                (),
-                (SceneBodyPairContactReadSpec(entity="robot", sensor_names=("pair",)),),
-            )
+        plan = entity_scene.compile_tensor_reads(
+            "cuda",
+            (),
+            (SceneBodyPairContactReadSpec(entity="robot", sensor_names=_CONTACT_NAMES),),
+        )
+        singles = {name: backend.get_sensor_view(name, device="cuda") for name in _CONTACT_NAMES}
+
+        with monkeypatch.context() as hot_path:
+
+            def forbidden_host_read(self: torch.Tensor) -> torch.Tensor:
+                raise AssertionError("unexpected host transfer in Manager contact phase")
+
+            hot_path.setattr(torch.Tensor, "cpu", forbidden_host_read)
+            hot_path.setattr(torch.Tensor, "item", forbidden_host_read)
+            plan.refresh()
+            view = plan.body_pair_contact_view("robot", _CONTACT_NAMES)
+
+        assert view.sensor_names == _CONTACT_NAMES
+        assert view.active.shape == view.count.shape == (2, len(_CONTACT_NAMES))
+        assert view.position_w.shape == view.force_w.shape == (2, len(_CONTACT_NAMES), 3)
+        assert view.active.dtype == torch.bool
+        assert view.count.dtype == torch.int32
+        assert view.position_w.dtype == view.force_w.dtype == torch.float32
+        assert view.active.device.type == "cuda"
+        assert torch.all(view.active)
+        assert torch.all(view.count > 0)
+        for slot, name in enumerate(_CONTACT_NAMES):
+            for field in _FIELDS:
+                torch.testing.assert_close(
+                    getattr(view, field)[:, slot],
+                    getattr(singles[name], field),
+                    rtol=2e-5,
+                    atol=2e-6,
+                )
     finally:
         cast(SimBackend, backend).close()
