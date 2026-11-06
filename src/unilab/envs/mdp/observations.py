@@ -47,7 +47,6 @@ def require_read_plan(env: ManagerBasedRlEnv, term_name: str) -> Any:
 
 
 def _root_body_name(asset: "Entity", term_name: str) -> str:
-    """Return the entity's declared root body name or fail closed for ``term_name``."""
     root_body_name = getattr(asset, "root_body_name", None)
     if not isinstance(root_body_name, str) or not root_body_name:
         raise NotImplementedError(
@@ -128,14 +127,12 @@ class _NamedSensorObservation(ManagerTermBase):
             ) from exc
 
     def _resolve_entity_name(self, cfg: ManagerTermBaseCfg) -> str:
-        """Return the configured ``entity_name`` param, defaulting to ``"robot"``."""
         entity_name = cfg.params.get("entity_name")
         if not isinstance(entity_name, str) or not entity_name:
             return "robot"
         return entity_name
 
     def _validate_call_name(self, sensor_name: str) -> None:
-        """Reject a call-time sensor name that differs from the bound one."""
         if sensor_name != self._sensor_name:
             raise ValueError(
                 f"Observation term '{self._term_name}' was bound to sensor "
@@ -143,7 +140,6 @@ class _NamedSensorObservation(ManagerTermBase):
             )
 
     def _read(self) -> Any:
-        """Read the cached sensor view with the term name attached to failures."""
         try:
             return self._view.read()
         except (KeyError, TypeError, ValueError, NotImplementedError) as exc:
@@ -153,7 +149,6 @@ class _NamedSensorObservation(ManagerTermBase):
             ) from exc
 
     def _read_tensor(self, env: ManagerBasedRlEnv) -> torch.Tensor:
-        """Read the sensor through the packed Torch read plan as a finite tensor."""
         read_plan = getattr(env.scene, "read_plan", None)
         if read_plan is None:
             # Manager construction probes immutable observation shape before
@@ -363,7 +358,6 @@ class _ImuMisalignedObservation(ManagerTermBase):
         self._quat = _imu_misalignment_quat(env, math.radians(max_angle_deg))
 
     def _validate_max_angle(self, max_angle_deg: float) -> None:
-        """Reject a call-time ``max_angle_deg`` that differs from the bound one."""
         if float(max_angle_deg) != self._max_angle_deg:
             raise ValueError(
                 f"Observation term '{self._term_name}' was bound to max_angle_deg "
@@ -371,7 +365,6 @@ class _ImuMisalignedObservation(ManagerTermBase):
             )
 
     def _rotate(self, values: Any) -> torch.Tensor:
-        """Rotate vectors by this term's cached per-env misalignment quaternion."""
         device = getattr(self._env, "device", torch.device("cpu"))
         vectors = torch.as_tensor(values, dtype=torch.float32, device=device)
         quat = self._quat.to(device=device)

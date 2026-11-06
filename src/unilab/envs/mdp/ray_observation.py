@@ -131,7 +131,6 @@ class RayGridPatternCfg:
 
     @property
     def _counts(self) -> tuple[int, int]:
-        """Per-axis ray counts derived from size and resolution."""
         resolution = self.resolution
         if not isinstance(resolution, Sequence):
             resolution = (resolution, resolution)

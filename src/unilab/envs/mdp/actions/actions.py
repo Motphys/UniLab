@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 
 
 def _real(value: Any, *, label: str) -> float:
-    """Validate that ``value`` is a finite real number and return it as float."""
     if isinstance(value, bool) or not isinstance(value, Real):
         raise TypeError(f"{label} must be a real number, got {type(value).__name__}")
     result = float(value)
@@ -106,7 +105,6 @@ class BaseAction(ActionTerm):
     def _resolve_affine(
         self, value: float | dict[str, float], *, default: float, label: str
     ) -> float | torch.Tensor:
-        """Resolve a scalar or regex-keyed affine parameter."""
         if isinstance(value, dict):
             indices, resolved = _resolve_named_values(
                 value, self._target_names, label=f"{type(self).__name__} {label}"
@@ -125,7 +123,6 @@ class BaseAction(ActionTerm):
         return _real(value, label=f"{type(self).__name__} {label}")
 
     def _resolve_clip(self, value: dict[str, tuple] | None) -> torch.Tensor | None:
-        """Resolve regex-keyed ``(min, max)`` clip bounds into a tensor."""
         if value is None:
             return None
         result = torch.empty((*self._affine_shape, 2), dtype=torch.float32, device=self._device)
@@ -152,13 +149,11 @@ class BaseAction(ActionTerm):
         return result
 
     def _cold_affine(self, value: float | torch.Tensor) -> float | torch.Tensor:
-        """Copy a resolved affine parameter onto the target device."""
         if isinstance(value, torch.Tensor):
             return value.to(dtype=torch.float32, device=self._device, copy=True)
         return value
 
     def _cold_clip(self, value: torch.Tensor | None) -> torch.Tensor | None:
-        """Copy the resolved clip tensor onto the target device."""
         if value is None:
             return None
         return value.to(dtype=torch.float32, device=self._device, copy=True)
@@ -225,7 +220,6 @@ class BaseAction(ActionTerm):
             self.publish_validation_verdict()
 
     def _apply_affine(self, source: torch.Tensor, destination: torch.Tensor) -> None:
-        """Apply scale/offset/clip from ``source`` into ``destination`` in place."""
         destination.copy_(source)
         destination.mul_(self._scale).add_(self._offset)
         if self._clip is not None:
@@ -323,7 +317,6 @@ class JointPositionAction(BaseAction):
             self._delay_buffer.reset(env_ids)
 
     def _delay_target(self, target: torch.Tensor) -> torch.Tensor:
-        """Push the target through the delay buffer when configured."""
         if self._delay_buffer is None:
             return target
         self._delay_buffer.append(target)
@@ -394,7 +387,6 @@ class RelativeJointPositionAction(BaseAction):
     """Control joints via position targets relative to current positions."""
 
     def _joint_state(self):
-        """Return the packed or entity joint state view."""
         read_plan = getattr(self._env.scene, "read_plan", None)
         if read_plan is not None:
             return read_plan.joint_tensor_view(self._entity)

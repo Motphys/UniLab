@@ -73,7 +73,6 @@ _RANDOMIZATION_TERM_TAILS: dict[str, tuple[int, ...]] = {
 
 
 def _randomization_term_tail(field: str) -> tuple[int, ...]:
-    """Return the per-column value tail of a canonical DR field name."""
     try:
         return _RANDOMIZATION_TERM_TAILS[field]
     except KeyError as exc:
@@ -81,7 +80,6 @@ def _randomization_term_tail(field: str) -> tuple[int, ...]:
 
 
 def _readonly_array(values: np.ndarray) -> np.ndarray:
-    """Return a read-only copy of ``values`` when it is not already immutable."""
     result = np.asarray(values)
     if result.flags.writeable:
         result = result.copy()
@@ -417,7 +415,6 @@ class ResetStateTransaction:
         return self._backend.get_entity_state(entity)["root_pose"][host_ids].copy()
 
     def _commit_entities(self) -> None:
-        """Commit staged physical-entity patches through ``reset_entities``."""
         assert self.scene_layout is not None
         if self._entity_rows is None:
             return
@@ -1367,7 +1364,6 @@ class ResetStateTransaction:
     def _require_tensor_mask_write(
         self, reset_mask: torch.Tensor, *, capability: str
     ) -> torch.Tensor:
-        """Require an active mask transaction covering ``reset_mask`` and return it."""
         if not self._tensor_active or self._tensor_active_mask is None:
             raise RuntimeError(
                 f"ManagerBased tensor mask {capability} requires an active mask reset"
@@ -1397,16 +1393,13 @@ class ResetStateTransaction:
     def _tensor_mask_has_outside_rows(
         self, reset_mask: torch.Tensor, active_mask: torch.Tensor
     ) -> bool:
-        """Whether ``reset_mask`` selects rows outside ``active_mask``."""
         return bool((reset_mask & ~active_mask).any())
 
     def _mask_is_empty(self, reset_mask: torch.Tensor) -> bool:
-        """Whether ``reset_mask`` selects no rows."""
         self._mask_count.copy_(reset_mask.sum())
         return bool(self._mask_count.item() == 0)
 
     def _commit_has_rows(self, commit_mask: torch.Tensor) -> bool:
-        """Whether ``commit_mask`` selects at least one row."""
         return not self._mask_is_empty(commit_mask)
 
     def _record_tensor_write_mask(self, reset_mask: torch.Tensor) -> None:
@@ -1836,7 +1829,6 @@ class ResetStateTransaction:
         return torch.as_tensor(np.ascontiguousarray(values, dtype=np.float32), device=device)
 
     def _materialize_default_state(self, term_name: str) -> None:
-        """Cache immutable default qpos/qvel from the backend on the cold path."""
         if self._default_qpos is not None:
             return
         qpos = self._selected_default_qpos
@@ -1905,7 +1897,6 @@ class ResetStateTransaction:
         return velocity.contiguous()
 
     def _validate_tensor_root_quaternions(self, values: torch.Tensor, *, term_name: str) -> None:
-        """Require unit-length wxyz quaternions in a staged tensor payload."""
         norms = torch.linalg.vector_norm(values, dim=-1)
         if not bool(torch.isclose(norms, torch.ones_like(norms), rtol=1e-5, atol=1e-6).all()):
             raise ValueError(
@@ -1913,7 +1904,6 @@ class ResetStateTransaction:
             )
 
     def _materialize_default_actuator_gains(self, term_name: str) -> None:
-        """Cache immutable default actuator kp/kd tables from the backend."""
         if self._default_kp is not None:
             return
         try:
@@ -1957,7 +1947,6 @@ class ResetStateTransaction:
         expected_tail: tuple[int, ...],
         term_name: str,
     ) -> np.ndarray:
-        """Bind and cache the immutable backend default table for one DR field."""
         cached = self._randomization_defaults.get(field)
         if cached is not None:
             return cached
@@ -1987,7 +1976,6 @@ class ResetStateTransaction:
         expected_tail: tuple[int, ...],
         term_name: str,
     ) -> np.ndarray:
-        """Fetch and validate one DR field's canonical or per-env default table."""
         try:
             value = self._backend.get_reset_term_default(field)
         except (AttributeError, NotImplementedError) as exc:
@@ -2033,7 +2021,6 @@ class ResetStateTransaction:
         return default
 
     def _require_randomization_default(self, field: str, term_name: str) -> np.ndarray:
-        """Return a DR field's cached default, requiring a prior bind call."""
         try:
             return self._randomization_defaults[field]
         except KeyError as exc:
@@ -2048,7 +2035,6 @@ class ResetStateTransaction:
         *,
         field: str,
     ) -> bool:
-        """Whether a cached default table is stored per environment row."""
         canonical_ndim = 1 + len(_randomization_term_tail(field))
         if default.ndim == canonical_ndim:
             return False
@@ -2065,7 +2051,6 @@ class ResetStateTransaction:
         *,
         field: str,
     ) -> int:
-        """Return the model-column width of a cached default table."""
         axis = 1 if self._default_is_per_env(default, field=field) else 0
         return int(default.shape[axis])
 
@@ -2076,7 +2061,6 @@ class ResetStateTransaction:
         *,
         field: str,
     ) -> np.ndarray:
-        """Select the bound columns from a canonical or per-env default table."""
         if self._default_is_per_env(default, field=field):
             return default[:, columns]
         return default[columns]
@@ -2130,7 +2114,6 @@ class ResetStateTransaction:
         columns: np.ndarray,
         selected_default: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Return validated columns and selected defaults as read-only arrays."""
         return _readonly_array(columns), _readonly_array(selected_default)
 
     def _write_selected_randomization(
@@ -2143,7 +2126,6 @@ class ResetStateTransaction:
         value_tail: tuple[int, ...],
         term_name: str,
     ) -> None:
-        """Stage selected columns of one DR field for the given rows."""
         ids = self._prepare_state_write(
             env_ids,
             capability=field,
@@ -2177,7 +2159,6 @@ class ResetStateTransaction:
         capability: str,
         term_name: str,
     ) -> torch.Tensor:
-        """Validate ``env_ids`` against the active transaction and return them."""
         self._require_active()
         if self._tensor_active:
             return self._prepare_tensor_randomization_write(
@@ -2230,7 +2211,6 @@ class ResetStateTransaction:
         *,
         term_name: str,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Validate a root-state layout against the default qpos/qvel widths."""
         if not isinstance(layout, RootStateLayout):
             raise TypeError(
                 f"EventManager term '{term_name}' root-state layout must be "
@@ -2255,7 +2235,6 @@ class ResetStateTransaction:
     def _tensor_root_columns_for_layout(
         self, layout: RootStateLayout, *, term_name: str
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return cached device column tensors for a root-state layout."""
         qpos_columns, qvel_columns = self._validate_root_layout(layout, term_name=term_name)
         key = (tuple(int(i) for i in qpos_columns), tuple(int(i) for i in qvel_columns))
         cached = self._tensor_root_columns
@@ -2275,7 +2254,6 @@ class ResetStateTransaction:
         *,
         term_name: str,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return cached device column tensors for joint qpos/qvel indices."""
         assert self._default_qpos is not None and self._default_qvel is not None
         qpos_columns = self._validate_columns(
             np.asarray(qpos_indices, dtype=np.intp),
@@ -2304,7 +2282,6 @@ class ResetStateTransaction:
         return qpos_tensor, qvel_tensor
 
     def _validate_quaternions(self, values: np.ndarray | torch.Tensor, *, term_name: str) -> None:
-        """Require unit-length wxyz quaternions in a staged payload."""
         if isinstance(values, torch.Tensor):
             self._validate_tensor_root_quaternions(values, term_name=term_name)
             return
@@ -2322,7 +2299,6 @@ class ResetStateTransaction:
         capability: str,
         term_name: str,
     ) -> np.ndarray:
-        """Validate a 1-D finite floating state vector and return it read-only."""
         if not isinstance(value, np.ndarray):
             raise TypeError(
                 f"EventManager term '{term_name}' capability '{capability}' on backend "
@@ -2400,7 +2376,6 @@ class ResetStateTransaction:
         capability: str,
         term_name: str,
     ) -> np.ndarray:
-        """Validate 1-D integer column indices against the target width."""
         if not isinstance(values, np.ndarray):
             raise TypeError(
                 f"EventManager term '{term_name}' {capability} must be np.ndarray, "
@@ -2435,7 +2410,6 @@ class ResetStateTransaction:
         capability: str,
         term_name: str,
     ) -> torch.Tensor:
-        """Validate shape, dtype, and finiteness of a staged tensor payload."""
         if not isinstance(values, torch.Tensor):
             raise TypeError(
                 f"EventManager term '{term_name}' {capability} must be torch.Tensor, "
@@ -2507,19 +2481,16 @@ class ResetStateTransaction:
         capability: str,
         exc: BaseException,
     ) -> NotImplementedError:
-        """Build the fail-closed error for an unsupported reset-state capability."""
         return NotImplementedError(
             f"EventManager term '{term_name}' reset-state capability '{capability}' is "
             f"unavailable on backend '{self._backend.backend_type}': {exc}"
         )
 
     def _require_active(self) -> None:
-        """Require an open host or tensor reset transaction."""
         if not (self._active or self._tensor_active):
             raise RuntimeError("ManagerBased reset-state mutation requires an active reset event")
 
     def _finish(self) -> None:
-        """Discard the packed composer staging and reset the transaction state."""
         if self._packed_reset_transaction is not None:
             self._packed_reset_transaction.discard()
         self._active = False

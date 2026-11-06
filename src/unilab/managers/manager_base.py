@@ -140,11 +140,9 @@ class ManagerBase(abc.ABC):
 
     @abc.abstractmethod
     def _prepare_terms(self) -> None:
-        """Resolve and instantiate the configured terms."""
         raise NotImplementedError
 
     def _resolve_common_term_cfg(self, term_name: str, term_cfg: ManagerTermBaseCfg) -> None:
-        """Resolve ``SceneEntityCfg`` params and instantiate class-based term callables."""
         for param_name, value in term_cfg.params.items():
             if isinstance(value, SceneEntityCfg):
                 try:

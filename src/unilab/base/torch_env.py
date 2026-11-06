@@ -65,7 +65,6 @@ class TorchEnvState:
 
 
 def _cpu_time() -> float:
-    """Return the process CPU time (user + system) in seconds."""
     process = os.times()
     return process.user + process.system
 
@@ -147,7 +146,6 @@ class TorchEnv(ABEnv):
         return self._device
 
     def _bind_tensor_runtime(self) -> None:
-        """Validate and record the backend's tensor lifecycle capabilities once."""
         if self._tensor_runtime_bound:
             return
         capabilities = self._backend.get_tensor_capabilities()
@@ -444,7 +442,6 @@ class TorchEnv(ABEnv):
         )
 
     def _step_physics(self, ctrl: torch.Tensor) -> dict[str, Any] | None:
-        """Step the backend ``sim_substeps`` times, merging timing and step receipts."""
         if not self.requires_substep_state_feedback:
             return cast(
                 dict[str, Any] | None,
@@ -475,14 +472,12 @@ class TorchEnv(ABEnv):
         return {"timing": backend_timing, "completion": backend_result.get("completion")}
 
     def _validate_action(self, actions: torch.Tensor) -> None:
-        """Validate the action contract and its finite verdict."""
         self._validate_action_contract(actions)
         self._record_action_finite(actions)
         if not self._defer_finite_validation and not bool(self._action_finite_valid):
             raise ValueError("TorchEnv action contains NaN or Inf")
 
     def _validate_action_contract(self, actions: torch.Tensor) -> None:
-        """Check type, shape, dtype, contiguity, and device of an action tensor."""
         if not isinstance(actions, torch.Tensor):
             raise TypeError(f"TorchEnv action must be a torch.Tensor, got {type(actions).__name__}")
         action_shape = self.action_space.shape
@@ -521,7 +516,6 @@ class TorchEnv(ABEnv):
             raise
 
     def _validate_control(self, ctrl: torch.Tensor) -> None:
-        """Validate the final control tensor after action-term adjustment."""
         if not isinstance(ctrl, torch.Tensor):
             raise TypeError(f"TorchEnv control must be a torch.Tensor, got {type(ctrl).__name__}")
         if ctrl.dtype != torch.float32:
@@ -551,7 +545,6 @@ class TorchEnv(ABEnv):
             raise ValueError("TorchEnv control contains NaN or Inf")
 
     def _validate_state(self, state: TorchEnvState) -> None:
-        """Validate the transition contract, aggregating finite verdicts on device."""
         expected_keys = set(self.obs_groups_spec)
         if not isinstance(state.obs, dict) or set(state.obs) != expected_keys:
             raise ValueError("TorchEnvState.obs keys do not match obs_groups_spec")
@@ -595,7 +588,6 @@ class TorchEnv(ABEnv):
                     raise ValueError(f"TorchEnvState {label} contains NaN or Inf")
 
     def _validate_finite_float(self, value: torch.Tensor, label: str) -> None:
-        """Require a floating-point, finite tensor."""
         if not value.is_floating_point():
             raise TypeError(f"TorchEnvState {label} must be floating-point")
         if not bool(torch.isfinite(value).all()):
@@ -626,12 +618,10 @@ class TorchEnv(ABEnv):
         return verdict
 
     def _require_floating_float(self, value: torch.Tensor) -> None:
-        """Require a floating-point tensor."""
         if not value.is_floating_point():
             raise TypeError("TorchEnvState floating outputs must be floating-point")
 
     def _validate_vector(self, value: Any, label: str, dtype: torch.dtype) -> None:
-        """Validate one ``(num_envs,)`` state vector's type, shape, dtype, and device."""
         if not isinstance(value, torch.Tensor):
             raise TypeError(f"TorchEnvState {label} must be a torch.Tensor")
         if value.shape != (self._num_envs,):
@@ -644,7 +634,6 @@ class TorchEnv(ABEnv):
     def _validate_final_observation(
         self, final_observation: dict[str, torch.Tensor] | None
     ) -> None:
-        """Validate the terminal observation carrier against ``obs``."""
         if final_observation is None:
             return
         assert self._state is not None
@@ -674,7 +663,6 @@ class TorchEnv(ABEnv):
                 self._validate_finite_float(value, f"final_observation[{name!r}]")
 
     def _compute_truncated(self, state: TorchEnvState) -> torch.Tensor:
-        """Return per-row truncation flags from the episode step limit."""
         self._truncated_scratch.fill_(False)
         max_steps = self._cfg.max_episode_steps
         if max_steps is not None:
@@ -751,7 +739,6 @@ class TorchEnv(ABEnv):
         timing.update(detail_timing)
 
     def _validate_reset_observation_mask(self, obs: Mapping[str, torch.Tensor]) -> None:
-        """Validate full-width reset observations against the observation contract."""
         if not isinstance(obs, dict) or set(obs) != set(self.obs_groups_spec):
             raise ValueError("TorchEnv mask reset observations do not match obs_groups_spec")
         for name, dim in self.obs_groups_spec.items():
@@ -786,7 +773,6 @@ class TorchEnv(ABEnv):
     def _scatter_reset_info_mask(
         self, reset_info: Mapping[str, Any], reset_mask: torch.Tensor
     ) -> None:
-        """Scatter per-row reset info tensors into the state info by mask."""
         assert self._state is not None
         for key, value in reset_info.items():
             current = self._state.info.get(key)
@@ -799,7 +785,6 @@ class TorchEnv(ABEnv):
             current.copy_(torch.where(selected_reset_mask, value.to(device=self.device), current))
 
     def _ensure_final_observation_scratch(self) -> dict[str, torch.Tensor]:
-        """Return the reusable terminal-observation scratch buffers."""
         assert self._state is not None
         obs = self._state.obs
         scratch = self._final_observation_scratch
@@ -818,7 +803,6 @@ class TorchEnv(ABEnv):
         return scratch
 
     def _clear_reset_done_detail_timing(self, timing: dict[str, Any]) -> None:
-        """Zero the reset detail timing keys in ``timing``."""
         for key in RESET_DONE_DETAIL_TIMING_KEYS:
             timing[key] = 0.0
 
@@ -839,7 +823,6 @@ class TorchEnv(ABEnv):
         return 0.0
 
     def _clear_step_final_observation(self) -> None:
-        """Clear the terminal observation carrier for the new step."""
         assert self._state is not None
         self._state.final_observation = None
 
