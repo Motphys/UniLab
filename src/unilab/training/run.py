@@ -98,7 +98,7 @@ def resolve_nan_guard_cfg(training_cfg: Any) -> NanGuardCfg | None:
 
 def finite_validation_env_overrides(cfg: DictConfig) -> dict[str, Any]:
     """Route training's finite-check policy to the environment owner."""
-    deferred = OmegaConf.select(cfg, "training.defer_finite_validation", default=False)
+    deferred = OmegaConf.select(cfg, "training.defer_finite_validation", default=True)
     interval = OmegaConf.select(cfg, "training.finite_validation_interval", default=1)
     if not isinstance(deferred, bool):
         raise TypeError("training.defer_finite_validation must be bool")

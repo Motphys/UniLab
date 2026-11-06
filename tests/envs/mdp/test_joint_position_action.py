@@ -143,6 +143,8 @@ def _build_action(action_cfg_type, *, seed: int = 0, **overrides):
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=backend.num_envs,
+            device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             scene=scene,
             rng=ManagerRng.seeded(seed),
         ),
@@ -431,6 +433,8 @@ def test_tensor_motion_control_stays_on_control_plane_with_default_bias() -> Non
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=backend.num_envs,
+            device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             scene=scene,
             command_manager=SimpleNamespace(get_term=lambda name: command),
         ),
@@ -770,7 +774,15 @@ def test_go2_joint_targets_are_mapped_to_backend_control_order(backend_type: str
     )
     control = torch.zeros((2, backend.num_actuators), dtype=torch.float32)
     scene = EntityScene.from_scene_cfg(scene_cfg, backend, control)
-    env = cast(ManagerBasedRlEnv, SimpleNamespace(num_envs=2, scene=scene))
+    env = cast(
+        ManagerBasedRlEnv,
+        SimpleNamespace(
+            num_envs=2,
+            device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
+            scene=scene,
+        ),
+    )
     action = JointPositionActionCfg(
         entity_name="robot",
         actuator_names=(".*",),

@@ -31,11 +31,11 @@ def assert_physics_state_playback_supported(env: Any, *, entrypoint: str) -> Non
         NotImplementedError: naming the backend and the rendering paths that
             remain available for it.
     """
-    capabilities = getattr(env, "play_capabilities", None)
-    if capabilities is not None and capabilities.supports_physics_state_playback:
+    capabilities = env.play_capabilities
+    if capabilities.supports_physics_state_playback:
         return
     backend_name = type(getattr(env, "_backend", env)).__name__
-    if capabilities is not None and (
+    if (
         capabilities.supports_native_interactive_renderer
         or capabilities.supports_native_video_capture
     ):
@@ -78,8 +78,8 @@ class PhysicsStateApplier:
         self._layout = layout
         if model.nmocap == 0:
             return
-        capabilities = getattr(env, "play_capabilities", None)
-        if capabilities is not None and capabilities.supports_mocap_playback:
+        capabilities = env.play_capabilities
+        if capabilities.supports_mocap_playback:
             self._mocap_via_contract = True
         elif layout.nmocap != model.nmocap:
             raise NotImplementedError(

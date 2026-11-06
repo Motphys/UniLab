@@ -15,6 +15,7 @@ import torch
 
 from unilab.managers.command_manager import CommandTerm, CommandTermCfg
 from unilab.managers.rng import ManagerRng
+from unilab.utils.math import yaw_from_quat
 
 if TYPE_CHECKING:
     from unilab.base.entity import Entity
@@ -161,7 +162,7 @@ class UniformVelocityCommand(CommandTerm):
     def _update_metrics(self) -> None:
         max_command_steps = self.cfg.resampling_time_range[1] / self._env.step_dt
         lin_vel, ang_vel = self._metric_velocities()
-        command = torch.as_tensor(self.command, device=lin_vel.device)
+        command = self.command.to(device=lin_vel.device)
         errors = torch.stack(
             (
                 torch.linalg.vector_norm(command[:, :2] - lin_vel[:, :2], dim=-1),
@@ -300,11 +301,7 @@ class UniformVelocityCommand(CommandTerm):
             # cold neutral value until the packed read plan is compiled.
             return torch.zeros((self.num_envs,), dtype=torch.float32, device=self._device)
         quat = read_plan.body_tensor_view(self.robot, (root_body_name,)).quat_w[:, 0, :]
-        w, x, y, z = quat.unbind(dim=-1)
-        return torch.atan2(
-            2.0 * (w * z + x * y),
-            1.0 - 2.0 * (y * y + z * z),
-        ).to(dtype=torch.float32)
+        return yaw_from_quat(quat).to(dtype=torch.float32)
 
     def _update_command(self) -> None:
         tensor = self._tensor_command

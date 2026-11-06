@@ -47,10 +47,8 @@ from scripts.motion.bones_seed_csv import (
 from unisim.backend.mujoco.motion_export import compute_tracking_fk
 
 from unilab.assets import ASSETS_ROOT_PATH
-from unilab.tasks.motion_tracking.common.motion_loader import (
-    ensure_quat_continuity,
-    interpolate_motion,
-)
+from unilab.tasks.motion_tracking.common.motion_loader import interpolate_motion
+from unilab.utils.math import np_quat_ensure_continuity
 
 DEFAULT_INPUT = "src/unilab/assets/motions/g1/flip"
 DEFAULT_OUTPUT_DIR = "src/unilab/assets/motions/g1/flip_npz"
@@ -111,7 +109,7 @@ def load_csv_motion(
 
     motion_base_poss_input = motion[:, 1:4] * position_scale
     motion_base_rots_input = euler_deg_to_quat_wxyz(motion[:, 4:7], euler_order)
-    motion_base_rots_input = ensure_quat_continuity(motion_base_rots_input)
+    motion_base_rots_input = np_quat_ensure_continuity(motion_base_rots_input)
     motion_dof_poss_input = np.deg2rad(motion[:, len(ROOT_COLUMNS) :])
     return joint_names, motion_base_poss_input, motion_base_rots_input, motion_dof_poss_input
 

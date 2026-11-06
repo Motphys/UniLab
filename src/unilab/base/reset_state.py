@@ -41,7 +41,7 @@ from unisim.dr.types import (
 from unisim.entities import EntityStatePatch, SceneResetRequest
 from unisim.scene_layout import CompiledSceneLayout
 
-from unilab.base.rotation import quat_apply_inverse
+from unilab.utils.math import quat_apply_inverse
 
 if TYPE_CHECKING:
     from unisim.backend.packed_reset import PackedResetTransaction
@@ -158,6 +158,14 @@ class ResetStateTransaction:
         self._mocap_pending: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
         self._packed_reset_device: torch.device | None = None
         self._packed_reset_transaction: PackedResetTransaction | None = None
+        # Backend packed-reset validation mode mirrors the env's finite
+        # validation policy: "strict" raises at the write site, "deferred"
+        # latches device-side verdicts that the env's poll boundary drains.
+        self._packed_validation_mode: str = "strict"
+        # When the owning env defers finite validation, tensor payload verdicts
+        # accumulate into this env-owned device carrier instead of forcing a
+        # host read per reset write; the env's poll boundary raises.
+        self._finite_verdict_sink: torch.Tensor | None = None
         self._packed_state_default_installed = False
         self._owner_tensor_write_mask: torch.Tensor | None = None
         self._requested_rows_mask: torch.Tensor | None = None
@@ -174,6 +182,29 @@ class ResetStateTransaction:
     def active(self) -> bool:
         """Whether a reset lifecycle currently owns the transaction."""
         return self._active or self._tensor_active
+
+    def set_finite_verdict_sink(self, verdict: torch.Tensor | None) -> None:
+        """Accumulate reset payload finite verdicts into the env's carrier.
+
+        ``None`` (the default) keeps the eager fail-closed host check. The sink
+        must only be installed while the owning environment defers finite
+        validation, since the env's poll boundary is what raises.
+        """
+        if verdict is not None and (
+            not isinstance(verdict, torch.Tensor)
+            or verdict.dtype != torch.bool
+            or verdict.ndim != 0
+        ):
+            raise TypeError("finite verdict sink must be a scalar bool tensor")
+        self._finite_verdict_sink = verdict
+        self._packed_validation_mode = "deferred" if verdict is not None else "strict"
+        if self._packed_reset_transaction is not None:
+            self._packed_reset_transaction.validation = self._packed_validation_mode
+
+    @property
+    def packed_reset_transaction(self) -> PackedResetTransaction | None:
+        """The backend-owned packed transaction, once lazily constructed."""
+        return self._packed_reset_transaction
 
     @property
     def tensor_active(self) -> bool:
@@ -240,6 +271,7 @@ class ResetStateTransaction:
         self._packed_reset_transaction = cast(
             "PackedResetTransaction", bind_packed_reset(device=resolved)
         )
+        self._packed_reset_transaction.validation = self._packed_validation_mode
         self._packed_state_default_installed = False
 
     @contextmanager
@@ -1288,7 +1320,13 @@ class ResetStateTransaction:
         joint_velocity: torch.Tensor,
         term_name: str,
     ) -> None:
-        """Validate the fused motion payload through one device synchronization."""
+        """Validate the fused motion payload on the device.
+
+        With a finite-verdict sink (deferred validation) the aggregate latches
+        into the env carrier without a host read; eager mode reads the scalar
+        verdict once (``bool(tensor)`` always synchronizes) and only the
+        failure path scans payloads for the detailed raise.
+        """
         quat_norm = torch.linalg.vector_norm(root_state[:, 3:7], dim=-1)
         valid_quat = torch.isclose(
             quat_norm,
@@ -1302,12 +1340,13 @@ class ResetStateTransaction:
             & torch.isfinite(joint_velocity).all()
             & valid_quat.all()
         )
-        # Avoid a Python bool conversion of the aggregate: scalar conversion is
-        # itself synchronized and this fused reset path already has one device
-        # reduction. Compare against a device-resident true scalar so the
-        # success path remains non-synchronizing; invalid diagnostics below are
-        # still allowed to synchronize and identify the offending payload.
-        if torch.equal(valid, torch.ones_like(valid)):
+        sink = self._finite_verdict_sink
+        if sink is not None:
+            # Deferred mode: latch the aggregate on the env's device-resident
+            # carrier without a host read; the env's poll boundary raises.
+            sink.logical_and_(valid)
+            return
+        if bool(valid):
             return
         payloads = (
             ("root state", root_state),
@@ -1848,7 +1887,13 @@ class ResetStateTransaction:
         self._default_qvel = default_qvel
 
     def _validate_tensor_root_payload(self, root_state: torch.Tensor, *, term_name: str) -> None:
-        """Validate finite values and quaternion norms through one device comparison."""
+        """Validate finite values and quaternion norms on the device.
+
+        With a finite-verdict sink (deferred validation) the aggregate latches
+        into the env carrier without a host read; eager mode reads the scalar
+        verdict once (``bool(tensor)`` always synchronizes) and only the
+        failure path re-scans for the detailed raise.
+        """
         quat_norm = torch.linalg.vector_norm(root_state[:, 3:7], dim=-1)
         valid_quat = torch.isclose(
             quat_norm,
@@ -1857,7 +1902,11 @@ class ResetStateTransaction:
             atol=1e-6,
         )
         valid = torch.isfinite(root_state).all() & valid_quat.all()
-        if torch.equal(valid, torch.ones_like(valid)):
+        sink = self._finite_verdict_sink
+        if sink is not None:
+            sink.logical_and_(valid)
+            return
+        if bool(valid):
             return
         if not bool(torch.isfinite(root_state).all()):
             raise ValueError(

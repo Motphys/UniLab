@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import types
 
 import numpy as np
 import pytest
@@ -49,6 +50,7 @@ class FakeEnv:
         self.num_envs = num_envs
         self.rng = ManagerRng.seeded(seed, device=device)
         self.device = self.rng.device
+        self.cfg = types.SimpleNamespace(defer_finite_validation=False)
         self.scene = {"robot": FakeEntity()}
         self.max_episode_length_s = 2.0
         self.value = torch.arange(num_envs, dtype=torch.float32, device=self.device)

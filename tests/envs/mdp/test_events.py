@@ -1158,6 +1158,9 @@ def test_apply_body_impulse_reset_clears_active_wrench() -> None:
     )
     term = manager.get_term_cfg("impulse").func
     term._interval_time_left[:] = 0.0
+    # The host next-event lower bound mirrors the device timers; poking the
+    # device state directly must also reset the host mirror.
+    term._host_next_event_lb = 0.0
     manager.apply(mode="step", dt=0.02)
     assert len(backend.interval_plans) == 1
 
@@ -1272,6 +1275,8 @@ def test_velocity_push_uses_env_rng_and_interval_subset_plan() -> None:
         env,
     )
     manager._interval_term_time_left[0][:] = torch.tensor([0.0, 1.0, 0.0])
+    # Poking the device timers directly must also reset the host lower bound.
+    manager._interval_host_time_left_lb[0] = 0.0
 
     manager.apply(mode="interval", dt=0.1)
 
@@ -1305,6 +1310,8 @@ def test_velocity_push_dispatches_angular_delta_when_supported() -> None:
         env,
     )
     manager._interval_term_time_left[0][:] = torch.tensor([0.0, 1.0, 0.0])
+    # Poking the device timers directly must also reset the host lower bound.
+    manager._interval_host_time_left_lb[0] = 0.0
 
     manager.apply(mode="interval", dt=0.1)
 
@@ -1345,6 +1352,8 @@ def test_velocity_push_cuda_root_body_ids_match_payload_plane() -> None:
         env,
     )
     manager._interval_term_time_left[0][:] = 0.0
+    # Poking the device timers directly must also reset the host lower bound.
+    manager._interval_host_time_left_lb[0] = 0.0
 
     manager.apply(mode="interval", dt=0.1)
 
@@ -1927,3 +1936,177 @@ def test_reset_randomization_payload_commits_on_cuda_without_host_detour() -> No
     } <= requested
     for term in requested:
         assert getattr(payload, term).device.type == "cuda", term
+
+
+def test_interval_term_skips_device_probe_below_host_lower_bound() -> None:
+    """The host lower bound must replace the per-step device timer probe."""
+    env, backend, _ = _transaction_env(rng_seed=19)
+    manager = EventManager(
+        {
+            "push": EventTermCfg(
+                func=mdp.push_by_setting_velocity,
+                mode="interval",
+                interval_range_s=(10.0, 10.0),
+                params={"velocity_range": {"x": (0.2, 0.2)}},
+            )
+        },
+        env,
+    )
+
+    def _forbidden(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("interval apply probed the device timer")
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(torch.Tensor, "amin", _forbidden)
+        monkeypatch.setattr(torch, "nonzero", _forbidden)
+        for _ in range(10):
+            manager.apply(mode="interval", dt=0.02)
+    assert backend.interval_plans == []
+    assert manager._interval_host_time_left_lb[0] == pytest.approx(10.0 - 0.2)
+
+    # Once the host bound expires, the next apply probes once and refreshes it.
+    manager._interval_host_time_left_lb[0] = 0.0
+    manager.apply(mode="interval", dt=0.02)
+    assert backend.interval_plans == []
+    assert manager._interval_host_time_left_lb[0] == pytest.approx(10.0 - 0.22)
+
+
+def test_interval_term_host_lower_bound_preserves_trigger_schedule() -> None:
+    """Trigger steps and RNG consumption must match a device-timer reference."""
+    env, backend, _ = _transaction_env(rng_seed=23)
+    fired: list[list[int]] = []
+
+    def _record(env, env_ids, **params):
+        fired.append(env_ids.tolist())
+
+    manager = EventManager(
+        {
+            "record": EventTermCfg(
+                func=_record,
+                mode="interval",
+                interval_range_s=(0.05, 0.10),
+            )
+        },
+        env,
+    )
+    # Deterministic timers: row 0 fires at step 2, rows 1/2 at step 4.
+    manager._interval_term_time_left[0][:] = torch.tensor([0.03, 0.07, 0.07], dtype=torch.float64)
+    manager._interval_host_time_left_lb[0] = 0.03
+
+    for _ in range(4):
+        manager.apply(mode="interval", dt=0.02)
+
+    assert fired == [[0], [1, 2]]
+    # Resampled timers stay within the configured range (minus the steps
+    # elapsed since the resample).
+    assert float(manager._interval_term_time_left[0].min()) >= 0.05 - 0.04
+    assert manager._interval_host_time_left_lb[0] >= 0.0
+
+
+def test_interval_global_term_host_lower_bound() -> None:
+    env, backend, _ = _transaction_env(rng_seed=29)
+    fired: list[int] = []
+
+    def _record(env, env_ids, **params):
+        fired.append(1)
+
+    manager = EventManager(
+        {
+            "record": EventTermCfg(
+                func=_record,
+                mode="interval",
+                interval_range_s=(0.06, 0.06),
+                is_global_time=True,
+            )
+        },
+        env,
+    )
+    for _ in range(2):
+        manager.apply(mode="interval", dt=0.02)
+    assert fired == []
+    manager.apply(mode="interval", dt=0.02)
+    assert fired == [1]
+    assert manager._interval_host_time_left_lb[0] == pytest.approx(0.06)
+
+
+def test_apply_body_impulse_skips_device_reads_between_events() -> None:
+    """Cooldown steps must not probe device timers or restage idle wrenches."""
+    env, backend, _ = _transaction_env(rng_seed=43, interval_force_supported=True)
+    manager = EventManager(
+        {
+            "impulse": EventTermCfg(
+                func=mdp.apply_body_impulse,
+                mode="step",
+                params={
+                    "force_range": (5.0, 5.0),
+                    "torque_range": (0.0, 0.0),
+                    "duration_s": (0.04, 0.04),
+                    "cooldown_s": (10.0, 10.0),
+                },
+            )
+        },
+        env,
+    )
+    term = manager.get_term_cfg("impulse").func
+
+    def _forbidden(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("impulse cooldown step probed device state")
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(torch.Tensor, "amin", _forbidden)
+        monkeypatch.setattr(torch.Tensor, "any", _forbidden)
+        monkeypatch.setattr(torch, "nonzero", _forbidden)
+        for _ in range(5):
+            manager.apply(mode="step", dt=0.02)
+    assert backend.interval_plans == []
+
+    # Force a trigger: cooldown elapsed. The trigger boundary probes once and
+    # the following sustain steps restage the wrench without probing.
+    term._interval_time_left[:] = 0.0
+    term._host_next_event_lb = 0.0
+    manager.apply(mode="step", dt=0.02)
+    assert len(backend.interval_plans) == 1
+    assert term._host_any_active
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(torch.Tensor, "amin", _forbidden)
+        monkeypatch.setattr(torch.Tensor, "any", _forbidden)
+        monkeypatch.setattr(torch, "nonzero", _forbidden)
+        manager.apply(mode="step", dt=0.02)
+    assert len(backend.interval_plans) == 2
+
+    # After the 0.04 s duration the impulse expires at the next probe boundary
+    # and the expiry restage publishes zeroed rows.
+    manager.apply(mode="step", dt=0.02)
+    assert len(backend.interval_plans) == 3
+    force_op = _interval_op(backend.interval_plans[-1], INTERVAL_TERM_BODY_FORCE)
+    assert force_op is not None
+    np.testing.assert_allclose(force_op.payload.numpy(), 0.0)
+    assert not term._host_any_active
+
+
+def test_apply_body_impulse_full_reset_clears_host_active_verdict() -> None:
+    env, backend, _ = _transaction_env(rng_seed=43, interval_force_supported=True)
+    manager = EventManager(
+        {
+            "impulse": EventTermCfg(
+                func=mdp.apply_body_impulse,
+                mode="step",
+                params={
+                    "force_range": (5.0, 5.0),
+                    "torque_range": (0.0, 0.0),
+                    "duration_s": (1.0, 1.0),
+                    "cooldown_s": (10.0, 10.0),
+                },
+            )
+        },
+        env,
+    )
+    term = manager.get_term_cfg("impulse").func
+    term._interval_time_left[:] = 0.0
+    term._host_next_event_lb = 0.0
+    manager.apply(mode="step", dt=0.02)
+    assert term._host_any_active
+
+    manager.reset(torch.arange(env.num_envs, dtype=torch.int64))
+    assert not term._host_any_active
+    assert term._host_next_event_lb == pytest.approx(10.0)

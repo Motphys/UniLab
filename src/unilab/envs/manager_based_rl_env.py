@@ -26,7 +26,11 @@ from unisim.backend.base import (
     TensorProcessTopology,
 )
 
-from unilab.base.backend_factory import create_backend, env_backend_kwargs
+from unilab.base.backend_factory import (
+    SELECTIVE_TRACKED_BODY_BACKENDS,
+    create_backend,
+    env_backend_kwargs,
+)
 from unilab.base.base import EnvCfg
 from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,
@@ -34,7 +38,13 @@ from unilab.base.config_overrides import (
 )
 from unilab.base.contracts.env import EnvAlgoCapabilities
 from unilab.base.cpu_runtime import apply_cpu_confinement
-from unilab.base.entity import EntityCfg, EntityScene, SceneTensorReadPlan, SceneTensorReadSpec
+from unilab.base.entity import (
+    EntityCfg,
+    EntityScene,
+    SceneBodyPairContactReadSpec,
+    SceneTensorReadPlan,
+    SceneTensorReadSpec,
+)
 from unilab.base.reset_selectors import ResetMaskBuffer, resolve_reset_env_ids
 from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg, resolve_scene_default_qpos
@@ -119,7 +129,7 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     scale_rewards_by_dt: bool = True
     policy_observation_group: str = "policy"
     critic_observation_group: str | None = None
-    defer_finite_validation: bool = False
+    defer_finite_validation: bool = True
     finite_validation_interval: int = 1
 
     def validate(self) -> None:
@@ -218,6 +228,8 @@ class ManagerBasedRlEnvCfg(EnvCfg):
 
 def _resolve_backend_entity_contract(
     cfg: ManagerBasedRlEnvCfg,
+    *,
+    backend_type: str = "mujoco",
 ) -> tuple[str, bool, tuple[str, ...] | None]:
     """Resolve task-independent backend inputs from declared scene entities."""
     assert cfg.scene is not None
@@ -248,7 +260,8 @@ def _resolve_backend_entity_contract(
         ]
         if not root_names:
             raise ValueError("primary_entity needs an entity-qualified logical root selector")
-        return root_names[0], True, None
+        selected = cfg.scene.tracked_body_names
+        return root_names[0], True, None if selected is None else tuple(selected)
     root_entities: list[tuple[str, str]] = []
     body_state_requested = False
     tracked_body_names: list[str] | None = []
@@ -304,6 +317,15 @@ def _resolve_backend_entity_contract(
     selected_names = (
         None if tracked_body_names is None else tuple(dict.fromkeys(tracked_body_names))
     )
+    if cfg.scene.tracked_body_names is not None:
+        # An explicit SceneCfg selection remains a capability request and fails
+        # closed at the backend owner even when EntityCfg selectors are present.
+        selected_names = tuple(cfg.scene.tracked_body_names)
+    elif backend_type not in SELECTIVE_TRACKED_BODY_BACKENDS:
+        # EntityCfg selectors describe Manager reads, not a selective-sensor
+        # capability. Preserve the legacy full body-state request for backends
+        # without synthetic named-body tracking.
+        selected_names = None
     return (primary_root or root_entities[0])[1], body_state_requested, selected_names
 
 
@@ -378,6 +400,11 @@ class ManagerBasedRlEnv(TorchEnv):
             default_qpos=default_qpos,
             scene_layout=backend.get_scene_layout() if cfg.scene.entity_assets else None,
         )
+        # Deferred finite validation carries reset-payload verdicts on the
+        # env's device-resident carrier; eager mode keeps the immediate raise.
+        self._reset_state.set_finite_verdict_sink(
+            self._finite_verdict if self.defer_finite_validation else None
+        )
         self.scene = EntityScene.from_scene_cfg(
             cfg.scene,
             backend,
@@ -388,6 +415,9 @@ class ManagerBasedRlEnv(TorchEnv):
         )
         for entity in self.scene.entities.values():
             entity.data.set_defer_finite_validation(self.defer_finite_validation)
+            entity.set_finite_validation_recorder(
+                self.record_finite_validation if self.defer_finite_validation else None
+            )
 
         self.common_step_counter = 0
         self._sim_step_counter = 0
@@ -453,14 +483,19 @@ class ManagerBasedRlEnv(TorchEnv):
     def _compile_tensor_read_plan(self) -> None:
         """Compile the scene's only packed tensor read phase."""
         specs: list[SceneTensorReadSpec] = []
+        body_pair_specs: list[SceneBodyPairContactReadSpec] = []
         specs.extend(self._observation_ray_read_specs())
         specs.extend(self._action_tensor_read_specs())
         specs.extend(self._observation_tensor_read_specs())
         specs.extend(self._task_tensor_state_read_specs())
         specs.extend(self._manager_term_tensor_read_specs())
         specs.extend(self._command_tensor_read_specs())
+        body_pair_specs.extend(self._manager_term_body_pair_contact_read_specs())
+        body_pair_specs.extend(self._observation_body_pair_contact_read_specs())
         self.scene.read_plan = (
-            self.scene.compile_tensor_reads(self.device, specs) if specs else None
+            self.scene.compile_tensor_reads(self.device, specs, body_pair_specs)
+            if specs or body_pair_specs
+            else None
         )
 
     def _action_tensor_read_specs(self) -> list[SceneTensorReadSpec]:
@@ -631,6 +666,73 @@ class ManagerBasedRlEnv(TorchEnv):
                         )
                     )
         return specs
+
+    def _manager_term_body_pair_contact_read_specs(
+        self,
+    ) -> list[SceneBodyPairContactReadSpec]:
+        specs: list[SceneBodyPairContactReadSpec] = []
+        for name, term_cfg in self.event_manager.term_cfgs.items():
+            specs.extend(
+                self._body_pair_contact_read_specs("event", name, term_cfg.func, term_cfg.params)
+            )
+        for manager_name, manager in (
+            ("reward", self.reward_manager),
+            ("termination", self.termination_manager),
+        ):
+            for name in manager.active_terms:
+                specs.extend(
+                    self._body_pair_contact_read_specs(
+                        manager_name,
+                        name,
+                        manager.get_term_cfg(name).func,
+                        manager.get_term_cfg(name).params,
+                    )
+                )
+        return specs
+
+    def _observation_body_pair_contact_read_specs(
+        self,
+    ) -> list[SceneBodyPairContactReadSpec]:
+        specs: list[SceneBodyPairContactReadSpec] = []
+        for name, terms in self.observation_manager.active_terms.items():
+            for term_name in terms:
+                term_cfg = self.observation_manager.get_term_cfg(name, term_name)
+                specs.extend(
+                    self._body_pair_contact_read_specs(
+                        f"observation/{name}", term_name, term_cfg.func, term_cfg.params
+                    )
+                )
+        return specs
+
+    @staticmethod
+    def _body_pair_contact_read_specs(
+        manager_name: str,
+        term_name: str,
+        term: Any,
+        params: Mapping[str, Any] | None = None,
+    ) -> list[SceneBodyPairContactReadSpec]:
+        sensor_names = getattr(term, "tensor_body_pair_contact_names", None)
+        if sensor_names is None:
+            return []
+        if (
+            not isinstance(sensor_names, (tuple, list))
+            or any(not isinstance(name, str) or not name for name in sensor_names)
+            or len(set(sensor_names)) != len(sensor_names)
+        ):
+            raise TypeError(
+                f"ManagerBasedRlEnv body-pair contact declaration for {manager_name} term "
+                f"'{term_name}' must be a unique sequence of sensor names; got {sensor_names!r}"
+            )
+        params = getattr(getattr(term, "cfg", None), "params", {})
+        entity_name = params.get("entity_name") if isinstance(params, dict) else None
+        if not isinstance(entity_name, str) or not entity_name:
+            asset_cfg = params.get("asset_cfg") if isinstance(params, dict) else None
+            entity_name = getattr(asset_cfg, "name", None)
+        if not isinstance(entity_name, str) or not entity_name:
+            entity_name = getattr(term, "entity_name", None)
+        if not isinstance(entity_name, str) or not entity_name:
+            entity_name = "robot"
+        return [SceneBodyPairContactReadSpec(entity=entity_name, sensor_names=tuple(sensor_names))]
 
     def _term_root_body_name(self, entity_name: str) -> str:
         entity = self.scene[entity_name]
@@ -1252,9 +1354,18 @@ class ManagerBasedRlEnv(TorchEnv):
             return valid
         if self._state is None or self.step_counter == 0:
             return valid
+        packed = self._reset_state.packed_reset_transaction
+        if packed is not None and packed.has_pending_verdict():
+            names = packed.take_verdict()
+            raise ValueError(
+                "Packed reset validation failed for slot(s): "
+                + ", ".join(names)
+                + f" (first detected at poll boundary, step {self.step_counter})"
+            )
         log = self._state.info.setdefault("log", {})
         log.update(self.command_manager.publish_pending_reset_metrics())
         log.update(self.metrics_manager.publish_pending_reset_metrics())
+        log.update(self.termination_manager.publish_pending_reset_metrics())
         return valid
 
     def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
@@ -1851,11 +1962,11 @@ def make_manager_based_rl_env(
     # themselves from the rank-owned CPU block.
     apply_cpu_confinement(cfg.cpu_ids)
     assert cfg.scene is not None
-    base_name, body_state_requested, tracked_body_names = _resolve_backend_entity_contract(cfg)
+    base_name, body_state_requested, tracked_body_names = _resolve_backend_entity_contract(
+        cfg, backend_type=backend_type
+    )
     backend_kwargs = env_backend_kwargs(cfg)
     backend_kwargs["base_name"] = base_name
-    if backend_type == "mujoco" and tracked_body_names is not None:
-        backend_kwargs["tracked_body_names"] = tracked_body_names
 
     backend = create_backend(
         backend_type,
@@ -1863,6 +1974,7 @@ def make_manager_based_rl_env(
         num_envs,
         cfg.sim_dt,
         body_state_required=body_state_requested,
+        tracked_body_names=tracked_body_names,
         **backend_kwargs,
     )
     try:

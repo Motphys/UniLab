@@ -68,7 +68,7 @@ class CommandTerm(ManagerTermBase):
                 f"{cfg.resampling_time_range}."
             )
         self._resampling_time_range = (lower, upper)
-        self._device = torch.device(getattr(self._env, "device", torch.device("cpu")))
+        self._device = self._env.device
         self._rng = self._require_rng()
         # Per-term reusable ids→mask adapter (roadmap #2461). Each term owns
         # its instance, so terms dispatched in sequence never clobber a mask
@@ -389,8 +389,8 @@ class CommandManager(ManagerBase):
         self._terms: dict[str, CommandTerm] = dict()
 
         self.cfg = cfg
-        self._device = torch.device(getattr(env, "device", torch.device("cpu")))
-        env_cfg = getattr(env, "cfg", None)
+        self._device = env.device
+        env_cfg = env.cfg
         self._defer_finite_validation = bool(
             getattr(
                 env, "defer_finite_validation", getattr(env_cfg, "defer_finite_validation", False)

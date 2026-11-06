@@ -269,7 +269,12 @@ class ManagerScene(Protocol):
         """Scene terrain provider."""
         ...
 
-    def compile_tensor_reads(self, device: str | torch.device, specs: Sequence[Any]) -> Any:
+    def compile_tensor_reads(
+        self,
+        device: str | torch.device,
+        specs: Sequence[Any],
+        body_pair_specs: Sequence[Any] = (),
+    ) -> Any:
         """Compile the packed Torch read plan for ``specs`` on ``device``."""
         ...
 
@@ -484,6 +489,15 @@ class ManagerBasedRlEnv(Protocol):
     @property
     def episode_length_buf(self) -> torch.Tensor:
         """Per-row episode length counters."""
+        ...
+
+    @property
+    def defer_finite_validation(self) -> bool:
+        """Whether finite checks accumulate on the device between polls."""
+        ...
+
+    def record_finite_validation(self, value: torch.Tensor, label: str = "") -> None:
+        """Accumulate one finite verdict into the env's deferred poll boundary."""
         ...
 
     @property

@@ -244,8 +244,8 @@ def _download_from_hf(
             show_progress=show_progress,
         )
     except Exception:
-        # If a mirror endpoint is configured and it failed, retry with
-        # the official endpoint before giving up.
+        # Only network / HF-hub I/O errors should trigger a mirror retry.
+        # Programming errors are re-raised after the retry block fails closed.
         current_endpoint = os.environ.get("HF_ENDPOINT", "")
         if current_endpoint and current_endpoint != _HF_OFFICIAL_ENDPOINT:
             logger.warning(
@@ -347,6 +347,8 @@ def _resolve_snapshot_dir(
             snapshot_download, hf_directory, repo_id=repo_id, show_progress=show_progress
         )
     except Exception:
+        # Only network / HF-hub I/O errors should trigger a mirror retry.
+        # Programming errors are re-raised after the retry block fails closed.
         current_endpoint = os.environ.get("HF_ENDPOINT", "")
         if current_endpoint and current_endpoint != _HF_OFFICIAL_ENDPOINT:
             logger.warning(

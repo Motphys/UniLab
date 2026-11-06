@@ -80,7 +80,13 @@ def _env(
         command = torch.tensor([[0.5, -0.2, 0.3], [-0.1, 0.4, -0.2]], dtype=torch.float32)
     env = cast(
         ManagerBasedRlEnv,
-        SimpleNamespace(num_envs=2, scene=scene, command_manager=_Commands(command)),
+        SimpleNamespace(
+            num_envs=2,
+            device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
+            scene=scene,
+            command_manager=_Commands(command),
+        ),
     )
     return env, scene
 

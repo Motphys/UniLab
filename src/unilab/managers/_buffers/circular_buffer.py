@@ -82,6 +82,15 @@ from collections.abc import Sequence
 import torch
 
 
+def _selector_row_count(ids: Sequence[int] | torch.Tensor | slice, batch_size: int) -> int:
+    """Return a selector's row count from host metadata only (no device read)."""
+    if isinstance(ids, torch.Tensor):
+        return int(ids.numel())
+    if isinstance(ids, slice):
+        return len(range(*ids.indices(batch_size)))
+    return len(ids)
+
+
 class CircularBuffer:
     """Fixed-length circular buffer for batched tensor history.
 
@@ -134,6 +143,13 @@ class CircularBuffer:
         self._all_indices: torch.Tensor | None = None
         self._num_pushes: torch.Tensor | None = None
         self._max_len_array: torch.Tensor | None = None
+        # Host-side count of rows that may still await their first push. The
+        # reset/backfill callers already know their row counts on the host, so
+        # the append hot path branches on this Python int instead of reading
+        # the device counters on every step. An overestimate only pays one
+        # extra device-side mask pass; the mask itself still selects exactly
+        # the zero-push rows.
+        self._pending_first_push_rows: int = batch_size
 
     @property
     def batch_size(self) -> int:
@@ -187,6 +203,10 @@ class CircularBuffer:
         self._num_pushes[ids] = 0
         if self._buffer is not None:
             self._buffer[:, ids] = 0.0
+        self._pending_first_push_rows = min(
+            self._batch_size,
+            self._pending_first_push_rows + _selector_row_count(ids, self._batch_size),
+        )
 
     def backfill(self, data: torch.Tensor, batch_ids: torch.Tensor) -> None:
         """Fill the given rows' entire history with one frame, without advancing time.
@@ -211,6 +231,9 @@ class CircularBuffer:
         assert self._num_pushes is not None
         self._buffer[:, batch_ids] = data[batch_ids].unsqueeze(0)
         self._num_pushes[batch_ids] = 1
+        self._pending_first_push_rows = max(
+            0, self._pending_first_push_rows - int(batch_ids.numel())
+        )
 
     def append(self, data: torch.Tensor) -> None:
         """Append a new frame for all batch elements.
@@ -236,12 +259,16 @@ class CircularBuffer:
         self._pointer = (self._pointer + 1) % self._max_len
         self._buffer[self._pointer] = data
 
-        # Backfill only newly initialized rows. After warm-up this branch avoids
-        # scanning the full history buffer on every hot-path append.
-        is_first_push = self._num_pushes == 0
-        if bool(is_first_push.any()):
-            first_ids = torch.nonzero(is_first_push, as_tuple=False).flatten()
-            self._buffer[:, first_ids] = data[first_ids].unsqueeze(0)
+        # Backfill only newly initialized rows. The host-side pending count
+        # replaces the per-step device read: after warm-up the branch is a
+        # pure Python check, and while rows are pending a fixed-shape mask
+        # update selects exactly the zero-push rows without a host sync.
+        if self._pending_first_push_rows:
+            is_first_push = (self._num_pushes == 0).view(1, -1, *([1] * (data.ndim - 1)))
+            self._buffer.copy_(torch.where(is_first_push, data.unsqueeze(0), self._buffer))
+            # Every row received a push in this append, so no row awaits its
+            # first push anymore.
+            self._pending_first_push_rows = 0
 
         self._num_pushes += 1
 

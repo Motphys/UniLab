@@ -8,6 +8,7 @@ keeps a thin wrapper encoding its own semantics (collector-error propagation,
 
 from __future__ import annotations
 
+import queue as queue_module
 import sys
 from collections import deque
 from dataclasses import dataclass, field
@@ -64,7 +65,7 @@ def drain_collector_metrics(
     while True:
         try:
             metrics = queue.get_nowait()
-        except Exception:
+        except queue_module.Empty:
             break
         if "error" in metrics:
             logger.log_status(f"[red]Collector ERROR: {metrics['error']}[/]")

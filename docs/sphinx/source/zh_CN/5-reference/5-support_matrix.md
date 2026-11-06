@@ -27,6 +27,10 @@
 - 不要把 `training.sim_backend` 当独立 backend switch
 - Isaac 支持等级继续受 task/evidence 约束；`superdex` 仍限于已配置的
   research owner。
+- 选择性 `SceneCfg.tracked_body_names` 注入适用于 MuJoCo 与 MJWarp。批量
+  Manager body-pair contact 读取已在 Newton 与 MJWarp 上完成验证；其它未声明
+  该能力的 backend 保持 fail closed。上述可选能力维度由 backend contract 约定，
+  不进入上方生成平台矩阵列。
 
 ## Playback Differences
 

@@ -11,6 +11,7 @@ import pytest
 import torch
 from unisim.backend.base import (
     COMPLETION_CONTRACT_VERSION,
+    BodyPairContactBatch,
     CompletionToken,
     DebugPrimitive,
     HostBridgeTransferPlan,
@@ -67,6 +68,11 @@ from unilab.managers import (
 )
 from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
+
+
+class _ImmediateCompletion(CompletionToken):
+    def wait_before_read(self, stream: object | None = None) -> None:
+        del stream
 
 
 class _FakeBackend:
@@ -277,7 +283,7 @@ class _FakeBackend:
         return {"timing": {}, "completion": self.record_step_completion()}
 
     def _step_completion(self):
-        return CompletionToken(
+        return _ImmediateCompletion(
             contract_version=COMPLETION_CONTRACT_VERSION,
             operation="step",
             sequence=len(self.tensor_controls),
@@ -469,6 +475,11 @@ class _ScenePlanBackend(_StateBackend):
         self.plan_closes = 0
         self.reset_calls: list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = []
         self.reset_randomization_calls: list[Any] = []
+        self.body_pair_batches: dict[tuple[str, ...], BodyPairContactBatch] = {}
+        self.body_pair_binds: list[tuple[tuple[str, ...], torch.device | None]] = []
+        self.body_pair_refreshes: int = 0
+        self.body_pair_refresh_names: list[tuple[str, ...]] = []
+        self.body_pair_version = 0
         self.sensors = {
             "track_pos_w_platform": torch.zeros((num_envs, 3), dtype=torch.float32),
             "track_quat_w_platform": torch.tile(
@@ -500,6 +511,7 @@ class _ScenePlanBackend(_StateBackend):
             sensor_views=True,
             stepping=True,
             selected_reset=True,
+            batched_body_pair_contacts=True,
             packed_host_bridge=not self.packed_reset,
             packed_reset=self.packed_reset,
             device_reset_randomization=self.packed_reset,
@@ -538,6 +550,35 @@ class _ScenePlanBackend(_StateBackend):
                 [value.reshape(self.num_envs, -1) for value in values], dim=1
             ).numpy(),
         )
+
+    def bind_body_pair_contact_views(self, names, device=None) -> BodyPairContactBatch:
+        requested = tuple(names)
+        self.body_pair_binds.append((requested, torch.device(device) if device else None))
+        cached = self.body_pair_batches.get(requested)
+        if cached is not None:
+            return cached
+        target = torch.device(device) if device is not None else torch.device("cpu")
+        slots = len(requested)
+        batch = BodyPairContactBatch(
+            sensor_names=requested,
+            active=torch.zeros((self.num_envs, slots), dtype=torch.bool, device=target),
+            count=torch.zeros((self.num_envs, slots), dtype=torch.int32, device=target),
+            position_w=torch.zeros((self.num_envs, slots, 3), dtype=torch.float32, device=target),
+            force_w=torch.zeros((self.num_envs, slots, 3), dtype=torch.float32, device=target),
+        )
+        self.body_pair_batches[requested] = batch
+        return batch
+
+    def refresh_body_pair_contact_views(self, names=None) -> None:
+        self.body_pair_refreshes += 1
+        self.body_pair_refresh_names.append(tuple(names or ()))
+        self.body_pair_version += 1
+        for batch in self.body_pair_batches.values():
+            active = self.body_pair_version > 1
+            batch.active.fill_(active)
+            batch.count.fill_(self.body_pair_version if active else 0)
+            batch.position_w.fill_(float(self.body_pair_version) if active else 0.0)
+            batch.force_w.fill_(-float(self.body_pair_version) if active else 0.0)
 
     def get_body_ids(self, names) -> np.ndarray:
         available = ("base", "platform", "ball")
@@ -658,6 +699,7 @@ class _DeviceResidentScenePlanBackend(_ScenePlanBackend):
             sensor_views=True,
             stepping=True,
             selected_reset=True,
+            batched_body_pair_contacts=True,
             reset_randomization=True,
             packed_reset=True,
             device_reset_randomization=True,
@@ -1128,6 +1170,37 @@ def _reward(env: _TestEnv) -> np.ndarray:
     return env.action_manager.action[:, 0].clone()
 
 
+_BODY_PAIR_CONTACT_NAMES = ("gripper_object", "wrist_object")
+
+
+def _body_pair_contact_reward(env: _TestEnv) -> torch.Tensor:
+    plan = env.scene.read_plan
+    assert plan is not None
+    view = plan.body_pair_contact_view("robot", _BODY_PAIR_CONTACT_NAMES)
+    return view.force_w[:, :, 2].sum(dim=1)
+
+
+def _body_pair_contact_term_reward(
+    env: _TestEnv,
+    entity_name: str = "robot",
+) -> torch.Tensor:
+    del entity_name
+    return _body_pair_contact_reward(env)
+
+
+_body_pair_contact_term_reward.tensor_body_pair_contact_names = _BODY_PAIR_CONTACT_NAMES
+
+
+def _body_pair_contact_observation(env: _TestEnv, entity_name: str = "robot") -> torch.Tensor:
+    del entity_name
+    if env.scene.read_plan is None:
+        return torch.zeros((env.num_envs, 1), dtype=torch.float32, device=env.device)
+    return _body_pair_contact_reward(env)[:, None]
+
+
+_body_pair_contact_observation.tensor_body_pair_contact_names = _BODY_PAIR_CONTACT_NAMES
+
+
 def _joint_state_obs(env: _TestEnv) -> np.ndarray:
     return torch.as_tensor(env.scene["robot"].data._host_joint_pos, dtype=torch.float32)
 
@@ -1212,6 +1285,7 @@ def _make_cfg(
     observations: dict[str, ObservationGroupCfg | None] | None = None,
     actions: dict[str, ActionTermCfg | None] | None = None,
     include_optional_managers: bool = True,
+    rewards: dict[str, RewardTermCfg | None] | None = None,
 ) -> ManagerBasedRlEnvCfg:
     if observations is None:
         observations = {
@@ -1229,7 +1303,7 @@ def _make_cfg(
         seed=7,
         observations=observations,
         actions={"drive": _DriveCfg(entity_name="robot")} if actions is None else actions,
-        rewards={"track": RewardTermCfg(func=_reward, weight=1.0)},
+        rewards={"track": RewardTermCfg(func=_reward, weight=1.0)} if rewards is None else rewards,
         terminations={
             "failure": TerminationTermCfg(func=_failure),
             "time_out": TerminationTermCfg(func=_time_out, time_out=True),
@@ -1349,6 +1423,53 @@ def test_deferred_episode_metrics_flush_at_fixed_step_without_reset() -> None:
         for _ in range(3):
             at_boundary = env.step(continue_episode)
         assert at_boundary.info["log"]["Episode_Metrics/length"] == pytest.approx(2.5)
+    finally:
+        env.close()
+
+
+def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.defer_finite_validation = True
+    env, _backend = _make_env(cfg)
+    try:
+        env._reset_state.declare_packed_reset_device(env.device)
+        transaction = env._reset_state.packed_reset_transaction
+        assert transaction is not None
+        assert transaction.validation == "deferred"
+        env._reset_state.set_finite_verdict_sink(None)
+        assert transaction.validation == "strict"
+    finally:
+        env.close()
+
+    eager_cfg = _make_cfg(include_optional_managers=False)
+    eager_cfg.defer_finite_validation = False
+    eager_env, _ = _make_env(eager_cfg)
+    try:
+        eager_env._reset_state.declare_packed_reset_device(eager_env.device)
+        transaction = eager_env._reset_state.packed_reset_transaction
+        assert transaction is not None
+        assert transaction.validation == "strict"
+    finally:
+        eager_env.close()
+
+
+def test_packed_reset_deferred_verdict_raises_at_poll_boundary() -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    cfg.defer_finite_validation = True
+    cfg.finite_validation_interval = 4
+    env, _backend = _make_env(cfg)
+    try:
+        env.reset()
+        env.step(torch.tensor([[0.25], [0.75]], dtype=torch.float32))
+        env._reset_state.declare_packed_reset_device(env.device)
+        transaction = env._reset_state.packed_reset_transaction
+        assert transaction is not None
+        transaction.device_verdict[0] = True
+        assert transaction.has_pending_verdict()
+        with pytest.raises(ValueError, match="Packed reset validation failed"):
+            env.poll_finite_validation(force=True)
+        assert not transaction.has_pending_verdict()
+        assert env.poll_finite_validation(force=True)
     finally:
         env.close()
 
@@ -1825,9 +1946,89 @@ def test_generic_factory_routes_only_public_backend_contract(
     kwargs = constructed["kwargs"]
     assert kwargs["base_name"] == "base"
     assert kwargs["body_state_required"] is True
+    assert kwargs["tracked_body_names"] == ("base", "box")
     assert "add_body_sensors" not in kwargs
     for key, value in env_backend_kwargs(cfg).items():
         assert kwargs[key] == value
+
+
+def test_selective_tracked_body_contract_preserves_order_and_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import unilab.base.backend_factory as backend_factory_module
+
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        body_names=("wrist", "keypoint"),
+        actuator_names=("motor",),
+    )
+    cfg.scene.entities["payload"] = EntityCfg(root_body_name="box", body_names=("box",))
+    constructed: list[dict[str, Any]] = []
+
+    def fake_create_backend(*args: Any, **kwargs: Any) -> SimBackend:
+        constructed.append({"args": args, "kwargs": kwargs})
+        return cast(SimBackend, _FakeBackend(1))
+
+    monkeypatch.setattr(manager_env_module, "create_backend", fake_create_backend)
+    monkeypatch.setattr(manager_env_module, "ManagerBasedRlEnv", lambda *_: object())
+    # The selective-support contract is platform-independent; keep the genesis
+    # request off the CUDA-only platform gate so CPU runners exercise it.
+    monkeypatch.setattr(
+        backend_factory_module,
+        "_validate_cuda_only_backend_platform",
+        lambda *_args: None,
+    )
+
+    make_manager_based_rl_env(cfg, num_envs=1, backend_type="mjwarp")
+    assert constructed[-1]["kwargs"]["tracked_body_names"] == (
+        "base",
+        "wrist",
+        "keypoint",
+        "box",
+    )
+
+    cfg.scene.tracked_body_names = ("object", "base")
+    make_manager_based_rl_env(cfg, num_envs=1, backend_type="mujoco")
+    assert constructed[-1]["kwargs"]["tracked_body_names"] == ("object", "base")
+
+    # EntityCfg-derived requests preserve the legacy full body-state behavior on
+    # non-selective backends. Explicit SceneCfg selections remain fail-closed.
+    explicit_selection = cfg.scene.tracked_body_names
+    cfg.scene.tracked_body_names = None
+    make_manager_based_rl_env(cfg, num_envs=1, backend_type="genesis")
+    assert constructed[-1]["kwargs"]["tracked_body_names"] is None
+
+    cfg.scene.tracked_body_names = explicit_selection
+    with pytest.raises(TypeError, match="does not support selective tracked_body_names"):
+        create_backend(
+            "genesis",
+            cfg.scene,
+            1,
+            cfg.sim_dt,
+            cpu_ids=None,
+            body_state_required=True,
+            tracked_body_names=explicit_selection,
+        )
+
+
+def test_scene_tracked_body_names_are_validated_and_patterns_fall_back() -> None:
+    with pytest.raises(TypeError, match="sequence of body names"):
+        SceneCfg(model_file="scene.xml", tracked_body_names="base")
+    with pytest.raises(ValueError, match="non-empty body names"):
+        SceneCfg(model_file="scene.xml", tracked_body_names=())
+    with pytest.raises(ValueError, match="unique"):
+        SceneCfg(model_file="scene.xml", tracked_body_names=("base", "base"))
+
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        body_names=(".*_link", "wrist"),
+        actuator_names=("motor",),
+    )
+    assert manager_env_module._resolve_backend_entity_contract(cfg)[2] is None
 
 
 @pytest.mark.parametrize(
@@ -3826,6 +4027,107 @@ def test_multisubstep_state_feedback_refreshes_public_state_and_control(
         env.close()
 
 
+def test_multisubstep_state_feedback_gates_async_completions_at_manager_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cfg = _make_cfg(
+        sim_substeps=3,
+        include_optional_managers=False,
+        actions={
+            "tilt": _FeedbackTensorBodyActionCfg(
+                entity_name="robot",
+                top_body_name="platform",
+                ball_body_name="ball",
+            )
+        },
+    )
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
+    )
+
+    class _TracedCompletion(CompletionToken):
+        def __init__(self, sequence: int, trace: list[str]) -> None:
+            object.__setattr__(self, "contract_version", COMPLETION_CONTRACT_VERSION)
+            object.__setattr__(self, "operation", "step")
+            object.__setattr__(self, "sequence", sequence)
+            object.__setattr__(self, "producer_id", "test-producer")
+            self.trace = trace
+
+        def wait_before_read(self, stream: object | None = None) -> None:
+            del stream
+            self.trace.append(f"gate:{self.sequence}")
+
+    class _TracedBackend(_ScenePlanBackend):
+        def __init__(self, num_envs: int) -> None:
+            super().__init__(num_envs)
+            self.async_trace: list[str] = []
+
+        def _step_completion(self):
+            completion = _TracedCompletion(len(self.tensor_controls), self.async_trace)
+            self.completions.append(completion)
+            return completion
+
+        def step_tensor(self, ctrl: torch.Tensor, nsteps: int = 1) -> dict[str, object]:
+            self.async_trace.append(f"step:{len(self.tensor_controls)}")
+            return cast(dict[str, object], super().step_tensor(ctrl, nsteps))
+
+    backend = _TracedBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        env.init_state()
+        env.set_episode_length_buf(torch.full((2,), 1000, dtype=torch.int64))
+        backend.async_trace.clear()
+        plan = env.scene.read_plan
+        assert plan is not None
+        original_refresh = plan.refresh
+
+        def refresh() -> None:
+            backend.async_trace.append("read")
+            original_refresh()
+
+        monkeypatch.setattr(plan, "refresh", refresh)
+        original_apply_substep_action = env.apply_substep_action
+
+        def apply_substep_action() -> torch.Tensor:
+            control = original_apply_substep_action()
+            backend.async_trace.append("action")
+            return control
+
+        monkeypatch.setattr(env, "apply_substep_action", apply_substep_action)
+        original_update_state = env.update_state
+
+        def update_state(state: TorchEnvState) -> TorchEnvState:
+            backend.async_trace.append("update")
+            return original_update_state(state)
+
+        monkeypatch.setattr(env, "update_state", update_state)
+        state = env.step(torch.zeros((2, 1), dtype=torch.float32))
+
+        assert backend.async_trace[:13] == [
+            "read",
+            "step:0",
+            "gate:1",
+            "read",
+            "action",
+            "step:1",
+            "gate:2",
+            "read",
+            "action",
+            "step:2",
+            "gate:3",
+            "update",
+            "read",
+        ]
+        assert backend.step_nsteps == [1, 1, 1]
+        assert state.info["completion"] is backend.completions[-1]
+        assert env._pending_backend_step_completion is None
+    finally:
+        env.close()
+
+
 def test_single_substep_feedback_action_does_not_require_callback() -> None:
     cfg = _make_cfg(
         sim_substeps=1,
@@ -3840,6 +4142,77 @@ def test_single_substep_feedback_action_does_not_require_callback() -> None:
         assert backend.step_nsteps == [1]
         assert isinstance(backend.tensor_controls[0], torch.Tensor)
         assert env.action_sim_steps == [1]
+    finally:
+        env.close()
+
+
+def test_body_pair_contacts_refresh_at_reset_update_and_substep_boundaries() -> None:
+    cfg = _make_cfg(
+        sim_substeps=3,
+        include_optional_managers=False,
+        observations={
+            "actor": ObservationGroupCfg(
+                terms={
+                    "contacts": ObservationTermCfg(
+                        func=_body_pair_contact_observation,
+                        params={"entity_name": "robot"},
+                    )
+                }
+            ),
+            "value": ObservationGroupCfg(
+                terms={
+                    "contacts": ObservationTermCfg(
+                        func=_body_pair_contact_observation,
+                        params={"entity_name": "robot"},
+                    )
+                }
+            ),
+        },
+        actions={
+            "tilt": _FeedbackTensorBodyActionCfg(
+                entity_name="robot",
+                top_body_name="platform",
+                ball_body_name="ball",
+            )
+        },
+        rewards={
+            "contacts": RewardTermCfg(
+                func=_body_pair_contact_term_reward,
+                weight=0.0,
+                params={"entity_name": "robot"},
+            )
+        },
+    )
+    cfg.scene.entities["robot"] = EntityCfg(
+        root_body_name="base",
+        joint_names=("joint",),
+        body_names=("platform", "ball"),
+        actuator_names=("motor",),
+    )
+    backend = _ScenePlanBackend(2)
+    env = _TestEnv(cfg, cast(SimBackend, backend), 2)
+    try:
+        plan = env.scene.read_plan
+        assert plan is not None
+        assert plan.body_pair_contact_names == {"robot": _BODY_PAIR_CONTACT_NAMES}
+        assert backend.body_pair_binds == [(_BODY_PAIR_CONTACT_NAMES, torch.device("cpu"))]
+        assert backend.body_pair_refreshes == 0
+
+        env.init_state()
+        reset_refreshes = backend.body_pair_refreshes
+        assert reset_refreshes > 0
+        view = plan.body_pair_contact_view("robot", _BODY_PAIR_CONTACT_NAMES)
+        assert view.active.device == env.device
+        assert view.position_w.device == env.device
+        assert view.force_w.device == env.device
+
+        env.step(torch.zeros((2, 1), dtype=torch.float32))
+        # Initial action read, two substep reads, command mutation repacking,
+        # and one post-physics update read: five explicit whole-batch
+        # publications after reset.
+        assert backend.body_pair_refreshes == reset_refreshes + 5
+        assert set(backend.body_pair_refresh_names) == {_BODY_PAIR_CONTACT_NAMES}
+        assert backend.body_pair_binds == [(_BODY_PAIR_CONTACT_NAMES, torch.device("cpu"))]
     finally:
         env.close()
 

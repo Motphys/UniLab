@@ -14,6 +14,7 @@ from unilab.envs import mdp
 from unilab.managers import RewardManager, RewardTermCfg
 from unilab.managers.scene_entity_config import SceneEntityCfg
 from unilab.managers.types import ManagerBasedRlEnv
+from unilab.utils.math import np_quat_apply_inverse
 
 
 class _Entity:
@@ -65,7 +66,7 @@ class _Entity:
             body_link_quat_w=np.asarray(
                 [
                     [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
-                    [[1.0, 0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]],
+                    [[0.5, 0.5, 0.5, 0.5], [1.0, 0.0, 0.0, 0.0]],
                     [[np.sqrt(0.5), 0.0, np.sqrt(0.5), 0.0], [1.0, 0.0, 0.0, 0.0]],
                 ],
                 dtype=np.float32,
@@ -93,10 +94,10 @@ class _CommandManager:
             [[1.0, 0.0, 0.5], [0.25, 0.0, -0.5], [0.0, 0.0, 0.0]], dtype=np.float32
         )
 
-    def get_command(self, name: str) -> np.ndarray:
+    def get_command(self, name: str) -> torch.Tensor:
         if name != "twist":
             raise KeyError(name)
-        return self.command
+        return torch.from_numpy(self.command)
 
 
 def _env() -> ManagerBasedRlEnv:
@@ -107,6 +108,8 @@ def _env() -> ManagerBasedRlEnv:
         ManagerBasedRlEnv,
         SimpleNamespace(
             num_envs=3,
+            device=torch.device("cpu"),
+            cfg=SimpleNamespace(defer_finite_validation=False),
             scene=_Scene(entity, plan),
             action_manager=SimpleNamespace(
                 action=action,
@@ -158,8 +161,8 @@ def _world_to_body(quat: np.ndarray, vector: np.ndarray) -> np.ndarray:
     return vector + 2.0 * conjugate[:, 0:1] * cross + 2.0 * np.cross(xyz, cross)
 
 
-def _projected_gravity(quat: np.ndarray) -> np.ndarray:
-    return _world_to_body(quat, np.asarray([[0.0, 0.0, -1.0]] * len(quat), dtype=np.float32))
+def _projected_gravity(quat: np.ndarray, gravity_w: np.ndarray) -> np.ndarray:
+    return np_quat_apply_inverse(quat, gravity_w)
 
 
 class _Scene(dict):
@@ -182,7 +185,7 @@ def test_generic_reward_terms_match_pinned_numpy_semantics() -> None:
     np.testing.assert_allclose(mdp.action_acc_l2(env), 2 * 0.25**2)
     np.testing.assert_allclose(
         mdp.flat_orientation_l2(env),
-        [0.0, 0.0, 1.0],
+        [0.0, 1.0, 1.0],
         atol=1e-6,
     )
 
@@ -219,7 +222,7 @@ def test_action_history_rewards_remain_tensors_for_reward_manager() -> None:
 def test_velocity_tracking_terms_match_pinned_equations() -> None:
     env = _env()
     entity = cast(Any, env.scene["robot"])
-    command = cast(np.ndarray, env.command_manager.get_command("twist"))
+    command = env.command_manager.command
 
     linvel_b = _world_to_body(
         entity.data.body_link_quat_w[:, 0], entity.data.body_link_lin_vel_w[:, 0]
@@ -257,12 +260,20 @@ def test_body_angular_velocity_requires_one_selected_body() -> None:
 
 def test_upright_matches_mjlab_projected_gravity_kernel() -> None:
     env = _env()
-    # Body 0 quats per env: identity (pg_xy = 0), 180° roll (pg_xy = 0),
-    # 90° pitch (pg_b = (1, 0, 0), pg_xy^2 = 1).
+    entity = cast(Any, env.scene["robot"])
+    # A non-axis-aligned gravity vector exercises both cross-product terms, and
+    # body 0 quats cover identity, a mixed-axis rotation, and 90° pitch.
     selector = SceneEntityCfg("robot", body_ids=[0])
+    gravity_w = np.asarray([[1.0, 2.0, 3.0]] * env.num_envs, dtype=np.float32)
+    gravity_w /= np.linalg.norm(gravity_w, axis=1, keepdims=True)
+    entity.data.gravity_vec_w = lambda device: torch.as_tensor(
+        gravity_w, dtype=torch.float32, device=device
+    )
+    projected_gravity = _projected_gravity(entity.data.body_link_quat_w[:, 0], gravity_w)
+    expected = np.exp(-np.sum(np.square(projected_gravity[:, :2]), axis=1) / 0.5**2)
     np.testing.assert_allclose(
         mdp.upright(env, std=0.5, asset_cfg=selector),
-        [1.0, 1.0, np.exp(-1.0 / 0.25)],
+        expected,
         rtol=1e-6,
     )
     with pytest.raises(ValueError, match="requires exactly one body"):

@@ -133,7 +133,7 @@ class TorchEnv(ABEnv):
         self._rgb_array_renderer_ready = False
         self._nan_guard: "NanGuard | None" = None
         self._pending_backend_step_completion: CompletionToken | None = None
-        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", False))
+        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", True))
         interval = getattr(cfg, "finite_validation_interval", 1)
         if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
             raise ValueError("finite_validation_interval must be a positive integer")
@@ -249,7 +249,9 @@ class TorchEnv(ABEnv):
             info={"steps": initial_steps},
         )
         self._last_initial_episode_steps = initial_steps.clone()
-        self._reset_done_envs()
+        # terminated is statically all-ones here; the bootstrap reset must not
+        # re-read the done mask from the device.
+        self._reset_done_envs(done_active=True)
         self._clear_step_final_observation()
         return self._state
 
@@ -313,29 +315,21 @@ class TorchEnv(ABEnv):
         # previous one before the backend call so unsupported or failed steps
         # cannot expose stale completion metadata.
         self._state.info.pop("completion", None)
-        backend_result = self._step_physics(ctrl)
+        backend_result = self.advance_physics(ctrl)
         step_core_ms = (time.perf_counter() - phase) * 1000.0
         step_core_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
-        if isinstance(backend_result, dict):
-            pending_completion = backend_result.get("completion")
-            if pending_completion is not None and not isinstance(
-                pending_completion, CompletionToken
-            ):
-                self._state.info.pop("completion", None)
-                raise TypeError(
-                    "backend completion must be a CompletionToken; got "
-                    f"{type(pending_completion).__name__}"
-                )
-            # Publish the receipt before update_state so public transition
-            # consumers can only read it after the update boundary succeeds.
-            self._pending_backend_step_completion = pending_completion
+        pending_completion = self._backend_step_completion(backend_result)
+        # Publish the receipt before update_state so public transition consumers
+        # can only read it after the update boundary succeeds.
+        self._pending_backend_step_completion = pending_completion
 
-        self._state.truncated.fill_(False)
-        self._clear_step_final_observation()
-
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
         try:
+            self._gate_backend_step_completion(pending_completion)
+            self._state.truncated.fill_(False)
+            self._clear_step_final_observation()
+
+            phase = time.perf_counter()
+            phase_cpu = _cpu_time()
             self._state = self.update_state(self._state)
         finally:
             self._pending_backend_step_completion = None
@@ -395,7 +389,7 @@ class TorchEnv(ABEnv):
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
         if did_reset:
-            self._reset_done_envs()
+            self._reset_done_envs(done_active=True)
         reset_done_ms = (time.perf_counter() - phase) * 1000.0
         reset_done_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
         self.poll_finite_validation()
@@ -435,21 +429,65 @@ class TorchEnv(ABEnv):
         return False
 
     def apply_substep_action(self) -> torch.Tensor:
-        """Refresh state-dependent control before the next physics substep."""
+        """Refresh state-dependent control before the next physics substep.
+
+        ``TorchEnv`` consumes the previous substep's asynchronous completion,
+        with a stream-ordered read gate, before calling this owner hook.
+        """
         raise NotImplementedError(
             f"{type(self).__name__} must implement apply_substep_action when "
             "requires_substep_state_feedback is True"
         )
 
+    def _backend_step_completion(self, result: dict[str, Any] | None) -> CompletionToken | None:
+        """Validate one backend step receipt before a consumer can use it."""
+        if result is None:
+            if self.produces_completion_receipts:
+                raise ValueError(
+                    f"event-backed backend {self._backend.backend_type!r} step did not "
+                    "publish a completion receipt"
+                )
+            return None
+        if not isinstance(result, dict):
+            raise TypeError(
+                f"backend step result must be a mapping or None; got {type(result).__name__}"
+            )
+        completion = result.get("completion")
+        if completion is None and self.produces_completion_receipts:
+            raise ValueError(
+                f"event-backed backend {self._backend.backend_type!r} step did not "
+                "publish a completion receipt"
+            )
+        if completion is not None and not isinstance(completion, CompletionToken):
+            raise TypeError(
+                f"backend completion must be a CompletionToken; got {type(completion).__name__}"
+            )
+        return completion
+
+    def _gate_backend_step_completion(self, completion: CompletionToken | None) -> None:
+        """Order the current Torch consumer stream after an async step."""
+        if completion is None:
+            return
+        stream = torch.cuda.current_stream(self._device) if self._device.type == "cuda" else None
+        # The receipt owns the public dependency insertion. Passing no stream is
+        # valid only for already-complete test receipts; metadata-only tokens
+        # fail closed inside their implementation.
+        completion.wait_before_read(stream)
+
     def _step_physics(self, ctrl: torch.Tensor) -> dict[str, Any] | None:
         if not self.requires_substep_state_feedback:
-            return cast(
+            result = cast(
                 dict[str, Any] | None,
                 self._backend.step_tensor(ctrl, self._cfg.sim_substeps),
             )
+            self._backend_step_completion(result)
+            return result
 
         backend_result: dict[str, Any] | None = None
         backend_timing: dict[str, Any] = {}
+        final_completion: CompletionToken | None = None
+        final_substep = self._cfg.sim_substeps - 1
+        publishes_receipts: bool | None = None
         for substep in range(self._cfg.sim_substeps):
             if substep > 0:
                 ctrl = self.apply_substep_action()
@@ -459,17 +497,39 @@ class TorchEnv(ABEnv):
                     or (self._nan_guard is not None and self._nan_guard.defer_validation),
                 )
             result = self._backend.step_tensor(ctrl, 1)
-            if not isinstance(result, dict):
-                continue
-            backend_result = result
-            for key, value in result.get("timing", {}).items():
-                backend_timing[key] = backend_timing.get(key, 0.0) + value
+            completion = self._backend_step_completion(result)
+            result_publishes_receipts = completion is not None
+            if publishes_receipts is None:
+                publishes_receipts = result_publishes_receipts
+            elif publishes_receipts != result_publishes_receipts:
+                raise ValueError(
+                    "backend completion receipt presence changed between physics substeps"
+                )
+            if result is not None:
+                backend_result = result
+                for key, value in result.get("timing", {}).items():
+                    backend_timing[key] = backend_timing.get(key, 0.0) + value
+            if substep < final_substep:
+                # The next action is both a state consumer and a device-control
+                # writer. Gate it on this substep before re-entering Manager code.
+                self._gate_backend_step_completion(completion)
+            else:
+                final_completion = completion
 
         if backend_result is None:
             return None
-        # The final receipt orders the whole substep sequence for transition
-        # consumers; intermediate receipts are superseded by the next step.
-        return {"timing": backend_timing, "completion": backend_result.get("completion")}
+        return {"timing": backend_timing, "completion": final_completion}
+
+    def advance_physics(self, ctrl: torch.Tensor) -> dict[str, Any] | None:
+        """Advance one control interval with an already validated control.
+
+        Owners may drive intermediate physics steps through public backend APIs.
+        They must advance exactly sim_substeps, may refresh the control in place
+        between chunks, and leave rewards, episode counters and resets to the
+        outer step lifecycle. A returned completion receipt must cover the
+        entire control interval. The default delegates to :meth:`_step_physics`.
+        """
+        return self._step_physics(ctrl)
 
     def _validate_action(self, actions: torch.Tensor) -> None:
         self._validate_action_contract(actions)
@@ -669,25 +729,31 @@ class TorchEnv(ABEnv):
             torch.gt(state.info["steps"], max_steps - 1, out=self._truncated_scratch)
         return self._truncated_scratch
 
-    def _reset_done_envs(self) -> None:
+    def _reset_done_envs(self, *, done_active: bool = False) -> None:
         """Run the selected-row autoreset lifecycle.
 
-        Eager execution retains the semantic no-done gate. The public reset
-        contract speaks ``env_ids``; this boundary materializes the done rows
-        once, and the concrete env owns the ids→mask conversion at the backend
-        transaction edge (backend inputs stay fixed-width masks).
+        Eager execution retains the semantic no-done gate. Callers that already
+        proved the done mask non-empty on the host (the step autoreset gate,
+        the all-terminated bootstrap) pass ``done_active=True`` so the gate is
+        not re-read from the device. The public reset contract speaks
+        ``env_ids``; this boundary materializes the done rows once, and the
+        concrete env owns the ids→mask conversion at the backend transaction
+        edge (backend inputs stay fixed-width masks).
         """
         assert self._state is not None
         reset_total_started = time.perf_counter()
         detail_timing = {key: 0.0 for key in RESET_DONE_DETAIL_TIMING_KEYS}
         done = self._state.terminated | self._state.truncated
-        if not bool(done.any()):
+        if not done_active and not bool(done.any()):
             self._clear_reset_done_detail_timing(self._state.info.setdefault("timing", {}))
             return
         self._reset_done_count.copy_(done.sum())
+        done_env_ids = torch.nonzero(done, as_tuple=False).flatten()
 
         terminal_started = time.perf_counter()
-        detail_timing["reset_done_count"] = float(self._reset_done_count)
+        # The nonzero above already published the done-row count to the host;
+        # reuse it instead of reading the device counter back for timing.
+        detail_timing["reset_done_count"] = float(done_env_ids.numel())
         self._state.info["steps"].masked_fill_(done, 0)
         final_observation = self._ensure_final_observation_scratch()
         for name, values in self._state.obs.items():
@@ -701,9 +767,7 @@ class TorchEnv(ABEnv):
         self._autoreset_reset_active = True
         self._autoreset_scattered_reset_obs = False
         try:
-            new_obs, reset_info = self.reset(
-                torch.nonzero(done, as_tuple=False).flatten(),
-            )
+            new_obs, reset_info = self.reset(done_env_ids)
         finally:
             self._autoreset_reset_active = False
         detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - reset_started) * 1000.0

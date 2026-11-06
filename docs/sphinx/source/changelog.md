@@ -82,6 +82,130 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   覆盖率门槛（`pyproject.toml` 中 `fail-under = 40`）
   （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
+## 1.5.9 (2026-11-06)
+
+### Added / 新增
+
+- `SceneCfg.tracked_body_names` is now an explicit, ordered selective
+  body-state request that reaches UniSim's public `tracked_body_names` API
+  through the backend owner. MuJoCo and MJWarp consume it, Newton and SuperDex
+  retain their native body-state construction, and direct selective requests to
+  other backends fail closed. Manager event, reward, termination, and
+  observation terms can also declare `tensor_body_pair_contact_names`;
+  `EntityScene.compile_tensor_reads` cold-binds the ordered UniSim
+  `BodyPairContactBatch` and exposes it through
+  `SceneTensorReadPlan.body_pair_contact_view`, refreshing only at reset,
+  update, mutation-repack, and state-feedback-substep boundaries. The contact
+  path is validated on Newton and MJWarp with UniSim 2.7.0 and performs no
+  hot-path host transfer; other backends without the capability fail closed
+  ([#2593](https://github.com/Motphys/UniLab/pull/2593),
+  [#2594](https://github.com/Motphys/UniLab/pull/2594)).
+  `SceneCfg.tracked_body_names` 现在是显式、有序的选择性 body-state 请求，会经
+  backend owner 传入 UniSim 公开 `tracked_body_names` API。MuJoCo 与 MJWarp
+  消费该请求；Newton 和 SuperDex 保持各自的 native body-state 构造；对其他
+  backend 的直接选择性请求 fail closed。Manager 的 event、reward、termination
+  与 observation term 也可声明 `tensor_body_pair_contact_names`；
+  `EntityScene.compile_tensor_reads` 会在冷路径绑定有序的 UniSim
+  `BodyPairContactBatch`，并通过 `SceneTensorReadPlan.body_pair_contact_view`
+  暴露，仅在 reset、update、mutation-repack 与 state-feedback-substep 边界刷新。
+  该 contact 路径已在 UniSim 2.7.0 上完成 Newton 与 MJWarp 验证，热路径没有
+  host transfer；未声明能力的其他 backend fail closed
+  （[#2593](https://github.com/Motphys/UniLab/pull/2593)、
+  [#2594](https://github.com/Motphys/UniLab/pull/2594)）。
+- Task owners can now override `TorchEnv.advance_physics(ctrl)` to drive one
+  already-validated control interval through public backend APIs, while the
+  outer step lifecycle continues to own rewards, episode counters, and resets.
+  PPO interactive playback adds `interactive.sim2sim` (default `true`), so an
+  external rsl-rl checkpoint without a UniLab `run_config.json` can explicitly
+  set it to `false` to skip sim2sim preflight. Task-owned `play_key_hook`
+  receives teleop keys before global bindings, and line debug primitives support
+  ray overlays ([#2592](https://github.com/Motphys/UniLab/pull/2592)).
+  Task owner 现在可以 override `TorchEnv.advance_physics(ctrl)`，用公开 backend
+  API 推进一个已校验的 control interval；外层 step 生命周期继续负责 reward、
+  episode counter 与 reset。PPO interactive playback 新增
+  `interactive.sim2sim`（默认 `true`），没有 UniLab `run_config.json` 的外部
+  rsl-rl checkpoint 可以显式设为 `false` 来跳过 sim2sim preflight。Task 自有的
+  `play_key_hook` 会在全局按键绑定之前处理 teleop key，line debug primitive
+  则可用于 ray overlay（[#2592](https://github.com/Motphys/UniLab/pull/2592)）。
+
+### Changed / 变更
+
+- The default and ROCm profiles now pin `unisim-core==2.7.0`; this covers the
+  Motrix extra in both profiles and the SuperDex extra in the default profile.
+  The UniSim release supplies the shared math and MJWarp contact APIs consumed
+  by this version ([#2586](https://github.com/Motphys/UniLab/pull/2586),
+  [#2593](https://github.com/Motphys/UniLab/pull/2593)).
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.7.0`；两个 profile 均覆盖
+  Motrix extra，默认 profile 另覆盖 SuperDex extra。该 UniSim 版本提供本版本
+  消费的共享数学原语与 MJWarp contact API
+  （[#2586](https://github.com/Motphys/UniLab/pull/2586)、
+  [#2593](https://github.com/Motphys/UniLab/pull/2593)）。
+- UniSim is now the sole owner of rotation and quaternion primitives. UniLab
+  consumes them through the thin `unilab.utils.math` re-export: unprefixed names
+  are Torch operators, NumPy counterparts use the `np_` prefix, quaternions use
+  `wxyz`, Euler angles use XYZ, and batched operands broadcast on their trailing
+  dimensions. The local base and motion-tracking rotation implementations are
+  removed without aliases ([#2586](https://github.com/Motphys/UniLab/pull/2586)).
+  UniSim 现在是 rotation/quaternion 数学原语的唯一 owner。UniLab 通过薄
+  `unilab.utils.math` re-export 消费这些原语：无前缀名称是 Torch operator，
+  NumPy 对应实现使用 `np_` 前缀；quaternion 使用 `wxyz`，Euler 角使用 XYZ，
+  批量操作数按尾部维度广播。本地 base 与 motion-tracking rotation 实现已删除，
+  且不保留 alias（[#2586](https://github.com/Motphys/UniLab/pull/2586)）。
+- `ManagerBasedRlEnv.defer_finite_validation` now defaults to `true`.
+  Environment-side finite and packed-reset checks accumulate on device and
+  publish at the configured validation boundary, removing additional per-step
+  GPU/CPU synchronization from training hot paths. The base validation interval
+  remains 1, while the PPO, APPO, SAC, and FlashSAC owner YAMLs continue using
+  32; nonfinite values may therefore surface at the next boundary. Setting
+  `defer_finite_validation=false` restores eager fail-closed validation
+  ([#2586](https://github.com/Motphys/UniLab/pull/2586)).
+  `ManagerBasedRlEnv.defer_finite_validation` 现在默认为 `true`。环境侧有限值
+  与 packed-reset 检查在设备端累积，并在配置的 validation 边界发布，从训练热
+  路径移除了额外的逐步 GPU/CPU 同步。基础 validation interval 仍为 1，
+  PPO、APPO、SAC 与 FlashSAC owner YAML 继续使用 32；因此非有限值可能到下一
+  个边界才会暴露。设置 `defer_finite_validation=false` 可恢复 eager fail-closed
+  校验（[#2586](https://github.com/Motphys/UniLab/pull/2586)）。
+- Contract-less CPU/default and protocol-attribute fallbacks were removed from
+  manager, runtime, playback, and visualization call sites. Custom environments
+  must provide the declared protocol attributes, so malformed implementations
+  fail directly rather than being silently repaired; exception handling is also
+  narrowed to expected errors ([#2590](https://github.com/Motphys/UniLab/pull/2590)).
+  Manager、runtime、playback 与 visualization 调用点删除了没有合同依据的
+  CPU/default 与协议属性 fallback。自定义环境必须提供声明的协议属性；错误实现
+  会直接失败，而不是被静默修复。异常处理也收窄到预期错误
+  （[#2590](https://github.com/Motphys/UniLab/pull/2590)）。
+- The sim2sim `env.actions` comparison now ignores the playback-visualization-only
+  fields `log_goal` and `show_rays`. Toggling these overlays is not treated as a
+  policy-defining action change, while all other action fields remain strict
+  ([#2592](https://github.com/Motphys/UniLab/pull/2592)).
+  sim2sim 的 `env.actions` 比较现在会忽略仅用于 playback 可视化的
+  `log_goal` 与 `show_rays` 字段。切换这些 overlay 不再被视为改变 policy 定义的
+  action 变更，其余 action 字段仍保持严格比较
+  （[#2592](https://github.com/Motphys/UniLab/pull/2592)）。
+
+### Fixed / 修复
+
+- State-feedback physics substeps now order the active Torch consumer stream on
+  each backend `CompletionToken` before the next action, state read, or control
+  write, and gate the final receipt before Manager state update. Missing,
+  malformed, or inconsistent receipts fail closed; synchronous backends without
+  receipts retain the existing path
+  ([#2593](https://github.com/Motphys/UniLab/pull/2593)).
+  State-feedback physics substep 现在会在每次 backend `CompletionToken` 上对
+  活跃 Torch consumer stream 排序，然后再执行下一个 action、state read 或
+  control write，并在 Manager state update 前等待最终 receipt。缺失、格式错误
+  或不一致的 receipt 会 fail closed；没有 receipt 的同步 backend 保持既有路径
+  （[#2593](https://github.com/Motphys/UniLab/pull/2593)）。
+- `mdp.upright` now uses `quat_apply_inverse` and computes projected gravity on
+  the environment device. The result is unchanged for the usual `(0, 0, -1)`
+  gravity vector, while non-axis-aligned gravity follows the correct quaternion
+  inverse ([#2589](https://github.com/Motphys/UniLab/pull/2589),
+  [#2585](https://github.com/Motphys/UniLab/issues/2585)).
+  `mdp.upright` 现在使用 `quat_apply_inverse`，并在环境设备上计算投影后的
+  gravity。对于常见的 `(0, 0, -1)` gravity 向量，结果不变；非坐标轴对齐的
+  gravity 则按正确的 quaternion inverse 计算
+  （[#2589](https://github.com/Motphys/UniLab/pull/2589)、
+  [#2585](https://github.com/Motphys/UniLab/issues/2585)）。
 
 ## 1.5.8 (2026-11-05)
 

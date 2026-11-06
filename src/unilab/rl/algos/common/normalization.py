@@ -36,9 +36,9 @@ class EmpiricalNormalization(nn.Module):
         if self.training and update:
             self.update(x)
         if center:
-            return torch.as_tensor((x - self._mean) / (self._std + self.eps))
+            return (x - self._mean) / (self._std + self.eps)
         else:
-            return torch.as_tensor(x / (self._std + self.eps))
+            return x / (self._std + self.eps)
 
     def update(self, x):
         batch_size = x.shape[0]

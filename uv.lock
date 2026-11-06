@@ -5178,7 +5178,7 @@ wheels = [
 
 [[package]]
 name = "unilab"
-version = "1.5.8"
+version = "1.5.9"
 source = { editable = "." }
 dependencies = [
     { name = "etils", version = "1.13.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -5298,9 +5298,9 @@ requires-dist = [
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
     { name = "uniray", extras = ["warp"], marker = "extra == 'ray'", specifier = "==0.1.1" },
-    { name = "unisim-core", specifier = "==2.6.1" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.6.1" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.6.1" },
+    { name = "unisim-core", specifier = "==2.7.0" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.7.0" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.7.0" },
     { name = "viser", specifier = ">=1.0.26" },
     { name = "wandb", marker = "extra == 'unirl'", specifier = ">=0.22.3" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
@@ -5339,15 +5339,15 @@ warp = [
 
 [[package]]
 name = "unisim-core"
-version = "2.6.1"
+version = "2.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/81/af/f88d5772bedd2f2f6d284f380f04317f3f2748c83fa3682ea3cb15be9d6f/unisim_core-2.6.1.tar.gz", hash = "sha256:8703fff327efcbeb4cbad2c537425a036ab08808c26a8e20ec937be376b04c3f", size = 780812, upload-time = "2026-11-05T10:25:51.999Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/8e/aa83e69eb814397b8472f609e121a5d52747a7265d77036a7bc09c6f4245/unisim_core-2.7.0.tar.gz", hash = "sha256:985f1933f4224372fe31cc0ac2606d519e9601746c27159b04af1db68eb45a6c", size = 783441, upload-time = "2026-11-06T04:10:54.266Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8b/c4/2b1a3ea63ca853b9afa57a1d79530a69d1f7eefc579f82e4f24597d6c35c/unisim_core-2.6.1-py3-none-any.whl", hash = "sha256:38b707addf7feb6c3602fe7ca174696fb178835d168ba3ccb96b183a6d7a2427", size = 829823, upload-time = "2026-11-05T10:25:50.229Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/00/bfecc2bbb002eafa3d66fd85807ce5dd9b657734b49309ea80de799e8e1c/unisim_core-2.7.0-py3-none-any.whl", hash = "sha256:066a3a469a40521467ccc4dad992e84899fb2e817b1791fa27d8e7399b17feec", size = 832476, upload-time = "2026-11-06T04:10:52.304Z" },
 ]
 
 [package.optional-dependencies]
