@@ -14,7 +14,7 @@ source-exclude = [
 
 [project]
 name = "unilab"
-version = "1.5.8"
+version = "1.5.9"
 description = "Configurable, contract-driven robot learning across physics backends"
 readme = "README.md"
 license = "Apache-2.0"
