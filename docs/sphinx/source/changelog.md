@@ -56,6 +56,15 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   [#706](https://github.com/Motphys/UniLab/issues/706)).
   新增训练诊断页（[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- New top-level How-to Guides section groups the walkthroughs and the training
+  diagnostics page, and the landing pages gain task-oriented entry cards
+  linking to the reference tables
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  新增顶级"How-to 指南"分区，集中收纳各 walkthrough 与训练诊断页；首页新增
+  任务导向入口卡片，直达各参考表
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
 
 ### Changed / 变更
 
