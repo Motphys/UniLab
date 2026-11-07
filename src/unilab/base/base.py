@@ -73,6 +73,13 @@ class EnvCfg:
     # device profile never relies on an implicit backend-wide allocation size.
     mjwarp_nconmax: Optional[int] = None
     mjwarp_njmax: Optional[int] = None
+    # MJWarp's own NaN/Inf check on hot-path tensor operands (step ctrl, device
+    # pushes, wrenches, velocity deltas, generalized forces) blocks the host on
+    # every call. TorchEnv already validates the final control (eagerly or
+    # through deferred finite validation), so UniLab always passes this value
+    # explicitly and disables the duplicate backend check by default. Set it to
+    # True only to debug a non-finite operand at the exact backend call.
+    mjwarp_validate_tensor_finite: bool = False
     # ``newton`` owns MuJoCo-Warp 3.11 capacity and requires explicit CUDA
     # placement; the process binder supplies the rank-local device when unset.
     newton_device: Optional[str] = None
@@ -173,6 +180,11 @@ class EnvCfg:
                 isinstance(value, bool) or not isinstance(value, int) or value <= 0
             ):
                 raise ValueError(f"{name} must be a positive integer or None, got {value!r}")
+        if not isinstance(self.mjwarp_validate_tensor_finite, bool):
+            raise ValueError(
+                "mjwarp_validate_tensor_finite must be bool, "
+                f"got {self.mjwarp_validate_tensor_finite!r}"
+            )
         if self.newton_device is not None and (
             not isinstance(self.newton_device, str) or not self.newton_device.strip()
         ):

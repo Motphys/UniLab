@@ -267,6 +267,9 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
     result["newton_use_cuda_graph"] = cfg.newton_use_cuda_graph
+    # Always explicit: never fall back to UniSim's blocking MJWarp default.
+    # Other backends ignore this option.
+    result["mjwarp_validate_tensor_finite"] = cfg.mjwarp_validate_tensor_finite
     return result
 
 
