@@ -15,7 +15,7 @@ From URDF/MJCF assets to a first PPO training run, one verified step at a time.
 :::{grid-item-card} Add a custom reward term
 :link: 2-custom_reward
 :link-type: doc
-From a function definition to the `reward/<term>` key in the training log.
+From a function definition to verifying it in a training run and tuning its weight.
 :::
 
 :::{grid-item-card} Diagnose training problems

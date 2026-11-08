@@ -65,6 +65,13 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   任务导向入口卡片，直达各参考表
   （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- The FAQ is expanded into a grouped troubleshooting page (install/platform,
+  config & CLI, training, backend compatibility, version migration)
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  FAQ 扩写为分组故障查询页（安装与平台 / 配置与 CLI / 训练与调试 /
+  后端兼容 / 版本迁移）（[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
 
 ### Changed / 变更
 
@@ -82,6 +89,23 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   覆盖率门槛（`pyproject.toml` 中 `fail-under = 40`）
   （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
+
+### Fixed / 修复
+
+- Documentation corrections verified by smoke-running the documented commands
+  on 1.5.9: training requires the `unirl` extra (install/quick-start/CLI pages
+  previously omitted it); run log directories use the registry task name; the
+  PPO (rsl-rl) path no longer emits `reward/<term>` keys — per-term rewards are
+  published by the off-policy stacks via `info["reward_components"]`
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  文档勘误（在 1.5.9 上烟测文档命令核实）：训练需 `unirl` extra（安装/快速
+  上手/CLI 页此前漏写）；run 日志目录使用 registry 任务名；PPO（rsl-rl）
+  路径不再发出 `reward/<term>` key——分项 reward 由 off-policy 栈经
+  `info["reward_components"]` 发布
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+
 ## 1.5.9 (2026-11-06)
 
 ### Added / 新增

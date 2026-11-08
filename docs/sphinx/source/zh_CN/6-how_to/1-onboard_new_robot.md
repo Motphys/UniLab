@@ -8,8 +8,9 @@ owner YAML（{doc}`../2-user_guide/1-training/2-hydra_config`）以及 registry
 条目（清单视角见 {doc}`../4-developer_guide/3-extending/1-new_task`）。
 
 需要安装仿真器、显示器或 GPU 的步骤都已标注。纯组合检查（`--cfg job`）仍会
-经过 CLI 的后端预检，因此 `--sim mujoco` 需要 `mujoco` extra
-（源码检出中执行 `uv sync --extra mujoco`）。
+经过 CLI 的后端预检，因此 `--sim mujoco` 需要 `mujoco` extra；被路由的 PPO
+入口还会导入内置 RL 栈，所以还需要 `unirl` extra（源码检出中执行
+`uv sync --extra mujoco --extra unirl`——与 `make setup` 相同的同步命令）。
 
 ## 0. 选定名称
 
@@ -30,15 +31,16 @@ uv run scripts/tools/import_robot.py <urdf_path> [robot_name]
 ```
 
 脚本通过 `urdf-to-mjcf` 转换 URDF、整理 mesh，并打开 `mujoco.viewer` 供
-keyframe 调整（实现：`scripts/tools/import_robot.py`）。如果源已经是 MJCF，
-手工按同一目录契约摆放：
+keyframe 调整（实现：`scripts/tools/import_robot.py`）。它把场景 fragment
+写为 `scene.xml`；fragment 的名字可以保留或自行修改——Go2 的参考实现用的是
+`scene_flat.xml`。如果源已经是 MJCF，手工按同一目录契约摆放：
 
 - `src/unilab/assets/robots/<robot>/assets/` —— 仅 `.stl` / `.obj` mesh。
 - `src/unilab/assets/robots/<robot>/<robot>.xml` —— 仅含机器人的 MJCF：
   body、joint、actuator、sensor 与 mesh 引用。
-- `src/unilab/assets/robots/<robot>/scene_flat.xml`（名字自定）—— 任务/场景
-  fragment：`<include>` 机器人 XML、地面、任务传感器与 keyframe。参考形态：
-  `src/unilab/assets/robots/go2/scene_flat.xml`。
+- `src/unilab/assets/robots/<robot>/scene_flat.xml`（名字自定；导入工具写的是
+  `scene.xml`）—— 任务/场景 fragment：`<include>` 机器人 XML、地面、任务
+  传感器与 keyframe。参考形态：`src/unilab/assets/robots/go2/scene_flat.xml`。
 
 碰撞几何优先用简单 primitive，不要直接用高面数视觉 mesh；后者同时伤害仿真
 速度与接触稳定性。
@@ -47,7 +49,8 @@ keyframe 调整（实现：`scripts/tools/import_robot.py`）。如果源已经�
 
 ```bash
 ls src/unilab/assets/robots/<robot>/
-# 预期：assets/  <robot>.xml  scene_flat.xml
+# 预期：assets/  <robot>.xml  以及场景 fragment
+#（导入工具产物名为 scene.xml）。
 ```
 
 ## 2. 调整 keyframe
@@ -79,7 +82,7 @@ ls src/unilab/assets/robots/<robot>/
 验证：
 
 ```bash
-grep -n '<key name=' src/unilab/assets/robots/<robot>/scene_flat.xml
+grep -n '<key name=' src/unilab/assets/robots/<robot>/scene_flat.xml  # 或导入工具写出的 scene.xml
 # 预期：每个 keyframe 一行，例如 <key name="home" ...>
 grep -c '<keyframe' src/unilab/assets/robots/<robot>/<robot>.xml
 # 预期：0 —— keyframe 不进入机器人 XML。
@@ -101,7 +104,7 @@ PPO 把每个 task×backend 组合解析为两个文件（组合规则见
 # @package _global_
 env:
   scene:
-    model_file: src/unilab/assets/robots/<robot>/scene_flat.xml
+    model_file: src/unilab/assets/robots/<robot>/scene_flat.xml  # 若沿用导入工具的名字则是 scene.xml
     default_keyframe_name: home   # 第 2 步的 keyframe
     entities:
       robot:
@@ -274,23 +277,47 @@ print(registry.list_registered_envs()['<RegistryName>'])
 
 ## 6. 首次训练
 
-需要后端的 Python extra；有意义的运行需要 GPU。先小规模：
+需要后端的 Python extra 以及 `unirl` RL 栈 extra
+（`uv sync --extra mujoco --extra unirl`）；有意义的运行需要 GPU。先小规模：
 
 ```bash
 uv run train --algo ppo --task <task> --sim mujoco \
   algo.num_envs=64 algo.max_iterations=5 training.no_play=true
 ```
 
+在 1.5.9（PPO，MuJoCo 后端，单卡 RTX 4090）上以
+`algo.num_envs=16 algo.max_iterations=1` 跑 `go2_joystick_flat` 实测，
+终端输出节选：
+
+```text
+Storing git diff for 'unilab' in: .../logs/rsl_rl_ppo/Go2JoystickFlat/2026-11-08_22-34-23_mujoco/git/unilab.diff
+                            Learning iteration 0/1
+                            Total steps: 384
+                       Steps per second: 1119
+                        Collection time: 0.247s
+                          Learning time: 0.096s
+                        Mean value loss: 0.0143
+                    Mean surrogate loss: -0.0449
+                      Mean entropy loss: 8.7087
+                            Mean reward: 0.02
+                    Mean episode length: 1.00
+```
+
 首跑检查点：
 
 1. 组合与 env 构造会快速失败并指出有问题的 term 或字段——例如观测 term
    绑定了不存在的传感器时会在 manager 构造期抛错。修 owner YAML 后重跑。
-2. 运行目录出现在 `logs/rsl_rl_ppo/<task>/`，其中包含 `run_config.json`
-   （细节见 {doc}`../2-user_guide/1-training/3-logging`）。
-3. TensorBoard 中出现逐项 reward 键 `reward/<term>` 与终止计数器
+2. 运行目录出现在 `logs/rsl_rl_ppo/<RegistryName>/` 下——该级目录是
+   `training.task_name` 的 registry 名（例如 `Go2JoystickFlat`），不是
+   snake_case 的 CLI 任务名——目录名为 `<时间戳>_<后端>/`，其中包含
+   `run_config.json`（细节见 {doc}`../2-user_guide/1-training/3-logging`）。
+3. 首个 episode 结束后，TensorBoard 中出现终止计数器
    `Episode_Termination/<term>`
-   （`uv run tensorboard --logdir logs/rsl_rl_ppo/<task>`）。任何 reward 或
-   观测出现 NaN/Inf 时，训练会带着 term 名抛错，并且 NaN guard 会写出状态
+   （`uv run tensorboard --logdir logs/rsl_rl_ppo/<RegistryName>`）。自 1.5.8
+   起 PPO 路由不再转发逐项 `reward/<term>` 标量——这些值改以定长
+   `info["reward_components"]` 张量的形式传递给 off-policy 运行时；逐项数值
+   的读取方式见 {doc}`2-custom_reward` 第 3 步。任何 reward 或观测出现
+   NaN/Inf 时，训练会带着 term 名抛错，并且 NaN guard 会写出状态
    dump——见 {doc}`3-training_diagnostics`。
 
 然后恢复到 owner 的规模（`algo.num_envs` / `algo.max_iterations`），并评估

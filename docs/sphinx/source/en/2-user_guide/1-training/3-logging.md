@@ -22,15 +22,17 @@ Run training with the default TensorBoard backend:
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 ```
 
-Run directories default to `logs/<algo.algo_log_name>/<task>/` unless the selected
-stack overrides `training.log_root` or `training.log_dir`:
+Run directories default to `logs/<algo.algo_log_name>/<TaskName>/`, where
+`<TaskName>` is the registry task name (e.g. `Go2JoystickFlat`), not the CLI
+`--task` value, unless the selected stack overrides `training.log_root` or
+`training.log_dir`:
 
 | Algorithm | Log root | `algo_log_name` source |
 | --- | --- | --- |
-| PPO | `logs/rsl_rl_ppo/<task>/` | `src/unilab/conf/ppo/config.yaml` |
-| APPO | `logs/appo/<task>/` | `src/unilab/conf/appo/config.yaml` |
-| SAC | `logs/sac/<task>/` | `src/unilab/conf/sac/config.yaml` |
-| FlashSAC | `logs/flash_sac/<task>/` | `src/unilab/conf/flashsac/config.yaml` |
+| PPO | `logs/rsl_rl_ppo/<TaskName>/` | `src/unilab/conf/ppo/config.yaml` |
+| APPO | `logs/appo/<TaskName>/` | `src/unilab/conf/appo/config.yaml` |
+| SAC | `logs/sac/<TaskName>/` | `src/unilab/conf/sac/config.yaml` |
+| FlashSAC | `logs/flash_sac/<TaskName>/` | `src/unilab/conf/flashsac/config.yaml` |
 
 A run directory is named `YYYY-MM-DD_HH-MM-SS_<sim_backend>`, for example
 `2026-03-09_18-30-00_mujoco`. Common artifacts include `run_config.json`,
@@ -52,14 +54,17 @@ mode. A MuJoCo `play_video.mp4` is uploaded when the run produces one.
 
 ## Manager-Based Reward Metrics
 
-Manager-Based environments place structured metrics in `info["log"]`. The RSL-RL PPO
-logger forwards slash-prefixed entries in that dictionary to TensorBoard / W&B and also
-writes its own native aggregate training metrics. The reward-related keys have the
-following contract:
+Manager-Based environments place structured metrics in `info["log"]`. The reward
+per-term path differs by training stack: off-policy runs (SAC / FlashSAC / APPO)
+publish each term's value through `info["reward_components"]` and log it as
+`reward/<term>`; the RSL-RL PPO path does not emit per-term reward keys — its
+TensorBoard output carries the native aggregate metrics (`Loss/*`, `Perf/*`,
+`Policy/*`, `Train/*`) plus episode-level UniLab keys. The reward-related keys have
+the following contract:
 
 | Key | Owner | Meaning |
 | --- | --- | --- |
-| `reward/<term>` | UniLab `RewardManager` | Per-term diagnostic for the current reward computation: the mean across environments of `raw_value * weight`, before `dt` scaling |
+| `reward/<term>` | UniLab `RewardManager` via the off-policy logging stack | Per-term diagnostic for the current reward computation: the mean across environments of `raw_value * weight`, before `dt` scaling. Emitted by SAC / FlashSAC / APPO runs; not emitted on the PPO (rsl-rl) path |
 | `Train/mean_reward` | Native RSL-RL PPO logger | Aggregate mean completed-episode return; use this for overall training progress |
 | `Train/mean_episode_length` | Native RSL-RL PPO logger | Aggregate mean completed-episode length |
 | `Episode_Termination/<term>` | UniLab `TerminationManager` | Count of reset environments for which that termination term fired; this is a distinct diagnostic and is not a reward |

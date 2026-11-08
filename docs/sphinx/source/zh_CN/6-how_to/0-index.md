@@ -15,7 +15,7 @@
 :::{grid-item-card} 添加自定义 reward term
 :link: 2-custom_reward
 :link-type: doc
-从函数定义到训练日志中出现 `reward/<term>` 键。
+从函数定义到在训练 run 中验证并调整权重。
 :::
 
 :::{grid-item-card} 诊断训练问题

@@ -1,8 +1,8 @@
 # 演练：添加自定义 Reward Term
 
-本演练从零开始添加一个 reward term，直到 `reward/<term>` 出现在训练日志中。
-运行时是 Torch-only（1.3.4 起；见 changelog 与 ADR-0011）——term 返回
-`torch.Tensor`，没有 NumPy 路径。
+本演练从零开始添加一个 reward term，直到它在真实训练会话中运行、且其逐项
+数值在训练日志中可见。运行时是 Torch-only（1.3.4 起；见 changelog 与
+ADR-0011）——term 返回 `torch.Tensor`，没有 NumPy 路径。
 
 ## 1. 定义 term
 
@@ -48,22 +48,23 @@ manager 以 `func(env, **params)` 调用 term，因此 YAML 中 `params:` 下的
 
 reward term 位于任务 owner YAML 顶层的 `reward:` 映射下
 （`src/unilab/conf/<algo>/task/<task>/base.yaml` 或其 backend 兄弟文件），
-每个 term 一段，含 `func`、`weight` 与可选 `params`——真实结构取自
-`src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml`：
+每个 term 一段，含 `func`、`weight` 与可选 `params`——与
+`src/unilab/conf/ppo/task/go2_joystick_flat/base.yaml` 中真实 term 使用的
+结构相同。接入第 1 步定义的 term 形如：
 
 ```yaml
 reward:
   action_magnitude:
-    func: unilab.tasks.locomotion.common.manager_terms.action_magnitude_l1
+    func: unilab.tasks.locomotion.common.sensor_reward_terms.action_magnitude_l1
     weight: -0.001
 ```
 
 `func` 是可导入的 `module.path.name`。该 term 贡献的单步 reward 为
-`raw_value * weight`（env 内部再乘 `dt`；日志显示的是未乘 dt 的加权速率）。
+`raw_value * weight`（env 内部再乘 `dt`；日志中的速率是未乘 dt 的加权值）。
 惩罚项用负权重——框架的惩罚 term 返回非负代价，不要再取负一次。
 
 验证组合结果（仍会经过 CLI 的后端预检；`--sim mujoco` 需要 `mujoco`
-extra）：
+extra，且被路由的训练脚本会导入 RL 栈，因此还需要 `unirl` extra）：
 
 ```bash
 uv run train --algo ppo --task <task> --sim mujoco --cfg job \
@@ -73,26 +74,58 @@ uv run train --algo ppo --task <task> --sim mujoco --cfg job \
 
 ## 3. 在训练日志中确认
 
-跑一次短训练（需要后端的 extra；有意义的运行需要 GPU）：
+跑一次短训练（需要后端的 extra 和 `unirl` RL 栈 extra；有意义的运行需要
+GPU）：
 
 ```bash
 uv run train --algo ppo --task <task> --sim mujoco \
   algo.num_envs=64 algo.max_iterations=5 training.no_play=true
 ```
 
-Manager-Based 环境把逐项 reward 诊断以 `reward/<term>` 键发布到
-`info["log"]`——由 `RewardManager.step_reward_extras()` 产生
-（`src/unilab/managers/reward_manager.py`，跨环境对 `raw_value * weight`
-取均值，未乘 `dt`）——训练 logger 再把它们转发到 TensorBoard / W&B
-（{doc}`../2-user_guide/1-training/3-logging`）：
+Manager-Based 环境在设备侧维护逐项加权 reward 均值
+（`src/unilab/managers/reward_manager.py` 的
+`RewardManager.step_reward_means`——跨环境对 `raw_value * weight` 取均值，
+未乘 `dt`）。其中有多少进入训练日志取决于算法路由：
 
-```bash
-uv run tensorboard --logdir logs/rsl_rl_ppo/<task>
-# 预期：与其他 reward/<term> 标签并列出现 reward/action_magnitude。
+- **PPO（rsl_rl）**：自 1.5.8 起，逐项 `reward/<term>` 标量不再写入
+  `info["log"]`，改以定长 `info["reward_components"]` 张量传递，只有
+  off-policy 运行时消费它。控制台与 TensorBoard
+  （`uv run tensorboard --logdir logs/rsl_rl_ppo/<RegistryName>`——该级目录
+  是 `training.task_name` 的 registry 名，不是 snake_case 的 CLI 任务名）
+  显示聚合的 `Train/mean_reward`；首个 episode 结束后出现
+  `Episode_Termination/<term>` 计数器。
+- **SAC / FlashSAC / APPO**：off-policy 运行时消费 `reward_components` 并
+  输出 `reward/<term>` 指标族（schema 见
+  `src/unilab/rl/logging/metric_schema.py`），同时出现在控制台与
+  TensorBoard / W&B（{doc}`../2-user_guide/1-training/3-logging`）。
+
+在 1.5.9（MuJoCo 后端，单卡 RTX 4090）上实测。PPO（`go2_joystick_flat`，
+`algo.num_envs=16 algo.max_iterations=1`）终端节选——只有聚合值：
+
+```text
+                            Learning iteration 0/1
+                            Total steps: 384
+                        Mean value loss: 0.0143
+                    Mean surrogate loss: -0.0449
+                            Mean reward: 0.02
+                    Mean episode length: 1.00
 ```
 
-term 出错时失败是显式的：构造错误会指出 term 名；返回类型/形状错误由
-`RewardManager` 抛出；返回 NaN/Inf 会抛出
+SAC（`g1_walk_flat`，同样 override）会打印逐项表，相同的 `reward/<term>`
+标签也会写入 TensorBoard：
+
+```text
+│ Rewards (iter 1)                                                       Value │
+│ Reward                                              Mean 14.612 / Peak 14.61 │
+│   alive                                                             +10.0000 │
+│   feet phase                                                         +4.3746 │
+│   penalty action rate                                                -0.0957 │
+│   tracking ang vel                                                   +0.6677 │
+│   tracking lin vel                                                   +0.4943 │
+```
+
+term 出错时在任一路由下失败都是显式的：构造错误会指出 term 名；返回
+类型/形状错误由 `RewardManager` 抛出；返回 NaN/Inf 会抛出
 `RewardManager term '<term>' returned NaN/Inf`（启用 NaN guard 时还会写出
 状态 dump）。诊断流程见
 {doc}`3-training_diagnostics`。
@@ -109,6 +142,21 @@ uv run train --algo ppo --task <task> --sim mujoco \
 这可行是因为 `reward` 是组合配置顶层的 Hydra section（见
 {doc}`../2-user_guide/2-algorithms/1-ppo` 的 “Reward term weights” 小节）。
 新增 term 请写进 owner YAML 以保证任务可复现；CLI override 适合扫参。
+
+要确认 override 生效，可做纯组合检查——override 要放在 `--cfg job` 之前
+（`--cfg` 之后再跟 override 会被 Hydra 的参数解析拒绝）。在 1.5.9 上针对
+Go2 owner 实测：
+
+```bash
+uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
+  reward.action_rate.weight=-0.01 --cfg job | grep -A2 'action_rate'
+```
+
+```text
+  action_rate:
+    func: unilab.envs.mdp.action_rate_l2
+    weight: -0.01
+```
 
 从其他框架移植 term 时先查内置表——该 term 可能已经存在：
 {doc}`../5-reference/6-manager_terms/1-rewards`。Legged Gym 的映射指南见

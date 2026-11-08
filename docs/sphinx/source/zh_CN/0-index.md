@@ -109,7 +109,7 @@ event、command 和 curriculum。常见任务变体无需新写 environment clas
 curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
-uv sync --extra mujoco
+uv sync --extra mujoco --extra unirl
 uv run demo dance
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
   algo.max_iterations=1 algo.num_envs=16 training.no_play=true

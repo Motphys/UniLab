@@ -78,8 +78,8 @@ completion:
 make setup
 ```
 
-`make setup` syncs the default environment (`uv sync --extra mujoco`, with
-the built-in RL stack) followed by
+`make setup` syncs the default environment (`uv sync --extra mujoco --extra
+unirl`, with the built-in RL stack) followed by
 `uv run --no-sync unilab-complete install`.
 Choose one setup path for an environment. The install command picks Bash or Zsh
 from `$SHELL` / platform and only writes user-level rc files. The current shell
@@ -88,7 +88,7 @@ is not auto-activated; reopen the terminal or source the rc file to apply.
 If `make` is unavailable, run the steps directly:
 
 ```bash
-uv sync --extra mujoco
+uv sync --extra mujoco --extra unirl
 uv run --no-sync unilab-complete install
 ```
 

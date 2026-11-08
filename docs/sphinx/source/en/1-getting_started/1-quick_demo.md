@@ -21,10 +21,10 @@ Choose exactly one dependency setup command for your platform:
 make setup
 
 # Without shell completion setup:
-# uv sync --extra mujoco
+# uv sync --extra mujoco --extra unirl
 
 # If make is not installed:
-# uv sync --extra mujoco && uv run --no-sync unilab-complete install
+# uv sync --extra mujoco --extra unirl && uv run --no-sync unilab-complete install
 
 # Linux AMD / ROCm
 # make sync-rocm

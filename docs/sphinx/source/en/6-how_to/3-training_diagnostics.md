@@ -3,7 +3,8 @@
 This page collects the diagnosis paths for NaN/Inf failures, reward problems,
 stalled learning, backend mismatches, and performance questions. Every key and
 command below is wired in the repository; steps that need a simulator install,
-a GPU, or a display are marked.
+a GPU, or a display are marked. For quick Q&A on install, configuration, and
+migration issues, see {doc}`../1-getting_started/5-faq`.
 
 ## NaN Diagnostic Chain
 

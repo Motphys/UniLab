@@ -9,8 +9,10 @@ registry entry (checklist view: {doc}`../4-developer_guide/3-extending/1-new_tas
 
 Steps that need a simulator install, a display, or a GPU are marked. The
 compose-only checks (`--cfg job`) still pass through the CLI's backend
-preflight, so `--sim mujoco` requires the `mujoco` extra
-(`uv sync --extra mujoco` in a source checkout).
+preflight, so `--sim mujoco` requires the `mujoco` extra; the routed PPO
+entrypoint also imports the built-in RL stack, so install the `unirl` extra
+as well (`uv sync --extra mujoco --extra unirl` in a source checkout — the
+same sync `make setup` runs).
 
 ## 0. Pick Names
 
@@ -33,16 +35,18 @@ uv run scripts/tools/import_robot.py <urdf_path> [robot_name]
 
 The script converts URDF through `urdf-to-mjcf`, organizes the meshes, and
 opens a `mujoco.viewer` for keyframe tuning (implementation:
-`scripts/tools/import_robot.py`). If the source is already MJCF, lay out the
+`scripts/tools/import_robot.py`). It writes the scene fragment as
+`scene.xml`; the fragment name is yours to keep or rename — the Go2
+reference uses `scene_flat.xml`. If the source is already MJCF, lay out the
 same directory contract by hand:
 
 - `src/unilab/assets/robots/<robot>/assets/` — only `.stl` / `.obj` meshes.
 - `src/unilab/assets/robots/<robot>/<robot>.xml` — robot-only MJCF: bodies,
   joints, actuators, sensors, mesh references.
-- `src/unilab/assets/robots/<robot>/scene_flat.xml` (the name is yours) — the
-  task/scene fragment: an `<include>` of the robot XML, the ground, task
-  sensors, and the keyframe. Reference shape:
-  `src/unilab/assets/robots/go2/scene_flat.xml`.
+- `src/unilab/assets/robots/<robot>/scene_flat.xml` (the name is yours; the
+  import tool writes `scene.xml`) — the task/scene fragment: an `<include>`
+  of the robot XML, the ground, task sensors, and the keyframe. Reference
+  shape: `src/unilab/assets/robots/go2/scene_flat.xml`.
 
 Prefer primitive collision geometry over visual meshes; high-poly collision
 meshes hurt both simulation speed and contact stability.
@@ -51,7 +55,8 @@ Verify:
 
 ```bash
 ls src/unilab/assets/robots/<robot>/
-# Expected: assets/  <robot>.xml  scene_flat.xml
+# Expected: assets/  <robot>.xml  and the scene fragment
+# (scene.xml from the import tool).
 ```
 
 ## 2. Tune the Keyframe
@@ -87,7 +92,7 @@ scene fragment automatically. When checking it manually, confirm at least:
 Verify:
 
 ```bash
-grep -n '<key name=' src/unilab/assets/robots/<robot>/scene_flat.xml
+grep -n '<key name=' src/unilab/assets/robots/<robot>/scene_flat.xml  # or scene.xml from the import tool
 # Expected: one line per keyframe, e.g. <key name="home" ...>
 grep -c '<keyframe' src/unilab/assets/robots/<robot>/<robot>.xml
 # Expected: 0 — keyframes stay out of the robot XML.
@@ -109,7 +114,7 @@ A minimal base owner, adapted from the canonical Go2 owner
 # @package _global_
 env:
   scene:
-    model_file: src/unilab/assets/robots/<robot>/scene_flat.xml
+    model_file: src/unilab/assets/robots/<robot>/scene_flat.xml  # scene.xml if you kept the import tool's name
     default_keyframe_name: home   # the keyframe from step 2
     entities:
       robot:
@@ -285,11 +290,30 @@ Verify per added backend: repeat the `--cfg job` compose check with
 
 ## 6. First Training Run
 
-Needs the backend's Python extra; a GPU for any meaningful run. Start small:
+Needs the backend's Python extra plus the `unirl` RL-stack extra (`uv sync
+--extra mujoco --extra unirl`); a GPU for any meaningful run. Start small:
 
 ```bash
 uv run train --algo ppo --task <task> --sim mujoco \
   algo.num_envs=64 algo.max_iterations=5 training.no_play=true
+```
+
+Verified on 1.5.9 (PPO, MuJoCo backend, single RTX 4090) with
+`algo.num_envs=16 algo.max_iterations=1` on `go2_joystick_flat` — console
+excerpt:
+
+```text
+Storing git diff for 'unilab' in: .../logs/rsl_rl_ppo/Go2JoystickFlat/2026-11-08_22-34-23_mujoco/git/unilab.diff
+                            Learning iteration 0/1
+                            Total steps: 384
+                       Steps per second: 1119
+                        Collection time: 0.247s
+                          Learning time: 0.096s
+                        Mean value loss: 0.0143
+                    Mean surrogate loss: -0.0449
+                      Mean entropy loss: 8.7087
+                            Mean reward: 0.02
+                    Mean episode length: 1.00
 ```
 
 First-run checkpoints:
@@ -297,14 +321,20 @@ First-run checkpoints:
 1. Composition and env construction fail fast and name the offending term or
    field — for example, an observation term bound to a missing sensor raises
    at manager construction. Fix the owner YAML and rerun.
-2. The run directory appears under `logs/rsl_rl_ppo/<task>/` with
-   `run_config.json` (details: {doc}`../2-user_guide/1-training/3-logging`).
-3. Per-term reward keys `reward/<term>` and termination counters
-   `Episode_Termination/<term>` show up in TensorBoard
-   (`uv run tensorboard --logdir logs/rsl_rl_ppo/<task>`). If any reward or
-   observation goes NaN/Inf, training raises with the term name and the NaN
-   guard writes a state dump — see
-   {doc}`3-training_diagnostics`.
+2. The run directory appears under `logs/rsl_rl_ppo/<RegistryName>/` — the
+   directory level is the `training.task_name` registry name (e.g.
+   `Go2JoystickFlat`), not the snake_case CLI task — named
+   `<timestamp>_<backend>/` and containing `run_config.json` (details:
+   {doc}`../2-user_guide/1-training/3-logging`).
+3. Termination counters `Episode_Termination/<term>` show up in TensorBoard
+   once episodes complete
+   (`uv run tensorboard --logdir logs/rsl_rl_ppo/<RegistryName>`). Per-term
+   `reward/<term>` scalars are not forwarded on the PPO route since 1.5.8 —
+   the values travel as the fixed-width `info["reward_components"]` tensor
+   consumed by the off-policy runtimes instead; see {doc}`2-custom_reward`
+   step 3 for how to read per-term values. If any reward or observation goes
+   NaN/Inf, training raises with the term name and the NaN guard writes a
+   state dump — see {doc}`3-training_diagnostics`.
 
 Then scale back up (the owner values for `algo.num_envs` /
 `algo.max_iterations`) and evaluate the latest run:

@@ -20,15 +20,16 @@ cycle 合计、`Rows/s`）是在内存中为显示推导的值，有意不持久
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco
 ```
 
-运行目录默认位于 `logs/<algo.algo_log_name>/<task>/`，除非所选技术栈覆盖了
-`training.log_root` 或 `training.log_dir`：
+运行目录默认位于 `logs/<algo.algo_log_name>/<TaskName>/`，其中 `<TaskName>`
+是 registry 任务名（例如 `Go2JoystickFlat`），不是 CLI `--task` 的值，除非所选
+技术栈覆盖了 `training.log_root` 或 `training.log_dir`：
 
 | 算法 | 日志根目录 | `algo_log_name` 来源 |
 | --- | --- | --- |
-| PPO | `logs/rsl_rl_ppo/<task>/` | `src/unilab/conf/ppo/config.yaml` |
-| APPO | `logs/appo/<task>/` | `src/unilab/conf/appo/config.yaml` |
-| SAC | `logs/sac/<task>/` | `src/unilab/conf/sac/config.yaml` |
-| FlashSAC | `logs/flash_sac/<task>/` | `src/unilab/conf/flashsac/config.yaml` |
+| PPO | `logs/rsl_rl_ppo/<TaskName>/` | `src/unilab/conf/ppo/config.yaml` |
+| APPO | `logs/appo/<TaskName>/` | `src/unilab/conf/appo/config.yaml` |
+| SAC | `logs/sac/<TaskName>/` | `src/unilab/conf/sac/config.yaml` |
+| FlashSAC | `logs/flash_sac/<TaskName>/` | `src/unilab/conf/flashsac/config.yaml` |
 
 单个 run 目录名为 `YYYY-MM-DD_HH-MM-SS_<sim_backend>`，例如
 `2026-03-09_18-30-00_mujoco`。常见产物包括 `run_config.json`、
@@ -50,13 +51,15 @@ RSL-RL writer。MuJoCo run 若产生 `play_video.mp4`，该视频会上传至 W&
 
 ## Manager-Based reward 指标
 
-Manager-Based 环境把结构化指标放在 `info["log"]` 中。RSL-RL PPO logger 会把该字典里
-带斜杠的条目转发到 TensorBoard / W&B，同时写出自己原生的聚合训练指标。reward 相关
-key 的契约如下：
+Manager-Based 环境把结构化指标放在 `info["log"]` 中。reward 分项的路径因训练
+技术栈而异：off-policy run（SAC / FlashSAC / APPO）通过 `info["reward_components"]`
+发布每个 term 的值并记录为 `reward/<term>`；RSL-RL PPO 路径不发出分项 reward
+key——其 TensorBoard 输出是原生聚合指标（`Loss/*`、`Perf/*`、`Policy/*`、
+`Train/*`）加 episode 级 UniLab key。reward 相关 key 的契约如下：
 
 | Key | 归属 | 含义 |
 | --- | --- | --- |
-| `reward/<term>` | UniLab `RewardManager` | 当前 reward 计算的分项诊断：`raw_value * weight` 在所有 env 上的平均值，不经过 `dt` 缩放 |
+| `reward/<term>` | UniLab `RewardManager`，经 off-policy 日志栈 | 当前 reward 计算的分项诊断：`raw_value * weight` 在所有 env 上的平均值，不经过 `dt` 缩放。由 SAC / FlashSAC / APPO run 发出；PPO（rsl-rl）路径不发出 |
 | `Train/mean_reward` | RSL-RL PPO 原生 logger | 已完成 episode return 的聚合平均值；查看整体训练进度使用它 |
 | `Train/mean_episode_length` | RSL-RL PPO 原生 logger | 已完成 episode 长度的聚合平均值 |
 | `Episode_Termination/<term>` | UniLab `TerminationManager` | 本次 reset 的 env 中触发该 termination term 的数量；这是独立诊断，不是 reward |
