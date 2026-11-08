@@ -26,24 +26,34 @@ if TYPE_CHECKING:
 
 
 class _RewardCurriculumStageOptional(TypedDict, total=False):
+    """Optional fields of a reward curriculum stage."""
+
     weight: float
     params: dict[str, Any]
 
 
 class RewardCurriculumStage(_RewardCurriculumStageOptional):
+    """Stage for ``reward_curriculum``; requires a ``step`` threshold."""
+
     step: int
 
 
 class _TerminationCurriculumStageOptional(TypedDict, total=False):
+    """Optional fields of a termination curriculum stage."""
+
     params: dict[str, Any]
     time_out: bool
 
 
 class TerminationCurriculumStage(_TerminationCurriculumStageOptional):
+    """Stage for ``termination_curriculum``; requires a ``step`` threshold."""
+
     step: int
 
 
 class _CommandCurriculumStageOptional(TypedDict, total=False):
+    """Optional fields of a command curriculum stage."""
+
     params: dict[str, Any]
 
 
@@ -59,6 +69,8 @@ class CommandCurriculumStage(_CommandCurriculumStageOptional):
 
 
 class _EventCurriculumStageOptional(TypedDict, total=False):
+    """Optional fields of an event curriculum stage."""
+
     params: dict[str, Any]
 
 
@@ -202,6 +214,7 @@ class reward_curriculum:
     """
 
     def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRlEnv):
+        """Resolve the target reward term config and validate the stages."""
         reward_name: str = cfg.params["reward_name"]
         stages: list[RewardCurriculumStage] = cfg.params["stages"]
         self._term_cfg = env.reward_manager.get_term_cfg(reward_name)
@@ -215,6 +228,7 @@ class reward_curriculum:
         reward_name: str,
         stages: list[RewardCurriculumStage],
     ) -> dict[str, Any]:
+        """Apply all reached stages and return the logging snapshot."""
         del env_ids, reward_name, stages
         return _apply_stages(self._term_cfg, env.common_step_counter, self._stages)
 
@@ -239,6 +253,7 @@ class termination_curriculum:
     """
 
     def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRlEnv):
+        """Resolve the target termination term config and validate the stages."""
         termination_name: str = cfg.params["termination_name"]
         stages: list[TerminationCurriculumStage] = cfg.params["stages"]
         self._term_cfg = env.termination_manager.get_term_cfg(termination_name)
@@ -252,6 +267,7 @@ class termination_curriculum:
         termination_name: str,
         stages: list[TerminationCurriculumStage],
     ) -> dict[str, Any]:
+        """Apply all reached stages and return the logging snapshot."""
         del env_ids, termination_name, stages
         return _apply_stages(self._term_cfg, env.common_step_counter, self._stages)
 
@@ -278,6 +294,7 @@ class command_curriculum:
     """
 
     def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRlEnv):
+        """Resolve the target command term config and validate the stages."""
         command_name: str = cfg.params["command_name"]
         stages: list[CommandCurriculumStage] = cfg.params["stages"]
         self._term_cfg = env.command_manager.get_term_cfg(command_name)
@@ -293,6 +310,7 @@ class command_curriculum:
         command_name: str,
         stages: list[CommandCurriculumStage],
     ) -> dict[str, Any]:
+        """Apply all reached stages and return the logging snapshot."""
         del env_ids, command_name, stages
         return _apply_stages(self._term_cfg, env.common_step_counter, self._stages)
 
@@ -317,6 +335,7 @@ class event_curriculum:
     """
 
     def __init__(self, cfg: CurriculumTermCfg, env: ManagerBasedRlEnv):
+        """Resolve the target event term config and validate the stages."""
         event_name: str = cfg.params["event_name"]
         stages: list[EventCurriculumStage] = cfg.params["stages"]
         self._term_cfg = env.event_manager.get_term_cfg(event_name)
@@ -332,5 +351,6 @@ class event_curriculum:
         event_name: str,
         stages: list[EventCurriculumStage],
     ) -> dict[str, Any]:
+        """Apply all reached stages and return the logging snapshot."""
         del env_ids, event_name, stages
         return _apply_stages(self._term_cfg, env.common_step_counter, self._stages)

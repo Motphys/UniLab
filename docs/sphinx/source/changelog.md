@@ -13,6 +13,99 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased
+
+### Added / 新增
+
+- The documentation site is now versioned with sphinx-multiversion: the `main`
+  track is published with a version switcher in the navigation bar
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  文档站现通过 sphinx-multiversion 版本化：发布 `main` 轨道，并在导航栏提供
+  版本切换器（[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- New manager terms reference pages tabulate the built-in reward, observation,
+  and termination terms
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  新增 manager terms 参考页，以表格列出内置 reward、observation 与
+  termination 项（[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- New domain randomization (DR) field configuration reference page documents
+  the supported reset randomization fields
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  新增域随机化（DR）字段配置参考页，记录支持的 reset 随机化字段
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- The four algorithm pages (PPO, APPO, SAC, FlashSAC) each gained a
+  configuration reference section
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  四个算法页（PPO、APPO、SAC、FlashSAC）各新增配置参考小节
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- New walkthroughs cover onboarding a new robot and writing a custom reward
+  term ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  新增"接入新机器人"与"自定义 reward"两篇 walkthrough
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- New training diagnostics page
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  新增训练诊断页（[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- New top-level How-to Guides section groups the walkthroughs and the training
+  diagnostics page, and the landing pages gain task-oriented entry cards
+  linking to the reference tables
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  新增顶级"How-to 指南"分区，集中收纳各 walkthrough 与训练诊断页；首页新增
+  任务导向入口卡片，直达各参考表
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- The FAQ is expanded into a grouped troubleshooting page (install/platform,
+  config & CLI, training, backend compatibility, version migration)
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  FAQ 扩写为分组故障查询页（安装与平台 / 配置与 CLI / 训练与调试 /
+  后端兼容 / 版本迁移）（[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+
+### Changed / 变更
+
+- High-traffic public interfaces — the Manager protocols in
+  `unilab.managers.types`, `TorchEnv`, the reset-state transaction, the MDP
+  observation/action/curriculum/ray terms, and the PPO/APPO/SAC/FlashSAC
+  config dataclasses — now carry docstrings, and CI enforces an interrogate
+  docstring-coverage floor (`fail-under = 40` in `pyproject.toml`)
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  高频公开接口——`unilab.managers.types` 中的 Manager protocol、
+  `TorchEnv`、reset-state transaction、MDP
+  observation/action/curriculum/ray 项，以及 PPO/APPO/SAC/FlashSAC 配置
+  dataclass——现已补齐 docstring；CI 通过 interrogate 强制执行 docstring
+  覆盖率门槛（`pyproject.toml` 中 `fail-under = 40`）
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+
+### Fixed / 修复
+
+- Documentation corrections verified by smoke-running the documented commands
+  on 1.5.9: training requires the `unirl` extra (install/quick-start/CLI pages
+  previously omitted it); run log directories use the registry task name; the
+  PPO (rsl-rl) path no longer emits `reward/<term>` keys — per-term rewards are
+  published by the off-policy stacks via `info["reward_components"]`
+  ([#2584](https://github.com/Motphys/UniLab/pull/2584),
+  [#706](https://github.com/Motphys/UniLab/issues/706)).
+  文档勘误（在 1.5.9 上烟测文档命令核实）：训练需 `unirl` extra（安装/快速
+  上手/CLI 页此前漏写）；run 日志目录使用 registry 任务名；PPO（rsl-rl）
+  路径不再发出 `reward/<term>` key——分项 reward 由 off-policy 栈经
+  `info["reward_components"]` 发布
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  [#706](https://github.com/Motphys/UniLab/issues/706)）。
+
 ## 1.5.9 (2026-11-06)
 
 ### Added / 新增

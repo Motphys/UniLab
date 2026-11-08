@@ -1,0 +1,17 @@
+{# Furo sidebar component: version switcher (sphinx-multiversion).
+   Renders only under `sphinx-multiversion` builds, which inject `versions`
+   and `current_version` into the HTML context; plain `sphinx-build` runs
+   leave `versions` undefined and the guard hides the switcher. #}
+{% if versions %}
+<div class="sidebar-version-switcher">
+  <label class="sidebar-version-label" for="version-select">Version</label>
+  <select id="version-select" class="sidebar-version-select" onchange="location = this.value;">
+    {%- for item in versions.branches %}
+    <option value="{{ item.url }}" {% if item == current_version %}selected{% endif %}>{{ item.name }}</option>
+    {%- endfor %}
+    {%- for item in versions.tags|reverse %}
+    <option value="{{ item.url }}" {% if item == current_version %}selected{% endif %}>{{ item.name }}</option>
+    {%- endfor %}
+  </select>
+</div>
+{% endif %}
