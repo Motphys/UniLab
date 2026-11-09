@@ -235,7 +235,7 @@ class RayPatternCfg:
     attachment_body_name: str | None = None
     attachment_site_name: str | None = None
     alignment: RayAlignment = "body"
-    caster: str = "uni_ray"
+    caster: str = "uniray"
     sensor_offset: Sequence[float] = (0.0, 0.0, 0.0)
     min_distance: float = 0.0
     include_normal: bool = False

@@ -231,6 +231,54 @@ def test_visualization_only_fields_do_not_mask_policy_mismatches(tmp_path):
         resolve_sim2sim_config(tmp_path, target)
 
 
+def test_renamed_ray_caster_identity_is_canonicalized(tmp_path):
+    # uniray 0.1.1 renamed the plugin identity uni_ray -> uniray without
+    # changing ray numerics or policy I/O; checkpoints trained before the
+    # rename must keep playing against confs that use the new spelling.
+    source = _manager_cfg()
+    OmegaConf.update(
+        source,
+        "env.observations.policy.terms.forward_scan.params.ray_pattern.caster",
+        "uni_ray",
+        merge=False,
+    )
+    _write_sidecar(tmp_path, extract_contract_snapshot(source))
+
+    target = _manager_cfg()
+    OmegaConf.update(
+        target,
+        "env.observations.policy.terms.forward_scan.params.ray_pattern.caster",
+        "uniray",
+        merge=False,
+    )
+
+    assert resolve_sim2sim_config(tmp_path, target) is target
+
+
+def test_ray_caster_change_beyond_the_alias_still_fails_closed(tmp_path):
+    # Only the documented rename is exempt; switching to a different caster
+    # remains a policy-defining mismatch.
+    source = _manager_cfg()
+    OmegaConf.update(
+        source,
+        "env.observations.policy.terms.forward_scan.params.ray_pattern.caster",
+        "uni_ray",
+        merge=False,
+    )
+    _write_sidecar(tmp_path, extract_contract_snapshot(source))
+
+    target = _manager_cfg()
+    OmegaConf.update(
+        target,
+        "env.observations.policy.terms.forward_scan.params.ray_pattern.caster",
+        "fake",
+        merge=False,
+    )
+
+    with pytest.raises(CrossBackendIncompatibleError, match="env\\.observations"):
+        resolve_sim2sim_config(tmp_path, target)
+
+
 def test_denylist_mismatch_raises_with_field_in_message(tmp_path):
     _write_sidecar(tmp_path, extract_contract_snapshot(_mujoco_cfg()))
     target = _mujoco_cfg()
