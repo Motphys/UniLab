@@ -129,6 +129,32 @@ def _strip_visualization_only_fields(value: Any) -> Any:
     return stripped
 
 
+# The UniSim ray-caster plugin identity was renamed ``uni_ray`` → ``uniray``
+# (uniray 0.1.1 / unisim-core 2.2+). The rename changes no ray numerics and no
+# policy I/O, so contract comparisons treat the two spellings as the same
+# caster instead of rejecting every checkpoint trained before the rename.
+CASTER_VALUE_ALIASES: dict[str, str] = {"uni_ray": "uniray"}
+
+
+def _normalize_caster_aliases(value: Any) -> Any:
+    """Recursively canonicalize renamed caster identity strings."""
+    if OmegaConf.is_config(value):
+        value = OmegaConf.to_container(value, resolve=True)
+    if isinstance(value, dict):
+        return {
+            str(key): (
+                CASTER_VALUE_ALIASES.get(child, child)
+                if key == "caster" and isinstance(child, str)
+                else _normalize_caster_aliases(child)
+            )
+            for key, child in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        normalized = [_normalize_caster_aliases(child) for child in value]
+        return tuple(normalized) if isinstance(value, tuple) else normalized
+    return value
+
+
 def _values_equal(a: Any, b: Any) -> bool:
     return bool(_normalize(a) == _normalize(b))
 
@@ -196,7 +222,9 @@ def resolve_sim2sim_config(
     DENYLIST field differs, including asymmetric presence for
     :data:`ENV_STRUCTURAL_DENYLIST` paths. Playback-visualization-only
     action fields (:data:`VISUALIZATION_ONLY_ACTION_FIELDS`) are exempt from
-    the ``env.actions`` comparison. A source run whose contract snapshot
+    the ``env.actions`` comparison, and renamed ray-caster identities
+    (:data:`CASTER_VALUE_ALIASES`) are canonicalized on both sides of every
+    comparison. A source run whose contract snapshot
     is missing, malformed, or uses keys outside the current schema fails closed
     with the same error regardless of ``strict``.
     """
@@ -227,6 +255,8 @@ def resolve_sim2sim_config(
         if path == "env.actions":
             source_value = _strip_visualization_only_fields(source_value)
             target_value = _strip_visualization_only_fields(target_value)
+        source_value = _normalize_caster_aliases(source_value)
+        target_value = _normalize_caster_aliases(target_value)
         if _values_equal(source_value, target_value):
             continue
         line = _diff_line(path, source_value, target_value)

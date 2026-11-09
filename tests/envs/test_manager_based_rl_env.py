@@ -1748,10 +1748,10 @@ def test_mujoco_host_bridge_packed_reset_lifecycle(
 def test_mujoco_tensor_ray_observation_uses_public_rich_query_contract(
     tmp_path: Path,
 ) -> None:
-    """Exercise the real MuJoCo/UniSim/uni_ray perception path end to end."""
+    """Exercise the real MuJoCo/UniSim/uniray perception path end to end."""
 
-    pytest.importorskip("uni_ray", reason="local uni_ray is required")
-    pytest.importorskip("warp", reason="warp-lang is required by uni_ray")
+    pytest.importorskip("uniray", reason="local uniray is required")
+    pytest.importorskip("warp", reason="warp-lang is required by uniray")
 
     def build(pattern: mdp.RayPatternCfg):
         model = tmp_path / "ray-rich-query.xml"
