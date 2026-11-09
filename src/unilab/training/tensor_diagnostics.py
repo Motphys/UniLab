@@ -128,10 +128,18 @@ class NanGuard:
         return self._cfg.enabled and interval > 0 and step % interval == 0
 
     def reset_verdict(self) -> None:
-        if self._device_bad_rows is not None:
-            self._device_bad_rows.zero_()
-        if self._device_verdict is not None:
-            self._device_verdict.zero_()
+        # The device latches may be inference tensors: rsl_rl wraps the whole
+        # rollout in torch.inference_mode(), so with deferred validation the
+        # buffers are typically first allocated inside that context. In-place
+        # zeroing of an inference tensor is only legal under inference mode,
+        # and poll sites (cycle boundaries, close) run outside it, so run the
+        # reset under inference mode explicitly; it is a no-op on the
+        # autograd bookkeeping either way.
+        with torch.inference_mode():
+            if self._device_bad_rows is not None:
+                self._device_bad_rows.zero_()
+            if self._device_verdict is not None:
+                self._device_verdict.zero_()
 
     def _validate_finite_float(self, value: torch.Tensor, label: str) -> None:
         if not isinstance(value, torch.Tensor):
