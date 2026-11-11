@@ -13,6 +13,45 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## 1.5.10 (2026-11-11)
+
+### Changed / 变更
+
+- The default and ROCm profiles now pin `unisim-core==2.7.1`, including the
+  Motrix extra in both profiles and the SuperDex extra in the default profile.
+  `EnvCfg.mjwarp_validate_tensor_finite` controls MJWarp's backend-side control
+  finite check: the default `None` disables the duplicate blocking check under
+  deferred environment validation, retains it under eager validation, and an
+  explicit boolean overrides either behavior
+  ([#2598](https://github.com/Motphys/UniLab/pull/2598)).
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.7.1`；两个 profile 均覆盖
+  Motrix extra，默认 profile 另覆盖 SuperDex extra。
+  `EnvCfg.mjwarp_validate_tensor_finite` 控制 MJWarp backend 侧的 control
+  有限值检查：默认 `None` 在 deferred 环境校验下关闭重复的阻塞检查，在 eager
+  校验下保留该检查；显式布尔值可覆盖这两种行为
+  （[#2598](https://github.com/Motphys/UniLab/pull/2598)）。
+
+### Fixed / 修复
+
+- Deferred finite-validation device latches now reset under
+  `torch.inference_mode()`. PPO rollouts that allocate the latches in inference
+  mode no longer fail with an in-place inference-tensor update error at polling
+  boundaries or during teardown
+  ([#2600](https://github.com/Motphys/UniLab/pull/2600)).
+  Deferred 有限值校验的 device latch 现在在 `torch.inference_mode()` 下重置。
+  PPO rollout 在 inference mode 中分配 latch 后，不再于轮询边界或 teardown
+  期间因原地更新 inference tensor 而报错
+  （[#2600](https://github.com/Motphys/UniLab/pull/2600)）。
+- Ray observations now use the `uniray` caster identity by default. Sim2sim
+  contract comparison canonicalizes the previous `uni_ray` spelling to `uniray`,
+  so pre-rename checkpoints remain compatible without changing policy I/O;
+  substitutions with any other caster still fail closed
+  ([#2601](https://github.com/Motphys/UniLab/pull/2601)).
+  Ray observation 现在默认使用 `uniray` caster identity。Sim2sim 合同比较会将
+  旧的 `uni_ray` 拼写规范化为 `uniray`，使改名前的 checkpoint 在 policy I/O
+  不变的情况下保持兼容；替换为任何其他 caster 仍会 fail closed
+  （[#2601](https://github.com/Motphys/UniLab/pull/2601)）。
+
 ## 1.5.9 (2026-11-06)
 
 ### Added / 新增
