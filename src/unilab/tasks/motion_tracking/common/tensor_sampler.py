@@ -401,7 +401,9 @@ class MotionSampler:
             self.sampling_entropy.fill_(1.0)
         top1_index = self._sampling_top1_index
         torch.argmax(probabilities, out=top1_index)
-        self.sampling_top1_prob.copy_(probabilities[top1_index])
+        # The top-1 mass is the maximum; indexing with the 0-d argmax tensor
+        # would read it on the host.
+        self.sampling_top1_prob.copy_(torch.amax(probabilities))
         self.sampling_top1_bin.copy_(top1_index)
         self.sampling_top1_bin.div_(self.bin_count)
 

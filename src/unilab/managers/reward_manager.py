@@ -159,7 +159,12 @@ class RewardManager(ManagerBase):
 
     def reset_selection_blockers(self) -> list[str]:
         return selection_blockers(
-            "RewardManager", ((repr(cfg.func), cfg.func) for cfg in self._class_term_cfgs)
+            "RewardManager",
+            (
+                (name, cfg.func)
+                for name, cfg in zip(self._term_names, self._term_cfgs, strict=True)
+                if any(cfg is class_cfg for class_cfg in self._class_term_cfgs)
+            ),
         )
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:

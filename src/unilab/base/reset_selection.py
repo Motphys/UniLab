@@ -92,8 +92,24 @@ def is_reset_selection(selector: object) -> bool:
 
 
 def supports_reset_selection(participant: object) -> bool:
-    """Whether ``participant`` declared that it accepts a ``ResetSelection``."""
-    return getattr(participant, SUPPORTS_RESET_SELECTION, False) is True
+    """Whether ``participant`` declared that it accepts a ``ResetSelection``.
+
+    For class-based participants the declaration must sit at or below the
+    class that defines the effective ``reset``: a subclass that overrides
+    ``reset`` does not inherit its parent's declaration and has to opt in
+    again, so an unconverted override is reported instead of failing later.
+    """
+    if getattr(participant, SUPPORTS_RESET_SELECTION, False) is not True:
+        return False
+    cls = participant if isinstance(participant, type) else type(participant)
+    if not isinstance(participant, type) and SUPPORTS_RESET_SELECTION in vars(participant):
+        return True  # declared on the instance itself (function terms)
+    mro = cls.__mro__
+    declared_by = next((c for c in mro if SUPPORTS_RESET_SELECTION in vars(c)), None)
+    reset_by = next((c for c in mro if "reset" in vars(c)), None)
+    if declared_by is None or reset_by is None:
+        return True
+    return issubclass(declared_by, reset_by)
 
 
 def reset_selection_capable(participant: _T) -> _T:

@@ -379,6 +379,40 @@ def test_reset_selection_helpers_write_only_selected_rows() -> None:
     assert timers.tolist() == [7.0, 3.0, 7.0, 0.0]
 
 
+def test_reset_override_must_redeclare_selection_support() -> None:
+    class Parent:
+        supports_reset_selection = True
+
+        def reset(self, env_ids=None) -> None:
+            del env_ids
+
+    class InheritsReset(Parent):
+        pass
+
+    class OverridesReset(Parent):
+        def reset(self, env_ids=None) -> None:
+            del env_ids
+
+    class Redeclares(OverridesReset):
+        supports_reset_selection = True
+
+    class Withdraws(Parent):
+        supports_reset_selection = False
+
+    assert supports_reset_selection(Parent())
+    assert supports_reset_selection(InheritsReset())
+    assert not supports_reset_selection(OverridesReset())
+    assert not supports_reset_selection(OverridesReset)
+    assert supports_reset_selection(Redeclares())
+    assert not supports_reset_selection(Withdraws())
+
+    def term(env, env_ids) -> None:
+        del env, env_ids
+
+    assert not supports_reset_selection(term)
+    assert supports_reset_selection(reset_selection_capable(term))
+
+
 def test_selection_is_rejected_as_an_index_and_validated_by_resolvers() -> None:
     selection = ResetSelection.allocate(4, "cpu")
     with pytest.raises((TypeError, IndexError)):

@@ -265,6 +265,8 @@ class JointPositionAction(BaseAction):
     """Convert policy actions into entity joint-position targets."""
 
     cfg: JointPositionActionCfg
+    # reset() forwards the selection to BaseAction and the (masked) DelayBuffer.
+    supports_reset_selection: ClassVar[bool] = True
 
     def __init__(self, cfg: JointPositionActionCfg, env: ManagerBasedRlEnv):
         if not isinstance(cfg.use_default_offset, bool):

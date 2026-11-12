@@ -105,7 +105,12 @@ class TerminationManager(ManagerBase):
 
     def reset_selection_blockers(self) -> list[str]:
         blockers = selection_blockers(
-            "TerminationManager", ((repr(cfg.func), cfg.func) for cfg in self._class_term_cfgs)
+            "TerminationManager",
+            (
+                (name, cfg.func)
+                for name, cfg in zip(self._term_names, self._term_cfgs, strict=True)
+                if any(cfg is class_cfg for class_cfg in self._class_term_cfgs)
+            ),
         )
         if not self._deferred_validation_enabled():
             blockers.append(
