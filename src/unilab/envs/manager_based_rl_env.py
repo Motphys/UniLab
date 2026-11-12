@@ -1928,12 +1928,22 @@ def make_manager_based_rl_env(
     cfg: ManagerBasedRlEnvCfg,
     num_envs: int = 1,
     backend_type: str = "mujoco",
+    *,
+    env_cls: type[ManagerBasedRlEnv] | None = None,
 ) -> ManagerBasedRlEnv:
-    """Construct the generic Registry-owned Manager-Based production runtime."""
+    """Construct the shared runtime, optionally using a task-owned subclass.
+
+    The subclass shares the backend allocation and cleanup lifecycle and must
+    accept the same (cfg, backend, num_envs) constructor contract.
+    """
     from unilab.base.registry import (
         _SUPPORTED_SIM_BACKENDS,
     )
 
+    if env_cls is not None and (
+        not isinstance(env_cls, type) or not issubclass(env_cls, ManagerBasedRlEnv)
+    ):
+        raise TypeError("env_cls must be a ManagerBasedRlEnv subclass")
     if not isinstance(cfg, ManagerBasedRlEnvCfg):
         raise TypeError(
             "make_manager_based_rl_env expected ManagerBasedRlEnvCfg, "
@@ -1982,7 +1992,7 @@ def make_manager_based_rl_env(
             require_fixed_variant_support(
                 backend.get_dr_capabilities(), cfg.scene.fixed_variant_plan
             )
-        return ManagerBasedRlEnv(cfg, backend, num_envs)
+        return (ManagerBasedRlEnv if env_cls is None else env_cls)(cfg, backend, num_envs)
     except Exception:
         backend.cleanup_scene_assets()
         raise
