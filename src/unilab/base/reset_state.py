@@ -1457,7 +1457,7 @@ class ResetStateTransaction:
                 message,
             )
             return True
-        return torch.equal(active_mask, reset_mask)
+        return bool(torch.equal(active_mask, reset_mask))
 
     def _tensor_mask_has_outside_rows(
         self, reset_mask: torch.Tensor, active_mask: torch.Tensor

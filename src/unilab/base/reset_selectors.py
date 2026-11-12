@@ -169,9 +169,11 @@ def resolve_reset_mask(
     """Resolve a public reset selector to the internal fixed-width bool mask.
 
     The selector is normalized to ``env_ids`` and scattered into a freshly
-    allocated mask.
+    allocated mask; a ``ResetSelection`` contributes a copy of its mask.
     """
     env_ids = resolve_reset_env_ids(selector, num_envs=num_envs, device=device, owner=owner)
+    if isinstance(env_ids, ResetSelection):
+        return env_ids.mask.clone()
     return reset_env_ids_mask(env_ids, num_envs=num_envs, device=device)
 
 

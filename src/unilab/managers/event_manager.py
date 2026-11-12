@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 from copy import deepcopy
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Literal, cast
 
 import torch
@@ -195,9 +196,7 @@ class EventManager(ManagerBase):
                 assign_rows_(
                     self._interval_term_time_left[index],
                     ids,
-                    lambda count, lower=lower, upper=upper: self._sample_interval(
-                        lower, upper, count
-                    ),
+                    partial(self._sample_interval, lower, upper),
                 )
                 # Resampled rows restart at >= lower; untouched rows keep the
                 # previous host lower bound. Interval apply lowers the bound
@@ -205,7 +204,7 @@ class EventManager(ManagerBase):
                 record_host_transition(
                     self._env,
                     f"event.interval_lower_bound.{index}",
-                    lambda index=index, lower=lower: self._lower_interval_bound(index, lower),
+                    partial(self._lower_interval_bound, index, lower),
                 )
         return {}
 

@@ -1811,7 +1811,9 @@ class ManagerBasedRlEnv(TorchEnv):
         reset_timing: dict[str, float] = {}
         read_plan = self.scene.read_plan
         # An empty explicit reset does not publish a pre-reset recorder boundary.
-        if self._has_transition and (selection is not None or env_ids.numel() > 0):
+        if self._has_transition and (
+            selection is not None or (isinstance(env_ids, torch.Tensor) and env_ids.numel() > 0)
+        ):
             self.recorder_manager.record_pre_reset(env_ids)
         # Match the selected-row lifecycle: curriculum consumes the terminal
         # episode state before reset clears the public counters.

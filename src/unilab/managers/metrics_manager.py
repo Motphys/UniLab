@@ -224,6 +224,8 @@ class MetricsManager(ManagerBase):
                 )
             self._clear_episode_state(ids)
             return {}
+        # A ResetSelection without deferred validation was rejected above.
+        assert not isinstance(ids, ResetSelection)
         extras: dict[str, float] = {}
         counts = self._step_count[ids].to(torch.float32)
         safe_counts = torch.clamp(counts, min=1.0)
