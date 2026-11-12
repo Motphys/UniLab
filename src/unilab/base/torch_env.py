@@ -87,6 +87,17 @@ class TorchEnv(ABEnv):
     rewards fail closed.
     """
 
+    # Fixed-shape step defaults; ``_configure_fixed_shape_step`` overrides them
+    # in the constructor. Declared on the class so constructor-free instances
+    # (unit-test shells built with ``__new__``) take the ordinary step path.
+    _masked_autoreset: bool = False
+    _persistent_step_buffers: bool = False
+    _autoreset_reset_active: bool = False
+    _reset_selection: ResetSelection | None = None
+    _active_graph_capture: ExternalGraphCapture | None = None
+    _autoreset_graph: AutoresetGraph | None = None
+    _published_state: TorchEnvState | None = None
+
     def __init__(
         self,
         cfg: EnvCfg,
