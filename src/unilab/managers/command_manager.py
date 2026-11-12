@@ -9,11 +9,13 @@ import abc
 import math
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Sequence, cast
 
 import torch
 from prettytable import PrettyTable
 
+from unilab.base.host_transitions import record_host_transition
+from unilab.base.reset_selection import ResetSelection, selection_blockers
 from unilab.base.reset_selectors import ResetMaskBuffer, resolve_reset_env_ids
 from unilab.managers.manager_base import ManagerBase, ManagerTermBase
 from unilab.managers.rng import ManagerRng
@@ -58,6 +60,13 @@ class CommandTermCfg(abc.ABC):
 class CommandTerm(ManagerTermBase):
     """Base class for command terms."""
 
+    supports_reset_selection: ClassVar[bool] = False
+    """Whether the whole reset lifecycle (``reset``, ``_resample_command``,
+    ``refresh_reset``, ``post_compute_reset``) accepts a ``ResetSelection``:
+    full-width masked updates with no host read of the reset mask. The base
+    ``reset``/``_resample`` already are; a concrete term opts in once its own
+    hooks are."""
+
     def __init__(self, cfg: CommandTermCfg, env: ManagerBasedRlEnv):
         self.cfg = cfg
         super().__init__(env)
@@ -91,10 +100,14 @@ class CommandTerm(ManagerTermBase):
 
     def reset(
         self,
-        env_ids: torch.Tensor | slice | None = None,
+        env_ids: torch.Tensor | slice | ResetSelection | None = None,
         *,
         publish_metrics: bool = True,
     ) -> dict[str, float]:
+        if isinstance(env_ids, ResetSelection) and not self._deferred_validation_enabled():
+            raise RuntimeError(
+                f"CommandTerm '{self.name}' ResetSelection requires defer_finite_validation"
+            )
         reset_mask = self._reset_mask_buffer.resolve(
             env_ids,
             owner=f"CommandTerm '{self.name}' reset",
@@ -136,7 +149,11 @@ class CommandTerm(ManagerTermBase):
                                 pending = torch.zeros((), dtype=torch.float32, device=self._device)
                                 self._pending_metric_sums[metric_name] = pending
                             pending.add_(selected.sum())
-                        self._pending_metric_dirty = True
+                        record_host_transition(
+                            self._env,
+                            f"command.{self.name}.pending_metrics_dirty",
+                            self._mark_metrics_dirty,
+                        )
                 else:
                     reduced = torch.stack(
                         (
@@ -178,6 +195,9 @@ class CommandTerm(ManagerTermBase):
 
     def _deferred_validation_enabled(self) -> bool:
         return bool(getattr(self._env, "defer_finite_validation", False))
+
+    def _mark_metrics_dirty(self) -> None:
+        self._pending_metric_dirty = True
 
     def publish_pending_reset_metrics(self) -> dict[str, float]:
         """Drain completed episodes only at the environment's host boundary."""
@@ -456,7 +476,20 @@ class CommandManager(ManagerBase):
             terms.append((name, command[env_idx].detach().cpu().tolist()))
         return terms
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        blockers = selection_blockers("CommandManager", self._terms.items())
+        if self._terms and not bool(getattr(self._env, "defer_finite_validation", False)):
+            blockers.append(
+                "CommandManager: reset metrics are read on the host unless "
+                "defer_finite_validation is enabled"
+            )
+        return blockers
+
+    def reset(
+        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
+    ) -> dict[str, float]:
         """Reset command terms for the selected environment rows.
 
         Every term consumes the public ``env_ids`` row selector; the packed
@@ -616,6 +649,11 @@ class CommandManager(ManagerBase):
 
 class NullCommandManager:
     """Placeholder for absent command manager that safely no-ops all operations."""
+
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        return []
 
     def __init__(self):
         self.active_terms: list[str] = []

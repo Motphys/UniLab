@@ -81,6 +81,8 @@ from collections.abc import Sequence
 
 import torch
 
+from unilab.base.reset_selection import ResetSelection
+
 
 def _selector_row_count(ids: Sequence[int] | torch.Tensor | slice, batch_size: int) -> int:
     """Return a selector's row count from host metadata only (no device read)."""
@@ -93,6 +95,12 @@ def _selector_row_count(ids: Sequence[int] | torch.Tensor | slice, batch_size: i
 
 class CircularBuffer:
     """Fixed-length circular buffer for batched tensor history.
+
+    ``reset`` and ``backfill`` also accept a ``ResetSelection`` (fixed-shape
+    masked rows, no host read). A selection reset must be followed by a
+    selection ``backfill`` in the same reset lifecycle, as the observation
+    manager does, so the host-side first-push counter stays exact without
+    knowing how many rows were selected.
 
     Stores history with shape (max_len, batch_size, ...) internally.
     The `buffer` property returns chronologically ordered data (oldest to newest)
@@ -131,6 +139,8 @@ class CircularBuffer:
       max_len: Maximum number of historical frames to retain.
       batch_size: Size of the batch dimension.
     """
+
+    supports_reset_selection = True
 
     def __init__(self, max_len: int, batch_size: int) -> None:
         if max_len < 1:
@@ -187,7 +197,10 @@ class CircularBuffer:
         idx = (torch.arange(self._max_len, device=self._buffer.device) + start) % self._max_len
         return self._buffer[idx].transpose(0, 1)
 
-    def reset(self, batch_ids: Sequence[int] | torch.Tensor | slice | None = None) -> None:
+    def reset(
+        self,
+        batch_ids: Sequence[int] | torch.Tensor | slice | ResetSelection | None = None,
+    ) -> None:
         """Zero out values and counters for specified batch rows.
 
         Args:
@@ -196,6 +209,13 @@ class CircularBuffer:
         # Reset may run before the first append (env bootstrap); bind the
         # counters to the selecting rows' device so later appends, which bind
         # to the observation device, stay consistent.
+        if isinstance(batch_ids, ResetSelection):
+            self._initialize_counters(batch_ids.device)
+            assert self._num_pushes is not None
+            self._num_pushes.masked_fill_(batch_ids.mask, 0)
+            if self._buffer is not None:
+                self._buffer.masked_fill_(batch_ids.row_mask(self._buffer.ndim, row_dim=1), 0.0)
+            return
         device = batch_ids.device if isinstance(batch_ids, torch.Tensor) else None
         self._initialize_counters(device)
         assert self._num_pushes is not None
@@ -208,7 +228,7 @@ class CircularBuffer:
             self._pending_first_push_rows + _selector_row_count(ids, self._batch_size),
         )
 
-    def backfill(self, data: torch.Tensor, batch_ids: torch.Tensor) -> None:
+    def backfill(self, data: torch.Tensor, batch_ids: torch.Tensor | ResetSelection) -> None:
         """Fill the given rows' entire history with one frame, without advancing time.
 
         Unlike append, the global pointer does not move and other rows are
@@ -229,6 +249,11 @@ class CircularBuffer:
             raise TypeError(f"buffer data must be torch.Tensor, got {type(data).__name__}")
         self._initialize_counters(data.device)
         assert self._num_pushes is not None
+        if isinstance(batch_ids, ResetSelection):
+            rows = batch_ids.row_mask(self._buffer.ndim, row_dim=1)
+            self._buffer.copy_(torch.where(rows, data.unsqueeze(0), self._buffer))
+            self._num_pushes.masked_fill_(batch_ids.mask, 1)
+            return
         self._buffer[:, batch_ids] = data[batch_ids].unsqueeze(0)
         self._num_pushes[batch_ids] = 1
         self._pending_first_push_rows = max(

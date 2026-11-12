@@ -6,10 +6,12 @@ import math
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Literal, cast
+from typing import TYPE_CHECKING, Callable, ClassVar, Literal, cast
 
 import torch
 
+from unilab.base.host_transitions import record_host_transition
+from unilab.base.reset_selection import ResetSelection, fill_rows_, is_reset_selection
 from unilab.envs.mdp.actions import JointPositionAction, JointPositionActionCfg
 from unilab.managers import (
     CommandTerm,
@@ -499,6 +501,11 @@ class MotionCommand(CommandTerm):
     """Device-resident motion reference command for Manager owners."""
 
     cfg: MotionCommandCfg
+    # Every reset write is a full-width masked dispatch, so a fixed-shape
+    # ``ResetSelection`` is accepted. Under it the reset always samples (an
+    # all-false mask leaves state unchanged but consumes RNG) instead of
+    # probing the mask on the host.
+    supports_reset_selection: ClassVar[bool] = True
 
     def __init__(self, cfg: MotionCommandCfg, env: ManagerBasedRlEnv):
         _validate_motion_command_cfg(cfg)
@@ -881,11 +888,15 @@ class MotionCommand(CommandTerm):
         return cast("torch.Tensor", self._motion_data.body_ang_vel_w)[:, self.anchor_body_idx]
 
     def reset(
-        self, env_ids: torch.Tensor | slice | None = None, *, publish_metrics: bool = True
+        self,
+        env_ids: torch.Tensor | slice | ResetSelection | None = None,
+        *,
+        publish_metrics: bool = True,
     ) -> dict[str, float]:
         """Selected-row motion command reset."""
         del publish_metrics
         reset_mask = self._reset_mask_buffer.resolve(env_ids, owner="MotionCommand.reset")
+        fixed_shape = is_reset_selection(env_ids)
         if self._env.rng is None:
             raise NotImplementedError(
                 "MotionCommand reset requires the Manager-owned Torch generator"
@@ -910,7 +921,7 @@ class MotionCommand(CommandTerm):
             resample_lower, resample_upper, (self.num_envs,), dtype=torch.float32
         )
         self.time_left.copy_(torch.where(reset_mask, sampled, self.time_left))
-        self._resample_command(reset_mask)
+        self._resample_command(reset_mask, fixed_shape=fixed_shape)
         if (
             env_ids is None
             or (
@@ -997,11 +1008,17 @@ class MotionCommand(CommandTerm):
         finally:
             self._skip_timer_resample = False
 
-    def _resample_command(self, reset_mask: torch.Tensor) -> None:
-        """Full-width motion sampling and masked state publication."""
+    def _resample_command(self, reset_mask: torch.Tensor, *, fixed_shape: bool = False) -> None:
+        """Full-width motion sampling and masked state publication.
+
+        ``fixed_shape`` (a ``ResetSelection`` reset, or any dispatch of an env
+        running ``masked_autoreset``) always samples: the mask is never read on
+        the host, so the dispatch is sync-free and CUDA-graph capturable.
+        """
         if getattr(self, "_skip_timer_resample", False):
             return
-        if not bool(reset_mask.any()):
+        fixed_shape = fixed_shape or bool(getattr(self._env, "masked_autoreset", False))
+        if not fixed_shape and not bool(reset_mask.any()):
             # An empty selected-reset mask is a no-op semantic boundary. It must
             # not consume sampler or task RNG merely to preserve a fixed-width
             # device dispatch (v1.3.5 contract).
@@ -1152,7 +1169,11 @@ class MotionCommand(CommandTerm):
         joint_view = read_plan.joint_tensor_view(self.robot)
         self._robot_joint_pos = joint_view.joint_pos
         self._robot_joint_vel = joint_view.joint_vel
-        self._robot_cache_step = self._env.common_step_counter
+        # The robot cache is fresh for the current step; a graph replay of the
+        # reset segment must re-stamp it with the replaying step.
+        record_host_transition(
+            self._env, "motion_command.robot_cache_step", self._stamp_robot_cache_step
+        )
         rebind_ms = (time.perf_counter() - rebind_started) * 1000.0
         self.last_post_compute_timing_ms = {
             "reset_done_motion_robot_refresh_ms": kernel_ms,
@@ -1161,6 +1182,9 @@ class MotionCommand(CommandTerm):
             "reset_done_motion_post_compute_rebind_ms": rebind_ms,
         }
         self.last_post_compute_timing_ms["reset_done_motion_relative_refresh_ms"] = 0.0
+
+    def _stamp_robot_cache_step(self) -> None:
+        self._robot_cache_step = self._env.common_step_counter
 
     def _sync_tensor_sampler_state(self) -> None:
         cast(torch.Tensor, self.time_steps).copy_(self.tensor_sampler.current_frames)
@@ -1413,12 +1437,14 @@ class MotionJointPositionAction(JointPositionAction):
         """Publish the current latency-adjusted raw-input finite verdict."""
         self.publish_validation_verdict()
 
-    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+    supports_reset_selection: ClassVar[bool] = True
+
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> None:
         super().reset(env_ids)
         if env_ids is None:
             self._previous_raw_actions.zero_()
             return
-        self._previous_raw_actions[env_ids] = 0.0
+        fill_rows_(self._previous_raw_actions, env_ids, 0.0)
 
     def apply_actions(self) -> None:
         if isinstance(self._entity.data.control_buffer, torch.Tensor):
@@ -1553,6 +1579,9 @@ def motion_global_anchor_orientation_error_exp(
 
 
 class _BodyTerm(ManagerTermBase):
+    # Stateless reads of the command carrier: the reset boundary is a no-op.
+    supports_reset_selection: ClassVar[bool] = True
+
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
         command_name = cfg.params.get("command_name")
@@ -1584,7 +1613,7 @@ class _BodyTerm(ManagerTermBase):
             )
         return _command(self._env, command_name), _positive_std(std, term_name=type(self).__name__)
 
-    def reset(self, env_ids: torch.Tensor) -> None:
+    def reset(self, env_ids: torch.Tensor | ResetSelection) -> None:
         """Row boundary for stateless motion reward reads."""
         del env_ids
 
@@ -1718,6 +1747,8 @@ class UndesiredBodyContacts(_BodyTerm):
 class BadAnchorPosZOnly(ManagerTermBase):
     """Anchor-height termination on the command's Torch carrier."""
 
+    supports_reset_selection: ClassVar[bool] = True
+
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
         command_name = cfg.params.get("command_name")
@@ -1745,7 +1776,7 @@ class BadAnchorPosZOnly(ManagerTermBase):
             - robot_anchor_pos[:, command.anchor_body_idx, 2]
         ).abs() > threshold
 
-    def reset(self, env_ids: torch.Tensor) -> None:
+    def reset(self, env_ids: torch.Tensor | ResetSelection) -> None:
         """Row boundary for the stateless termination read."""
         del env_ids
 
