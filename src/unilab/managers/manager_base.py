@@ -119,10 +119,25 @@ class ManagerBase(abc.ABC):
 
         The public selector follows the IsaacLab/mjlab ``env_ids`` row-index
         form (``None`` selects every row); the v1.4 fixed-width bool mask form
-        is removed.
+        is removed. Managers that report no ``reset_selection_blockers`` also
+        accept a ``unilab.base.reset_selection.ResetSelection``.
         """
         del env_ids
         return {}
+
+    def reset_selection_blockers(self) -> list[str]:
+        """Name what prevents this manager from taking a ``ResetSelection``.
+
+        The base ``reset`` is a no-op and accepts any selector. A subclass that
+        overrides ``reset`` is a blocker until it sets
+        ``supports_reset_selection = True`` (and then reports its own
+        unsupported terms by overriding this method).
+        """
+        if type(self).reset is ManagerBase.reset or getattr(
+            type(self), "supports_reset_selection", False
+        ):
+            return []
+        return [f"{type(self).__qualname__}.reset does not accept a ResetSelection"]
 
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         raise NotImplementedError

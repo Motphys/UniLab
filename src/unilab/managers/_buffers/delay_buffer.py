@@ -9,6 +9,8 @@ from collections.abc import Sequence
 
 import torch
 
+from unilab.base.reset_selection import ResetSelection
+
 from unilab.managers._buffers import CircularBuffer
 
 
@@ -120,6 +122,8 @@ class DelayBuffer:
         >>> # But each refresh has 20% chance to keep previous lag
     """
 
+    supports_reset_selection = True
+
     def __init__(
         self,
         min_lag: int = 0,
@@ -186,12 +190,26 @@ class DelayBuffer:
         values = torch.as_tensor(lags, dtype=torch.int64, device=self._device)
         self._current_lags[idx] = values.clamp(self.min_lag, self.max_lag)
 
-    def reset(self, batch_ids: Sequence[int] | torch.Tensor | slice | None = None) -> None:
+    def reset(
+        self,
+        batch_ids: Sequence[int] | torch.Tensor | slice | ResetSelection | None = None,
+    ) -> None:
         """Reset specified environments to initial state.
 
         Args:
-          batch_ids: Batch indices to reset, or None to reset all.
+          batch_ids: Batch indices to reset, or None to reset all. A
+            ``ResetSelection`` resets the masked rows with fixed shapes.
         """
+        if isinstance(batch_ids, ResetSelection):
+            self._buffer.reset(batch_ids=batch_ids)
+            self._current_lags.masked_fill_(batch_ids.mask, 0)
+            self._step_count.masked_fill_(batch_ids.mask, 0)
+            if self.update_period > 0 and self.per_env_phase:
+                new_phases = self._sample_integers(0, self.update_period, shape=(self.batch_size,))
+                self._phase_offsets.copy_(
+                    torch.where(batch_ids.mask, new_phases, self._phase_offsets)
+                )
+            return
         if isinstance(batch_ids, slice):
             indices = range(*batch_ids.indices(self.batch_size))
             batch_ids = list(indices)
@@ -212,7 +230,7 @@ class DelayBuffer:
         """
         self._buffer.append(data)
 
-    def backfill(self, data: torch.Tensor, batch_ids: torch.Tensor) -> None:
+    def backfill(self, data: torch.Tensor, batch_ids: torch.Tensor | ResetSelection) -> None:
         """Backfill the given rows with one frame, without advancing time.
 
         Used after a partial reset: the reset rows (whose lags and step counters

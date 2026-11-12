@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 from prettytable import PrettyTable
 
+from unilab.base.reset_selection import selection_blockers
 from unilab.base.reset_selectors import resolve_reset_env_ids
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
 
@@ -153,6 +154,13 @@ class RewardManager(ManagerBase):
         )
 
     # Methods.
+
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        return selection_blockers(
+            "RewardManager", ((repr(cfg.func), cfg.func) for cfg in self._class_term_cfgs)
+        )
 
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
         """Clear stateful reward terms for the selected environment rows."""

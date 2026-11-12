@@ -14,7 +14,11 @@ callers without a stable owner (tests, fixtures).
 
 from __future__ import annotations
 
+from typing import overload
+
 import torch
+
+from unilab.base.reset_selection import ResetSelection
 
 
 class ResetMaskBuffer:
@@ -40,14 +44,23 @@ class ResetMaskBuffer:
     def device(self) -> torch.device:
         return self._mask.device
 
-    def scatter(self, env_ids: torch.Tensor) -> torch.Tensor:
-        """Rewrite the buffer from row indices and return the aliased mask."""
+    def scatter(self, env_ids: torch.Tensor | ResetSelection) -> torch.Tensor:
+        """Rewrite the buffer from row indices and return the aliased mask.
+
+        A ``ResetSelection`` is copied without scattering (fixed shape, no
+        host read).
+        """
+        if isinstance(env_ids, ResetSelection):
+            self._mask.copy_(env_ids.mask)
+            return self._mask
         self._mask.zero_()
         if env_ids.numel():
             self._mask[env_ids.to(device=self._mask.device, dtype=torch.int64)] = True
         return self._mask
 
-    def resolve(self, selector: torch.Tensor | slice | None, *, owner: str) -> torch.Tensor:
+    def resolve(
+        self, selector: torch.Tensor | slice | ResetSelection | None, *, owner: str
+    ) -> torch.Tensor:
         """Resolve a public reset selector like ``resolve_reset_mask``.
 
         Every selector is normalized to ``env_ids`` and scattered into this
@@ -59,19 +72,50 @@ class ResetMaskBuffer:
         return self.scatter(env_ids)
 
 
+@overload
+def resolve_reset_env_ids(
+    selector: ResetSelection,
+    *,
+    num_envs: int,
+    device: torch.device,
+    owner: str,
+) -> ResetSelection: ...
+
+
+@overload
 def resolve_reset_env_ids(
     selector: torch.Tensor | slice | None,
     *,
     num_envs: int,
     device: torch.device,
     owner: str,
-) -> torch.Tensor:
+) -> torch.Tensor: ...
+
+
+def resolve_reset_env_ids(
+    selector: torch.Tensor | slice | ResetSelection | None,
+    *,
+    num_envs: int,
+    device: torch.device,
+    owner: str,
+) -> torch.Tensor | ResetSelection:
     """Normalize a public reset selector to an int64 row-index tensor.
 
     ``None`` selects every row; a slice selects ``arange(num_envs)[slice]``; an
     integer tensor is validated and moved onto ``device``. Fixed-width bool
     masks are rejected: the v1.4 mask form was removed in v1.5.
+
+    A ``ResetSelection`` is returned unchanged after a host-only structural
+    check: it is the fixed-shape selector of selection-capable participants
+    (see ``unilab.base.reset_selection``), valid by construction.
     """
+    if isinstance(selector, ResetSelection):
+        if selector.num_envs != num_envs or not _same_device(selector.device, device):
+            raise ValueError(
+                f"{owner} ResetSelection covers {selector.num_envs} rows on "
+                f"{selector.device}; expected {num_envs} rows on {device}"
+            )
+        return selector
     if selector is None:
         return torch.arange(num_envs, dtype=torch.int64, device=device)
     if isinstance(selector, slice):
@@ -98,6 +142,13 @@ def resolve_reset_env_ids(
     return ids
 
 
+def _same_device(left: torch.device, right: torch.device | str) -> bool:
+    right = torch.device(right)
+    return left.type == right.type and (
+        left.index is None or right.index is None or left.index == right.index
+    )
+
+
 def reset_env_ids_mask(
     env_ids: torch.Tensor,
     *,
@@ -109,7 +160,7 @@ def reset_env_ids_mask(
 
 
 def resolve_reset_mask(
-    selector: torch.Tensor | slice | None,
+    selector: torch.Tensor | slice | ResetSelection | None,
     *,
     num_envs: int,
     device: torch.device,

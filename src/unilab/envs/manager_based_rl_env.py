@@ -25,6 +25,7 @@ from unisim.backend.base import (
     TensorLifecycleCapabilities,
     TensorProcessTopology,
 )
+from unisim.backend.graph_capture import GraphCaptureError
 
 from unilab.base.backend_factory import (
     SELECTIVE_TRACKED_BODY_BACKENDS,
@@ -45,6 +46,7 @@ from unilab.base.entity import (
     SceneTensorReadPlan,
     SceneTensorReadSpec,
 )
+from unilab.base.reset_selection import ResetSelection
 from unilab.base.reset_selectors import ResetMaskBuffer, resolve_reset_env_ids
 from unilab.base.reset_state import ResetStateTransaction
 from unilab.base.scene import SceneCfg, resolve_scene_default_qpos
@@ -131,6 +133,28 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     critic_observation_group: str | None = None
     defer_finite_validation: bool = True
     finite_validation_interval: int = 1
+    # Fixed-shape, host-sync-free autoreset (opt-in). Every reset participant
+    # must accept a ``ResetSelection`` (see unilab.base.reset_selection); the
+    # env reports unsupported participants by name at init_state. The reset
+    # lifecycle runs on every step (an all-false mask is a no-op), so
+    # full-width reset samplers also draw RNG on steps without a done row and
+    # same-seed trajectories differ from the selected-row lifecycle;
+    # ``final_observation`` is published every step and is meaningful on done
+    # rows only.
+    masked_autoreset: bool = False
+    # Persistent step carriers updated in place (opt-in). Consumers receive a
+    # ring of ``published_buffer_depth`` persistent publication slots; a
+    # published state stays valid for ``published_buffer_depth - 1`` further
+    # steps. ``0`` publishes the working carriers themselves (no copy; the
+    # next step overwrites them in place).
+    persistent_step_buffers: bool = False
+    published_buffer_depth: int = 2
+    # Capture the masked autoreset segment into one CUDA graph (opt-in;
+    # requires masked_autoreset, persistent_step_buffers, a CUDA collector
+    # device and a backend declaring ``external_graph_capture``).
+    autoreset_cuda_graph: bool = False
+    autoreset_graph_warmup: int = 2
+    autoreset_graph_capture_mode: str = "thread_local"
 
     def validate(self) -> None:
         if self.collector_tensor_device is not None:
@@ -197,9 +221,30 @@ class ManagerBasedRlEnvCfg(EnvCfg):
             "auto_reset",
             "scale_rewards_by_dt",
             "defer_finite_validation",
+            "masked_autoreset",
+            "persistent_step_buffers",
+            "autoreset_cuda_graph",
         ):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"ManagerBasedRlEnvCfg {name} must be bool")
+        for name, minimum in (("published_buffer_depth", 0), ("autoreset_graph_warmup", 1)):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"ManagerBasedRlEnvCfg {name} must be an integer >= {minimum}")
+        if self.autoreset_graph_capture_mode not in ("global", "thread_local", "relaxed"):
+            raise ValueError(
+                "ManagerBasedRlEnvCfg autoreset_graph_capture_mode must be 'global', "
+                "'thread_local' or 'relaxed'"
+            )
+        if self.masked_autoreset and not self.defer_finite_validation:
+            raise ValueError("ManagerBasedRlEnvCfg masked_autoreset requires defer_finite_validation")
+        if self.autoreset_cuda_graph and not (
+            self.masked_autoreset and self.persistent_step_buffers
+        ):
+            raise ValueError(
+                "ManagerBasedRlEnvCfg autoreset_cuda_graph requires masked_autoreset and "
+                "persistent_step_buffers"
+            )
         if (
             isinstance(self.finite_validation_interval, bool)
             or not isinstance(self.finite_validation_interval, int)
@@ -405,6 +450,8 @@ class ManagerBasedRlEnv(TorchEnv):
         self._reset_state.set_finite_verdict_sink(
             self._finite_verdict if self.defer_finite_validation else None
         )
+        if self.masked_autoreset:
+            self._reset_state.set_deferred_mask_checks(self.require)
         self.scene = EntityScene.from_scene_cfg(
             cfg.scene,
             backend,
@@ -1300,6 +1347,33 @@ class ManagerBasedRlEnv(TorchEnv):
             device=self.device, dtype=torch.int64
         )
 
+    def reset_selection_blockers(self) -> list[str]:
+        """Collect every reset participant that cannot take a ``ResetSelection``."""
+        blockers: list[str] = []
+        for name in (
+            "curriculum_manager",
+            "event_manager",
+            "command_manager",
+            "observation_manager",
+            "action_manager",
+            "reward_manager",
+            "metrics_manager",
+            "termination_manager",
+            "recorder_manager",
+            "reset_owner_manager",
+        ):
+            manager = getattr(self, name)
+            report = getattr(manager, "reset_selection_blockers", None)
+            if not callable(report):
+                blockers.append(f"{type(manager).__qualname__} has no reset_selection_blockers")
+                continue
+            blockers.extend(report())
+        return blockers
+
+    def _graph_generators(self) -> list[torch.Generator]:
+        generator = self.rng.generator
+        return [generator] if generator.device.type == "cuda" else []
+
     def init_state(self) -> TorchEnvState:
         state = super().init_state()
         # TorchEnv's initial state allocates counters, marks every row
@@ -1314,6 +1388,11 @@ class ManagerBasedRlEnv(TorchEnv):
         state.info["steps"].copy_(initial_steps)
         self.episode_length_buf.copy_(state.info["steps"])
         self.extras = state.info
+        if self.persistent_step_buffers:
+            # The working observation carriers are the env's persistent
+            # ``obs_buf``: update_state and the masked reset write them in place.
+            assert self._state is not None
+            self.obs_buf = self._state.obs
         return state
 
     def step(self, actions: torch.Tensor) -> TorchEnvState:
@@ -1483,24 +1562,31 @@ class ManagerBasedRlEnv(TorchEnv):
         phase_started = time.perf_counter()
 
         mapped_obs = self._map_observations(manager_obs)
-        self.obs_buf = mapped_obs
+        if not self.persistent_step_buffers:
+            self.obs_buf = mapped_obs
         self._has_transition = True
         timing["update_state_map_ms"] = (time.perf_counter() - phase_started) * 1000.0
         phase_started = time.perf_counter()
 
         publish_started = time.perf_counter()
-        public_obs, public_reward, public_terminated, public_truncated = self._publish_step_outputs(
-            mapped_obs
-        )
+        if self.persistent_step_buffers:
+            self._copy_step_outputs(state, mapped_obs)
+        else:
+            public_obs, public_reward, public_terminated, public_truncated = (
+                self._publish_step_outputs(mapped_obs)
+            )
         timing["update_state_publication_ms"] = (time.perf_counter() - publish_started) * 1000.0
 
         replace_started = time.perf_counter()
-        replacement = state.replace(
-            obs=public_obs,
-            reward=public_reward,
-            terminated=public_terminated,
-            truncated=public_truncated,
-        )
+        if self.persistent_step_buffers:
+            replacement = state
+        else:
+            replacement = state.replace(
+                obs=public_obs,
+                reward=public_reward,
+                terminated=public_terminated,
+                truncated=public_truncated,
+            )
         timing["update_state_state_replace_ms"] = (time.perf_counter() - replace_started) * 1000.0
         timing["update_state_publish_ms"] = (time.perf_counter() - phase_started) * 1000.0
         update_children = (
@@ -1652,6 +1738,16 @@ class ManagerBasedRlEnv(TorchEnv):
             eager_truncated = eager_truncated.clone()
         return eager_obs, eager_reward, eager_terminated, eager_truncated
 
+    def _copy_step_outputs(
+        self, state: TorchEnvState, mapped_obs: Mapping[str, torch.Tensor]
+    ) -> None:
+        """Write the step outputs into the persistent working carriers."""
+        for name, values in mapped_obs.items():
+            state.obs[name].copy_(values)
+        state.reward.copy_(self.reward_buf)
+        state.terminated.copy_(self.reset_terminated)
+        state.truncated.copy_(self.reset_time_outs)
+
     def _compute_truncated(self, state: TorchEnvState) -> torch.Tensor:
         return state.truncated
 
@@ -1677,17 +1773,29 @@ class ManagerBasedRlEnv(TorchEnv):
 
     def reset(
         self,
-        env_ids: torch.Tensor | None = None,
+        env_ids: torch.Tensor | ResetSelection | None = None,
         *,
         seed: int | None = None,
     ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
-        """Execute the selected-row (``env_ids``) Manager reset lifecycle."""
+        """Execute the selected-row (``env_ids``) Manager reset lifecycle.
+
+        ``env_ids`` may be a ``ResetSelection`` (fixed-shape rows under a
+        persistent device mask) when every participant supports it; the
+        masked autoreset uses this form.
+        """
         if seed is not None:
             self.seed(seed)
         if self._state is None:
             state = self.init_state()
             return state.obs, {"log": state.info.get("log", {})}
-        if env_ids is None:
+        selection = env_ids if isinstance(env_ids, ResetSelection) else None
+        if selection is not None:
+            if selection is not self._reset_selection:
+                raise ValueError(
+                    "ManagerBasedRlEnv.reset accepts only the env-owned ResetSelection"
+                )
+            reset_mask = self._reset_mask_buffer.scatter(selection)
+        elif env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
             reset_mask = self._all_env_reset_mask
         else:
@@ -1701,7 +1809,7 @@ class ManagerBasedRlEnv(TorchEnv):
         reset_timing: dict[str, float] = {}
         read_plan = self.scene.read_plan
         # An empty explicit reset does not publish a pre-reset recorder boundary.
-        if self._has_transition and env_ids.numel() > 0:
+        if self._has_transition and (selection is not None or env_ids.numel() > 0):
             self.recorder_manager.record_pre_reset(env_ids)
         # Match the selected-row lifecycle: curriculum consumes the terminal
         # episode state before reset clears the public counters.
@@ -1815,6 +1923,11 @@ class ManagerBasedRlEnv(TorchEnv):
                 torch.where(reset_mask[:, None], reset_obs[name], self._state.obs[name])
             )
         self._autoreset_scattered_reset_obs = True
+        if selection is not None and log and self._active_graph_capture is not None:
+            raise GraphCaptureError(
+                "a captured reset cannot replay host log entries published by reset "
+                f"participants: {sorted(log)}"
+            )
         step_log = self._state.info.get("log")
         if step_log:
             log = {**step_log, **log}
@@ -1825,15 +1938,22 @@ class ManagerBasedRlEnv(TorchEnv):
         self.reset_buf.masked_fill_(reset_mask, False)
         self.reset_terminated.masked_fill_(reset_mask, False)
         self.reset_time_outs.masked_fill_(reset_mask, False)
-        for name, values in mapped_obs.items():
-            if set(self.obs_buf) != set(mapped_obs):
-                self.obs_buf = mapped_obs
-            else:
-                self.obs_buf[name].copy_(
-                    torch.where(reset_mask[:, None], values, self.obs_buf[name])
-                )
+        if self.obs_buf is not self._state.obs:
+            for name, values in mapped_obs.items():
+                if set(self.obs_buf) != set(mapped_obs):
+                    self.obs_buf = mapped_obs
+                else:
+                    self.obs_buf[name].copy_(
+                        torch.where(reset_mask[:, None], values, self.obs_buf[name])
+                    )
         self.extras = self._state.info
         self.recorder_manager.record_post_reset(env_ids)
+        if self.persistent_step_buffers and not self._autoreset_reset_active:
+            # A caller-driven reset is its own publication boundary.
+            self._publish_step_state()
+            published = self.state
+            assert published is not None
+            return published.obs, {"log": log}
         return self._state.obs, {"log": log}
 
     def _map_observations(

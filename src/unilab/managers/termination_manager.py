@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Sequence
 import torch
 from prettytable import PrettyTable
 
+from unilab.base.host_transitions import record_host_transition
+from unilab.base.reset_selection import ResetSelection, selection_blockers
 from unilab.base.reset_selectors import resolve_reset_env_ids
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
 
@@ -99,25 +101,51 @@ class TerminationManager(ManagerBase):
 
     # Methods.
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, int]:
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        blockers = selection_blockers(
+            "TerminationManager", ((repr(cfg.func), cfg.func) for cfg in self._class_term_cfgs)
+        )
+        if not self._deferred_validation_enabled():
+            blockers.append(
+                "TerminationManager: episode counts are read on the host unless "
+                "defer_finite_validation is enabled"
+            )
+        return blockers
+
+    def reset(
+        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
+    ) -> dict[str, int]:
         """Publish episodic counts and clear terms for the selected rows."""
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="TerminationManager.reset"
         )
         extras: dict[str, int] = {}
         keys = list(self._term_dones)
-        counts = [self._term_dones[key][ids].sum() for key in keys]
+        if isinstance(ids, ResetSelection):
+            if not self._deferred_validation_enabled():
+                raise RuntimeError(
+                    "TerminationManager ResetSelection requires defer_finite_validation"
+                )
+            counts = [(self._term_dones[key] & ids.mask).sum() for key in keys]
+            selected_rows = True
+        else:
+            counts = [self._term_dones[key][ids].sum() for key in keys]
+            selected_rows = ids.numel() > 0
         if self._deferred_validation_enabled():
             # Accumulate counts on the device; the env's poll boundary drains
             # them through publish_pending_reset_metrics (the command/metrics
             # pending-buffer pattern), so resets never read the device.
-            if counts and ids.numel() > 0:
+            if counts and selected_rows:
                 pending = self._pending_term_counts
                 if pending is None:
                     pending = torch.zeros(len(keys), dtype=torch.int64, device=self._device)
                     self._pending_term_counts = pending
                 pending.add_(torch.stack(counts))
-                self._pending_counts_dirty = True
+                record_host_transition(
+                    self._env, "termination.pending_counts_dirty", self._mark_counts_dirty
+                )
         else:
             host_counts = torch.stack(counts).detach().cpu().tolist() if counts else []
             for key, count in zip(keys, host_counts, strict=True):
@@ -129,6 +157,9 @@ class TerminationManager(ManagerBase):
                 )
             term_cfg.func.reset(ids)
         return extras
+
+    def _mark_counts_dirty(self) -> None:
+        self._pending_counts_dirty = True
 
     def publish_pending_reset_metrics(self) -> dict[str, int]:
         """Drain accumulated episode counts at the environment's host boundary."""

@@ -30,12 +30,15 @@ from unisim.backend.base import (
     TensorExecution,
     torch_device_matches,
 )
+from unisim.backend.graph_capture import DeviceVerdicts, ExternalGraphCapture
 
 from unilab.base.backend_timing import (
     RESET_DONE_DETAIL_TIMING_KEYS,
 )
+from unilab.base.autoreset_graph import AutoresetGraph
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.cpu_runtime import apply_cpu_confinement
+from unilab.base.reset_selection import ResetSelection
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
 
@@ -125,6 +128,78 @@ class TorchEnv(ABEnv):
             raise ValueError("finite_validation_interval must be a positive integer")
         self._finite_validation_interval = interval
         self._finite_verdict = torch.ones((), dtype=torch.bool, device=self._device)
+        # Named deferred fail-closed checks (``require``); published together
+        # with ``_finite_verdict`` by the single read in poll_finite_validation.
+        self._verdicts = DeviceVerdicts()
+        self._configure_fixed_shape_step(cfg)
+
+    def _configure_fixed_shape_step(self, cfg: EnvCfg) -> None:
+        """Resolve the opt-in sync-free / graph-capturable step switches.
+
+        - ``masked_autoreset``: autoreset runs every step as a fixed-shape
+          ``reset(ResetSelection)`` under the device done mask (no ``any()``
+          gate, no ``nonzero``); requires deferred finite validation.
+        - ``persistent_step_buffers``: the working step carriers (observations,
+          reward, terminated, truncated) are allocated once and updated with
+          ``copy_``; consumers receive a ring of ``published_buffer_depth``
+          persistent slots (``0`` publishes the working carriers themselves).
+        - ``autoreset_cuda_graph``: the masked autoreset segment is captured into
+          one CUDA graph after ``autoreset_graph_warmup`` eager executions and
+          replayed afterwards; requires both switches above, a CUDA device and
+          a backend declaring ``external_graph_capture``.
+        """
+
+        def flag(name: str) -> bool:
+            value = getattr(cfg, name, False)
+            if not isinstance(value, bool):
+                raise TypeError(f"{name} must be bool, got {type(value).__name__}")
+            return value
+
+        def bounded_int(name: str, default: int, minimum: int) -> int:
+            value = getattr(cfg, name, default)
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"{name} must be an integer >= {minimum}, got {value!r}")
+            return value
+
+        self._masked_autoreset = flag("masked_autoreset")
+        self._persistent_step_buffers = flag("persistent_step_buffers")
+        self._autoreset_cuda_graph = flag("autoreset_cuda_graph")
+        self._published_buffer_depth = bounded_int("published_buffer_depth", 2, 0)
+        self._autoreset_graph_warmup = bounded_int("autoreset_graph_warmup", 2, 1)
+        capture_mode = getattr(cfg, "autoreset_graph_capture_mode", "thread_local")
+        if capture_mode not in ("global", "thread_local", "relaxed"):
+            raise ValueError(
+                "autoreset_graph_capture_mode must be 'global', 'thread_local' or 'relaxed'; "
+                f"got {capture_mode!r}"
+            )
+        self._autoreset_graph_capture_mode = capture_mode
+        if self._masked_autoreset and not self._defer_finite_validation:
+            raise ValueError(
+                "masked_autoreset requires defer_finite_validation: its fail-closed checks "
+                "are published at the deferred validation boundary"
+            )
+        if self._autoreset_cuda_graph:
+            if not (self._masked_autoreset and self._persistent_step_buffers):
+                raise ValueError(
+                    "autoreset_cuda_graph requires masked_autoreset and persistent_step_buffers"
+                )
+            if self._device.type != "cuda":
+                raise ValueError(
+                    f"autoreset_cuda_graph requires a CUDA env device, got {self._device}"
+                )
+        self._reset_selection: ResetSelection | None = (
+            ResetSelection.allocate(self._num_envs, self._device)
+            if self._masked_autoreset
+            else None
+        )
+        # Device mirror of ``step_counter`` for reset participants that record
+        # the trigger step inside a fixed-shape (and possibly captured) reset.
+        self._step_counter_tensor = torch.zeros((), dtype=torch.int64, device=self._device)
+        self._active_graph_capture: ExternalGraphCapture | None = None
+        self._autoreset_graph: AutoresetGraph | None = None
+        self._publication_ring: list[TorchEnvState] = []
+        self._publication_cursor = 0
+        self._published_state: TorchEnvState | None = None
 
     @property
     def device(self) -> torch.device:
@@ -181,7 +256,63 @@ class TorchEnv(ABEnv):
 
     @property
     def state(self) -> Optional[TorchEnvState]:
+        """The latest published transition.
+
+        With ``persistent_step_buffers`` this is a publication slot whose
+        tensors stay unchanged for ``published_buffer_depth - 1`` further
+        steps (or, at depth 0, the working carriers that the next step
+        overwrites in place).
+        """
+        if self._published_state is not None:
+            return self._published_state
         return self._state
+
+    @property
+    def masked_autoreset(self) -> bool:
+        return self._masked_autoreset
+
+    @property
+    def persistent_step_buffers(self) -> bool:
+        return self._persistent_step_buffers
+
+    @property
+    def step_counter_tensor(self) -> torch.Tensor:
+        """0-d int64 device mirror of ``step_counter`` (fixed address)."""
+        return self._step_counter_tensor
+
+    @property
+    def autoreset_graph(self) -> AutoresetGraph | None:
+        return self._autoreset_graph
+
+    def require(self, ok: torch.Tensor, name: str, message: str) -> None:
+        """Fail-closed check of a 0-d bool device verdict.
+
+        With deferred finite validation the verdict is AND-ed into the named
+        persistent flag ``name`` (no host read, CUDA-graph safe) and published
+        at the next ``poll_finite_validation`` boundary, which raises
+        ``ValueError(message)``. Otherwise it is read now and raises at once.
+        """
+        if self._defer_finite_validation:
+            self._verdicts.record(name, ok, message)
+            return
+        if not bool(ok):
+            raise ValueError(message)
+
+    def record_host_transition(self, name: str, transition: Callable[[], None]) -> None:
+        """Run a host-state update and replay it after autoreset graph replays.
+
+        See ``unilab.base.host_transitions``. Outside a capture this simply
+        runs ``transition``.
+        """
+        capture = self._active_graph_capture
+        if capture is None:
+            transition()
+            return
+        capture.record_host_transition(f"env.{name}", transition)
+
+    def reset_selection_blockers(self) -> list[str]:
+        """Reset participants that cannot take a ``ResetSelection``."""
+        return [f"{type(self).__qualname__} does not implement a ResetSelection reset"]
 
     @property
     def obs_groups_spec(self) -> dict[str, int]:
@@ -224,11 +355,26 @@ class TorchEnv(ABEnv):
             info={"steps": initial_steps},
         )
         self._last_initial_episode_steps = initial_steps.clone()
+        if self._masked_autoreset:
+            blockers = self.reset_selection_blockers()
+            if blockers:
+                raise NotImplementedError(
+                    "masked_autoreset needs every reset participant to accept a "
+                    "ResetSelection; unsupported: " + "; ".join(blockers)
+                )
         # terminated is statically all-ones here; the bootstrap reset must not
-        # re-read the done mask from the device.
+        # re-read the done mask from the device. The bootstrap is a cold path
+        # and always uses explicit row ids.
         self._reset_done_envs(done_active=True)
         self._clear_step_final_observation()
-        return self._state
+        if self._autoreset_cuda_graph and self._autoreset_graph is None:
+            self._autoreset_graph = self._build_autoreset_graph()
+        if self._persistent_step_buffers:
+            self._allocate_publication_ring()
+            self._publish_step_state()
+        state = self.state
+        assert state is not None
+        return state
 
     def _initial_episode_steps(self) -> torch.Tensor:
         """Allocate the public int64 episode counter tensor before reset."""
@@ -333,6 +479,8 @@ class TorchEnv(ABEnv):
 
         self._state.info["steps"] += 1
         self.step_counter += 1
+        if self._masked_autoreset:
+            self._step_counter_tensor.fill_(self.step_counter)
         truncated = self._compute_truncated(self._state)
         self._state.truncated.logical_or_(truncated)
 
@@ -344,21 +492,32 @@ class TorchEnv(ABEnv):
         # synchronization point after an event-backed asynchronous backend
         # step, so its wait belongs to the backend step phase rather than to
         # reset bookkeeping.
-        did_reset = self._autoreset and bool((self._state.terminated | self._state.truncated).any())
+        # The fixed-shape autoreset has no gate: it runs every step under the
+        # device done mask, so nothing here reads the device.
+        did_reset = self._autoreset and (
+            self._masked_autoreset
+            or bool((self._state.terminated | self._state.truncated).any())
+        )
         step_core_ms += (time.perf_counter() - phase) * 1000.0
         step_core_cpu_ms += (_cpu_time() - phase_cpu) * 1000.0
 
         phase = time.perf_counter()
         phase_cpu = _cpu_time()
         if did_reset:
-            self._reset_done_envs(done_active=True)
+            if self._masked_autoreset:
+                self._run_masked_autoreset()
+            else:
+                self._reset_done_envs(done_active=True)
         reset_done_ms = (time.perf_counter() - phase) * 1000.0
         reset_done_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
         self.poll_finite_validation()
 
         timing = self._state.info.setdefault("timing", {})
-        if not did_reset:
+        if not did_reset or self._masked_autoreset:
+            # The fixed-shape path has no host row count or per-phase split.
             self._clear_reset_done_detail_timing(timing)
+            if did_reset:
+                timing["reset_done_reset_call_ms"] = reset_done_ms
         timing["env_step_total_ms"] = (time.perf_counter() - started) * 1000.0
         timing["action_validate_ms"] = action_validate_ms
         timing["apply_action_ms"] = apply_action_ms
@@ -383,7 +542,11 @@ class TorchEnv(ABEnv):
             completion = backend_result.get("completion")
             if completion is not None:
                 self._state.info["completion"] = completion
-        return self._state
+        if self._persistent_step_buffers:
+            self._publish_step_state()
+        state = self.state
+        assert state is not None
+        return state
 
     @property
     def requires_substep_state_feedback(self) -> bool:
@@ -764,6 +927,111 @@ class TorchEnv(ABEnv):
         self._clear_reset_done_detail_timing(timing)
         timing.update(detail_timing)
 
+    def _run_masked_autoreset(self) -> None:
+        """Execute the fixed-shape autoreset, eagerly or by graph replay."""
+        graph = self._autoreset_graph
+        if graph is not None:
+            graph.run()
+        else:
+            self._masked_autoreset_body()
+
+    def _masked_autoreset_body(self) -> None:
+        """Fixed-shape autoreset: device work plus declared host transitions.
+
+        Every tensor written here has a fixed address (persistent working
+        carriers, the persistent ``ResetSelection`` mask, final-observation
+        scratch), nothing reads the device from the host, and host state that
+        the rest of the step changes is updated only through
+        ``record_host_transition``. That makes the body capturable as one CUDA
+        graph (``autoreset_cuda_graph``) with no eager epilogue.
+        """
+        assert self._state is not None
+        selection = self._reset_selection
+        assert selection is not None
+        state = self._state
+        done = selection.mask
+        torch.logical_or(state.terminated, state.truncated, out=done)
+        self._reset_done_count.copy_(done.sum())
+        state.info["steps"].masked_fill_(done, 0)
+        final_observation = self._ensure_final_observation_scratch()
+        for name, values in state.obs.items():
+            final_observation[name].copy_(values)
+        # step() clears final_observation before update_state on every step.
+        self.record_host_transition("final_observation", self._publish_final_observation)
+        self._autoreset_reset_active = True
+        self._autoreset_scattered_reset_obs = False
+        try:
+            new_obs, reset_info = self.reset(selection)  # type: ignore[arg-type]
+        finally:
+            self._autoreset_reset_active = False
+        if not self._autoreset_scattered_reset_obs:
+            self._validate_reset_observation_mask(new_obs)
+            for name, values in new_obs.items():
+                state.obs[name].copy_(torch.where(done[:, None], values, state.obs[name]))
+        self._scatter_reset_info_mask(reset_info, done)
+
+    def _publish_final_observation(self) -> None:
+        assert self._state is not None
+        self._state.final_observation = self._final_observation_scratch
+
+    def _build_autoreset_graph(self) -> AutoresetGraph:
+        capabilities = self._backend.get_tensor_capabilities()
+        if not getattr(capabilities, "external_graph_capture", False):
+            raise NotImplementedError(
+                f"autoreset_cuda_graph requires backend '{self._backend.backend_type}' to "
+                "declare the external_graph_capture tensor capability"
+            )
+        return AutoresetGraph(
+            backend=self._backend,
+            device=self._device,
+            body=self._masked_autoreset_body,
+            bind_capture=self._bind_graph_capture,
+            generators=self._graph_generators(),
+            warmup=self._autoreset_graph_warmup,
+            capture_error_mode=self._autoreset_graph_capture_mode,
+        )
+
+    def _bind_graph_capture(self, capture: ExternalGraphCapture | None) -> None:
+        self._active_graph_capture = capture
+
+    def _graph_generators(self) -> list[torch.Generator]:
+        """CUDA generators consumed by the autoreset segment (besides the default)."""
+        return []
+
+    def _allocate_publication_ring(self) -> None:
+        assert self._state is not None
+        if self._publication_ring or self._published_buffer_depth == 0:
+            return
+        state = self._state
+        self._publication_ring = [
+            TorchEnvState(
+                obs={name: torch.empty_like(value) for name, value in state.obs.items()},
+                reward=torch.empty_like(state.reward),
+                terminated=torch.empty_like(state.terminated),
+                truncated=torch.empty_like(state.truncated),
+                info=state.info,
+            )
+            for _ in range(self._published_buffer_depth)
+        ]
+
+    def _publish_step_state(self) -> None:
+        """Publish the working carriers into the next persistent ring slot."""
+        state = self._state
+        assert state is not None
+        if self._published_buffer_depth == 0:
+            self._published_state = state
+            return
+        slot = self._publication_ring[self._publication_cursor]
+        self._publication_cursor = (self._publication_cursor + 1) % self._published_buffer_depth
+        for name, value in state.obs.items():
+            slot.obs[name].copy_(value)
+        slot.reward.copy_(state.reward)
+        slot.terminated.copy_(state.terminated)
+        slot.truncated.copy_(state.truncated)
+        slot.info = state.info
+        slot.final_observation = state.final_observation
+        self._published_state = slot
+
     def _validate_reset_observation_mask(self, obs: Mapping[str, torch.Tensor]) -> None:
         if not isinstance(obs, dict) or set(obs) != set(self.obs_groups_spec):
             raise ValueError("TorchEnv mask reset observations do not match obs_groups_spec")
@@ -1073,10 +1341,15 @@ class TorchEnv(ABEnv):
             if isinstance(bad_verdict, torch.Tensor):
                 guard_bad = bad_verdict
                 verdicts.append(torch.logical_not(bad_verdict))
+        named_sets = self._named_verdict_sets()
+        for named in named_sets:
+            verdicts.extend(named.device_flags())
 
         valid = bool(torch.stack(verdicts).all().detach().cpu().item())
         if valid:
             self._finite_verdict.fill_(True)
+            for named in named_sets:
+                named.clear()
             for manager in managers:
                 reset = getattr(manager, "reset_finite_verdict", None)
                 if callable(reset):
@@ -1088,6 +1361,9 @@ class TorchEnv(ABEnv):
             return True
 
         # Detailed scans and diagnostics are reserved for the abnormal path.
+        for named in named_sets:
+            # Raises ValueError naming every failed fail-closed check.
+            named.flush()
         base_valid = bool(self._finite_verdict.detach().cpu().item())
         self._finite_verdict.fill_(True)
         if guard is not None and guard_bad is not None:
@@ -1106,6 +1382,16 @@ class TorchEnv(ABEnv):
         if handled_nonfatal and base_valid:
             return True
         raise ValueError("TorchEnv deferred finite validation detected NaN or Inf")
+
+    def _named_verdict_sets(self) -> list[DeviceVerdicts]:
+        """Env-owned and backend-owned named verdicts, for the single poll read."""
+        sets = [self._verdicts]
+        backend_verdicts = getattr(self._backend, "tensor_validation_verdicts", None)
+        if callable(backend_verdicts):
+            backend_set = backend_verdicts()
+            if isinstance(backend_set, DeviceVerdicts):
+                sets.append(backend_set)
+        return [named for named in sets if len(named)]
 
     def set_nan_guard(self, guard: NanGuard) -> None:
         """Attach the owner-provided diagnostic guard.

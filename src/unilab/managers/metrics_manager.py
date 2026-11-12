@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Literal, Sequence
 import torch
 from prettytable import PrettyTable
 
+from unilab.base.host_transitions import record_host_transition
+from unilab.base.reset_selection import ResetSelection, fill_rows_, selection_blockers
 from unilab.base.reset_selectors import resolve_reset_env_ids
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
 
@@ -169,18 +171,40 @@ class MetricsManager(ManagerBase):
         )
         self._clear_episode_state(ids)
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        blockers = selection_blockers(
+            "MetricsManager", ((repr(cfg.func), cfg.func) for cfg in self._class_term_cfgs)
+        )
+        if self._term_names and not self._defer_finite_validation:
+            blockers.append(
+                "MetricsManager: episode summaries are read on the host unless "
+                "defer_finite_validation is enabled"
+            )
+        return blockers
+
+    def reset(
+        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
+    ) -> dict[str, float]:
         """Publish episode summaries and clear state for the selected rows."""
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="MetricsManager.reset"
         )
+        if isinstance(ids, ResetSelection) and not self._defer_finite_validation:
+            raise RuntimeError("MetricsManager ResetSelection requires defer_finite_validation")
         if self._defer_finite_validation:
-            reset_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self._device)
-            reset_mask[ids] = True
+            if isinstance(ids, ResetSelection):
+                reset_mask = ids.mask
+                selected_rows = True
+            else:
+                reset_mask = torch.zeros(self.num_envs, dtype=torch.bool, device=self._device)
+                reset_mask[ids] = True
+                selected_rows = ids.numel() > 0
             runtime_reset = int(getattr(self._env, "step_counter", 0)) > 0 or bool(
                 getattr(self._env, "_has_transition", False)
             )
-            if runtime_reset and ids.numel() > 0:
+            if runtime_reset and selected_rows:
                 completed = reset_mask & (self._step_count > 0)
                 self._pending_episode_count += completed.sum()
                 safe_counts = self._step_count.to(torch.float32).clamp_min(1.0)
@@ -195,7 +219,9 @@ class MetricsManager(ManagerBase):
                     else:
                         values = self._episode_sums[key] / safe_counts
                     self._pending_episode_sums[key].add_(torch.where(completed, values, 0.0).sum())
-                self._pending_episode_dirty = True
+                record_host_transition(
+                    self._env, "metrics.pending_episode_dirty", self._mark_episode_dirty
+                )
             self._clear_episode_state(ids)
             return {}
         extras: dict[str, float] = {}
@@ -236,15 +262,18 @@ class MetricsManager(ManagerBase):
             for name, value in zip(self._term_names, means, strict=True)
         }
 
-    def _clear_episode_state(self, env_ids: torch.Tensor) -> None:
+    def _mark_episode_dirty(self) -> None:
+        self._pending_episode_dirty = True
+
+    def _clear_episode_state(self, env_ids: torch.Tensor | ResetSelection) -> None:
         """Clear episode accumulators for the selected rows."""
         for key in self._episode_sums:
-            self._episode_sums[key][env_ids] = 0.0
+            fill_rows_(self._episode_sums[key], env_ids, 0.0)
             if key in self._episode_max:
-                self._episode_max[key][env_ids] = float("-inf")
-        self._step_count[env_ids] = 0
+                fill_rows_(self._episode_max[key], env_ids, float("-inf"))
+        fill_rows_(self._step_count, env_ids, 0)
         for buf in self._substep_accum:
-            buf[env_ids] = 0.0
+            fill_rows_(buf, env_ids, 0.0)
         for term_cfg in self._class_term_cfgs:
             if not callable(getattr(term_cfg.func, "reset", None)):
                 raise NotImplementedError(
@@ -346,6 +375,11 @@ class MetricsManager(ManagerBase):
 
 class NullMetricsManager:
     """Placeholder for absent metrics manager that safely no-ops all operations."""
+
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        return []
 
     def __init__(self):
         self.active_terms: list[str] = []

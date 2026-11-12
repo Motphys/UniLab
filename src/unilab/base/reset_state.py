@@ -10,7 +10,7 @@ task configuration, IPC, runners, or backend-private state.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
@@ -99,6 +99,7 @@ class ResetStateTransaction:
     ) -> None:
         self._backend = backend
         self._num_envs = backend.num_envs
+        self._deferred_mask_require: Callable[[torch.Tensor, str, str], None] | None = None
         self._selected_default_qpos = default_qpos
         self.scene_layout = scene_layout
         if scene_layout is not None and any(
@@ -169,6 +170,21 @@ class ResetStateTransaction:
     def active(self) -> bool:
         """Whether a reset lifecycle currently owns the transaction."""
         return self._active or self._tensor_active
+
+    def set_deferred_mask_checks(
+        self, require: Callable[[torch.Tensor, str, str], None] | None
+    ) -> None:
+        """Route fixed-width mask consistency checks through ``require``.
+
+        ``require(ok, name, message)`` latches a 0-d bool device verdict that
+        the owning environment publishes at its single host boundary. While
+        installed, the transaction never reads a mask on the host: equality and
+        containment checks become deferred verdicts, and the empty-mask
+        short-circuit is skipped (a masked commit of zero rows is a no-op).
+        The environment installs it only for fixed-shape (``ResetSelection``)
+        autoresets; ``None`` restores the eager checks.
+        """
+        self._deferred_mask_require = require
 
     def set_finite_verdict_sink(self, verdict: torch.Tensor | None) -> None:
         """Accumulate reset payload finite verdicts into the env's carrier.
@@ -1121,7 +1137,11 @@ class ResetStateTransaction:
                     "the active mask"
                 )
             self._record_tensor_write_mask(reset_mask)
-        elif not torch.equal(active_mask, reset_mask):
+        elif not self._same_mask(
+            active_mask,
+            reset_mask,
+            f"EventManager term '{term_name}' attempted default reset outside the active mask",
+        ):
             raise ValueError(
                 f"EventManager term '{term_name}' attempted default reset outside the active mask"
             )
@@ -1221,7 +1241,12 @@ class ResetStateTransaction:
                     f"EventManager term '{term_name}' attempted joint-state mutation outside "
                     "the active mask"
                 )
-        elif not torch.equal(active_mask, reset_mask):
+        elif not self._same_mask(
+            active_mask,
+            reset_mask,
+            f"EventManager term '{term_name}' attempted joint-state mutation outside "
+            "the active mask",
+        ):
             raise ValueError(
                 f"EventManager term '{term_name}' attempted joint-state mutation outside "
                 "the active mask"
@@ -1401,7 +1426,11 @@ class ResetStateTransaction:
                     f"ManagerBased tensor mask {capability} attempted a write outside "
                     "the active mask"
                 )
-        elif not torch.equal(reset_mask, self._tensor_active_mask):
+        elif not self._same_mask(
+            self._tensor_active_mask,
+            reset_mask,
+            f"ManagerBased tensor mask {capability} must use the transaction mask",
+        ):
             raise ValueError(f"ManagerBased tensor mask {capability} must use the transaction mask")
         self._requesting_terms.add(capability)
         return self._tensor_active_mask
@@ -1416,12 +1445,38 @@ class ResetStateTransaction:
             return reset_mask & active_mask
         return reset_mask
 
+    def _same_mask(self, active_mask: torch.Tensor, reset_mask: torch.Tensor, message: str) -> bool:
+        """Whether ``reset_mask`` equals the transaction mask (deferred if installed)."""
+        if reset_mask is active_mask:
+            return True
+        require = self._deferred_mask_require
+        if require is not None:
+            require(
+                torch.eq(reset_mask, active_mask).all(),
+                "reset_state.transaction_mask",
+                message,
+            )
+            return True
+        return torch.equal(active_mask, reset_mask)
+
     def _tensor_mask_has_outside_rows(
         self, reset_mask: torch.Tensor, active_mask: torch.Tensor
     ) -> bool:
+        require = self._deferred_mask_require
+        if require is not None:
+            require(
+                ~(reset_mask & ~active_mask).any(),
+                "reset_state.outside_rows",
+                "ManagerBased tensor mask write outside the active mask",
+            )
+            return False
         return bool((reset_mask & ~active_mask).any())
 
     def _mask_is_empty(self, reset_mask: torch.Tensor) -> bool:
+        if self._deferred_mask_require is not None:
+            # Fixed-shape mode: masked writes and the masked backend commit are
+            # no-ops for unselected rows, so emptiness is never decided on host.
+            return False
         self._mask_count.copy_(reset_mask.sum())
         return bool(self._mask_count.item() == 0)
 
@@ -2458,7 +2513,11 @@ class ResetStateTransaction:
             )
         if not values.is_floating_point():
             raise TypeError(f"EventManager term '{term_name}' {capability} must be floating")
-        if not bool(torch.isfinite(values).all()):
+        sink = self._finite_verdict_sink
+        if sink is not None:
+            # Deferred mode: latch on the env carrier; its poll boundary raises.
+            sink.logical_and_(torch.isfinite(values).all())
+        elif not bool(torch.isfinite(values).all()):
             raise ValueError(f"EventManager term '{term_name}' {capability} contains NaN or Inf")
         return values.contiguous()
 

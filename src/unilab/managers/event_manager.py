@@ -13,6 +13,13 @@ from typing import TYPE_CHECKING, Literal, cast
 import torch
 from prettytable import PrettyTable
 
+from unilab.base.host_transitions import record_host_transition
+from unilab.base.reset_selection import (
+    ResetSelection,
+    assign_rows_,
+    fill_rows_,
+    selection_blockers,
+)
 from unilab.base.reset_selectors import resolve_reset_env_ids
 from unilab.managers.manager_base import ManagerBase, ManagerTermBaseCfg
 from unilab.managers.rng import ManagerRng
@@ -150,7 +157,26 @@ class EventManager(ManagerBase):
                 return self._mode_term_cfgs[mode][index]
         raise ValueError(f"Event term '{term_name}' not found in active terms.")
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        """Reset-mode terms and stateful step/interval terms must opt in."""
+        participants = [
+            (name, cfg.func)
+            for name, cfg in zip(
+                self._mode_term_names.get("reset", ()),
+                self._mode_term_cfgs.get("reset", ()),
+                strict=True,
+            )
+        ]
+        for mode, mode_cfg in self._mode_class_term_cfgs.items():
+            if mode != "reset":
+                participants.extend((f"{mode}:{cfg.func!r}", cfg.func) for cfg in mode_cfg)
+        return selection_blockers("EventManager", participants)
+
+    def reset(
+        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
+    ) -> dict[str, float]:
         """Clear stateful event terms for the selected environment rows."""
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="EventManager.reset"
@@ -166,14 +192,27 @@ class EventManager(ManagerBase):
             if not term_cfg.is_global_time:
                 assert term_cfg.interval_range_s is not None
                 lower, upper = term_cfg.interval_range_s
-                sampled = self._sample_interval(lower, upper, ids.numel())
-                self._interval_term_time_left[index][ids] = sampled
+                assign_rows_(
+                    self._interval_term_time_left[index],
+                    ids,
+                    lambda count, lower=lower, upper=upper: self._sample_interval(
+                        lower, upper, count
+                    ),
+                )
                 # Resampled rows restart at >= lower; untouched rows keep the
-                # previous host lower bound.
-                self._interval_host_time_left_lb[index] = min(
-                    self._interval_host_time_left_lb[index], lower
+                # previous host lower bound. Interval apply lowers the bound
+                # between resets, so a captured reset must replay this update.
+                record_host_transition(
+                    self._env,
+                    f"event.interval_lower_bound.{index}",
+                    lambda index=index, lower=lower: self._lower_interval_bound(index, lower),
                 )
         return {}
+
+    def _lower_interval_bound(self, index: int, lower: float) -> None:
+        self._interval_host_time_left_lb[index] = min(
+            self._interval_host_time_left_lb[index], lower
+        )
 
     def apply(
         self,
@@ -207,6 +246,9 @@ class EventManager(ManagerBase):
             # instead of leaking a slice into event functions.
             if env_ids is None or isinstance(env_ids, slice):
                 raise ValueError("Event mode 'reset' requires concrete environment indices.")
+            if isinstance(env_ids, ResetSelection):
+                self._apply_reset_selection(env_ids)
+                return
             self._apply_reset(env_ids, global_env_step_count=cast(int, global_env_step_count))
             return
 
@@ -286,7 +328,44 @@ class EventManager(ManagerBase):
                     )
                     term_cfg.func(self._env, valid_env_ids, **term_cfg.params)
 
+    def _apply_reset_selection(self, selection: ResetSelection) -> None:
+        """Fixed-shape reset dispatch: every term sees a ``ResetSelection``.
+
+        The trigger step comes from the env's device step counter, not a host
+        integer, so a captured dispatch stays correct on replay. Terms with a
+        ``min_step_count_between_reset`` receive their own selection whose mask
+        is narrowed to the rows allowed to trigger (possibly empty).
+        """
+        step_counter = getattr(self._env, "step_counter_tensor", None)
+        if not isinstance(step_counter, torch.Tensor):
+            raise RuntimeError(
+                "EventManager ResetSelection dispatch requires env.step_counter_tensor"
+            )
+        step_rows = step_counter.expand(self.num_envs)
+        for index, term_cfg in enumerate(self._mode_term_cfgs["reset"]):
+            last_step = self._reset_term_last_triggered_step_id[index]
+            once = self._reset_term_last_triggered_once[index]
+            min_step_count = term_cfg.min_step_count_between_reset
+            if min_step_count == 0:
+                term_selection = selection
+            else:
+                valid_trigger = (step_rows - last_step) >= min_step_count
+                valid_trigger |= (last_step == 0) & ~once
+                term_selection = self._term_reset_selection(index, selection)
+                torch.logical_and(selection.mask, valid_trigger, out=term_selection.mask)
+            assign_rows_(last_step, term_selection, step_rows)
+            fill_rows_(once, term_selection, True)
+            term_cfg.func(self._env, term_selection, **term_cfg.params)
+
+    def _term_reset_selection(self, index: int, selection: ResetSelection) -> ResetSelection:
+        scratch = self._reset_term_selections.get(index)
+        if scratch is None:
+            scratch = ResetSelection(mask=torch.zeros_like(selection.mask), row_ids=selection.row_ids)
+            self._reset_term_selections[index] = scratch
+        return scratch
+
     def _prepare_terms(self) -> None:
+        self._reset_term_selections: dict[int, ResetSelection] = {}
         self._interval_term_time_left: list[torch.Tensor] = list()
         self._interval_host_time_left_lb: list[float] = list()
         self._reset_term_last_triggered_step_id: list[torch.Tensor] = list()
