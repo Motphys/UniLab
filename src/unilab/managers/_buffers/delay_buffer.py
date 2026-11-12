@@ -10,7 +10,6 @@ from collections.abc import Sequence
 import torch
 
 from unilab.base.reset_selection import ResetSelection
-
 from unilab.managers._buffers import CircularBuffer
 
 

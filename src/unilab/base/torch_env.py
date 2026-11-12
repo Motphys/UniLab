@@ -32,10 +32,10 @@ from unisim.backend.base import (
 )
 from unisim.backend.graph_capture import DeviceVerdicts, ExternalGraphCapture
 
+from unilab.base.autoreset_graph import AutoresetGraph
 from unilab.base.backend_timing import (
     RESET_DONE_DETAIL_TIMING_KEYS,
 )
-from unilab.base.autoreset_graph import AutoresetGraph
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.cpu_runtime import apply_cpu_confinement
 from unilab.base.reset_selection import ResetSelection
@@ -506,8 +506,7 @@ class TorchEnv(ABEnv):
         # The fixed-shape autoreset has no gate: it runs every step under the
         # device done mask, so nothing here reads the device.
         did_reset = self._autoreset and (
-            self._masked_autoreset
-            or bool((self._state.terminated | self._state.truncated).any())
+            self._masked_autoreset or bool((self._state.terminated | self._state.truncated).any())
         )
         step_core_ms += (time.perf_counter() - phase) * 1000.0
         step_core_cpu_ms += (_cpu_time() - phase_cpu) * 1000.0

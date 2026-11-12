@@ -360,7 +360,9 @@ class EventManager(ManagerBase):
     def _term_reset_selection(self, index: int, selection: ResetSelection) -> ResetSelection:
         scratch = self._reset_term_selections.get(index)
         if scratch is None:
-            scratch = ResetSelection(mask=torch.zeros_like(selection.mask), row_ids=selection.row_ids)
+            scratch = ResetSelection(
+                mask=torch.zeros_like(selection.mask), row_ids=selection.row_ids
+            )
             self._reset_term_selections[index] = scratch
         return scratch
 

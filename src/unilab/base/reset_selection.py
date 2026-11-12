@@ -50,9 +50,7 @@ class ResetSelection:
         if not isinstance(self.mask, torch.Tensor) or self.mask.dtype != torch.bool:
             raise TypeError("ResetSelection.mask must be a bool torch.Tensor")
         if self.mask.ndim != 1:
-            raise ValueError(
-                f"ResetSelection.mask must be 1-D; got shape {tuple(self.mask.shape)}"
-            )
+            raise ValueError(f"ResetSelection.mask must be 1-D; got shape {tuple(self.mask.shape)}")
         if (
             not isinstance(self.row_ids, torch.Tensor)
             or self.row_ids.dtype != torch.int64
@@ -122,9 +120,7 @@ def reset_selection_capable(participant: _T) -> _T:
     return participant
 
 
-def selection_blockers(
-    owner: str, participants: Iterable[tuple[str, object]]
-) -> list[str]:
+def selection_blockers(owner: str, participants: Iterable[tuple[str, object]]) -> list[str]:
     """Name every participant that has not declared ``ResetSelection`` support."""
     return [
         f"{owner}: {name} ({_describe(participant)})"
@@ -149,9 +145,7 @@ def fill_rows_(
     if isinstance(rows, ResetSelection):
         tensor.masked_fill_(rows.row_mask(tensor.ndim, row_dim=row_dim), value)
         return
-    index: tuple[Any, ...] = (slice(None),) * row_dim + (
-        slice(None) if rows is None else rows,
-    )
+    index: tuple[Any, ...] = (slice(None),) * row_dim + (slice(None) if rows is None else rows,)
     tensor[index] = value
 
 
@@ -173,9 +167,7 @@ def assign_rows_(
         full = values(rows.num_envs) if callable(values) else values
         tensor.copy_(torch.where(rows.row_mask(tensor.ndim, row_dim=row_dim), full, tensor))
         return
-    index: tuple[Any, ...] = (slice(None),) * row_dim + (
-        slice(None) if rows is None else rows,
-    )
+    index: tuple[Any, ...] = (slice(None),) * row_dim + (slice(None) if rows is None else rows,)
     if callable(values):
         if rows is None:
             count = tensor.shape[row_dim]

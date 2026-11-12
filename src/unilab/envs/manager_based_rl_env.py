@@ -237,7 +237,9 @@ class ManagerBasedRlEnvCfg(EnvCfg):
                 "'thread_local' or 'relaxed'"
             )
         if self.masked_autoreset and not self.defer_finite_validation:
-            raise ValueError("ManagerBasedRlEnvCfg masked_autoreset requires defer_finite_validation")
+            raise ValueError(
+                "ManagerBasedRlEnvCfg masked_autoreset requires defer_finite_validation"
+            )
         if self.autoreset_cuda_graph and not (
             self.masked_autoreset and self.persistent_step_buffers
         ):

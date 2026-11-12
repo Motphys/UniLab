@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import torch
 
 from unilab.base.reset_selection import selection_blockers
-
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 
 if TYPE_CHECKING:

@@ -119,9 +119,7 @@ class TerminationManager(ManagerBase):
             )
         return blockers
 
-    def reset(
-        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
-    ) -> dict[str, int]:
+    def reset(self, env_ids: torch.Tensor | slice | ResetSelection | None = None) -> dict[str, int]:
         """Publish episodic counts and clear terms for the selected rows."""
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="TerminationManager.reset"

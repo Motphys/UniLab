@@ -56,8 +56,9 @@ def _make_env(num_envs: int, **flags):
     cfg = ManagerBasedRlEnvCfg()
     apply_cfg_overrides(
         cfg,
-        EnvConfigAdapter(owner, root_dir=ROOT_DIR, algo_name="flashsac")
-        .build_task_env_cfg_override(),
+        EnvConfigAdapter(
+            owner, root_dir=ROOT_DIR, algo_name="flashsac"
+        ).build_task_env_cfg_override(),
     )
     for name, value in flags.items():
         setattr(cfg, name, value)

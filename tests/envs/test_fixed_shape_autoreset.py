@@ -25,6 +25,7 @@ from unisim.backend.base import (
 )
 from unisim.backend.graph_capture import ExternalGraphCapture, GraphCaptureError, closing_capture
 
+from tests.envs.test_manager_based_rl_env import _ResetBackend
 from unilab.base.entity import EntityCfg
 from unilab.base.reset_selection import (
     ResetSelection,
@@ -50,7 +51,6 @@ from unilab.managers import (
     RewardTermCfg,
     TerminationTermCfg,
 )
-from tests.envs.test_manager_based_rl_env import _ResetBackend
 
 NUM_ENVS = 8
 CUDA = torch.cuda.is_available()
