@@ -13,12 +13,11 @@ def _to_policy_tensor(x: Any, device: str | torch.device) -> torch.Tensor:
     """Move a TorchEnv observation tensor onto the policy device."""
     if not isinstance(x, torch.Tensor):
         raise TypeError(f"TorchEnv observation must be a torch.Tensor, got {type(x).__name__}")
-    tensor = x.to(device)
     # UniLab policies use float32. Some backends publish float64 observations;
-    # preserve integer/bool tensors.
-    if tensor.is_floating_point() and tensor.dtype != torch.float32:
-        tensor = tensor.float()
-    return tensor
+    # cast during transfer because MPS cannot first receive a float64 tensor.
+    # Preserve integer/bool tensors.
+    dtype = torch.float32 if x.is_floating_point() else x.dtype
+    return x.to(device=device, dtype=dtype)
 
 
 def get_policy_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:
