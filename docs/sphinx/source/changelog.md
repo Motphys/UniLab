@@ -13,6 +13,22 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased
+
+### Added / 新增
+
+- Opt-in sync-free masked autoreset (`masked_autoreset`), persistent step
+  buffers (`persistent_step_buffers`) and CUDA graph capture of the reset segment
+  (`autoreset_cuda_graph`) for `TorchEnv` / `ManagerBasedRlEnv`, with the
+  fixed-shape `ResetSelection` reset selector. All flags default to `False`. The
+  default and ROCm profiles now pin `unisim-core==2.7.2`, which provides the
+  MJWarp external graph capture scope.
+  `TorchEnv` / `ManagerBasedRlEnv` 新增可选的无同步 masked autoreset
+  （`masked_autoreset`）、持久 step buffer（`persistent_step_buffers`）与 reset
+  段 CUDA graph 捕获（`autoreset_cuda_graph`），以及固定形状的 `ResetSelection`
+  reset 选择器。所有开关默认 `False`。默认与 ROCm profile 现在均钉定
+  `unisim-core==2.7.2`，该版本提供 MJWarp 外部 graph 捕获 scope。
+
 ## 1.5.10 (2026-11-11)
 
 ### Changed / 变更
