@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import torch
 from prettytable import PrettyTable
 
+from unilab.base.reset_selection import selection_blockers
 from unilab.managers.manager_base import ManagerBase, ManagerTermBase, ManagerTermBaseCfg
 
 if TYPE_CHECKING:
@@ -191,6 +192,11 @@ class RecorderManager(ManagerBase):
             msg = f"No recorder term named '{name}'. Active terms: {self.active_terms}"
             raise KeyError(msg) from None
 
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        return selection_blockers("RecorderManager", self._terms.items())
+
     def record_pre_reset(self, env_ids: torch.Tensor) -> None:
         """Forward to each term's pre-reset boundary."""
         for term in self._terms.values():
@@ -232,6 +238,11 @@ class NullRecorderManager:
     All methods are no-ops. This class is not a :class:`ManagerBase` subclass
     so it carries zero overhead.
     """
+
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        return []
 
     def __init__(self):
         self.active_terms: list[str] = []

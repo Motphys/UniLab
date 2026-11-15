@@ -82,6 +82,8 @@ class _NamedSensorObservation(ManagerTermBase):
 
     _term_name = "named_sensor"
     _tensor_sensor_names: tuple[str, ...] = ()
+    # Stateless: reset is a no-op for any selector.
+    supports_reset_selection = True
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(env)

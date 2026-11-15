@@ -270,6 +270,8 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     # Always explicit: never fall back to UniSim's blocking MJWarp default.
     # Other backends ignore this option.
     result["mjwarp_validate_tensor_finite"] = cfg.mjwarp_validate_tensor_finite
+    if cfg.mjwarp_defer_tensor_validation:
+        result["mjwarp_defer_tensor_validation"] = True
     return result
 
 

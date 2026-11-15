@@ -95,6 +95,16 @@ class CurriculumManager(ManagerBase):
                 terms.append((term_name, data))
         return terms
 
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        # Curriculum state is published to the reset log as host scalars, so
+        # configured terms cannot run inside a host-sync-free reset.
+        return [
+            f"CurriculumManager: term '{name}' publishes host curriculum state on reset"
+            for name in self._term_names
+        ]
+
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
         """Publish curriculum state and reset term state for the selected envs."""
         env_ids = resolve_reset_env_ids(
@@ -161,6 +171,11 @@ class CurriculumManager(ManagerBase):
 
 class NullCurriculumManager:
     """Placeholder for absent curriculum manager that safely no-ops all operations."""
+
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        return []
 
     def __init__(self):
         self.active_terms: list[str] = []

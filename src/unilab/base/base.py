@@ -80,6 +80,12 @@ class EnvCfg:
     # explicitly and disables the duplicate backend check by default. Set it to
     # True only to debug a non-finite operand at the exact backend call.
     mjwarp_validate_tensor_finite: bool = False
+    # Latch MJWarp's fail-closed operand/bounds checks into device verdicts
+    # instead of reading them on the host; TorchEnv publishes them with its
+    # deferred finite validation. Required for a host-sync-free step when
+    # mjwarp_validate_tensor_finite is True. Forwarded only when True, so
+    # UniSim releases without the option keep working.
+    mjwarp_defer_tensor_validation: bool = False
     # ``newton`` owns MuJoCo-Warp 3.11 capacity and requires explicit CUDA
     # placement; the process binder supplies the rank-local device when unset.
     newton_device: Optional[str] = None
@@ -184,6 +190,11 @@ class EnvCfg:
             raise ValueError(
                 "mjwarp_validate_tensor_finite must be bool, "
                 f"got {self.mjwarp_validate_tensor_finite!r}"
+            )
+        if not isinstance(self.mjwarp_defer_tensor_validation, bool):
+            raise ValueError(
+                "mjwarp_defer_tensor_validation must be bool, "
+                f"got {self.mjwarp_defer_tensor_validation!r}"
             )
         if self.newton_device is not None and (
             not isinstance(self.newton_device, str) or not self.newton_device.strip()

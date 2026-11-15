@@ -131,8 +131,8 @@ def test_adaptive_probabilities_and_metrics_are_numerically_correct() -> None:
     torch.testing.assert_close(repeat, expected, rtol=0, atol=1.0e-7)
     torch.testing.assert_close(repeat.sum(), torch.ones(()), rtol=0, atol=1.0e-7)
     assert bool(torch.isfinite(sampler.sampling_entropy))
-    assert bool(torch.isfinite(sampler.sampling_top1_prob))
-    assert bool(torch.isfinite(sampler.sampling_top1_bin))
+    assert sampler.sampling_top1_prob.item() == pytest.approx(0.5625, abs=1.0e-7)
+    assert sampler.sampling_top1_bin.item() == 0.0
 
 
 def test_mixed_metrics_publish_expected_values_across_samples() -> None:

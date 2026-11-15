@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
+from unilab.base.reset_selection import selection_blockers
 from unilab.managers.manager_base import ManagerTermBase, ManagerTermBaseCfg
 
 if TYPE_CHECKING:
@@ -84,6 +85,11 @@ class ResetOwnerManager:
     def active_terms(self) -> list[str]:
         return list(self._terms)
 
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        return selection_blockers("ResetOwnerManager", self._terms.items())
+
     @property
     def owner(self) -> ResetOwner | None:
         if not self._terms:
@@ -117,6 +123,11 @@ class ResetOwnerManager:
 
 class NullResetOwnerManager:
     """No-op peer for owners without a reset-owner declaration."""
+
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        return []
 
     def __init__(self) -> None:
         self.active_terms: list[str] = []
