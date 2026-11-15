@@ -25,8 +25,8 @@ Implementation: `src/unilab/base/torch_env.py`,
   algorithm config.
 - For the CUDA graph: a CUDA env device, and a backend that declares the
   `external_graph_capture` capability and implements
-  `torch_graph_capture_scope`. MJWarp does both, from the UniSim release that
-  ships `unisim.backend.graph_capture`.
+  `torch_graph_capture_scope`. MJWarp does both from `unisim-core` 2.7.2, the
+  pinned version.
 
 ## Configuration flags
 
