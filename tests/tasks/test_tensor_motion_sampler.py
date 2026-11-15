@@ -98,7 +98,7 @@ def test_step_full_advances_active_rows_and_reports_done() -> None:
     # Repeated applies keep advancing active rows exactly once per call.
     second = sampler.step_full(active, time_steps)
 
-    assert second.tolist() == [False, False, False, False]
+    assert second.tolist() == [True, False, False, False]
     torch.testing.assert_close(
         sampler.current_frames, torch.tensor([31, 10, 13, 3], dtype=torch.int32)
     )
@@ -305,3 +305,48 @@ def test_frame_indexed_clip_ends_match_searchsorted_ownership() -> None:
     expected = sampler._clip_end_frames.index_select(0, expected_indices)
 
     torch.testing.assert_close(sampler._frame_clip_ends, expected)
+
+
+@pytest.mark.parametrize(
+    ("frame", "active", "expected", "done"),
+    [
+        (1, True, 2, False),
+        (2, True, 2, True),
+        (4, True, 5, False),
+        (5, True, 5, True),
+        (2, False, 2, False),
+        (5, False, 5, False),
+    ],
+)
+def test_step_full_preserves_original_clip_ownership(frame, active, expected, done):
+    sampler = MotionSampler(
+        mode="mixed",
+        num_envs=1,
+        num_frames=6,
+        clip_offsets=torch.tensor([0, 3], dtype=torch.int64),
+        clip_end_frames=torch.tensor([2, 5], dtype=torch.int32),
+        bin_count=2,
+        adaptive_lambda=0.8,
+        adaptive_kernel_size=1,
+        adaptive_uniform_ratio=0.1,
+        adaptive_alpha=0.5,
+        start_ratio=0.0,
+        initial_frames=torch.tensor([frame], dtype=torch.int32),
+        initial_clip_end_frames=torch.tensor([2 if frame < 3 else 5], dtype=torch.int32),
+        device=torch.device("cpu"),
+    )
+    end_before = sampler.current_clip_end_frames.clone()
+    scratch = (
+        sampler._step_next_frames,
+        sampler._step_clamped_rows,
+        sampler._step_clip_ends,
+        sampler._step_done,
+    )
+    pointers = [value.data_ptr() for value in scratch]
+    times = torch.full((1,), -1, dtype=torch.int32)
+    result = sampler.step_full(torch.tensor([active]), times)
+    assert result.dtype == torch.bool and result.tolist() == [done]
+    assert sampler.current_frames.tolist() == times.tolist() == [expected]
+    torch.testing.assert_close(sampler.current_clip_end_frames, end_before, rtol=0, atol=0)
+    assert [value.data_ptr() for value in scratch] == pointers
+    assert result.data_ptr() == sampler._step_done.data_ptr()

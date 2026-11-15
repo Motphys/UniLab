@@ -4846,3 +4846,46 @@ def test_env_reset_backfills_history_terms_without_touching_other_rows() -> None
     torch.testing.assert_close(obs["obs"][1].reshape(3, 2), reset_slots)
     torch.testing.assert_close(reset_slots[-1], torch.zeros(2))
     env.close()
+
+
+def test_factory_accepts_explicit_task_subclass(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities["robot"] = EntityCfg(root_body_name="base", actuator_names=("motor",))
+    backend = _FakeBackend(2)
+    monkeypatch.setattr(manager_env_module, "create_backend", lambda *a, **k: backend)
+
+    class TaskEnv(ManagerBasedRlEnv):
+        def __init__(self, received_cfg, received_backend, received_num_envs):
+            self.received = (received_cfg, received_backend, received_num_envs)
+
+    result = make_manager_based_rl_env(cfg, num_envs=2, env_cls=TaskEnv)
+    assert type(result) is TaskEnv
+    assert result.received == (cfg, backend, 2)
+    assert backend.cleanup_calls == 0
+
+
+@pytest.mark.parametrize("env_cls", [object, lambda *a: None, 42])
+def test_factory_rejects_invalid_task_class_before_allocation(monkeypatch, env_cls) -> None:
+    def reject_backend(*args, **kwargs):
+        raise AssertionError("invalid owner must not allocate a backend")
+
+    monkeypatch.setattr(manager_env_module, "create_backend", reject_backend)
+    with pytest.raises(TypeError, match="env_cls"):
+        make_manager_based_rl_env(_make_cfg(include_optional_managers=False), env_cls=env_cls)
+
+
+def test_factory_cleans_backend_when_task_subclass_fails(monkeypatch) -> None:
+    cfg = _make_cfg(include_optional_managers=False)
+    assert cfg.scene is not None
+    cfg.scene.entities["robot"] = EntityCfg(root_body_name="base", actuator_names=("motor",))
+    backend = _FakeBackend(2)
+    monkeypatch.setattr(manager_env_module, "create_backend", lambda *a, **k: backend)
+
+    class FailingTaskEnv(ManagerBasedRlEnv):
+        def __init__(self, cfg, backend, num_envs):
+            raise RuntimeError("task construction failed")
+
+    with pytest.raises(RuntimeError, match="task construction failed"):
+        make_manager_based_rl_env(cfg, num_envs=2, env_cls=FailingTaskEnv)
+    assert backend.cleanup_calls == 1
