@@ -130,11 +130,12 @@ UUID）；`uni-cumps env` 仅供外部启动器使用——训练前不要 `eval
 UniLab 被设计为机器人专属仓库共享的任务与训练界面。下游仓库可以独立发布机器人
 recipe，同时消费同一套 task、backend 和 RL contract。目前的下游示例：
 
+- [Uni-SuperMimic](https://github.com/Motphys/Uni-SuperMimic)
+- [Sharpa](https://github.com/unilabsim/sharpa_rl_unilab)
 - [MicroDuck RL](https://github.com/unilabsim/microduck_rl_unilab)
 - [EngineAI RL](https://github.com/unilabsim/engineai_rl_unilab)
 - [Wuji](https://github.com/unilabsim/wuji_unilab)
 - [Legged Manipulation](https://github.com/unilabsim/legged-manipulation_unilab)
-- [Sharpa](https://github.com/unilabsim/sharpa_rl_unilab)
 - [Cricket-Gym](https://github.com/kishanpb/Cricket-Gym-Unilab)
 
 ## 文档
