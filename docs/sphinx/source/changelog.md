@@ -13,6 +13,22 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased / 未发布
+
+### Fixed / 修复
+
+- `uni-cumps stop` accepts `--gpus <index-or-uuid>` to stop the unique
+  recorded daemon covering one GPU, stop-selection errors name the next
+  discovery step (`uni-cumps status`), and the README and training guide
+  document the full status → start → train → stop lifecycle including
+  orphan-daemon recovery.
+  `uni-cumps stop` 新增 `--gpus <index-or-uuid>` 选择器，可停止覆盖指定 GPU
+  的唯一已记录 daemon；stop 选择失败的错误信息会指出下一步
+  （`uni-cumps status`）；README 与训练指南现在给出
+  status → start → train → stop 完整生命周期，包括 orphan daemon 的手动恢复
+  路径。
+  ([#2610](https://github.com/Motphys/UniLab/issues/2610)).
+
 ## 1.5.11 (2026-11-16)
 
 ### Added / 新增

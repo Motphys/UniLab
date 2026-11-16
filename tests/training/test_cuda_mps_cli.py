@@ -686,6 +686,76 @@ def test_stop_all_scopes_to_current_user_host_and_managed_records(
     assert (linux_host / "b" / "daemon.json").exists()
 
 
+def test_select_daemon_for_gpu_resolves_unique_live_record(linux_host: Path) -> None:
+    write_record(linux_host, daemon_record(linux_host, name="prod"))
+
+    by_index = mps.select_daemon_for_gpu(
+        "0", root=linux_host, run_command=fake_run(), proc_stat=live_proc_stat()
+    )
+    by_bare_uuid = mps.select_daemon_for_gpu(
+        GPU_A.removeprefix("GPU-"),
+        root=linux_host,
+        run_command=fake_run(),
+        proc_stat=live_proc_stat(),
+    )
+
+    assert by_index.name == "prod"
+    assert by_bare_uuid.name == "prod"
+
+
+def test_select_daemon_for_gpu_fails_closed_on_zero_or_multiple_matches(
+    linux_host: Path,
+) -> None:
+    write_record(linux_host, daemon_record(linux_host, name="prod"))
+
+    with pytest.raises(mps.CudaMpsError, match="uni-cumps status"):
+        mps.select_daemon_for_gpu(
+            "1", root=linux_host, run_command=fake_run(), proc_stat=live_proc_stat()
+        )
+
+    other = daemon_record(linux_host, name="other", pid=4243, process_start_ticks=778)
+    write_record(linux_host, other)
+    with pytest.raises(mps.CudaMpsError, match="Multiple live UniLab-recorded daemons"):
+        mps.select_daemon_for_gpu(
+            "0",
+            root=linux_host,
+            run_command=fake_run(),
+            proc_stat=lambda pid: (pid, 777 if pid == 4242 else 778),
+        )
+
+
+def test_select_daemon_for_gpu_returns_sole_stale_record_for_cleanup(
+    linux_host: Path,
+) -> None:
+    write_record(linux_host, daemon_record(linux_host, name="prod"))
+
+    selected = mps.select_daemon_for_gpu(
+        "0", root=linux_host, run_command=fake_run(), proc_stat=lambda _pid: None
+    )
+
+    assert selected.name == "prod"
+
+
+def test_stop_selection_errors_point_to_status(linux_host: Path) -> None:
+    with pytest.raises(mps.CudaMpsError, match=r"uni-cumps status"):
+        mps.stop_daemon("unknown", root=linux_host, run_command=fake_run())
+    with pytest.raises(mps.CudaMpsError, match=r"uni-cumps status"):
+        mps._daemon_record_path(linux_host, "/tmp/not-a-label")
+    with pytest.raises(mps.CudaMpsError, match=r"uni-cumps status"):
+        mps.read_daemon_record(linux_host, None)
+
+
+def test_cli_parser_stop_gpu_selector_is_exclusive_with_name_and_all() -> None:
+    args = mps._parser().parse_args(["stop", "--gpus", "0"])
+
+    assert args.command == "stop"
+    assert args.gpus == "0"
+    with pytest.raises(SystemExit):
+        mps._parser().parse_args(["stop", "--gpus", "0", "--name", "prod"])
+    with pytest.raises(SystemExit):
+        mps._parser().parse_args(["stop", "--gpus", "0", "--all"])
+
+
 def test_doctor_uses_sole_live_managed_daemon_pipe(
     linux_host: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -843,6 +913,11 @@ def test_completion_offers_cumps_commands() -> None:
         "--name",
         "--shell",
         "--json",
+    ]
+    assert cli_completion.complete_words(["uv", "run", "uni-cumps", "stop", "-"], 4) == [
+        "--name",
+        "--gpus",
+        "--all",
     ]
 
 

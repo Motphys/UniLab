@@ -35,6 +35,15 @@ fail-closed probe，也不提前声明 DP 或 task-per-GPU 支持。
   `--name` 时使用 `gpu-<full-uuid>`；未传 pipe/log 路径时使用 `/tmp/uni-cumps/<name>`（mode `0700`）；
   `env`/`stop` 未传 `--name` 时选择唯一 live record。多 GPU 或多 daemon 歧义必须
   显式指定，不自动选择。
+- `stop` 接受 `--gpus <index-or-uuid>` 选择器（与 `--name`/`--all` 互斥），解析为
+  覆盖该 GPU 的唯一 live record；零个或多个匹配 fail closed 并列出候选名称。
+  stop authority 仍然只来自 record，不 attach 到 unmanaged daemon。
+  （2026-11-16 依据 issue #2610 增补，取代原"仅 `--name`"的 stop 选择面：推荐的
+  一 GPU 一 daemon 流程使裸 `stop` 必然歧义，用户只能猜 label。）
+- 可发现性是 CLI contract 的一部分：所有 `stop`/`env` 选择失败的错误信息必须指出
+  下一步（`uni-cumps status` 列出 record 名称与 GPU）；用户文档必须给出
+  status → start → train → stop 完整生命周期，以及 record 丢失后 orphan daemon 的
+  手动恢复路径。（2026-11-16，issue #2610。）
 - Daemon record 以 `(UID, host, name)` 为 scope，持久化 canonical GPU UUID、绝对
   pipe/log 路径、control PID 与 Linux `/proc/<pid>/stat` start-time。PID 单独不可作为
   stop authority。

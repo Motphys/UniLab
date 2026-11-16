@@ -296,7 +296,9 @@ def _validate_record_identity(
 def _daemon_record_path(root: Path, name: str) -> Path:
     if not _name_is_safe(name):
         raise CudaMpsError(
-            "Daemon name must match [a-z0-9][a-z0-9-]{0,63}; use a label, not a path."
+            "Daemon name must match [a-z0-9][a-z0-9-]{0,63}; use a label, not a path. "
+            "Run `uv run uni-cumps status` to list recorded daemon names, or select the "
+            "daemon by GPU with --gpus."
         )
     return root / name / "daemon.json"
 
@@ -362,14 +364,16 @@ def read_daemon_record(
             else f"multiple live daemons exist: {', '.join(daemon.name for daemon in live)}"
         )
         raise CudaMpsError(
-            f"Cannot select a default daemon because {detail}; pass --name explicitly."
+            f"Cannot select a default daemon because {detail}; pass --name or --gpus "
+            "explicitly. Run `uv run uni-cumps status` to list recorded daemons."
         )
     path = _daemon_record_path(_record_root(root), name)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise CudaMpsError(
-            f"No UniLab CUDA MPS daemon record named {name!r}. UniLab can stop only recorded daemons."
+            f"No UniLab CUDA MPS daemon record named {name!r}. UniLab can stop only recorded "
+            "daemons. Run `uv run uni-cumps status` to list recorded daemon names and GPUs."
         ) from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise CudaMpsError(f"Could not read daemon record {path}: {exc}.") from exc
@@ -961,6 +965,40 @@ def select_environment_for_gpu(
     return environment_for_daemon(matching[0])
 
 
+def select_daemon_for_gpu(
+    selector: str,
+    *,
+    root: Path | None = None,
+    run_command: RunCommand = subprocess.run,
+    proc_stat: Callable[[int], tuple[int, int] | None] = _proc_stat,
+) -> DaemonRecord:
+    """Select the unique recorded daemon covering one GPU index or UUID.
+
+    Stop-facing selection: a stale sole candidate is returned so the caller's
+    stop path cleans its record and reports the stale state; ambiguity between
+    live daemons fails closed and names the candidates.
+    """
+
+    plan = resolve_topology(selector, run_command=run_command)
+    uuid = plan.gpus[0].uuid
+    candidates = [daemon for daemon in list_daemon_records(root) if uuid in daemon.gpu_uuids]
+    live = [daemon for daemon in candidates if daemon_process_is_live(daemon, proc_stat=proc_stat)]
+    if len(live) > 1:
+        names = ", ".join(daemon.name for daemon in live)
+        raise CudaMpsError(
+            f"Multiple live UniLab-recorded daemons cover GPU {uuid}: {names}. "
+            "Pass --name explicitly."
+        )
+    if live:
+        return live[0]
+    if len(candidates) == 1:
+        return candidates[0]
+    raise CudaMpsError(
+        f"No live UniLab-recorded CUDA MPS daemon covers GPU {uuid}. "
+        "Run `uv run uni-cumps status` to list recorded daemons and their GPUs."
+    )
+
+
 def stop_daemon(
     name: str,
     *,
@@ -1106,7 +1144,7 @@ def _mps_parser() -> argparse.ArgumentParser:
         help="one GPU index/UUID (default: the sole visible GPU)",
     )
     start_parser.add_argument(
-        "--name", default=None, help="daemon label (default: gpu-<uuid-prefix>)"
+        "--name", default=None, help="daemon label (default: gpu-<full-uuid>)"
     )
     start_parser.add_argument(
         "--pipe-dir", default=None, help="pipe directory (default: user-owned UniLab cache)"
@@ -1118,10 +1156,16 @@ def _mps_parser() -> argparse.ArgumentParser:
     start_mode.add_argument("--daemon", action="store_true", help="run the control daemon detached")
     start_mode.add_argument("--foreground", action="store_true", help="run control in this process")
     stop_parser = subparsers.add_parser("stop", help="stop a UniLab-recorded daemon")
-    stop_parser.add_argument(
+    stop_select = stop_parser.add_mutually_exclusive_group()
+    stop_select.add_argument(
         "--name", default=None, help="daemon label (default: the sole live daemon)"
     )
-    stop_parser.add_argument("--all", action="store_true", help="stop all current-user records")
+    stop_select.add_argument(
+        "--gpus",
+        default=None,
+        help="stop the unique recorded daemon covering this GPU index/UUID",
+    )
+    stop_select.add_argument("--all", action="store_true", help="stop all current-user records")
     env_parser = subparsers.add_parser(
         "env", help="print launcher environment for a recorded daemon"
     )
@@ -1191,7 +1235,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             if args.all:
                 stopped = stop_all_daemons()
             else:
-                stopped = (stop_daemon(args.name),)
+                name = args.name
+                if args.gpus is not None:
+                    name = select_daemon_for_gpu(args.gpus).name
+                stopped = (stop_daemon(name),)
             _print_json({"stopped": [daemon.to_dict() for daemon in stopped]})
             return 0
 
