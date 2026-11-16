@@ -13,7 +13,7 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
-## Unreleased
+## 1.5.11 (2026-11-16)
 
 ### Added / 新增
 
@@ -28,6 +28,31 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   段 CUDA graph 捕获（`autoreset_cuda_graph`），以及固定形状的 `ResetSelection`
   reset 选择器。所有开关默认 `False`。默认与 ROCm profile 现在均钉定
   `unisim-core==2.7.2`，该版本提供 MJWarp 外部 graph 捕获 scope。
+  ([#2605](https://github.com/Motphys/UniLab/pull/2605)).
+
+### Fixed / 修复
+
+- `make_manager_based_rl_env` now accepts a task-owned
+  `ManagerBasedRlEnv` subclass through the keyword-only `env_cls` argument while
+  retaining backend allocation and cleanup semantics. `MotionSampler.step_full`
+  resolves the current clip boundary before advancing, so a terminal frame can
+  no longer enter the next clip, while preserving stable full-width outputs and
+  scratch buffers
+  ([#2606](https://github.com/Motphys/UniLab/pull/2606)).
+  `make_manager_based_rl_env` 现在可通过 keyword-only 的 `env_cls` 参数注入
+  task 自有的 `ManagerBasedRlEnv` 子类，并保留 backend 分配与清理语义。
+  `MotionSampler.step_full` 会在推进前解析当前 clip 边界，因此终止帧不会再
+  进入下一个 clip，同时保持稳定的全宽输出和 scratch buffer
+  （[#2606](https://github.com/Motphys/UniLab/pull/2606)）。
+- The RSL-RL VecEnv adapter casts floating tensors during policy-device
+  transfer. CPU `float64` observations and rewards now work on Apple MPS, which
+  cannot first receive a `float64` tensor, while integer and Boolean tensors
+  retain their original dtypes
+  ([#2608](https://github.com/Motphys/UniLab/pull/2608)).
+  RSL-RL VecEnv adapter 现在在传输到 policy device 的同时转换浮点 tensor。
+  CPU `float64` 观测与 reward 现在可用于无法直接接收 `float64` tensor 的
+  Apple MPS；integer 与 Boolean tensor 保持原 dtype
+  （[#2608](https://github.com/Motphys/UniLab/pull/2608)）。
 
 ## 1.5.10 (2026-11-11)
 
