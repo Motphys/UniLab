@@ -128,10 +128,11 @@ daemon，训练会在 environment/learner/collector 构造前 fail closed，并�
 | daemon 名称 | `gpu-<full-uuid>` |
 | pipe 目录 | `/tmp/uni-cumps/<name>/pipe` (mode `0700`) |
 | log 目录 | `/tmp/uni-cumps/<name>/log` (mode `0700`) |
-| `env`/`stop` 目标 | 唯一 live 的 UniLab-recorded daemon |
+| `env`/`stop` 目标 | 唯一 live 的 UniLab-recorded daemon；可用 `--name` 或 `--gpus` 显式选择 |
 
 如果可见 GPU 多于一张，`start` 与 `doctor` 必须显式传
-`--gpus <index-or-uuid>`。需要稳定 label 或服务自有路径的部署仍可显式覆盖：
+`--gpus <index-or-uuid>`；`stop` 接受相同的选择器来停止覆盖该 GPU 的已记录
+daemon。需要稳定 label 或服务自有路径的部署仍可显式覆盖：
 
 ```bash
 uv run uni-cumps start \
@@ -140,7 +141,8 @@ uv run uni-cumps start \
   --pipe-dir /absolute/path/mps/pipe \
   --log-dir /absolute/path/mps/log
 eval "$(uv run uni-cumps env --name <daemon-name>)"
-uv run uni-cumps stop --name <daemon-name>
+uv run uni-cumps stop --name <daemon-name>     # 或：stop --gpus <gpu-index-or-uuid>
+uv run uni-cumps stop --all                    # 停止当前用户所有已记录 daemon
 ```
 
 只读 status 无参数即可使用：
@@ -150,10 +152,16 @@ uv run uni-cumps status
 ```
 
 `status` 与 `doctor` 是只读诊断。`start` 创建 user-owned daemon，并在当前用户的
-UniLab cache 中写入 record。`stop` 只接受 record 中的 ownership evidence：UID、
-host、control PID 与 Linux process start-time；它绝不会向 unmanaged pipe 发送
-`quit`。`env` 输出给 launcher 或显式 shell 集成使用的环境变量，不修改 UniLab
-父进程环境。
+UniLab cache（`~/.cache/unilab/cuda-mps/`）中写入 record。`stop` 只接受 record
+中的 ownership evidence：UID、host、control PID 与 Linux process start-time；它
+绝不会向 unmanaged pipe 发送 `quit`。`env` 输出给 launcher 或显式 shell 集成使用
+的环境变量，不修改 UniLab 父进程环境。stop 选择失败时，错误信息会给出下一步
+（`uv run uni-cumps status` 列出所有已记录 daemon 及其 GPU）。
+
+如果 control daemon 比它的 record 活得更久——例如 UniLab cache 被清理之后——
+UniLab 无法再停止它。此时需要手动恢复：通过它记录的 pipe 目录发送 `quit`，例如
+`echo quit | CUDA_MPS_PIPE_DIRECTORY=/tmp/uni-cumps/<name>/pipe CUDA_MPS_LOG_DIRECTORY=/tmp/uni-cumps/<name>/log nvidia-cuda-mps-control`，
+然后删除对应的 runtime 目录。
 
 daemon 不是某个训练 run 的独占资源，可以服务多个 client。stale record 会在复用前
 被 quarantine；stop 后保留日志。

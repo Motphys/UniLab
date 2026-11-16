@@ -49,10 +49,12 @@ uv run uni-cumps doctor
 uv run uni-cumps stop
 
 # Multi-GPU or explicitly named deployments.
+uv run uni-cumps status            # visible GPUs and recorded daemons
 uv run uni-cumps doctor --gpus <gpu-index-or-uuid>
 uv run uni-cumps start --gpus <gpu-index-or-uuid> --name <name>
 uv run uni-cumps env --name <name>
-uv run uni-cumps stop --name <name>
+uv run uni-cumps stop --name <name>          # or: stop --gpus <gpu-index-or-uuid>
+uv run uni-cumps stop --all                  # stop every recorded daemon
 ```
 
 See the tensor runtime production guide for ownership, concurrency, and topology

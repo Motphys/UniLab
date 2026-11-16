@@ -134,11 +134,12 @@ Default values:
 | daemon name | `gpu-<full-uuid>` |
 | pipe directory | `/tmp/uni-cumps/<name>/pipe` (mode `0700`) |
 | log directory | `/tmp/uni-cumps/<name>/log` (mode `0700`) |
-| `env`/`stop` target | the sole live UniLab-recorded daemon |
+| `env`/`stop` target | the sole live UniLab-recorded daemon; `--name` or `--gpus` selects explicitly |
 
 If more than one GPU is visible, `start` and `doctor` require
-`--gpus <index-or-uuid>`. Explicit overrides remain available for deployments
-that need stable labels or service-owned paths:
+`--gpus <index-or-uuid>`, and `stop` accepts the same selector to pick the
+recorded daemon covering one GPU. Explicit overrides remain available for
+deployments that need stable labels or service-owned paths:
 
 ```bash
 uv run uni-cumps start \
@@ -147,7 +148,8 @@ uv run uni-cumps start \
   --pipe-dir /absolute/path/mps/pipe \
   --log-dir /absolute/path/mps/log
 eval "$(uv run uni-cumps env --name <daemon-name>)"
-uv run uni-cumps stop --name <daemon-name>
+uv run uni-cumps stop --name <daemon-name>     # or: stop --gpus <gpu-index-or-uuid>
+uv run uni-cumps stop --all                    # stop every recorded daemon
 ```
 
 Read-only status works without arguments:
@@ -157,10 +159,18 @@ uv run uni-cumps status
 ```
 
 `status` and `doctor` are read-only. `start` creates a user-owned daemon and a
-record under the current user's UniLab cache. `stop` uses only that recorded
-ownership evidence: UID, host, control PID, and Linux process start-time. It
-never sends `quit` to an unmanaged pipe. `env` prints exports for a launcher or
-an explicit shell integration; it does not mutate UniLab's parent process.
+record under the current user's UniLab cache (`~/.cache/unilab/cuda-mps/`).
+`stop` uses only that recorded ownership evidence: UID, host, control PID, and
+Linux process start-time. It never sends `quit` to an unmanaged pipe. `env`
+prints exports for a launcher or an explicit shell integration; it does not
+mutate UniLab's parent process. Stop-selection failures name the next step
+(`uv run uni-cumps status` lists every recorded daemon with its GPU).
+
+If a control daemon outlives its record — for example after the UniLab cache
+was cleaned — UniLab cannot stop it. Recover manually by sending `quit`
+through its recorded pipe directory, e.g.
+`echo quit | CUDA_MPS_PIPE_DIRECTORY=/tmp/uni-cumps/<name>/pipe CUDA_MPS_LOG_DIRECTORY=/tmp/uni-cumps/<name>/log nvidia-cuda-mps-control`,
+then remove that runtime directory.
 
 A daemon is not exclusively owned by a training run and may serve multiple
 clients. A stale record is quarantined before reuse, and logs are retained after
