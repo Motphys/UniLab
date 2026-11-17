@@ -42,8 +42,9 @@ docs/sphinx/
         └── agents/           ← Agent 速查(中文,01-agent-quick-reference.md)
 ```
 
-URL 模式:`/`(重定向到 `main/en/0-index.html`)、`/main/en/...`、`/main/zh_CN/...`。站点按
-版本目录发布(当前仅 `main/`),版本目录内两种语言路径 1:1 镜像。
+URL 模式:`/`(重定向到 `main/en/0-index.html`)、`/main/en/...`、`/main/zh_CN/...`;
+历史大版本在 `/<tag>/en/...`(如 `/v1.5.11/en/...`)。站点按
+版本目录发布,版本目录内两种语言路径 1:1 镜像。
 
 ## 本地构建
 
@@ -86,17 +87,18 @@ CI 工作流在 `.github/workflows/docs.yml`:
   在其他分支触发时只做 prose-only build
 
 deploy job 用 `sphinx-multiversion source build/html` 构建,按版本目录发布:
-每个白名单 ref 构建到 `build/html/<version>/`(当前白名单只有 `main`,见
-`source/conf.py` 的 `smv_*` 配置),随后在 `build/html/index.html` 写入根
+每个白名单 ref 构建到 `build/html/<version>/`,随后在 `build/html/index.html` 写入根
 redirect(`meta refresh` → `main/en/0-index.html`),再清理各版本目录下的
 `.doctrees` 缓存后发布。发布步骤带 `keep_files: true`,旧版本目录和存量根目录
 页面不会被覆盖删除,旧外链保持可用。
 
-多版本放行方式:默认 `smv_branch_whitelist = ^(main)$`、`smv_tag_whitelist = ^$`
-(不匹配任何 tag)。未来发版时通过环境变量放行,例如在部署环境设置
-`SMV_TAG_WHITELIST='^v[1-9]\d*\.\d+\.\d+$'`(分支侧对应
-`SMV_BRANCH_WHITELIST`)。注意 `html_baseurl` 当前固定带 `main/` 后缀,启用多版本
-前需将其按版本动态化(见 `conf.py` 注释)。
+发布的版本集合:`main` 分支(`smv_branch_whitelist = ^(main)$`)+ 每条 minor
+发布线的最新 patch tag(v1.0.0、v1.1.0、v1.2.0、v1.3.x、v1.4.0、v1.5.x……)。
+tag 白名单由 deploy job 的 "Compute release-line tag whitelist" 步骤从 git tag
+动态计算并经 `SMV_TAG_WHITELIST` 注入,新发布线在下次部署时自动出现,无需改
+配置。本地构建默认只构建 `main`(`smv_tag_whitelist = ^$`);要复现全量版本,
+自行导出同名环境变量即可。每个版本的 `html_baseurl` 由 conf.py 的
+`_versioned_html_baseurl` 按 `smv_current_version` 动态设置,sitemap 各自正确。
 
 PR 与 push 的检查性构建明确设置 `UNILAB_DOCS_SKIP_AUTODOC=1`,不安装 UniLab
 运行时依赖,也不跑 linkcheck。下面的本地发布流程保留为 CI 部署不可用时的

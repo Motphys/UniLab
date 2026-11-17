@@ -178,10 +178,10 @@ templates_path = ["_templates"]
 
 # ---------------------------------------------------------------------------
 # sphinx-multiversion — build one output subdirectory per whitelisted ref.
-# Defaults build only `main` and match no tags; historical releases are out
-# of scope for now. When releases are cut, allow them via the environment,
-# e.g. SMV_TAG_WHITELIST='^v[1-9]\d*\.\d+\.\d+$'.
-# Plain `sphinx-build` ignores these settings.
+# Local builds default to `main` only. The docs deploy workflow additionally
+# exports SMV_TAG_WHITELIST covering the latest patch tag of every release
+# line (v1.0.0, v1.1.0, v1.2.0, v1.3.x, v1.4.0, v1.5.x, ...); set it yourself
+# to reproduce that locally. Plain `sphinx-build` ignores these settings.
 # ---------------------------------------------------------------------------
 smv_remote_whitelist = r"^.*$"
 smv_branch_whitelist = os.getenv("SMV_BRANCH_WHITELIST", r"^(main)$")
@@ -209,10 +209,9 @@ html_static_path = ["_static"]
 html_css_files = ["css/custom.css"]
 html_favicon = None  # add _static/favicon.ico when ready
 # html_logo = "_static/images/logo.png"
-# The site is published one subdirectory per version by sphinx-multiversion
-# (currently only `main`), so canonical URLs live under /UniLab-doc/main/.
-# If more versions are ever enabled, this must become version-aware (e.g.
-# derived from the smv env vars) so each version's sitemap is correct.
+# The site is published one subdirectory per version by sphinx-multiversion.
+# The default below covers plain `sphinx-build`; multiversion builds override
+# it per ref via `_versioned_html_baseurl` (see setup()).
 html_baseurl = "https://unilabsim.github.io/UniLab-doc/main/"
 sitemap_url_scheme = "{link}"
 
@@ -460,6 +459,15 @@ def setup(app):
         app.tags.add("api_ref")
     else:
         app.tags.add("prose_only")
+    app.connect("config-inited", _versioned_html_baseurl)
     app.connect("html-page-context", _inject_language_switcher)
     app.connect("html-page-context", _inject_language_sidebar_navigation, priority=700)
+
+
+def _versioned_html_baseurl(app, config):
+    # sphinx-multiversion builds every whitelisted ref with this same conf.py;
+    # point each version's canonical URLs (sitemap etc.) at its own subdir.
+    current = getattr(config, "smv_current_version", "")
+    if current:
+        config.html_baseurl = f"https://unilabsim.github.io/UniLab-doc/{current}/"
     return {"parallel_read_safe": True}

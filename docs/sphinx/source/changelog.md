@@ -18,11 +18,15 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 ### Added / 新增
 
 - The documentation site is now versioned with sphinx-multiversion: the `main`
-  track is published with a version switcher in the navigation bar
+  track plus the latest patch tag of every minor release line (v1.0.0, v1.1.0,
+  v1.2.0, v1.3.5, v1.4.0, v1.5.11 at time of writing) are published with a
+  version switcher in the navigation bar
   ([#2584](https://github.com/Motphys/UniLab/pull/2584),
   [#706](https://github.com/Motphys/UniLab/issues/706)).
-  文档站现通过 sphinx-multiversion 版本化：发布 `main` 轨道，并在导航栏提供
-  版本切换器（[#2584](https://github.com/Motphys/UniLab/pull/2584)，
+  文档站现通过 sphinx-multiversion 版本化：发布 `main` 轨道及每条 minor
+  发布线的最新 patch 版本（撰写时为 v1.0.0、v1.1.0、v1.2.0、v1.3.5、
+  v1.4.0、v1.5.11），导航栏提供版本切换器
+  （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
 - New manager terms reference pages tabulate the built-in reward, observation,
   and termination terms

@@ -109,12 +109,26 @@ jobs:
           echo "::warning::UniLab install failed — deploying prose-only docs"
           echo "UNILAB_DOCS_SKIP_AUTODOC=1" >> "$GITHUB_ENV"
 
+      - name: Compute release-line tag whitelist
+        # Publish the latest patch tag of every minor release line (v1.0.0,
+        # v1.1.0, v1.2.0, v1.3.x, v1.4.0, v1.5.x, ...) alongside main. New
+        # release lines are picked up automatically on the next docs deploy.
+        run: |
+          whitelist=$(
+            git tag --list 'v1.*.*' | sort -V \
+              | awk -F. '{line=$1"."$2; latest[line]=$0} END {for (l in latest) print latest[l]}' \
+              | sort -V | paste -sd'|'
+          )
+          echo "Publishing release lines: $whitelist"
+          echo "SMV_TAG_WHITELIST=^(${whitelist})$" >> "$GITHUB_ENV"
+
       - name: Build full HTML (all whitelisted versions)
         working-directory: docs/sphinx
         # sphinx-multiversion builds one subdirectory per whitelisted ref
-        # (default: main only; see smv_* in source/conf.py). The prose-only
-        # fallback still applies — UNILAB_DOCS_SKIP_AUTODOC is honoured by
-        # conf.py inside each per-version build.
+        # (main + the release-line tags computed above; see smv_* in
+        # source/conf.py). The prose-only fallback still applies —
+        # UNILAB_DOCS_SKIP_AUTODOC is honoured by conf.py inside each
+        # per-version build.
         run: uv run --no-sync sphinx-multiversion source build/html
 
       - name: Add root redirect
