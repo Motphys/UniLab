@@ -201,7 +201,10 @@ nitpicky = False  # flip to True once API ref stabilizes
 # HTML output
 # ---------------------------------------------------------------------------
 html_theme = "furo"
-html_title = f"UniLab {release} documentation"
+# Version identity is carried by the sphinx-multiversion switcher, so the
+# title stays plain (and never degrades to a fallback like "0.0.0" when the
+# package version is unavailable during prose-only builds).
+html_title = "UniLab documentation"
 html_static_path = ["_static"]
 html_css_files = ["css/custom.css"]
 html_favicon = None  # add _static/favicon.ico when ready
