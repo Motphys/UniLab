@@ -110,15 +110,11 @@ jobs:
           echo "UNILAB_DOCS_SKIP_AUTODOC=1" >> "$GITHUB_ENV"
 
       - name: Compute release-line tag whitelist
-        # Publish the latest patch tag of every minor release line (v1.0.0,
-        # v1.1.0, v1.2.0, v1.3.x, v1.4.0, v1.5.x, ...) alongside main. New
-        # release lines are picked up automatically on the next docs deploy.
+        # Publish the x.y.0 release of every minor line (v1.0.0, v1.1.0,
+        # v1.2.0, ...) alongside main. New minor releases are picked up
+        # automatically on the next docs deploy.
         run: |
-          whitelist=$(
-            git tag --list 'v1.*.*' | sort -V \
-              | awk -F. '{line=$1"."$2; latest[line]=$0} END {for (l in latest) print latest[l]}' \
-              | sort -V | paste -sd'|'
-          )
+          whitelist=$(git tag --list 'v1.*.0' | sort -V | paste -sd'|')
           echo "Publishing release lines: $whitelist"
           echo "SMV_TAG_WHITELIST=^(${whitelist})$" >> "$GITHUB_ENV"
 

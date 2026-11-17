@@ -179,9 +179,8 @@ templates_path = ["_templates"]
 # ---------------------------------------------------------------------------
 # sphinx-multiversion — build one output subdirectory per whitelisted ref.
 # Local builds default to `main` only. The docs deploy workflow additionally
-# exports SMV_TAG_WHITELIST covering the latest patch tag of every release
-# line (v1.0.0, v1.1.0, v1.2.0, v1.3.x, v1.4.0, v1.5.x, ...); set it yourself
-# to reproduce that locally. Plain `sphinx-build` ignores these settings.
+# exports SMV_TAG_WHITELIST covering the x.y.0 release of every minor line
+# (v1.0.0, v1.1.0, v1.2.0, ...); set it yourself to reproduce that locally. Plain `sphinx-build` ignores these settings.
 # ---------------------------------------------------------------------------
 smv_remote_whitelist = r"^.*$"
 smv_branch_whitelist = os.getenv("SMV_BRANCH_WHITELIST", r"^(main)$")

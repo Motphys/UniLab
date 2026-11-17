@@ -93,9 +93,9 @@ redirect(`meta refresh` → `main/en/0-index.html`),再清理各版本目录下�
 页面不会被覆盖删除,旧外链保持可用。
 
 发布的版本集合:`main` 分支(`smv_branch_whitelist = ^(main)$`)+ 每条 minor
-发布线的最新 patch tag(v1.0.0、v1.1.0、v1.2.0、v1.3.x、v1.4.0、v1.5.x……)。
+发布线的 `x.y.0` 版本(v1.0.0、v1.1.0、v1.2.0、v1.3.0、v1.4.0、v1.5.0……)。
 tag 白名单由 deploy job 的 "Compute release-line tag whitelist" 步骤从 git tag
-动态计算并经 `SMV_TAG_WHITELIST` 注入,新发布线在下次部署时自动出现,无需改
+动态计算并经 `SMV_TAG_WHITELIST` 注入,新 minor 版本在下次部署时自动出现,无需改
 配置。本地构建默认只构建 `main`(`smv_tag_whitelist = ^$`);要复现全量版本,
 自行导出同名环境变量即可。每个版本的 `html_baseurl` 由 conf.py 的
 `_versioned_html_baseurl` 按 `smv_current_version` 动态设置,sitemap 各自正确。
