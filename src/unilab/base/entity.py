@@ -1139,9 +1139,7 @@ class SceneTensorReadPlan:
                             part.partition("/")[2] if "/" in part else part
                             for part in self._packet_body_axes[name]
                         )
-                        columns = self._packet_body_indices(
-                            requested, tuple(body_view.body_names)
-                        )
+                        columns = self._packet_body_indices(requested, tuple(body_view.body_names))
                         block = block[:, columns]
                     raw[name] = block.reshape(backend.num_envs, -1)
             except (AttributeError, KeyError, TypeError, ValueError, NotImplementedError) as exc:
