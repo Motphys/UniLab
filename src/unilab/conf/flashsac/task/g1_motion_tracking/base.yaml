@@ -1,10 +1,26 @@
 # @package _global_
-# Canonical G1 Whole-Body Tracking (WBT) Manager-Based task declaration for
-# FlashSAC owners. It intentionally shares the SAC scene, command, reward, and
-# termination contract, but uses unbiased actor/critic joint observations and
-# a DR-free lifecycle baseline: the current mjwarp tensor mask reset
-# does not negotiate reset randomization or interval wrenches. Backend owner
-# leaves inherit this file and only override backend/algo tuning.
+# Canonical G1 Whole-Body Tracking (WBT) task declaration for FlashSAC owners.
+# Aligned with the SAC owner contract (scene, observations, commands, rewards,
+# terminations, and canonical training DR) so run metrics are directly
+# comparable across algos; the FlashSAC training budget matches the SAC owner
+# (2048 envs x 25000 iterations, gamma 0.99) while FlashSAC algo-specific
+# knobs (batch_size, num_atoms, temp/n_step params) stay at the
+# conf/flashsac/config.yaml defaults. Backend owners inherit this contract and
+# override only backend identity, rendering, or explicitly supported/disabled
+# DR terms; sim owners never inherit each other (ADR-0023).
+
+training:
+  task_name: G1MotionTracking
+
+algo:
+  num_envs: 2048
+  max_iterations: 25000
+  save_interval: 1000
+  gamma: 0.99
+  tau: 0.05
+  updates_per_step: 4
+  policy_frequency: 2
+
 env:
   seed: null
   scene:
@@ -13,6 +29,22 @@ env:
     entities:
       robot:
         root_body_name: pelvis
+        # Foot geom metadata is required by backend friction DR bindings.
+        geom_names:
+          - left_foot1_collision
+          - left_foot2_collision
+          - left_foot3_collision
+          - left_foot4_collision
+          - left_foot5_collision
+          - left_foot6_collision
+          - left_foot7_collision
+          - right_foot1_collision
+          - right_foot2_collision
+          - right_foot3_collision
+          - right_foot4_collision
+          - right_foot5_collision
+          - right_foot6_collision
+          - right_foot7_collision
         joint_names: &g1_joints
           - left_hip_pitch_joint
           - left_hip_roll_joint
@@ -89,8 +121,8 @@ env:
             _target_: unilab.managers._noise.UniformNoiseCfg
             n_min: -0.2
             n_max: 0.2
-        joint_pos: &joint_pos_obs
-          func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel
+        joint_pos:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel_biased
           params: {command_name: motion}
           noise:
             _target_: unilab.managers._noise.UniformNoiseCfg
@@ -111,9 +143,11 @@ env:
         motion_anchor_ori_b: *anchor_ori_obs
         base_lin_vel: *base_lin_vel_obs
         base_ang_vel: *base_ang_vel_obs
-        joint_pos: *joint_pos_obs
         joint_vel: *joint_vel_obs
         actions: *actions_obs
+        joint_pos:
+          func: unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel
+          params: {command_name: motion}
         body_pos:
           func: unilab.tasks.motion_tracking.common.manager_terms.robot_body_pos_b
           params: {command_name: motion}
@@ -188,6 +222,55 @@ env:
           - right_ankle_roll_link
           - left_wrist_yaw_link
           - right_wrist_yaw_link
+  # mjlab fixes model-field biases at startup. UniLab model-field writes are
+  # reset-transaction capabilities, so those terms use reset mode. Backend
+  # owners override only the terms their backend cannot negotiate.
+  events:
+    base_com:
+      func: unilab.envs.mdp.randomize_rigid_body_com
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: torso_link
+        com_range:
+          x: [-0.025, 0.025]
+          y: [-0.05, 0.05]
+          z: [-0.05, 0.05]
+    encoder_bias:
+      func: unilab.envs.mdp.randomize_encoder_bias
+      mode: reset
+      params:
+        bias_range: [-0.01, 0.01]
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          joint_names: ".*"
+    foot_friction:
+      func: unilab.envs.mdp.geom_friction
+      mode: reset
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          geom_names: "^(left|right)_foot[1-7]_collision$"
+        ranges: [0.3, 1.2]
+        operation: abs
+        shared_random: true
+    push_robot:
+      func: unilab.envs.mdp.push_by_setting_velocity
+      mode: interval
+      interval_range_s: [1.0, 3.0]
+      is_global_time: true
+      params:
+        velocity_range:
+          x: [-0.5, 0.5]
+          y: [-0.5, 0.5]
+          z: [-0.2, 0.2]
+          roll: [-0.52, 0.52]
+          pitch: [-0.52, 0.52]
+          yaw: [-0.78, 0.78]
   policy_observation_group: actor
   critic_observation_group: critic
 

@@ -3,13 +3,18 @@
 # read/write lifecycle crosses the public packed HOST_BRIDGE boundary only.
 # Keep DENYLIST parity with the MuJoCo owner so cross-backend checkpoints
 # transfer 1:1. Motrix tensor reset does not support randomization or fixed
-# variants; this owner enables neither. The tensor command carrier mirrors the
-# MuJoCo HOST_BRIDGE path; canonical Manager terms own reset lifecycle.
+# variants; the owner disables the interval push explicitly. The tensor command
+# carrier mirrors the MuJoCo HOST_BRIDGE path; canonical Manager terms own
+# reset lifecycle.
 defaults:
-  - /task/g1_motion_tracking/mujoco
+  - /task/g1_motion_tracking/base
   - _self_
 
 training:
   task_name: G1MotionTracking
   sim_backend: motrix
   play_render_mode: record
+
+env:
+  events:
+    push_robot: null

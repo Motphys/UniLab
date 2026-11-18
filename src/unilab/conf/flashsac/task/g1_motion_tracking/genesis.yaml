@@ -5,11 +5,16 @@
 # §3.3), so the integrator g1.xml declares is re-declared here: the timestep
 # flows through the existing base.yaml sim_dt -> ctrl_dt chain, and the
 # integrator through the env field below. Requires unisim-core>=1.5.1 for the
-# motion body id capability (unilabsim/unisim#137). Playback uses Genesis
+# motion body id capability (unilabsim/unisim#137). Mirrors the SAC Genesis
+# owner DR subset: startup pelvis/torso mass scaling, inherited torso COM
+# reset, reset PD-gain scaling, and the six-axis interval velocity kick.
+# Absolute geom friction remains intentionally fail-closed because Genesis has
+# no equivalent per-environment friction API; encoder_bias is a host-side
+# observation bias and stays enabled. Playback uses Genesis
 # native rendering: with a display, play_render_mode=auto opens the
 # interactive viewer; headless hosts fall back to offscreen camera recording.
 defaults:
-  - /task/g1_motion_tracking/mujoco
+  - /task/g1_motion_tracking/base
   - _self_
 
 training:
@@ -18,6 +23,8 @@ training:
   play_render_mode: auto
   # First tick includes collector env construction; genesis JIT startup exceeds
   # the 30s default (same override as sac g1_walk_flat/genesis).
+
+env:
   # GPU device id for the process-wide Genesis session. Multi-GPU training
   # overrides this cold-path field from the rank topology; zero preserves the
   # single-device owner default.
@@ -25,3 +32,29 @@ training:
   # Re-declares the MJCF <option integrator="implicitfast"> that Genesis drops
   # at import; the remaining global options keep the Genesis defaults.
   genesis_integrator: implicitfast
+  scene:
+    entities:
+      robot:
+        geom_names: null
+  events:
+    body_mass:
+      func: unilab.envs.mdp.randomize_rigid_body_mass
+      mode: startup
+      params:
+        asset_cfg:
+          _target_: unilab.managers.SceneEntityCfg
+          name: robot
+          body_names: [pelvis, torso_link]
+        mass_distribution_params: [0.9, 1.1]
+        operation: scale
+        distribution: uniform
+        recompute_inertia: false
+    foot_friction: null
+    pd_gains:
+      func: unilab.envs.mdp.pd_gains
+      mode: reset
+      params:
+        kp_range: [0.9, 1.1]
+        kd_range: [0.9, 1.1]
+        distribution: uniform
+        operation: scale

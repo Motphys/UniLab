@@ -6,8 +6,11 @@
 # base.yaml sim_dt -> ctrl_dt chain. Requires unisim-core>=1.5.1 for the motion
 # body id capability (unilabsim/unisim#137). Record selects the native Newton
 # renderer and falls back to MuJoCo snapshots only for an incomplete install.
+# The public Newton tensor mask reset does not support randomization, so all
+# canonical DR terms (reset writes and the interval push) stay explicitly
+# disabled, preserving the historical DR-free Newton owner behavior.
 defaults:
-  - /task/g1_motion_tracking/mujoco
+  - /task/g1_motion_tracking/base
   - _self_
 
 training:
@@ -15,6 +18,7 @@ training:
   sim_backend: newton
   play_render_mode: record
   # First tick includes collector env construction and Newton warmup.
+
 env:
   # Explicit backend CUDA placement. Multi-GPU training overrides this
   # cold-path field from the rank topology.
@@ -25,3 +29,9 @@ env:
   newton_njmax: 512
   newton_capacity_check_steps: 1
   newton_use_cuda_graph: true
+  # Newton's public tensor mask reset does not support randomization.
+  events:
+    base_com: null
+    encoder_bias: null
+    foot_friction: null
+    push_robot: null
