@@ -47,9 +47,12 @@ the MJWarp owner inherits the MuJoCo FlashSAC owner and resolves to:
 | Motion | `motions/g1/dance1_subject2_part.npz` |
 
 The MuJoCo owner uses the same 2048-environment training budget, but publishes
-collector metrics every step. The MJWarp task is also a DR-free lifecycle
-baseline: its selected-row tensor reset does not negotiate reset randomization
-or interval wrenches.
+collector metrics every step. The MJWarp owner inherits the same canonical DR
+(reset-mode model-field randomization plus the linear-velocity interval push)
+and only zeroes the angular-velocity kicks, because its selected-row tensor
+reset does not negotiate the interval angular root-velocity capability. The
+Newton owner does not support reset randomization and sets the canonical DR
+terms to `null` explicitly.
 
 At the current generated evidence grade, FlashSAC /
 `g1_motion_tracking` / MJWarp is `Configured`. A successful local soak does not

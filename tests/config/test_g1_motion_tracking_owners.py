@@ -23,9 +23,8 @@ def _compose_flashsac(task: str):
         return compose("config", overrides=[f"task={task}"])
 
 
-def test_sac_g1_motion_tracking_split_keeps_dr_in_backend_owner() -> None:
+def test_sac_g1_motion_tracking_base_carries_canonical_dr_contract() -> None:
     base = _compose_sac("g1_motion_tracking/base")
-    assert not hasattr(base.env, "events")
     assert base.env.commands.motion.params.motion_file == "motions/g1/dance1_subject2_part.npz"
     assert (
         base.env.observations.actor.terms.joint_pos.func
@@ -36,8 +35,7 @@ def test_sac_g1_motion_tracking_split_keeps_dr_in_backend_owner() -> None:
         == "unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel"
     )
 
-    cfg = _compose_sac("g1_motion_tracking/mujoco")
-    events = cfg.env.events
+    events = base.env.events
     assert set(events) == {"base_com", "encoder_bias", "foot_friction", "push_robot"}
     assert events.base_com.mode == "reset"
     assert events.base_com.params.asset_cfg.body_names == "torso_link"
@@ -53,27 +51,43 @@ def test_sac_g1_motion_tracking_split_keeps_dr_in_backend_owner() -> None:
     assert events.push_robot.interval_range_s == [1.0, 3.0]
     assert events.push_robot.params.velocity_range.z == [-0.2, 0.2]
 
+    cfg = _compose_sac("g1_motion_tracking/mujoco")
+    assert OmegaConf.to_container(cfg.env.events, resolve=True) == OmegaConf.to_container(
+        base.env.events, resolve=True
+    )
 
-def test_flashsac_g1_motion_tracking_uses_comparable_dr_free_owner() -> None:
+
+def test_flashsac_g1_motion_tracking_owner_aligns_with_sac_contract() -> None:
     mujoco_cfg = _compose_flashsac("g1_motion_tracking/mujoco")
-    mjwarp_cfg = _compose_flashsac("g1_motion_tracking/mjwarp")
+    motrix_cfg = _compose_flashsac("g1_motion_tracking/motrix")
 
-    assert not hasattr(mujoco_cfg.env, "events")
-    assert not hasattr(mujoco_cfg.env.scene.entities.robot, "geom_names")
+    # Aligned with the SAC owner: canonical DR, foot geom metadata, and the
+    # biased actor joint observation all live in the FlashSAC base contract.
+    assert set(mujoco_cfg.env.events) == {
+        "base_com",
+        "encoder_bias",
+        "foot_friction",
+        "push_robot",
+    }
+    assert mujoco_cfg.env.scene.entities.robot.geom_names is not None
     assert (
         mujoco_cfg.env.observations.actor.terms.joint_pos.func
-        == "unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel"
+        == "unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel_biased"
     )
     assert (
         mujoco_cfg.env.observations.critic.terms.joint_pos.func
         == "unilab.tasks.motion_tracking.common.manager_terms.motion_joint_pos_rel"
     )
-    assert mjwarp_cfg.training.sim_backend == "mjwarp"
-    assert mjwarp_cfg.env.commands.motion._target_ == (
+    assert mujoco_cfg.reward == _compose_sac("g1_motion_tracking/mujoco").reward
+
+    # Motrix mirrors the SAC Motrix DR shape: reset DR stays, the interval
+    # push is explicitly disabled.
+    assert motrix_cfg.training.sim_backend == "motrix"
+    assert motrix_cfg.env.events.push_robot is None
+    assert motrix_cfg.env.events.base_com is not None
+    assert motrix_cfg.env.commands.motion._target_ == (
         "unilab.tasks.motion_tracking.common.manager_terms.MotionCommandCfg"
     )
-    assert mjwarp_cfg.env == mujoco_cfg.env
-    assert mjwarp_cfg.reward == mujoco_cfg.reward
 
 
 def test_flashsac_g1_motion_tracking_mjwarp_is_managed_term_baseline() -> None:
@@ -81,9 +95,22 @@ def test_flashsac_g1_motion_tracking_mjwarp_is_managed_term_baseline() -> None:
     cfg = _compose_flashsac("g1_motion_tracking/mjwarp")
 
     assert cfg.training.sim_backend == "mjwarp"
-    assert cfg.env == mujoco_cfg.env
     assert cfg.reward == mujoco_cfg.reward
     assert cfg.algo == mujoco_cfg.algo
+    # Only the interval push differs: angular kicks are zeroed because mjwarp
+    # does not expose the interval angular root-velocity capability.
+    mjwarp_env = OmegaConf.to_container(cfg.env)
+    mujoco_env = OmegaConf.to_container(mujoco_cfg.env)
+    assert isinstance(mjwarp_env, dict) and isinstance(mujoco_env, dict)
+    mjwarp_push = mjwarp_env["events"].pop("push_robot")
+    mujoco_push = mujoco_env["events"].pop("push_robot")
+    assert mjwarp_env == mujoco_env
+    assert mjwarp_push["params"]["velocity_range"]["roll"] == [0.0, 0.0]
+    assert mjwarp_push["params"]["velocity_range"]["pitch"] == [0.0, 0.0]
+    assert mjwarp_push["params"]["velocity_range"]["yaw"] == [0.0, 0.0]
+    assert (
+        mjwarp_push["params"]["velocity_range"]["x"] == mujoco_push["params"]["velocity_range"]["x"]
+    )
 
 
 def test_flashsac_motion_rewards_publish_canonical_component_names() -> None:
@@ -115,8 +142,11 @@ def test_flashsac_g1_motion_tracking_newton_keeps_mujoco_parity() -> None:
     assert cfg.env.newton_njmax == 512
     assert cfg.env.newton_capacity_check_steps == 1
     assert cfg.env.newton_use_cuda_graph is True
-    # The Newton owner changes only backend identity/placement and the tensor
-    # command implementation; it does not add reset DR or task semantics.
+    # Newton's public tensor mask reset does not support randomization, so the
+    # canonical DR terms stay explicitly disabled; the owner changes only
+    # backend identity/placement and the tensor command implementation.
+    assert set(cfg.env.events) == {"base_com", "encoder_bias", "foot_friction", "push_robot"}
+    assert all(event is None for event in cfg.env.events.values())
     newton_env = OmegaConf.to_container(cfg.env)
     mujoco_env = OmegaConf.to_container(mujoco_cfg.env)
     assert isinstance(newton_env, dict) and isinstance(mujoco_env, dict)
@@ -126,7 +156,9 @@ def test_flashsac_g1_motion_tracking_newton_keeps_mujoco_parity() -> None:
     del newton_env["newton_capacity_check_steps"]
     del newton_env["newton_use_cuda_graph"]
     del newton_env["commands"]
+    del newton_env["events"]
     del mujoco_env["commands"]
+    del mujoco_env["events"]
     assert newton_env == mujoco_env
     assert cfg.algo == mujoco_cfg.algo
 
@@ -141,7 +173,13 @@ def test_flashsac_g1_motion_tracking_motrix_uses_tensor_command() -> None:
     assert cfg.env.commands.motion._target_ == (
         "unilab.tasks.motion_tracking.common.manager_terms.MotionCommandCfg"
     )
-    assert cfg.env == mujoco_cfg.env
+    assert cfg.env.events.push_robot is None
+    motrix_env = OmegaConf.to_container(cfg.env)
+    mujoco_env = OmegaConf.to_container(mujoco_cfg.env)
+    assert isinstance(motrix_env, dict) and isinstance(mujoco_env, dict)
+    del motrix_env["events"]
+    del mujoco_env["events"]
+    assert motrix_env == mujoco_env
     assert cfg.algo == mujoco_cfg.algo
 
 

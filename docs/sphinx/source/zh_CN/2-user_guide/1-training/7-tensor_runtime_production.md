@@ -46,8 +46,10 @@ MJWarp owner 继承 FlashSAC MuJoCo owner，并解析为：
 | Motion | `motions/g1/dance1_subject2_part.npz` |
 
 MuJoCo owner 使用同样的 2048 环境训练预算，但每步发布 collector metric。
-MJWarp task 也是 DR-free lifecycle baseline：其 selected-row tensor reset
-不协商 reset randomization 或 interval wrench。
+MJWarp owner 继承同样的 canonical DR（reset 模式模型字段随机化 + 线速度
+interval push），仅将角速度推扰收窄为零，因为其 selected-row tensor reset
+不协商 interval angular root-velocity。Newton owner 不支持 reset 随机化，
+将 canonical DR 显式置 `null`。
 
 在当前生成证据等级中，FlashSAC / `g1_motion_tracking` / MJWarp 是
 `Configured`。本地 soak 成功不会自动把它提升为 `Benchmarked` 或

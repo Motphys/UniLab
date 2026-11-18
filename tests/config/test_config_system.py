@@ -249,3 +249,29 @@ def test_cli_override_beats_task_defaults():
     )
 
     assert cfg.algo.max_iterations == 1
+
+
+def test_task_backend_leaves_inherit_only_same_directory_base():
+    """ADR-0023: every sim owner leaf composes from its same-dir base.yaml only.
+
+    Backend leaves must never inherit another backend owner; the leaf file plus
+    base.yaml must fully determine the composed contract.
+    """
+    task_roots = sorted(CONF_DIR.glob("*/task/*"))
+    for task_dir in task_roots:
+        if not task_dir.is_dir():
+            continue
+        yaml_files = sorted(task_dir.glob("*.yaml"))
+        leaves = [path for path in yaml_files if path.stem != "base"]
+        if not leaves:
+            continue
+        base_file = task_dir / "base.yaml"
+        assert base_file.is_file(), f"{task_dir} has backend leaves but no base.yaml"
+        for leaf in leaves:
+            raw = OmegaConf.load(leaf)
+            defaults = raw.get("defaults")
+            assert defaults is not None, f"{leaf} must declare defaults"
+            assert list(defaults) == [
+                f"/task/{task_dir.name}/base",
+                "_self_",
+            ], f"{leaf} must inherit only its same-directory base (ADR-0023)"

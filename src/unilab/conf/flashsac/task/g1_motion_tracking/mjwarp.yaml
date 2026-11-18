@@ -1,9 +1,11 @@
 # @package _global_
 # FlashSAC mjwarp (GPU) owner for G1 WBT. The command carrier stays on MJWarp's
 # device-resident tensor path; canonical Manager terms own observations,
-# rewards, terminations, and reset lifecycle.
+# rewards, terminations, and reset lifecycle. Reset DR follows the SAC mjwarp
+# owner; angular velocity kicks are narrowed to zero because mjwarp does not
+# expose the interval angular root-velocity capability.
 defaults:
-  - /task/g1_motion_tracking/mujoco
+  - /task/g1_motion_tracking/base
   - _self_
 
 training:
@@ -13,3 +15,12 @@ training:
   # Reduce metric D2H frequency for the scoped tensor benchmark; capacity
   # remains CLI-overridable so ring depth can be measured without task forks.
   collector_metrics_interval: 100
+
+env:
+  events:
+    push_robot:
+      params:
+        velocity_range:
+          roll: [0.0, 0.0]
+          pitch: [0.0, 0.0]
+          yaw: [0.0, 0.0]

@@ -1,19 +1,20 @@
 # @package _global_
 # mjwarp (GPU) owner for G1 WBT. Benchmark/support scope: collector active-window
 # throughput measurement for issue #1292; mujoco-warp + warp-lang stay optional
-# deps. Inherits the MuJoCo owner verbatim so sim2sim DENYLIST fields keep parity;
+# deps. Sim2sim DENYLIST fields keep parity with the MuJoCo owner;
 # mjwarp capacity knobs stay at backend defaults (nconmax/njmax=512).
 # MuJoCo training DR is supported by the per-world model-field runtime.
 # Angular velocity kicks are narrowed to zero because mjwarp does not expose
 # the interval angular root-velocity capability.
 defaults:
-  - /task/g1_motion_tracking/mujoco
+  - /task/g1_motion_tracking/base
   - _self_
 
 training:
   task_name: G1MotionTracking
   sim_backend: mjwarp
   play_render_mode: record
+
 env:
   events:
     push_robot:

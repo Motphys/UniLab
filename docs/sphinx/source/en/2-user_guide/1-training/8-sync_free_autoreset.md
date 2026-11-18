@@ -179,6 +179,10 @@ env.reset_selection_blockers()  # [] when the task can enable masked_autoreset
 ```
 
 Then convert, replace or remove each named term. Reset-randomization events are
-common blockers; the G1 motion-tracking FlashSAC owner
-(`src/unilab/conf/flashsac/task/g1_motion_tracking/base.yaml`) is a DR-free
-baseline for this reason.
+common blockers; when a backend cannot negotiate them, the task owner must
+disable those terms explicitly. The G1 motion-tracking owners keep the
+canonical DR contract in
+`src/unilab/conf/<algo>/task/g1_motion_tracking/base.yaml`, and backends without
+reset-randomization support (for example the FlashSAC Newton owner) set the
+unsupported event terms to `null` in their own leaf instead of forking the
+contract.

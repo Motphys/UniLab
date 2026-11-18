@@ -2,12 +2,13 @@
 # Motrix mirrors the MuJoCo WBT training DR within its supported capability
 # set. Root velocity pushes are unsupported by Motrix and stay disabled.
 defaults:
-  - /task/g1_motion_tracking/mujoco
+  - /task/g1_motion_tracking/base
   - _self_
 
 training:
   task_name: G1MotionTrackingSAC
   sim_backend: motrix
+
 env:
   events:
     push_robot: null
