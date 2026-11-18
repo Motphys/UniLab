@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
 
 import torch
 from prettytable import PrettyTable
@@ -18,6 +18,8 @@ from unilab.base.config_overrides import (
     CONFIG_MAPPING_POLICY_KEY,
     MANAGER_TERM_MAPPING_POLICY,
 )
+from unilab.base.host_transitions import record_host_transition
+from unilab.base.reset_selection import ResetSelection, selection_blockers
 from unilab.base.reset_selectors import ResetMaskBuffer, resolve_reset_env_ids
 from unilab.managers._buffers import CircularBuffer, DelayBuffer
 from unilab.managers._noise import noise_cfg, noise_model
@@ -410,7 +412,31 @@ class ObservationManager(ManagerBase):
         index = self._group_obs_term_names[group_name].index(term_name)
         return self._group_obs_term_cfgs[group_name][index]
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    supports_reset_selection = True
+
+    def reset_selection_blockers(self) -> list[str]:
+        """Class terms must opt in; buffers and noise models are fixed-shape."""
+        participants = [
+            (f"{group}:{cfg.func!r}", cfg.func)
+            for group, group_cfg in self._group_obs_class_term_cfgs.items()
+            for cfg in group_cfg
+        ]
+        blockers = selection_blockers("ObservationManager", participants)
+        if not self._defer_finite_validation and any(
+            cfg.nan_policy != "disabled" for cfg in self._group_cfgs_for_selection()
+        ):
+            blockers.append(
+                "ObservationManager: NaN policies read the host unless "
+                "defer_finite_validation is enabled"
+            )
+        return blockers
+
+    def _group_cfgs_for_selection(self) -> list[Any]:
+        return [group for group in self.cfg.values() if group is not None]
+
+    def reset(
+        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
+    ) -> dict[str, float]:
         """Reset observation state for the selected environment rows.
 
         Class-term state, delay/history buffers, and noise models are cleared
@@ -425,7 +451,9 @@ class ObservationManager(ManagerBase):
             owner="ObservationManager.reset",
         )
         reset_mask = self._reset_mask_buffer.scatter(ids)
-        self._obs_buffer = None
+        # The per-step compute re-fills the cache between resets, so a captured
+        # reset must replay the invalidation.
+        record_host_transition(self._env, "observation.invalidate_cache", self._invalidate_cache)
         for group_cfg in self._group_obs_class_term_cfgs.values():
             for term_cfg in group_cfg:
                 if not callable(getattr(term_cfg.func, "reset", None)):
@@ -451,6 +479,9 @@ class ObservationManager(ManagerBase):
                     )
                 mod.reset(reset_mask)
         return {}
+
+    def _invalidate_cache(self) -> None:
+        self._obs_buffer = None
 
     def bind_read_phase(self) -> None:
         """Bind class terms after the scene's packed tensor read plan exists."""
@@ -544,7 +575,7 @@ class ObservationManager(ManagerBase):
     def compute(
         self,
         update_history: bool = False,
-        env_ids: torch.Tensor | None = None,
+        env_ids: torch.Tensor | ResetSelection | None = None,
     ) -> dict[str, torch.Tensor | dict[str, torch.Tensor]]:
         """Compute observations for all groups.
 
@@ -610,7 +641,7 @@ class ObservationManager(ManagerBase):
         self,
         group_name: str,
         update_history: bool = False,
-        env_ids: torch.Tensor | None = None,
+        env_ids: torch.Tensor | ResetSelection | None = None,
         *,
         share_cache: dict[tuple, torch.Tensor] | None = None,
     ) -> torch.Tensor | dict[str, torch.Tensor]:

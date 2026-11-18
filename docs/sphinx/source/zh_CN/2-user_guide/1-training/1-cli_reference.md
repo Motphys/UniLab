@@ -44,10 +44,12 @@ uv run uni-cumps doctor
 uv run uni-cumps stop
 
 # 多 GPU 或需要显式命名的部署。
+uv run uni-cumps status            # 可见 GPU 与已记录的 daemon
 uv run uni-cumps doctor --gpus <gpu-index-or-uuid>
 uv run uni-cumps start --gpus <gpu-index-or-uuid> --name <name>
 uv run uni-cumps env --name <name>
-uv run uni-cumps stop --name <name>
+uv run uni-cumps stop --name <name>          # 或：stop --gpus <gpu-index-or-uuid>
+uv run uni-cumps stop --all                  # 停止当前用户所有已记录 daemon
 ```
 
 ownership、并发和拓扑限制见 tensor runtime 生产指南。训练仍必须显式设置

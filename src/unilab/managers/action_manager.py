@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Sequence
 import torch
 from prettytable import PrettyTable
 
+from unilab.base.reset_selection import fill_rows_, selection_blockers
 from unilab.base.reset_selectors import resolve_reset_env_ids
 from unilab.managers.manager_base import ManagerBase, ManagerTermBase
 
@@ -58,6 +59,9 @@ class ActionTerm(ManagerTermBase):
 
     uses_tensor_state_packet: ClassVar[bool] = False
     """Whether ``apply_actions`` consumes the current packed tensor state packet."""
+
+    supports_reset_selection: ClassVar[bool] = False
+    """Whether ``reset`` accepts a fixed-shape ``ResetSelection`` (opt-in)."""
 
     # Contract invariant: raw actions are Torch tensors. ``process_actions`` and
     # the public ``raw_action`` carrier do not provide a NumPy fallback.
@@ -234,9 +238,14 @@ class ActionManager(ManagerBase):
     def get_term(self, name: str) -> ActionTerm:
         return self._terms[name]
 
+    supports_reset_selection = True
+
     def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
         self.clear_action_state(env_ids)
         return {}
+
+    def reset_selection_blockers(self) -> list[str]:
+        return selection_blockers("ActionManager", self._terms.items())
 
     def clear_action_state(self, env_ids: torch.Tensor | slice | None = None) -> None:
         """Clear manager and term action state for the selected envs without logging.
@@ -251,9 +260,9 @@ class ActionManager(ManagerBase):
             device=self._device,
             owner="ActionManager.clear_action_state",
         )
-        self._prev_action[env_ids] = 0.0
-        self._prev_prev_action[env_ids] = 0.0
-        self._action[env_ids] = 0.0
+        fill_rows_(self._prev_action, env_ids, 0.0)
+        fill_rows_(self._prev_prev_action, env_ids, 0.0)
+        fill_rows_(self._action, env_ids, 0.0)
         for term in self._terms.values():
             term.reset(env_ids)
 

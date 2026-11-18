@@ -489,7 +489,7 @@ _CUDA_MPS_FLAGS: dict[str, tuple[str, ...]] = {
     "status": ("--json",),
     "doctor": ("--gpus", "--json"),
     "start": ("--gpus", "--name", "--pipe-dir", "--log-dir", "--daemon", "--foreground"),
-    "stop": ("--name", "--all"),
+    "stop": ("--name", "--gpus", "--all"),
     "env": ("--name", "--shell", "--json"),
 }
 

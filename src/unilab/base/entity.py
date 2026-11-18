@@ -1124,10 +1124,24 @@ class SceneTensorReadPlan:
                 for name in self._packet_names:
                     if name in self._packet_sensor_owners:
                         raw[name] = backend.get_sensor_view(name, device=self._device)
-                    else:
-                        raw[name] = getattr(body_view, _PACKET_FIELD_BODY_FIELDS[name]).reshape(
-                            backend.num_envs, -1
+                        continue
+                    block = getattr(body_view, _PACKET_FIELD_BODY_FIELDS[name])
+                    if tuple(self._packet_body_axes[name]) != tuple(
+                        self._packet_body_axes[body_packet_names[0]]
+                    ):
+                        # Device-resident backends return one tracked-body view
+                        # for the first packet field's aggregate axis. Fields
+                        # with narrower axes (e.g. a pose-only floor body is
+                        # absent from the velocity fields) must select their
+                        # columns from that shared view by public body name;
+                        # host-bridge plans compile per-field widths instead.
+                        requested = tuple(
+                            part.partition("/")[2] if "/" in part else part
+                            for part in self._packet_body_axes[name]
                         )
+                        columns = self._packet_body_indices(requested, tuple(body_view.body_names))
+                        block = block[:, columns]
+                    raw[name] = block.reshape(backend.num_envs, -1)
             except (AttributeError, KeyError, TypeError, ValueError, NotImplementedError) as exc:
                 raise type(exc)(
                     "Manager scene device-resident tensor read on backend "

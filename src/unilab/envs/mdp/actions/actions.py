@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import torch
 
+from unilab.base.reset_selection import ResetSelection, fill_rows_
 from unilab.base.torch_env import TorchEnv
 from unilab.managers._buffers.delay_buffer import DelayBuffer
 from unilab.managers.action_manager import ActionTerm, ActionTermCfg
@@ -80,6 +81,11 @@ class BaseAction(ActionTerm):
 
     cfg: BaseActionCfg
     _entity: Entity
+
+    # Raw-action clearing and the optional delay buffer are fixed-shape masked
+    # writes under a ResetSelection; subclasses that add reset state must
+    # re-declare support.
+    supports_reset_selection: ClassVar[bool] = True
 
     def __init__(self, cfg: BaseActionCfg, env: ManagerBasedRlEnv):
         """Resolve target joints and allocate the raw/processed action carriers."""
@@ -229,12 +235,9 @@ class BaseAction(ActionTerm):
             )
         self._processed_actions_finite_valid.copy_(torch.isfinite(destination).all())
 
-    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> None:
         """Zero the raw actions of the selected envs."""
-        if env_ids is None:
-            self._raw_actions.zero_()
-            return
-        self._raw_actions[env_ids] = 0.0
+        fill_rows_(self._raw_actions, env_ids, 0.0)
 
     def _entity_values(self, values: torch.Tensor) -> torch.Tensor:
         """Publish processed controls on the public Torch control boundary."""
@@ -273,6 +276,8 @@ class JointPositionAction(BaseAction):
     """Convert policy actions into entity joint-position targets."""
 
     cfg: JointPositionActionCfg
+    # reset() forwards the selection to BaseAction and the (masked) DelayBuffer.
+    supports_reset_selection: ClassVar[bool] = True
 
     def __init__(self, cfg: JointPositionActionCfg, env: ManagerBasedRlEnv):
         """Bind the default-position offset and the optional delay buffer."""
@@ -310,7 +315,7 @@ class JointPositionAction(BaseAction):
         """Set the substep state-feedback requirement."""
         self._requires_substep_state_feedback = value
 
-    def reset(self, env_ids: torch.Tensor | None = None) -> None:
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> None:
         """Zero raw actions and reset the delay buffer for the selected envs."""
         super().reset(env_ids)
         if self._delay_buffer is not None:

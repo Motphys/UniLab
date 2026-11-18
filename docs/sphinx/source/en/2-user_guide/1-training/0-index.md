@@ -50,6 +50,12 @@ Run UniLab inside the checked-in Linux NVIDIA image workflow.
 Reproduce and operate the scoped single-GPU G1 FlashSAC/MJWarp long soak.
 :::
 
+:::{grid-item-card} Sync-free autoreset
+:link: 8-sync_free_autoreset
+:link-type: doc
+Opt-in fixed-shape autoreset, reset CUDA graph, and `ResetSelection` terms.
+:::
+
 ::::
 
 ## When to Drop to `scripts/train_*.py`
@@ -78,4 +84,5 @@ Day-to-day runs should use the unified CLI. Reach for the low-level
 5-resume_and_checkpoints
 6-docker
 7-tensor_runtime_production
+8-sync_free_autoreset
 ```

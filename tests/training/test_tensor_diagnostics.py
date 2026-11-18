@@ -200,3 +200,20 @@ def test_training_routes_guard_and_shared_finite_boundary() -> None:
     cfg.training.finite_validation_interval = 0
     with pytest.raises(ValueError, match="positive integer"):
         finite_validation_env_overrides(cfg)
+
+
+def test_reset_verdict_allows_inference_tensor_latches(tmp_path: Path) -> None:
+    """Latches allocated inside an rsl_rl rollout must survive an outside reset.
+
+    rsl_rl wraps the whole rollout in ``torch.inference_mode()``; with
+    deferred validation the guard's device buffers are typically first
+    allocated there, and ``close()`` resets them outside the context. The
+    reset must not fail on inference tensors.
+    """
+    guard = _guard(tmp_path)
+    obs = {"obs": torch.zeros((3, 2))}
+    reward = torch.zeros(3)
+    with torch.inference_mode():
+        assert guard.check(obs, reward, defer=True) is None
+    assert guard.device_verdict is not None
+    guard.reset_verdict()

@@ -342,17 +342,18 @@ class MotionSampler:
             or time_steps.device != self.device
         ):
             raise ValueError("MotionSampler time_steps must be int32 device frames")
+        # Resolve ownership before advancing so a terminal frame cannot enter
+        # the next clip. Keep a valid reference until the owner handles done.
+        clip_ends = self._step_clip_ends
+        torch.index_select(self._frame_clip_ends, 0, self.current_frames, out=clip_ends)
         next_frames = self._step_next_frames
         torch.add(self.current_frames, active, out=next_frames)
-        next_frames.clamp_(max=self.num_frames - 1)
-        frames = self._step_clamped_rows
-        frames.copy_(next_frames)
-        clip_ends = self._step_clip_ends
-        torch.index_select(self._frame_clip_ends, 0, frames, out=clip_ends)
         done = self._step_done
-        torch.gt(frames, clip_ends, out=done)
+        torch.gt(next_frames, clip_ends, out=done)
         done.logical_and_(active)
-        self.current_frames.copy_(next_frames)
+        frames = self._step_clamped_rows
+        torch.minimum(next_frames, clip_ends, out=frames)
+        self.current_frames.copy_(frames)
         torch.where(
             active,
             clip_ends,
@@ -401,7 +402,9 @@ class MotionSampler:
             self.sampling_entropy.fill_(1.0)
         top1_index = self._sampling_top1_index
         torch.argmax(probabilities, out=top1_index)
-        self.sampling_top1_prob.copy_(probabilities[top1_index])
+        # The top-1 mass is the maximum; indexing with the 0-d argmax tensor
+        # would read it on the host.
+        self.sampling_top1_prob.copy_(torch.amax(probabilities))
         self.sampling_top1_bin.copy_(top1_index)
         self.sampling_top1_bin.div_(self.bin_count)
 

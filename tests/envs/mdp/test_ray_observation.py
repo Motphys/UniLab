@@ -336,15 +336,15 @@ def test_ray_pattern_configs_validate_geometry_values() -> None:
         )
 
 
-def test_ray_scan_binds_and_traces_without_importing_uni_ray(monkeypatch) -> None:
+def test_ray_scan_binds_and_traces_without_importing_uniray_internals(monkeypatch) -> None:
     class _Blocker:
         def find_module(self, fullname, path=None):
-            if fullname == "uni_ray" or fullname.startswith("uni_ray."):
+            if fullname in {"uni_ray", "uniray"} or fullname.startswith(("uni_ray.", "uniray.")):
                 return self
             return None
 
         def load_module(self, fullname):
-            raise AssertionError(f"uni_ray was imported: {fullname}")
+            raise AssertionError(f"ray caster package was imported: {fullname}")
 
     sys.meta_path.insert(0, _Blocker())
     try:
@@ -835,7 +835,7 @@ def test_ray_scan_uses_only_public_backend_and_factory_boundaries(monkeypatch) -
     collision = env.backend.get_ray_collision_description()
     assert collision.scene is env.backend.scene
     assert collision is env.backend.collision
-    assert term.ray_pattern.caster == "uni_ray"
+    assert term.ray_pattern.caster == "uniray"
     source = (_REPO_ROOT / "src/unilab/envs/mdp/ray_observation.py").read_text(encoding="utf-8")
     for banned in (
         "import uni_ray",

@@ -108,18 +108,30 @@ uv run --extra genesis eval --algo flashsac --task g1_motion_tracking --sim gene
 
 To use MPS, start one service per selected GPU before training, append
 `training.cuda_process_sharing=mps` to the training command, and stop those
-services manually after training. For example, for GPUs 0 and 1:
+services after training. `uv run uni-cumps status` lists visible GPUs and all
+recorded services at any point. For example, for GPUs 0 and 1:
 
 ```bash
+uv run uni-cumps status                    # visible GPUs + recorded services
 uv run uni-cumps start --gpus 0 --name train-gpu0 --daemon
 uv run uni-cumps start --gpus 1 --name train-gpu1 --daemon
 CUDA_VISIBLE_DEVICES=0,1 \
   uv run --extra mjwarp train --algo flashsac --task g1_motion_tracking --sim mjwarp \
   training.cuda_process_sharing=mps
 # Run training, then stop only these services after its processes exit.
-uv run uni-cumps stop --name train-gpu0
-uv run uni-cumps stop --name train-gpu1
+uv run uni-cumps stop --name train-gpu0    # or: stop --gpus 0
+uv run uni-cumps stop --name train-gpu1    # or: stop --gpus 1
 ```
+
+`stop` selects by `--name`, by `--gpus`, or implicitly when exactly one live
+service exists; `stop --all` stops every service recorded for the current user
+on this host. Without `--name`, a started service is labeled
+`gpu-<full-uuid>`; `status` prints every recorded name with its GPU. UniLab
+stops only services it recorded (records live in
+`~/.cache/unilab/cuda-mps/`): if a control daemon outlives its record, quit it
+manually, e.g.
+`echo quit | CUDA_MPS_PIPE_DIRECTORY=/tmp/uni-cumps/<name>/pipe CUDA_MPS_LOG_DIRECTORY=/tmp/uni-cumps/<name>/log nvidia-cuda-mps-control`,
+then remove that `/tmp/uni-cumps/<name>` directory.
 
 An `mps` request binds each rank to its GPU's recorded service automatically
 (index-form `CUDA_VISIBLE_DEVICES` entries are normalized to GPU UUIDs, which
@@ -141,12 +153,13 @@ UniLab is designed to be a shared task and training surface for robot-specific
 repositories. They can ship robot recipes independently while consuming the
 same task, backend, and RL contracts. Current downstream examples:
 
+- [Uni-SuperMimic](https://github.com/Motphys/Uni-SuperMimic)
+- [Sharpa](https://github.com/unilabsim/sharpa_rl_unilab)
 - [MicroDuck RL](https://github.com/unilabsim/microduck_rl_unilab)
 - [EngineAI RL](https://github.com/unilabsim/engineai_rl_unilab)
 - [Unitree RL](https://github.com/unilabsim/unitree_rl_unilab)
 - [Wuji](https://github.com/unilabsim/wuji_unilab)
 - [Legged Manipulation](https://github.com/unilabsim/legged-manipulation_unilab)
-- [Sharpa](https://github.com/unilabsim/sharpa_rl_unilab)
 - [Cricket-Gym](https://github.com/kishanpb/Cricket-Gym-Unilab)
 
 ## Documentation

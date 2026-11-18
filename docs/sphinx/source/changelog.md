@@ -109,6 +109,97 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `info["reward_components"]` 发布
   （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- `uni-cumps stop` accepts `--gpus <index-or-uuid>` to stop the unique
+  recorded daemon covering one GPU, stop-selection errors name the next
+  discovery step (`uni-cumps status`), and the README and training guide
+  document the full status → start → train → stop lifecycle including
+  orphan-daemon recovery.
+  `uni-cumps stop` 新增 `--gpus <index-or-uuid>` 选择器，可停止覆盖指定 GPU
+  的唯一已记录 daemon；stop 选择失败的错误信息会指出下一步
+  （`uni-cumps status`）；README 与训练指南现在给出
+  status → start → train → stop 完整生命周期，包括 orphan daemon 的手动恢复
+  路径。
+  ([#2610](https://github.com/Motphys/UniLab/issues/2610)).
+
+## 1.5.11 (2026-11-16)
+
+### Added / 新增
+
+- Opt-in sync-free masked autoreset (`masked_autoreset`), persistent step
+  buffers (`persistent_step_buffers`) and CUDA graph capture of the reset segment
+  (`autoreset_cuda_graph`) for `TorchEnv` / `ManagerBasedRlEnv`, with the
+  fixed-shape `ResetSelection` reset selector. All flags default to `False`. The
+  default and ROCm profiles now pin `unisim-core==2.7.2`, which provides the
+  MJWarp external graph capture scope.
+  `TorchEnv` / `ManagerBasedRlEnv` 新增可选的无同步 masked autoreset
+  （`masked_autoreset`）、持久 step buffer（`persistent_step_buffers`）与 reset
+  段 CUDA graph 捕获（`autoreset_cuda_graph`），以及固定形状的 `ResetSelection`
+  reset 选择器。所有开关默认 `False`。默认与 ROCm profile 现在均钉定
+  `unisim-core==2.7.2`，该版本提供 MJWarp 外部 graph 捕获 scope。
+  ([#2605](https://github.com/Motphys/UniLab/pull/2605)).
+
+### Fixed / 修复
+
+- `make_manager_based_rl_env` now accepts a task-owned
+  `ManagerBasedRlEnv` subclass through the keyword-only `env_cls` argument while
+  retaining backend allocation and cleanup semantics. `MotionSampler.step_full`
+  resolves the current clip boundary before advancing, so a terminal frame can
+  no longer enter the next clip, while preserving stable full-width outputs and
+  scratch buffers
+  ([#2606](https://github.com/Motphys/UniLab/pull/2606)).
+  `make_manager_based_rl_env` 现在可通过 keyword-only 的 `env_cls` 参数注入
+  task 自有的 `ManagerBasedRlEnv` 子类，并保留 backend 分配与清理语义。
+  `MotionSampler.step_full` 会在推进前解析当前 clip 边界，因此终止帧不会再
+  进入下一个 clip，同时保持稳定的全宽输出和 scratch buffer
+  （[#2606](https://github.com/Motphys/UniLab/pull/2606)）。
+- The RSL-RL VecEnv adapter casts floating tensors during policy-device
+  transfer. CPU `float64` observations and rewards now work on Apple MPS, which
+  cannot first receive a `float64` tensor, while integer and Boolean tensors
+  retain their original dtypes
+  ([#2608](https://github.com/Motphys/UniLab/pull/2608)).
+  RSL-RL VecEnv adapter 现在在传输到 policy device 的同时转换浮点 tensor。
+  CPU `float64` 观测与 reward 现在可用于无法直接接收 `float64` tensor 的
+  Apple MPS；integer 与 Boolean tensor 保持原 dtype
+  （[#2608](https://github.com/Motphys/UniLab/pull/2608)）。
+
+## 1.5.10 (2026-11-11)
+
+### Changed / 变更
+
+- The default and ROCm profiles now pin `unisim-core==2.7.1`, including the
+  Motrix extra in both profiles and the SuperDex extra in the default profile.
+  `EnvCfg.mjwarp_validate_tensor_finite` controls MJWarp's backend-side control
+  finite check: the default `None` disables the duplicate blocking check under
+  deferred environment validation, retains it under eager validation, and an
+  explicit boolean overrides either behavior
+  ([#2598](https://github.com/Motphys/UniLab/pull/2598)).
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.7.1`；两个 profile 均覆盖
+  Motrix extra，默认 profile 另覆盖 SuperDex extra。
+  `EnvCfg.mjwarp_validate_tensor_finite` 控制 MJWarp backend 侧的 control
+  有限值检查：默认 `None` 在 deferred 环境校验下关闭重复的阻塞检查，在 eager
+  校验下保留该检查；显式布尔值可覆盖这两种行为
+  （[#2598](https://github.com/Motphys/UniLab/pull/2598)）。
+
+### Fixed / 修复
+
+- Deferred finite-validation device latches now reset under
+  `torch.inference_mode()`. PPO rollouts that allocate the latches in inference
+  mode no longer fail with an in-place inference-tensor update error at polling
+  boundaries or during teardown
+  ([#2600](https://github.com/Motphys/UniLab/pull/2600)).
+  Deferred 有限值校验的 device latch 现在在 `torch.inference_mode()` 下重置。
+  PPO rollout 在 inference mode 中分配 latch 后，不再于轮询边界或 teardown
+  期间因原地更新 inference tensor 而报错
+  （[#2600](https://github.com/Motphys/UniLab/pull/2600)）。
+- Ray observations now use the `uniray` caster identity by default. Sim2sim
+  contract comparison canonicalizes the previous `uni_ray` spelling to `uniray`,
+  so pre-rename checkpoints remain compatible without changing policy I/O;
+  substitutions with any other caster still fail closed
+  ([#2601](https://github.com/Motphys/UniLab/pull/2601)).
+  Ray observation 现在默认使用 `uniray` caster identity。Sim2sim 合同比较会将
+  旧的 `uni_ray` 拼写规范化为 `uniray`，使改名前的 checkpoint 在 policy I/O
+  不变的情况下保持兼容；替换为任何其他 caster 仍会 fail closed
+  （[#2601](https://github.com/Motphys/UniLab/pull/2601)）。
 
 ## 1.5.9 (2026-11-06)
 
