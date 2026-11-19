@@ -6,6 +6,7 @@ import torch
 from unilab.base.reset_selectors import (
     ResetMaskBuffer,
     reset_env_ids_mask,
+    resolve_reset_env_ids,
     resolve_reset_mask,
 )
 
@@ -73,7 +74,7 @@ def test_resolve_ids_matches_allocating_form() -> None:
     buffer = ResetMaskBuffer(num_envs, torch.device("cpu"))
     for selector in (
         None,
-        slice(2, 10, 3),
+        torch.arange(num_envs, dtype=torch.int64)[2:10:3],
         torch.tensor([4, 9], dtype=torch.int64),
     ):
         expected = resolve_reset_mask(
@@ -81,6 +82,18 @@ def test_resolve_ids_matches_allocating_form() -> None:
         )
         reused = buffer.resolve(selector, owner="test")
         assert torch.equal(reused, expected)
+
+
+def test_resolve_rejects_slice() -> None:
+    num_envs = 16
+    selector = slice(2, 10, 3)
+    with pytest.raises(TypeError, match="slice"):
+        resolve_reset_env_ids(selector, num_envs=num_envs, device=torch.device("cpu"), owner="test")
+    buffer = ResetMaskBuffer(num_envs, torch.device("cpu"))
+    with pytest.raises(TypeError, match="slice"):
+        buffer.resolve(selector, owner="test")
+    with pytest.raises(TypeError, match="slice"):
+        resolve_reset_mask(selector, num_envs=num_envs, device=torch.device("cpu"), owner="test")
 
 
 def test_resolve_rejects_bool_mask() -> None:

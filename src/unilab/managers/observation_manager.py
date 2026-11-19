@@ -434,9 +434,7 @@ class ObservationManager(ManagerBase):
     def _group_cfgs_for_selection(self) -> list[Any]:
         return [group for group in self.cfg.values() if group is not None]
 
-    def reset(
-        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
-    ) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> dict[str, float]:
         """Reset observation state for the selected environment rows.
 
         Class-term state, delay/history buffers, and noise models are cleared

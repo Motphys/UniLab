@@ -100,7 +100,7 @@ class CommandTerm(ManagerTermBase):
 
     def reset(
         self,
-        env_ids: torch.Tensor | slice | ResetSelection | None = None,
+        env_ids: torch.Tensor | ResetSelection | None = None,
         *,
         publish_metrics: bool = True,
     ) -> dict[str, float]:
@@ -137,8 +137,6 @@ class CommandTerm(ManagerTermBase):
                         getattr(self._env, "_has_transition", False)
                     )
                     selected_rows = not (isinstance(env_ids, torch.Tensor) and env_ids.numel() == 0)
-                    if isinstance(env_ids, slice):
-                        selected_rows = bool(range(*env_ids.indices(self.num_envs)))
                     if runtime_reset and selected_rows:
                         self._pending_metric_count += reset_mask.sum()
                         for (metric_name, _), selected in zip(
@@ -487,9 +485,7 @@ class CommandManager(ManagerBase):
             )
         return blockers
 
-    def reset(
-        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
-    ) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> dict[str, float]:
         """Reset command terms for the selected environment rows.
 
         Every term consumes the public ``env_ids`` row selector; the packed
@@ -669,7 +665,7 @@ class NullCommandManager:
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         return []
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         del env_ids
         return {}
 

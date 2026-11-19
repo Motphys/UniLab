@@ -105,7 +105,7 @@ class CurriculumManager(ManagerBase):
             for name in self._term_names
         ]
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         """Publish curriculum state and reset term state for the selected envs."""
         env_ids = resolve_reset_env_ids(
             env_ids,
@@ -191,7 +191,7 @@ class NullCurriculumManager:
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         return []
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         del env_ids
         return {}
 

@@ -124,7 +124,7 @@ class ManagerBase(abc.ABC):
 
     # Methods.
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, Any]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, Any]:
         """Resets manager state for the selected environment rows.
 
         The public selector follows the IsaacLab/mjlab ``env_ids`` row-index

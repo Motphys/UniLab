@@ -175,9 +175,7 @@ class EventManager(ManagerBase):
                 participants.extend((f"{mode}:{cfg.func!r}", cfg.func) for cfg in mode_cfg)
         return selection_blockers("EventManager", participants)
 
-    def reset(
-        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
-    ) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> dict[str, float]:
         """Clear stateful event terms for the selected environment rows."""
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="EventManager.reset"
