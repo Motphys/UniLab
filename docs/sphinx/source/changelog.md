@@ -126,6 +126,24 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   路径。
   ([#2610](https://github.com/Motphys/UniLab/issues/2610)).
 
+### Removed / 移除
+
+- The public reset selector no longer accepts a Python `slice`: the slice
+  branch is removed from `resolve_reset_env_ids` / `resolve_reset_mask` /
+  `ResetMaskBuffer.resolve` and from the `fill_rows_` / `assign_rows_`
+  signatures. Passing a slice now raises `TypeError`; pass explicit row
+  indices instead (e.g. `torch.arange(num_envs)[slice]`) or `None` for all
+  rows. The remaining forms are `None`, a 1-D integer row-index tensor, and
+  the internal `ResetSelection` protocol; no deprecation alias is kept
+  ([#2619](https://github.com/Motphys/UniLab/issues/2619)).
+  公共 reset 选择器不再接受 Python `slice`：`resolve_reset_env_ids` /
+  `resolve_reset_mask` / `ResetMaskBuffer.resolve` 的 slice 分支与
+  `fill_rows_` / `assign_rows_` 签名中的 slice 形式均已删除。传入 slice
+  现在抛 `TypeError`；请改用显式行索引（如 `torch.arange(num_envs)[slice]`）
+  或用 `None` 表示全部行。保留形式为 `None`、一维整数行索引张量与内部
+  `ResetSelection` 协议；不留 deprecation 别名
+  （[#2619](https://github.com/Motphys/UniLab/issues/2619)）。
+
 ## 1.5.11 (2026-11-16)
 
 ### Added / 新增

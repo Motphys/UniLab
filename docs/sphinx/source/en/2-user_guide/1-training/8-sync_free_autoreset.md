@@ -120,7 +120,7 @@ support and handling the selection as a masked full-width write.
     calls a factory `values(n)` that returns `n` rows (`num_envs` rows under a
     selection).
 
-  Both accept row ids, `None`, a slice or a selection.
+  Both accept row ids, `None`, or a selection.
 - Do not read the mask on the host (`bool(mask.any())`, `.item()`,
   `nonzero`) inside `reset`; that reintroduces the synchronization.
 

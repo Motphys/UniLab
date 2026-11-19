@@ -889,7 +889,7 @@ class MotionCommand(CommandTerm):
 
     def reset(
         self,
-        env_ids: torch.Tensor | slice | ResetSelection | None = None,
+        env_ids: torch.Tensor | ResetSelection | None = None,
         *,
         publish_metrics: bool = True,
     ) -> dict[str, float]:
@@ -922,17 +922,10 @@ class MotionCommand(CommandTerm):
         )
         self.time_left.copy_(torch.where(reset_mask, sampled, self.time_left))
         self._resample_command(reset_mask, fixed_shape=fixed_shape)
-        if (
-            env_ids is None
-            or (
-                isinstance(env_ids, slice)
-                and len(range(*env_ids.indices(self.num_envs))) == self.num_envs
-            )
-            or (
-                isinstance(env_ids, torch.Tensor)
-                and env_ids.numel() == self.num_envs
-                and bool(reset_mask.all())
-            )
+        if env_ids is None or (
+            isinstance(env_ids, torch.Tensor)
+            and env_ids.numel() == self.num_envs
+            and bool(reset_mask.all())
         ):
             # Float32 sampling may round slightly below the configured lower
             # bound. Keep a conservative margin before declaring any timer

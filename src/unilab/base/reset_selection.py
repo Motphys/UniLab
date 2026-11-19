@@ -136,7 +136,7 @@ def _describe(participant: object) -> str:
 
 def fill_rows_(
     tensor: torch.Tensor,
-    rows: torch.Tensor | slice | ResetSelection | None,
+    rows: torch.Tensor | ResetSelection | None,
     value: float | int | bool,
     *,
     row_dim: int = 0,
@@ -151,7 +151,7 @@ def fill_rows_(
 
 def assign_rows_(
     tensor: torch.Tensor,
-    rows: torch.Tensor | slice | ResetSelection | None,
+    rows: torch.Tensor | ResetSelection | None,
     values: torch.Tensor | Callable[[int], torch.Tensor],
     *,
     row_dim: int = 0,
@@ -169,12 +169,7 @@ def assign_rows_(
         return
     index: tuple[Any, ...] = (slice(None),) * row_dim + (slice(None) if rows is None else rows,)
     if callable(values):
-        if rows is None:
-            count = tensor.shape[row_dim]
-        elif isinstance(rows, slice):
-            count = len(range(*rows.indices(tensor.shape[row_dim])))
-        else:
-            count = int(rows.numel())
+        count = tensor.shape[row_dim] if rows is None else int(rows.numel())
         tensor[index] = values(count)
         return
     tensor[index] = values[index]
