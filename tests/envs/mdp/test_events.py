@@ -38,6 +38,7 @@ from unisim.dr.types import (
 )
 
 from unilab.base.entity import EntityCfg, EntityScene, SceneTensorReadSpec
+from unilab.base.reset_selection import ResetSelection
 from unilab.base.reset_selectors import ResetMaskBuffer
 from unilab.base.reset_state import ResetStateTransaction
 from unilab.envs import mdp
@@ -824,6 +825,159 @@ def test_pd_gains_commits_masked_packed_model_fields() -> None:
     np.testing.assert_allclose(payload.kd.numpy(), [[3.0] * 3, [3.0] * 3])
 
 
+def _selection_env(
+    **kwargs: Any,
+) -> tuple[ManagerBasedRlEnv, _Backend, ResetStateTransaction, list[torch.Tensor]]:
+    """Transaction env extended with the fixed-shape reset dispatch surface.
+
+    ``require`` records the deferred verdicts so tests can assert the masked
+    path published its validity check without a host read during the scope.
+    """
+    env, backend, transaction = _transaction_env(**kwargs)
+    verdicts: list[torch.Tensor] = []
+
+    def require(ok: torch.Tensor, name: str, message: str) -> None:
+        del name, message
+        verdicts.append(ok)
+
+    namespace = SimpleNamespace(
+        step_counter_tensor=torch.zeros((), dtype=torch.int64),
+        require=require,
+        **vars(env),
+    )
+    return cast(ManagerBasedRlEnv, namespace), backend, transaction, verdicts
+
+
+def _selection(mask_values: list[bool]) -> ResetSelection:
+    mask = torch.tensor(mask_values, dtype=torch.bool)
+    return ResetSelection(mask=mask, row_ids=torch.arange(mask.numel(), dtype=torch.int64))
+
+
+def test_geom_friction_reset_selection_commits_masked_packed_model_fields() -> None:
+    env, backend, transaction, verdicts = _selection_env()
+    manager = EventManager(
+        {
+            "friction": EventTermCfg(
+                func=mdp.geom_friction,
+                mode="reset",
+                params={"ranges": (2.0, 2.0), "operation": "scale"},
+            )
+        },
+        env,
+    )
+    assert manager.reset_selection_blockers() == []
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    selection = _selection([False, True, True])
+
+    with transaction.scoped_device_event_tensor(selection.mask):
+        manager.apply("reset", env_ids=selection, global_env_step_count=0)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    rows, _qpos, _qvel = backend.set_state_calls[0]
+    np.testing.assert_array_equal(rows, [1, 2])
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    # Default axes randomize only the first friction component, matching the
+    # row-index path of the same term.
+    expected = np.asarray([[1.0, 0.01, 0.001], [1.4, 0.02, 0.002], [1.8, 0.03, 0.003]])
+    np.testing.assert_allclose(payload.geom_friction.numpy(), np.broadcast_to(expected, (2, 3, 3)))
+    assert verdicts and all(bool(verdict) for verdict in verdicts)
+
+
+def test_dof_armature_reset_selection_commits_masked_packed_model_fields() -> None:
+    env, backend, transaction, verdicts = _selection_env()
+    manager = EventManager(
+        {
+            "armature": EventTermCfg(
+                func=mdp.dof_armature,
+                mode="reset",
+                params={"ranges": (2.0, 2.0), "operation": "scale"},
+            )
+        },
+        env,
+    )
+    assert manager.reset_selection_blockers() == []
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    selection = _selection([True, False, True])
+
+    with transaction.scoped_device_event_tensor(selection.mask):
+        manager.apply("reset", env_ids=selection, global_env_step_count=0)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    rows, _qpos, _qvel = backend.set_state_calls[0]
+    np.testing.assert_array_equal(rows, [0, 2])
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    np.testing.assert_allclose(payload.dof_armature.numpy(), [[0.0] * 6 + [2.0, 4.0, 6.0]] * 2)
+    assert verdicts and all(bool(verdict) for verdict in verdicts)
+
+
+def test_pd_gains_reset_selection_commits_masked_packed_model_fields() -> None:
+    env, backend, transaction, _verdicts = _selection_env()
+    manager = EventManager(
+        {
+            "gain": EventTermCfg(
+                func=mdp.pd_gains,
+                mode="reset",
+                params={
+                    "kp_range": (2.0, 2.0),
+                    "kd_range": (3.0, 3.0),
+                    "operation": "abs",
+                },
+            )
+        },
+        env,
+    )
+    assert manager.reset_selection_blockers() == []
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    selection = _selection([True, False, True])
+
+    with transaction.scoped_device_event_tensor(selection.mask):
+        manager.apply("reset", env_ids=selection, global_env_step_count=0)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    rows, _qpos, _qvel = backend.set_state_calls[0]
+    np.testing.assert_array_equal(rows, [0, 2])
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    np.testing.assert_allclose(payload.kp.numpy(), [[2.0] * 3, [2.0] * 3])
+    np.testing.assert_allclose(payload.kd.numpy(), [[3.0] * 3, [3.0] * 3])
+
+
+def test_body_com_reset_selection_commits_masked_packed_model_fields() -> None:
+    env, backend, transaction, _verdicts = _selection_env()
+    manager = EventManager(
+        {
+            "com": EventTermCfg(
+                func=mdp.randomize_rigid_body_com,
+                mode="reset",
+                params={
+                    "asset_cfg": SceneEntityCfg("robot", body_names=("base",)),
+                    "com_range": {"x": (0.1, 0.1)},
+                },
+            )
+        },
+        env,
+    )
+    assert manager.reset_selection_blockers() == []
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    selection = _selection([False, True, True])
+
+    with transaction.scoped_device_event_tensor(selection.mask):
+        manager.apply("reset", env_ids=selection, global_env_step_count=0)
+        assert backend.set_state_calls == []
+
+    assert len(backend.set_state_calls) == 1
+    rows, _qpos, _qvel = backend.set_state_calls[0]
+    np.testing.assert_array_equal(rows, [1, 2])
+    payload = backend.randomization_calls[0]
+    assert payload is not None
+    np.testing.assert_allclose(payload.body_ipos.numpy(), [[[0.1, 0.0, 0.0]]] * 2)
+
+
 def test_model_field_capability_gaps_fail_cold() -> None:
     env, backend, _ = _transaction_env(randomization_supported=False)
 
@@ -1500,6 +1654,34 @@ def test_randomize_encoder_bias_samples_selected_joints_within_range() -> None:
     )
 
     manager.apply("reset", env_ids=torch.tensor([0, 2], dtype=torch.int64), global_env_step_count=0)
+
+    bias = env.scene["robot"].data.encoder_bias
+    assert bias.shape == (3, 4)
+    np.testing.assert_array_equal(bias[1], np.zeros(4))
+    np.testing.assert_array_equal(bias[:, [0, 2]], np.zeros((3, 2)))
+    assert np.all(np.abs(bias[[0, 2]][:, [1, 3]]) <= 0.02)
+    assert np.any(bias[[0, 2]][:, [1, 3]] != 0.0)
+
+
+def test_randomize_encoder_bias_reset_selection_samples_selected_rows() -> None:
+    env = _bias_env()
+    env.step_counter_tensor = torch.zeros((), dtype=torch.int64)
+    manager = EventManager(
+        {
+            "bias": EventTermCfg(
+                func=mdp.randomize_encoder_bias,
+                mode="reset",
+                params={
+                    "bias_range": (-0.02, 0.02),
+                    "asset_cfg": SceneEntityCfg("robot", joint_ids=[1, 3]),
+                },
+            )
+        },
+        env,
+    )
+    assert manager.reset_selection_blockers() == []
+
+    manager.apply("reset", env_ids=_selection([True, False, True]), global_env_step_count=0)
 
     bias = env.scene["robot"].data.encoder_bias
     assert bias.shape == (3, 4)

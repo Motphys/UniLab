@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import torch
 
+from unilab.base.reset_selection import ResetSelection
 from unilab.base.reset_selectors import ResetMaskBuffer
 from unilab.managers.event_manager import EventTermCfg
 from unilab.managers.manager_base import ManagerTermBase
@@ -407,6 +408,9 @@ class _ModelFieldRandomizer(_ResetRandomizationTerm):
     _PARAMS = frozenset(
         ("ranges", "asset_cfg", "distribution", "operation", "axes", "shared_random")
     )
+    # Both the row-index and the ResetSelection ``__call__`` paths are
+    # implemented on this base, so subclasses inherit the declaration.
+    supports_reset_selection = True
 
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
@@ -456,6 +460,7 @@ class _ModelFieldRandomizer(_ResetRandomizationTerm):
         self._axes = self._resolve_axes(cfg.params.get("axes"), ranges)
         self._ranges = self._resolve_ranges(ranges, names)
         self._device_ranges: torch.Tensor | None = None
+        self._device_defaults: torch.Tensor | None = None
         self._device_axis_groups: dict[
             int, list[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
         ] = {}
@@ -472,6 +477,14 @@ class _ModelFieldRandomizer(_ResetRandomizationTerm):
         values: torch.Tensor,
         env_ids: torch.Tensor,
     ) -> None:
+        raise NotImplementedError
+
+    def _write_mask(
+        self,
+        values: torch.Tensor,
+        reset_mask: torch.Tensor,
+    ) -> None:
+        """Stage full-width values for the rows selected by ``reset_mask``."""
         raise NotImplementedError
 
     def _select_string_ranges(
@@ -647,31 +660,98 @@ class _ModelFieldRandomizer(_ResetRandomizationTerm):
             groups = self._build_axis_groups(axis)
             self._device_axis_groups[axis] = groups
         samples = torch.empty(
-            (count, parameters.shape[0]), dtype=torch.float32, device=parameters.device
+            (count, parameters.shape[0]), dtype=parameters.dtype, device=parameters.device
         )
         for low, high, indices in groups:
             shared = _sample_distribution_on_device(rng, low, high, (count, 1), self._distribution)
-            samples[:, indices] = shared
+            samples[:, indices] = shared.to(dtype=samples.dtype)
         return samples
 
     def _sample_device(self, env: ManagerBasedRlEnv) -> torch.device:
         return _require_rng(env, self.name).device
 
     def _sample_axis(self, env: ManagerBasedRlEnv, axis: int, count: int) -> torch.Tensor:
-        parameters = self._ranges[:, axis].to(device=self._sample_device(env))
         rng = _require_rng(env, self.name)
-        return _sample_axis_on_device(
-            rng,
-            parameters,
-            count,
-            distribution=self._distribution,
-            shared_random=self._shared_random,
+        device = self._sample_device(env)
+        ranges = self._device_ranges
+        if ranges is None or ranges.device != device:
+            # Cold path: stage the immutable sampling table on the RNG device
+            # once. Reset replays — including captured fixed-shape autoresets —
+            # then sample without any host transfer or host-read grouping.
+            ranges = self._ranges.to(device=device)
+            self._device_ranges = ranges
+            self._device_axis_groups.clear()
+        return self._sample_axis_on_device(rng, axis, count)
+
+    def _full_default_rows(self, env: ManagerBasedRlEnv) -> torch.Tensor:
+        """Full-width default table on the sampling device (cold-path staged once)."""
+        device = self._sample_device(env)
+        table = self._device_defaults
+        if table is None or table.device != device:
+            table = self._defaults.to(device=device)
+            self._device_defaults = table
+        canonical_ndim = 1 if self._field_width == 1 else 2
+        if table.ndim == canonical_ndim:
+            return table.unsqueeze(0).expand(self.num_envs, *table.shape)
+        if table.ndim == canonical_ndim + 1:
+            return table
+        raise ValueError(
+            f"EventManager term '{self._term_name}' bound an invalid default table with "
+            f"shape {tuple(table.shape)}"
         )
+
+    def _apply_selection(self, env: ManagerBasedRlEnv, selection: ResetSelection) -> None:
+        """Fixed-width masked randomization for the ``ResetSelection`` dispatch.
+
+        Sampling runs at full width with a fixed shape, so a device-resident or
+        captured reset replays without host reads. Value validity that the
+        row-index path checks eagerly on the host is published through
+        ``env.require`` as a deferred device verdict instead; the write merges
+        into the active device reset transaction through the field's
+        tensor-mask gateway.
+        """
+        if not self._entity.reset_state_tensor_active:
+            raise RuntimeError(
+                f"EventManager term '{self._term_name}' masked randomization requires an "
+                "active device reset transaction"
+            )
+        count = selection.num_envs
+        default_values = self._full_default_rows(env)
+        sampled_axis = self._sample_axis(env, self._axes[0], count) if self._axes else None
+        values = default_values.clone()
+        for index, axis in enumerate(self._axes):
+            samples = sampled_axis if index == 0 else self._sample_axis(env, axis, count)
+            if self._field_width == 1:
+                values = _apply_randomization_operation(
+                    default_values,
+                    samples,
+                    self._operation,
+                )
+            else:
+                values[..., axis] = _apply_randomization_operation(
+                    default_values[..., axis],
+                    samples,
+                    self._operation,
+                )
+        values = values.to(device=selection.mask.device, dtype=torch.float32).contiguous()
+        valid = torch.isfinite(values).all() & (values >= 0.0).all()
+        require = getattr(env, "require", None)
+        if not callable(require):
+            raise RuntimeError(
+                f"EventManager term '{self._term_name}' ResetSelection path requires "
+                "deferred finite validation (env.finite_validation_mode='deferred')"
+            )
+        require(
+            valid,
+            f"event.{self._term_name}",
+            f"EventManager term '{self._term_name}' produced negative, NaN, or Inf values",
+        )
+        self._write_mask(values, selection.mask)
 
     def __call__(
         self,
         env: ManagerBasedRlEnv,
-        env_ids: torch.Tensor | None,
+        env_ids: torch.Tensor | ResetSelection | None,
         ranges: Any,
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
         distribution: str = "uniform",
@@ -680,6 +760,9 @@ class _ModelFieldRandomizer(_ResetRandomizationTerm):
         shared_random: bool = False,
     ) -> None:
         del ranges, asset_cfg, distribution, operation, axes, shared_random
+        if isinstance(env_ids, ResetSelection):
+            self._apply_selection(env, env_ids)
+            return
         ids = resolve_env_ids(env, env_ids)
         default_values = _model_field_default_rows(
             self._defaults,
@@ -742,6 +825,14 @@ class GeomFriction(_ModelFieldRandomizer):
             term_name=self._term_name,
         )
 
+    def _write_mask(self, values: torch.Tensor, reset_mask: torch.Tensor) -> None:
+        self._entity.write_geom_friction_tensor_mask(
+            reset_mask,
+            values,
+            self._local_ids,
+            term_name=self._term_name,
+        )
+
 
 class DofArmature(_ModelFieldRandomizer):
     """Pinned mjlab-style dof armature randomization through the reset payload."""
@@ -765,6 +856,14 @@ class DofArmature(_ModelFieldRandomizer):
             values,
             self._local_ids,
             env_ids,
+            term_name=self._term_name,
+        )
+
+    def _write_mask(self, values: torch.Tensor, reset_mask: torch.Tensor) -> None:
+        self._entity.write_joint_armature_tensor_mask(
+            reset_mask,
+            values,
+            self._local_ids,
             term_name=self._term_name,
         )
 
@@ -830,11 +929,53 @@ class PdGains(_ResetRandomizationTerm):
                 term_name="pd_gains",
             )
         )
+        self._device_default_kp_or_kd: tuple[torch.Tensor, torch.Tensor] | None = None
+
+    supports_reset_selection = True
+
+    def _device_gain_defaults(self, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+        """Immutable gain default tables staged on the sampling device once."""
+        cached = self._device_default_kp_or_kd
+        if cached is not None and cached[0].device == device:
+            return cached
+        staged = (self._default_kp.to(device=device), self._default_kd.to(device=device))
+        self._device_default_kp_or_kd = staged
+        return staged
+
+    def _apply_selection(self, env: ManagerBasedRlEnv, selection: ResetSelection) -> None:
+        """Fixed-width masked gain randomization for the ``ResetSelection`` dispatch."""
+        if not self._entity.reset_state_tensor_active:
+            raise RuntimeError(
+                "EventManager term 'pd_gains' masked randomization requires an active "
+                "device reset transaction"
+            )
+        rng = _require_rng(env, "pd_gains")
+        count = selection.num_envs
+        shape = (count, len(self._actuator_ids))
+        kp = _sample_gain_range(rng, self._kp_range, shape, self._distribution)
+        kd = _sample_gain_range(rng, self._kd_range, shape, self._distribution)
+        if self._operation == "scale":
+            default_kp, default_kd = self._device_gain_defaults(kp.device)
+            if default_kp.ndim == 1:
+                default_kp = default_kp.unsqueeze(0).expand(count, *default_kp.shape)
+            if default_kd.ndim == 1:
+                default_kd = default_kd.unsqueeze(0).expand(count, *default_kd.shape)
+            kp = kp * default_kp.to(dtype=kp.dtype, device=kp.device)
+            kd = kd * default_kd.to(dtype=kd.dtype, device=kd.device)
+        kp = kp.to(device=selection.mask.device, dtype=torch.float32).contiguous()
+        kd = kd.to(device=selection.mask.device, dtype=torch.float32).contiguous()
+        self._entity.write_actuator_gains_tensor_mask(
+            selection.mask,
+            kp,
+            kd,
+            actuator_ids=self._actuator_ids,
+            term_name="pd_gains",
+        )
 
     def __call__(
         self,
         env: ManagerBasedRlEnv,
-        env_ids: torch.Tensor | None,
+        env_ids: torch.Tensor | ResetSelection | None,
         kp_range: tuple[float, float],
         kd_range: tuple[float, float],
         asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -842,6 +983,9 @@ class PdGains(_ResetRandomizationTerm):
         operation: Literal["scale", "abs"] = "scale",
     ) -> None:
         del kp_range, kd_range, asset_cfg, distribution, operation
+        if isinstance(env_ids, ResetSelection):
+            self._apply_selection(env, env_ids)
+            return
         ids = resolve_env_ids(env, env_ids)
         shape = (ids.numel(), len(self._actuator_ids))
         kp = _sample_gain_range(
@@ -1203,6 +1347,63 @@ class RandomizeRigidBodyCom(_ResetRandomizationTerm):
         )
         self._startup = cfg.mode == "startup"
         self._startup_values: torch.Tensor | None = None
+        self._device_default_ipos: torch.Tensor | None = None
+        self._device_com_ranges: tuple[tuple[tuple[float, float], ...], torch.Tensor] | None = None
+
+    supports_reset_selection = True
+
+    def _apply_selection(
+        self,
+        env: ManagerBasedRlEnv,
+        selection: ResetSelection,
+        com_range: dict[str, tuple[float, float]],
+    ) -> None:
+        """Fixed-width masked CoM randomization for the ``ResetSelection`` dispatch.
+
+        The live ``com_range`` is still re-resolved from the term params on
+        every apply (curricula may stage it); only the resolved bounds are
+        staged on the sampling device, and only when they change.
+        """
+        if not self._entity.reset_state_tensor_active:
+            raise RuntimeError(
+                "EventManager term 'randomize_rigid_body_com' masked randomization "
+                "requires an active device reset transaction"
+            )
+        rng = _require_rng(env, "randomize_rigid_body_com")
+        ranges = _axis_ranges(
+            com_range,
+            term_name="randomize_rigid_body_com",
+            name="com_range",
+            keys=_XYZ_KEYS,
+        )
+        key = tuple((float(lower), float(upper)) for lower, upper in ranges.detach().cpu().tolist())
+        cached = self._device_com_ranges
+        if cached is None or cached[0] != key or cached[1].device != rng.device:
+            device_ranges = ranges.to(device=rng.device)
+            self._device_com_ranges = (key, device_ranges)
+        else:
+            device_ranges = cached[1]
+        count = selection.num_envs
+        offsets = rng.uniform(
+            device_ranges[:, 0],
+            device_ranges[:, 1],
+            (count, 3),
+            dtype=torch.float64,
+        )
+        defaults = self._device_default_ipos
+        if defaults is None or defaults.device != offsets.device:
+            defaults = self._default_ipos.to(device=offsets.device)
+            self._device_default_ipos = defaults
+        if defaults.ndim == 2:
+            defaults = defaults.unsqueeze(0).expand(count, *defaults.shape)
+        values = defaults + offsets[:, None, :]
+        values = values.to(device=selection.mask.device, dtype=torch.float32).contiguous()
+        self._entity.write_body_ipos_tensor_mask(
+            selection.mask,
+            values,
+            body_ids=self._body_ids,
+            term_name="randomize_rigid_body_com",
+        )
 
     def _apply_startup(
         self,
@@ -1253,13 +1454,16 @@ class RandomizeRigidBodyCom(_ResetRandomizationTerm):
     def __call__(
         self,
         env: ManagerBasedRlEnv,
-        env_ids: torch.Tensor | None,
+        env_ids: torch.Tensor | ResetSelection | None,
         com_range: dict[str, tuple[float, float]],
         asset_cfg: SceneEntityCfg,
     ) -> None:
         del asset_cfg
         if self._startup:
             self._apply_startup(env, env_ids, com_range)
+            return
+        if isinstance(env_ids, ResetSelection):
+            self._apply_selection(env, env_ids, com_range)
             return
         ranges = _axis_ranges(
             com_range,
@@ -1832,23 +2036,37 @@ class RandomizeEncoderBias(ManagerTermBase):
                 f"EventManager term '{term_name}' asset_cfg must select at least one joint"
             )
         self._joint_ids = joint_ids
+        self._columns: torch.Tensor | None = None
         self._reset_mask_buffer = ResetMaskBuffer(self.num_envs, torch.device(env.device))
+
+    supports_reset_selection = True
+
+    def _joint_columns(self, device: torch.device) -> torch.Tensor:
+        """Selected joint columns staged on the control device once (cold path).
+
+        Building the index tensor inside the reset call would copy from pageable
+        host memory on every reset, which CUDA graph capture rejects.
+        """
+        cached = self._columns
+        if cached is None or cached.device != device:
+            cached = torch.tensor(self._joint_ids, dtype=torch.int64, device=device)
+            self._columns = cached
+        return cached
 
     def __call__(
         self,
         env: ManagerBasedRlEnv,
-        env_ids: torch.Tensor | None,
+        env_ids: torch.Tensor | ResetSelection | None,
         bias_range: tuple[float, float],
         asset_cfg: SceneEntityCfg,
     ) -> None:
         del bias_range, asset_cfg
         control = getattr(self._entity.data, "control_buffer", None)
         if isinstance(control, torch.Tensor):
-            columns = torch.tensor(self._joint_ids, dtype=torch.int64, device=control.device)
+            columns = self._joint_columns(control.device)
             rng_owner = getattr(env, "rng", None)
             if rng_owner is None:
                 raise NotImplementedError("Tensor encoder-bias reset requires the Manager RNG")
-            ids = resolve_env_ids(env, env_ids)
             lower, upper = self._range
             sampled = rng_owner.uniform(
                 lower,
@@ -1856,7 +2074,14 @@ class RandomizeEncoderBias(ManagerTermBase):
                 (self.num_envs, columns.numel()),
                 dtype=torch.float32,
             )
-            reset_mask = self._reset_mask_buffer.scatter(ids)
+            # Sampling is full-width with a fixed shape already; only the mask
+            # derivation differs between row indices and a ResetSelection.
+            if env_ids is None:
+                raise ValueError(
+                    "EventManager term 'randomize_encoder_bias' requires concrete "
+                    "environment indices"
+                )
+            reset_mask = self._reset_mask_buffer.scatter(env_ids)
             self._entity.data.update_encoder_bias_tensor_mask(reset_mask, columns, sampled)
             return
         raise NotImplementedError(

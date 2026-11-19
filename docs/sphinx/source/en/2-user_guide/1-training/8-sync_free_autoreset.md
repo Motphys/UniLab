@@ -78,6 +78,15 @@ trajectories differ from the selected-row path. Compare the two modes
 statistically, not value by value; MJWarp is not bitwise deterministic in any
 case.
 
+**Reset-mode DR replay cannot be disabled.** On backends that restore
+model-field defaults at reset (such as MJWarp), the built-in reset-mode domain
+randomization terms re-randomize through the packed reset transaction on every
+step of the fixed-shape path. Skipping that replay is not supported: with
+model-field writes restored to defaults, an un-replayed randomization would let
+privileged observations and physics diverge from the first step. Running the
+full reset lifecycle every step is the cost the fixed-shape path pays for its
+sync-free, graph-capturable reset.
+
 **`final_observation`.** It is published on every step and is meaningful only
 on done rows.
 
