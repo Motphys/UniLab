@@ -39,6 +39,8 @@ jobs:
         run: uv sync --only-group dev
       - name: Check
         run: uv run --no-sync ruff check --output-format=github .
+      - name: Check docstring coverage
+        run: uv run --no-sync interrogate src/unilab
 
   ruff-format:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'

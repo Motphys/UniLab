@@ -10,3 +10,5 @@ sphinxcontrib-mermaid>=0.9
 sphinx-togglebutton>=0.3
 linkify-it-py>=2.0
 sphinx-sitemap>=2.6
+sphinx-multiversion>=0.2
+beautifulsoup4>=4.12

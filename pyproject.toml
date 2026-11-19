@@ -127,7 +127,7 @@ unirl = [
 [dependency-groups]
 # The RL stack (APPO/off-policy/multi-GPU) is merged into unilab itself
 # (src/unilab/rl/), so the dev environment no longer installs unilab-rl.
-dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408"]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408", "interrogate"]
 
 [[tool.uv.index]]
 name = "r2-cu130"
@@ -167,6 +167,12 @@ ignore = [
     "N803",
     "N812",
 ]
+
+[tool.interrogate]
+# Docstring coverage floor for src/unilab (issue #706). CI enforces this gate;
+# raise the floor as coverage improves instead of lowering it to pass.
+fail-under = 40
+exclude = ["tests", "docs", "build", "dist"]
 
 [tool.mypy]
 python_version = "3.10"

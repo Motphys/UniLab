@@ -3,9 +3,10 @@
 UniLab 的文档源码全部在这里,**双语平行结构**——`source/en/` 是英文版,`source/zh_CN/`
 是中文版,`adr/`、`api_reference/`、`glossary.md`、`changelog.md`、`_static/` 共享。
 
-CI 在 push to `main` 时构建 Sphinx,通过 deploy key 推到独立仓
+CI 在 push to `main` 时用 sphinx-multiversion 构建 Sphinx,通过 deploy key 推到独立仓
 [`unilabsim/UniLab-doc`](https://github.com/unilabsim/UniLab-doc) 的 `gh-pages` 分支,
-由 GitHub Pages 发布到 <https://unilabsim.github.io/UniLab-doc/>。
+由 GitHub Pages 发布到 <https://unilabsim.github.io/UniLab-doc/>。站点按版本目录发布
+(当前仅 `main/`),根路径重定向到 `main/`。
 
 ## 目录结构
 
@@ -41,7 +42,9 @@ docs/sphinx/
         └── agents/           ← Agent 速查(中文,01-agent-quick-reference.md)
 ```
 
-URL 模式:`/`(语言 picker)、`/en/...`、`/zh_CN/...`。两种语言路径 1:1 镜像。
+URL 模式:`/`(重定向到 `main/en/0-index.html`)、`/main/en/...`、`/main/zh_CN/...`;
+历史大版本在 `/<tag>/en/...`(如 `/v1.5.11/en/...`)。站点按
+版本目录发布,版本目录内两种语言路径 1:1 镜像。
 
 ## 本地构建
 
@@ -73,7 +76,8 @@ UNILAB_DOCS_SKIP_AUTODOC=1 uv run --no-project --with-requirements requirements.
 
 CI 工作流在 `.github/workflows/docs.yml`:
 
-- **PR**: prose-only HTML build,跳过 API reference,failed 阻塞 PR
+- **PR**: prose-only HTML build(plain `sphinx-build`),跳过 API reference,
+  failed 阻塞 PR。plain build 下 `versions` 上下文不存在,侧栏版本切换器不渲染
 - **push to main**: prose-only build 通过后,`deploy` job 执行完整构建(安装
   UniLab + autodoc)并通过 deploy key(`UNILAB_DOC_DEPLOY_KEY` secret)推送到
   [`unilabsim/UniLab-doc`](https://github.com/unilabsim/UniLab-doc) 的
@@ -81,6 +85,20 @@ CI 工作流在 `.github/workflows/docs.yml`:
   prose-only 构建并仍然部署
 - **手动**: `workflow_dispatch` 在 `main` 上触发时走同一套构建 + 部署;
   在其他分支触发时只做 prose-only build
+
+deploy job 用 `sphinx-multiversion source build/html` 构建,按版本目录发布:
+每个白名单 ref 构建到 `build/html/<version>/`,随后在 `build/html/index.html` 写入根
+redirect(`meta refresh` → `main/en/0-index.html`),再清理各版本目录下的
+`.doctrees` 缓存后发布。发布步骤带 `keep_files: true`,旧版本目录和存量根目录
+页面不会被覆盖删除,旧外链保持可用。
+
+发布的版本集合:`main` 分支(`smv_branch_whitelist = ^(main)$`)+ 每条 minor
+发布线的 `x.y.0` 版本(v1.0.0、v1.1.0、v1.2.0、v1.3.0、v1.4.0、v1.5.0……)。
+tag 白名单由 deploy job 的 "Compute release-line tag whitelist" 步骤从 git tag
+动态计算并经 `SMV_TAG_WHITELIST` 注入,新 minor 版本在下次部署时自动出现,无需改
+配置。本地构建默认只构建 `main`(`smv_tag_whitelist = ^$`);要复现全量版本,
+自行导出同名环境变量即可。每个版本的 `html_baseurl` 由 conf.py 的
+`_versioned_html_baseurl` 按 `smv_current_version` 动态设置,sitemap 各自正确。
 
 PR 与 push 的检查性构建明确设置 `UNILAB_DOCS_SKIP_AUTODOC=1`,不安装 UniLab
 运行时依赖,也不跑 linkcheck。下面的本地发布流程保留为 CI 部署不可用时的
@@ -97,14 +115,18 @@ fallback。
 ### 本地发布到 UniLab-doc
 
 完整 API 文档在本地构建完成后,把 `docs/sphinx/build/html/` 的内容同步到
-`unilabsim/UniLab-doc` 的 `gh-pages` 分支根目录:
+`unilabsim/UniLab-doc` 的 `gh-pages` 分支根目录。构建方式与 CI 一致,用
+sphinx-multiversion(需要本地有对应 git ref;`main` 分支存在即可,shallow clone
+也能构建),构建后补写根 redirect 并清理 `.doctrees`:
 
 ```bash
 # 在 UniLab 仓库根目录
 uv sync
 uv pip install -r docs/sphinx/requirements.txt
 cd docs/sphinx
-uv run --no-sync sphinx-build -j auto -b html -n source build/html
+uv run --no-sync sphinx-multiversion source build/html
+echo '<meta http-equiv="refresh" content="0; url=main/en/0-index.html">' > build/html/index.html
+find build/html -type d -name .doctrees -exec rm -rf {} +
 cd ../..
 ```
 
@@ -121,10 +143,11 @@ git -C ../UniLab-doc checkout gh-pages
 git -C ../UniLab-doc pull --ff-only
 ```
 
-同步构建产物并推送:
+同步构建产物并推送。**不要加 `--delete`**:CI 发布用 `keep_files: true` 保留旧版本
+目录和存量根目录页面,本地手动发布也要保留它们:
 
 ```bash
-rsync -a --delete --exclude .git docs/sphinx/build/html/ ../UniLab-doc/
+rsync -a --exclude .git docs/sphinx/build/html/ ../UniLab-doc/
 touch ../UniLab-doc/.nojekyll
 
 SOURCE_SHA=$(git rev-parse --short HEAD)

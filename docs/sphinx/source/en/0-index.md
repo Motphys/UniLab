@@ -39,6 +39,50 @@ User guide
 
 ::::
 
+## I want to…
+
+::::{grid} 1 1 2 3
+:gutter: 3
+
+:::{grid-item-card} Onboard my own robot
+:link: 6-how_to/1-onboard_new_robot
+:link-type: doc
+End-to-end walkthrough from URDF/MJCF to a first training run, with a
+verification command at every step.
+:::
+
+:::{grid-item-card} Add a custom reward
+:link: 6-how_to/2-custom_reward
+:link-type: doc
+From a function definition to the reward term showing up in the training log.
+:::
+
+:::{grid-item-card} Look up built-in rewards / observations / terminations
+:link: 5-reference/6-manager_terms/0-index
+:link-type: doc
+Reference tables for all built-in terms: parameters, types, defaults, semantics.
+:::
+
+:::{grid-item-card} Configure domain randomization (DR)
+:link: 2-user_guide/5-domain_randomization/2-field_reference
+:link-type: doc
+Value guidance, effective timing, and minimal YAML examples for every DR field.
+:::
+
+:::{grid-item-card} Tune training hyperparameters
+:link: 2-user_guide/2-algorithms/0-index
+:link-type: doc
+Config reference tables on each algorithm page: PPO / APPO / SAC / FlashSAC.
+:::
+
+:::{grid-item-card} Troubleshoot training
+:link: 6-how_to/3-training_diagnostics
+:link-type: doc
+Diagnosis paths for NaN localization, reward anomalies, and backend mismatches.
+:::
+
+::::
+
 ## Why UniLab
 
 ::::{grid} 1 1 3 3
@@ -70,7 +114,7 @@ to you.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/unilabsim/UniLab.git
 cd UniLab
-uv sync --extra mujoco
+uv sync --extra mujoco --extra unirl
 uv run demo dance
 uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
   algo.max_iterations=1 algo.num_envs=16 training.no_play=true
@@ -169,4 +213,5 @@ why_unilab
 3-deployment/0-index
 4-developer_guide/0-index
 5-reference/0-index
+6-how_to/0-index
 ```

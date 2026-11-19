@@ -55,7 +55,7 @@ RL stack) and installs shell completion. If `make` is unavailable, run the
 matching commands directly:
 
 ```bash
-uv sync --extra mujoco
+uv sync --extra mujoco --extra unirl
 uv run --no-sync unilab-complete install
 ```
 
@@ -132,7 +132,7 @@ uv sync --extra mujoco --extra mjwarp --extra genesis --extra newton --extra mot
 
 | Backend | Install path | Important prerequisites |
 | --- | --- | --- |
-| MuJoCo | `make setup` or `uv sync --extra mujoco` | Builds the pinned `mjbatch` fork (bound to `mujoco==3.11.0`) from source; a C++17 toolchain and Python development headers are required until prebuilt wheels exist (roadmap open item) |
+| MuJoCo | `make setup` or `uv sync --extra mujoco --extra unirl` | Builds the pinned `mjbatch` fork (bound to `mujoco==3.11.0`) from source; a C++17 toolchain and Python development headers are required until prebuilt wheels exist (roadmap open item) |
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | NVIDIA CUDA; on a single-GPU host the current CUDA device is used by default, while multi-GPU topology remains explicit |
 | Genesis | `uv sync --extra genesis` | The validated path uses Linux x86_64, an NVIDIA GPU, and the pinned torch/Genesis versions |
 | Newton | `uv sync --extra newton` | Linux CUDA with the pinned newton / MuJoCo-Warp / Warp versions |
@@ -156,15 +156,18 @@ verification commands:
 
 ## Algorithm Extras
 
-No algorithm extra is required. The full RL stack ships inside the `unilab`
-distribution itself under `src/unilab/rl/`: PPO runs directly on
-`rsl-rl-lib`, and the APPO, off-policy (SAC / FlashSAC), and multi-GPU
-data-parallel runtimes are included in the base install. The former
-`unilab-rl` package is merged into this repository (issue #2372, decision in
+Training requires the `unirl` extra. The RL stack code itself ships inside the
+`unilab` distribution under `src/unilab/rl/`, but its runtime dependencies
+(`rsl-rl-lib`, `tensordict`, `tensorboard`, `wandb`) live in the `unirl` extra —
+without it, `uv run train` fails on import (e.g. `ModuleNotFoundError:
+tensordict`). `make setup` already includes it (`uv sync --extra mujoco
+--extra unirl`); when installing manually, add `--extra unirl` alongside your
+backend extra. The former `unilab-rl` package is merged into this repository
+(issue #2372, decision in
 {doc}`/adr/ADR-0016-rl-reintegration-into-unilab-rl`).
 
 The legacy `uni_rl` extra has been removed. Do not pass it to `uv sync` or
-`pip install`; the RL stack is included with the base distribution.
+`pip install`; use `unirl` instead.
 
 If your code imports `uni_rl` directly, see
 {doc}`../3-deployment/3-framework_migration/7-from_unilab_rl` for the

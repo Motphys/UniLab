@@ -47,6 +47,7 @@ class RayRingPatternCfg:
     pitch: float = 0.0
 
     def __post_init__(self) -> None:
+        """Validate the ray count and arc angles."""
         if isinstance(self.num_rays, bool) or not isinstance(self.num_rays, int):
             raise TypeError("RayRingPatternCfg num_rays must be an integer")
         if self.num_rays <= 0:
@@ -59,12 +60,15 @@ class RayRingPatternCfg:
 
     @property
     def ray_count(self) -> int:
+        """Number of rays in the pattern."""
         return self.num_rays
 
     def origins(self, device: torch.device) -> torch.Tensor:
+        """Return zero origins shared by all rays, ``(ray_count, 3)``."""
         return torch.zeros((self.ray_count, 3), dtype=torch.float32, device=device)
 
     def directions(self, device: torch.device) -> torch.Tensor:
+        """Return the yaw-arc ray directions at the shared pitch, ``(ray_count, 3)``."""
         angles = torch.linspace(
             self.start, self.stop, self.num_rays, dtype=torch.float32, device=device
         )
@@ -89,6 +93,7 @@ class RayGridPatternCfg:
     direction: Sequence[float] = (0.0, 0.0, -1.0)
 
     def __post_init__(self) -> None:
+        """Validate and normalize size, resolution, offset, and direction."""
         size = _real_sequence(self.size, "RayGridPatternCfg size", 2)
         if any(value <= 0.0 for value in size):
             raise ValueError("RayGridPatternCfg size components must be positive")
@@ -137,10 +142,12 @@ class RayGridPatternCfg:
 
     @property
     def ray_count(self) -> int:
+        """Total number of rays in the grid."""
         count_x, count_y = self._counts
         return count_x * count_y
 
     def origins(self, device: torch.device) -> torch.Tensor:
+        """Return the local grid ray origins, ``(ray_count, 3)``."""
         count_x, count_y = self._counts
         x = torch.linspace(-self.size[0] / 2.0, self.size[0] / 2.0, count_x, device=device)
         y = torch.linspace(-self.size[1] / 2.0, self.size[1] / 2.0, count_y, device=device)
@@ -151,6 +158,7 @@ class RayGridPatternCfg:
         return origins.contiguous()
 
     def directions(self, device: torch.device) -> torch.Tensor:
+        """Return the shared normalized direction per ray, ``(ray_count, 3)``."""
         direction = torch.tensor(self.direction, dtype=torch.float32, device=device)
         direction = direction / torch.linalg.vector_norm(direction)
         return direction.expand(self.ray_count, 3).clone().contiguous()
@@ -167,6 +175,7 @@ class RayCameraPatternCfg:
     up: Sequence[float] = (0.0, 0.0, 1.0)
 
     def __post_init__(self) -> None:
+        """Validate the camera geometry and frame vectors."""
         if isinstance(self.width, bool) or not isinstance(self.width, int):
             raise TypeError("RayCameraPatternCfg width must be an integer")
         if isinstance(self.height, bool) or not isinstance(self.height, int):
@@ -192,12 +201,15 @@ class RayCameraPatternCfg:
 
     @property
     def ray_count(self) -> int:
+        """Total number of camera rays (``width * height``)."""
         return self.width * self.height
 
     def origins(self, device: torch.device) -> torch.Tensor:
+        """Return zero origins shared by all rays, ``(ray_count, 3)``."""
         return torch.zeros((self.ray_count, 3), dtype=torch.float32, device=device)
 
     def directions(self, device: torch.device) -> torch.Tensor:
+        """Return the pinhole ray directions in the local frame, ``(ray_count, 3)``."""
         forward = torch.tensor(self.forward, dtype=torch.float32, device=device)
         up = torch.tensor(self.up, dtype=torch.float32, device=device)
         right = torch.linalg.cross(forward, up)
@@ -248,6 +260,7 @@ class RayPatternCfg:
     caster_options: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        """Validate the pattern declaration and normalize its fields."""
         if not isinstance(self.entity_name, str) or not self.entity_name:
             raise TypeError("RayPatternCfg entity_name must be a non-empty string")
         if not isinstance(
@@ -332,6 +345,7 @@ class RayScan(ManagerTermBase):
     """Bind one tensor caster and publish a ray observation carrier."""
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
+        """Declare the ray pattern and allocate the deferred binding state."""
         super().__init__(env)
         pattern = cfg.params.get("ray_pattern")
         if not isinstance(pattern, RayPatternCfg):
@@ -524,6 +538,12 @@ class RayScan(ManagerTermBase):
         env: ManagerBasedRlEnv,
         ray_pattern: RayPatternCfg | None = None,
     ) -> torch.Tensor:
+        """Trace the pattern and return the ray observation tensor.
+
+        Refreshes the full-scene pose from the packed read plan, transforms the
+        local pattern by the attachment frame, and returns per-ray distances
+        concatenated with optional normals and hit points.
+        """
         if ray_pattern is not None and ray_pattern is not self.ray_pattern:
             raise ValueError(
                 "RayScan was bound to a different ray_pattern; manager term parameters "

@@ -2,7 +2,9 @@
 
 Map Legged Gym's `_reward_*` methods to `reward` terms in the owner YAML.
 Manager-Based reward terms receive the env, read batched state through the
-entity facade and managers, and return NumPy arrays of shape `(num_envs,)`.
+entity facade and managers, and return float32 `torch.Tensor`s of shape
+`(num_envs,)` on the env device. Since 1.3.4 the Manager runtime is
+Torch-only: the reward manager rejects non-Tensor returns with a type error.
 
 ## Tracking, smoothness, and joint limits
 
@@ -15,10 +17,11 @@ evaluation.
 ```yaml
 reward:
   tracking_lin_vel:
-    func: unilab.tasks.locomotion.common.manager_terms.track_lin_vel_xy_exp
+    func: unilab.tasks.locomotion.common.sensor_reward_terms.track_lin_vel
     weight: 1.0
     params:
-      std: 0.5
+      sensor_name: local_linvel
+      tracking_sigma: 0.5
       command_name: twist
   action_rate:
     func: unilab.envs.mdp.action_rate_l2
@@ -31,10 +34,16 @@ reward:
     weight: -1.0
 ```
 
-`track_lin_vel_xy_exp` uses body-frame xy velocity error and computes
-`exp(-error_squared / std**2)`. If the source denominator is `tracking_sigma`,
-use `std = sqrt(tracking_sigma)` and preserve coordinate frames and command
-dimensions.
+`track_lin_vel` is a class term
+(`src/unilab/tasks/locomotion/common/sensor_reward_terms.py`) that binds one
+named 3-D velocity sensor at construction and computes
+`exp(-||cmd_xy - v_xy||^2 / tracking_sigma)` against the `twist` command.
+`tracking_sigma` is the direct denominator (default 0.25; the Go2 PPO owner
+sets 0.5), and the velocity frame is whichever frame the bound sensor reports —
+the Go2 owners bind `local_linvel`, a velocimeter on the IMU site. Both the
+sensor and the command fail closed at construction when missing. When porting,
+keep the sensor frame and the command dimensions consistent with the source
+implementation.
 
 `action_rate_l2` reads current and previous actions from the action manager.
 `joint_pos_limits` reads soft joint limits through the entity facade.
@@ -87,6 +96,9 @@ whether timeouts should contribute to the source task's penalty separately.
 ## See also
 
 - {doc}`5-task_config_translation`
+- {doc}`../../6-how_to/2-custom_reward` — walkthrough for
+  defining and verifying a new reward term end to end
 - `src/unilab/envs/mdp/rewards.py`
 - `src/unilab/tasks/locomotion/common/manager_terms.py`
+- `src/unilab/tasks/locomotion/common/sensor_reward_terms.py`
 - `src/unilab/tasks/locomotion/common/gait_terms.py`

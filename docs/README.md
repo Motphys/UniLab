@@ -1,7 +1,8 @@
 # UniLab Documentation
 
 UniLab 的全部文档源码统一在 [`docs/sphinx/`](sphinx/) 下,通过 Sphinx 构建,部署到
-<https://unilabsim.github.io/UniLab-doc/>。
+<https://unilabsim.github.io/UniLab-doc/>。站点按版本子路径发布(当前仅 `main/`,
+如 `/UniLab-doc/main/en/0-index.html`),根路径自动重定向到 `main/`。
 
 发布入口:
 
@@ -20,6 +21,7 @@ UniLab 的全部文档源码统一在 [`docs/sphinx/`](sphinx/) 下,通过 Sphin
 | 中文用户指南 | [`docs/sphinx/source/zh_CN/2-user_guide/`](sphinx/source/zh_CN/2-user_guide/) |
 | 英文 Developer 指南 | [`docs/sphinx/source/en/4-developer_guide/`](sphinx/source/en/4-developer_guide/) |
 | 中文 Developer 指南 | [`docs/sphinx/source/zh_CN/4-developer_guide/`](sphinx/source/zh_CN/4-developer_guide/) |
+| How-to 指南(端到端任务演练,中英镜像) | [`docs/sphinx/source/en/6-how_to/`](sphinx/source/en/6-how_to/) |
 | 英文 Deployment(sim-to-real / sim-to-sim) | [`docs/sphinx/source/en/3-deployment/`](sphinx/source/en/3-deployment/) |
 | 中文 Agent 速查 | [`docs/sphinx/source/zh_CN/4-developer_guide/6-agent_quick_reference.md`](sphinx/source/zh_CN/4-developer_guide/6-agent_quick_reference.md) |
 | ADR(共享,中文为主) | [`docs/sphinx/source/adr/`](sphinx/source/adr/) |

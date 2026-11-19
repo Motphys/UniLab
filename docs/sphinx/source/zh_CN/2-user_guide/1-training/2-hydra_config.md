@@ -66,3 +66,13 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco --cfg job
 换开关。请使用统一 CLI 的 `--sim` flag 来选择后端。
 
 参见 {doc}`../../4-developer_guide/2-contracts/3-task_owner` 中的开发者 contract。
+
+## 按算法的配置参考
+
+逐字段表格 —— 训练效率、策略性能（GAE lambda、熵系数、学习率、网络结构）、训练
+运行与 reward 权重 —— 见各算法页：
+
+- {doc}`../2-algorithms/1-ppo`
+- {doc}`../2-algorithms/2-appo`
+- {doc}`../2-algorithms/3-sac`
+- {doc}`../2-algorithms/4-flash_sac`
