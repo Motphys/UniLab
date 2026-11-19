@@ -23,13 +23,15 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   stay valid for one further step instead of per-step defensive clones. The
   sync-free autoreset user guide documents the step-output lifetime contract,
   including which outputs remain per-step fresh
-  ([#2628](https://github.com/Motphys/UniLab/issues/2628)).
+  ([#2631](https://github.com/Motphys/UniLab/pull/2631),
+  [#2628](https://github.com/Motphys/UniLab/issues/2628)).
   `TorchEnv.register_step_carrier` 将任务自有的 step 输出张量（如
   transition 快照）通过 persistent step buffer 发布环发布：消费者获得地址
   稳定、可零拷贝持有一步的槽位视图，替代逐步防御性 clone。sync-free
   autoreset 用户指南补充了 step 输出生命周期契约（含哪些输出仍逐步重新
   分配）说明
-  ([#2628](https://github.com/Motphys/UniLab/issues/2628))。
+  ([#2631](https://github.com/Motphys/UniLab/pull/2631)，
+  [#2628](https://github.com/Motphys/UniLab/issues/2628))。
 - The documentation site is now versioned with sphinx-multiversion: the `main`
   track plus the `x.y.0` release of every minor line (v1.0.0, v1.1.0, v1.2.0,
   v1.3.0, v1.4.0, v1.5.0 at time of writing) are published with a
