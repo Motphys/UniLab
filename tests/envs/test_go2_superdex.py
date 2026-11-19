@@ -24,7 +24,11 @@ def _owner(backend: str) -> tuple[Any, dict[str, Any]]:
     GlobalHydra.instance().clear()
     with initialize_config_dir(config_dir=str(ROOT / "src/unilab/conf/ppo"), version_base="1.3"):
         owner = compose("config", overrides=[f"task=go2_joystick_flat/{backend}"])
-    return owner, EnvConfigAdapter(owner, root_dir=ROOT).build_task_env_cfg_override()
+    override = EnvConfigAdapter(owner, root_dir=ROOT).build_task_env_cfg_override()
+    # These CPU-device tests pin the eager lifecycle; the default-on graph path
+    # fails closed earlier with its own device-capability blocker (#2621).
+    override["autoreset_cuda_graph"] = False
+    return owner, override
 
 
 def test_go2_superdex_preserves_mujoco_policy_contract() -> None:
