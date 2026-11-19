@@ -176,6 +176,15 @@ class ManagerRng:
         p: torch.Tensor,
         replacement: bool = True,
     ) -> torch.Tensor:
+        """Sample category indices from ``{0, ..., a - 1}`` with probabilities ``p``.
+
+        The method performs no host reads: it is sync-free and safe on
+        fixed-shape autoreset and CUDA graph hot paths. ``p`` must therefore be
+        trusted by the caller: finite, non-negative, with a positive sum. An
+        invalid ``p`` fails in ``torch.multinomial`` itself — a clean
+        ``RuntimeError`` on CPU, but a device-side assert with a poisoned CUDA
+        context on CUDA.
+        """
         if isinstance(a, bool) or not isinstance(a, int) or a <= 0:
             raise ValueError(f"ManagerRng choice population must be a positive int, got {a}")
         if not replacement:
@@ -190,8 +199,6 @@ class ManagerRng:
             raise ValueError(
                 f"ManagerRng choice probabilities must live on {self.device}, got {p.device}"
             )
-        if p.numel() == 0 or not bool(torch.isfinite(p).all()) or bool((p < 0).any()):
-            raise ValueError("ManagerRng choice probabilities must be finite and non-negative")
         count = _shape(size)
         if len(count) != 1:
             raise TypeError("ManagerRng choice size must be one-dimensional")

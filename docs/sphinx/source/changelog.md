@@ -189,6 +189,24 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   status → start → train → stop 完整生命周期，包括 orphan daemon 的手动恢复
   路径。
   ([#2610](https://github.com/Motphys/UniLab/issues/2610)).
+- `ManagerRng.choice` no longer validates the probability table with eager
+  host reads on every call: the per-call `torch.isfinite` / `p < 0` check
+  forced a device-to-host synchronization that broke sync-free hot paths
+  (fixed-shape autoreset with sync-debug mode, CUDA graph capture). The check
+  was redundant — `torch.multinomial` itself raises a clean `RuntimeError` on
+  CPU and a device-side assert on CUDA for invalid probabilities — and
+  contradicted the repository's deferred finite-validation boundary pattern.
+  The method is now sync-free; callers are responsible for passing finite,
+  non-negative probabilities with a positive sum, as documented on the method
+  ([#2624](https://github.com/Motphys/UniLab/issues/2624)).
+  `ManagerRng.choice` 不再在每次调用时用 eager host 读校验概率表：逐调用的
+  `torch.isfinite` / `p < 0` 检查强制 device→host 同步，破坏了免同步热路径
+  （sync-debug 模式下的 fixed-shape autoreset、CUDA graph 捕获）。该检查本就
+  冗余——非法概率下 `torch.multinomial` 自身会在 CPU 抛出清晰的
+  `RuntimeError`、在 CUDA 触发 device-side assert——且与仓库"延迟有限值校验边界"
+  的模式相矛盾。该方法现在免同步；调用方需自行保证概率有限、非负且和为正，
+  方法 docstring 已注明
+  （[#2624](https://github.com/Motphys/UniLab/issues/2624)）。
 
 ### Removed / 移除
 
