@@ -167,7 +167,7 @@ class RewardManager(ManagerBase):
             ),
         )
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         """Clear stateful reward terms for the selected environment rows."""
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="RewardManager.reset"

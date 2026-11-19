@@ -34,6 +34,8 @@ def test_g1_reset_randomization_runs_for_reward_override_fixture():
         "func": "unilab.tasks.locomotion.common.manager_terms.alive",
         "weight": 20.0,
     }
+    # Reward-override lifecycle test on the eager selected-row path on CPU.
+    env_cfg_override["autoreset_cuda_graph"] = False
 
     env = registry.make(
         "G1WalkFlat",

@@ -75,6 +75,8 @@ def test_mjlab_fixture_real_mujoco_manager_runs_packed_reset_lifecycle() -> None
         reason="unisim-core MuJoCo adapter (mjbatch build) not available",
     )
     _, override = _materialize()
+    # These packed-reset lifecycle tests run the eager selected-row path on CPU.
+    override["autoreset_cuda_graph"] = False
     env = registry.make(
         FIXTURE_ENV_NAME,
         sim_backend="mujoco",
@@ -98,6 +100,8 @@ def test_mjlab_fixture_missing_actuator_fails_on_cold_path() -> None:
     )
     _, override = _materialize()
     override["actions"]["effort"]["actuator_names"] = ["missing_actuator"]
+    # Keep the cold-path assertion reachable: run the eager path on CPU.
+    override["autoreset_cuda_graph"] = False
     with pytest.raises(ValueError, match="regular expressions matched.*missing_actuator"):
         registry.make(
             FIXTURE_ENV_NAME,

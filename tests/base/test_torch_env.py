@@ -23,7 +23,7 @@ from unisim.backend.base import (
     TensorRuntimeDiagnostic,
 )
 
-import unilab.base.torch_env as torch_env_module
+import unilab.base.phase_timer as phase_timer_module
 from unilab.base.base import EnvCfg, EnvPlayCapabilities
 from unilab.base.scene import SceneCfg
 from unilab.base.torch_env import TorchEnv, TorchEnvState
@@ -37,13 +37,13 @@ class _StubCfg(EnvCfg):
     sim_dt: float = 0.1
     # These tests exercise the eager fail-closed paths; pin the pre-flip
     # behavior explicitly instead of relying on the (now deferred) default.
-    defer_finite_validation: bool = False
+    finite_validation_mode: str = "strict"
 
 
 @dataclass
 class _DeferredStubCfg(_StubCfg):
     max_episode_seconds: float | None = 1000.0
-    defer_finite_validation: bool = True
+    finite_validation_mode: str = "deferred"
     finite_validation_interval: int = 32
 
 
@@ -459,11 +459,11 @@ def test_step_done_gate_host_read_is_attributed_to_step_core(monkeypatch) -> Non
     wall = itertools.count(start=0.0, step=0.001)
     cpu = itertools.count(start=0.0, step=0.001)
     monkeypatch.setattr(
-        torch_env_module,
+        phase_timer_module,
         "time",
         types.SimpleNamespace(perf_counter=lambda: next(wall)),
     )
-    monkeypatch.setattr(torch_env_module, "_cpu_time", lambda: next(cpu))
+    monkeypatch.setattr(phase_timer_module, "_cpu_time", lambda: next(cpu))
 
     env = _StubTorchEnv(terminate=False)
     env.init_state()
@@ -484,11 +484,11 @@ def test_step_reattributes_update_state_drain_to_step_core(monkeypatch) -> None:
     wall = itertools.count(start=0.0, step=0.001)
     cpu = itertools.count(start=0.0, step=0.001)
     monkeypatch.setattr(
-        torch_env_module,
+        phase_timer_module,
         "time",
         types.SimpleNamespace(perf_counter=lambda: next(wall)),
     )
-    monkeypatch.setattr(torch_env_module, "_cpu_time", lambda: next(cpu))
+    monkeypatch.setattr(phase_timer_module, "_cpu_time", lambda: next(cpu))
 
     class _DrainEnv(_StubTorchEnv):
         def _collect_step_core_drain_ms(self, state: TorchEnvState) -> float:
@@ -760,7 +760,6 @@ def test_nan_guard_records_nonfinite_state_feedback_substep_control(
         NanGuard(
             NanGuardCfg(
                 enabled=True,
-                defer_validation=True,
                 check_interval=32,
                 capture_interval=0,
                 output_dir=str(tmp_path),
@@ -807,7 +806,6 @@ def test_deferred_finite_validation_polls_once_at_interval(
         NanGuard(
             NanGuardCfg(
                 enabled=True,
-                defer_validation=False,
                 check_interval=1,
                 capture_interval=0,
             ),
@@ -874,7 +872,6 @@ def test_deferred_nan_guard_reports_short_cycle_on_close(tmp_path) -> None:
         NanGuard(
             NanGuardCfg(
                 enabled=True,
-                defer_validation=True,
                 check_interval=32,
                 capture_interval=0,
                 output_dir=str(tmp_path),
@@ -918,7 +915,6 @@ def test_nan_guard_reads_physics_only_at_capture_boundaries(
     guard = NanGuard(
         NanGuardCfg(
             enabled=True,
-            defer_validation=True,
             check_interval=32,
             capture_interval=32,
         ),
@@ -949,37 +945,28 @@ def test_nan_guard_reads_physics_only_at_capture_boundaries(
     torch.testing.assert_close(guard._buffer[1], torch.full((env.num_envs, 1), 64.0))
 
 
-def test_strict_env_with_deferred_guard_polls_once_after_state(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    env = _StubTorchEnv(cfg=_StubCfg(max_episode_seconds=1000.0), terminate=False)
-    env.init_state()
-    env.set_nan_guard(
-        NanGuard(
-            NanGuardCfg(
-                enabled=True,
-                defer_validation=True,
-                check_interval=32,
-                capture_interval=0,
-            ),
-            num_envs=env.num_envs,
-            supports_state_playback=False,
-        )
+def test_nan_guard_defer_mode_follows_env_validation_mode() -> None:
+    """The guard's defer mode is derived from the env, not guard configuration."""
+    deferred_env = _StubTorchEnv(cfg=_DeferredStubCfg(), terminate=False)
+    deferred_guard = NanGuard(
+        NanGuardCfg(enabled=True, check_interval=32, capture_interval=0),
+        num_envs=deferred_env.num_envs,
+        supports_state_playback=False,
     )
-    item_calls = 0
-    original_item = torch.Tensor.item
+    deferred_env.set_nan_guard(deferred_guard)
+    assert deferred_guard.defer_validation
 
-    def counted_item(tensor: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
-        nonlocal item_calls
-        item_calls += 1
-        return original_item(tensor, *args, **kwargs)
+    strict_env = _StubTorchEnv(cfg=_StubCfg(max_episode_seconds=1000.0), terminate=False)
+    strict_guard = NanGuard(
+        NanGuardCfg(enabled=True, check_interval=32, capture_interval=0),
+        num_envs=strict_env.num_envs,
+        supports_state_playback=False,
+    )
+    strict_env.set_nan_guard(strict_guard)
+    assert not strict_guard.defer_validation
 
-    monkeypatch.setattr(torch.Tensor, "item", counted_item)
-    env.step(_actions(env))
-    assert item_calls == 1
 
-
-def test_strict_env_with_deferred_guard_dumps_bad_control(tmp_path) -> None:
+def test_strict_env_guard_dumps_bad_control(tmp_path) -> None:
     class _NonfiniteControlEnv(_StubTorchEnv):
         def apply_action(self, actions: torch.Tensor, state: TorchEnvState) -> torch.Tensor:
             del state
@@ -991,7 +978,6 @@ def test_strict_env_with_deferred_guard_dumps_bad_control(tmp_path) -> None:
         NanGuard(
             NanGuardCfg(
                 enabled=True,
-                defer_validation=True,
                 check_interval=32,
                 capture_interval=0,
                 output_dir=str(tmp_path),

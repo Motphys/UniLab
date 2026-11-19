@@ -100,13 +100,14 @@ class CommandTerm(ManagerTermBase):
 
     def reset(
         self,
-        env_ids: torch.Tensor | slice | ResetSelection | None = None,
+        env_ids: torch.Tensor | ResetSelection | None = None,
         *,
         publish_metrics: bool = True,
     ) -> dict[str, float]:
         if isinstance(env_ids, ResetSelection) and not self._deferred_validation_enabled():
             raise RuntimeError(
-                f"CommandTerm '{self.name}' ResetSelection requires defer_finite_validation"
+                f"CommandTerm '{self.name}' ResetSelection requires deferred finite "
+                "validation (env.finite_validation_mode='deferred')"
             )
         reset_mask = self._reset_mask_buffer.resolve(
             env_ids,
@@ -137,8 +138,6 @@ class CommandTerm(ManagerTermBase):
                         getattr(self._env, "_has_transition", False)
                     )
                     selected_rows = not (isinstance(env_ids, torch.Tensor) and env_ids.numel() == 0)
-                    if isinstance(env_ids, slice):
-                        selected_rows = bool(range(*env_ids.indices(self.num_envs)))
                     if runtime_reset and selected_rows:
                         self._pending_metric_count += reset_mask.sum()
                         for (metric_name, _), selected in zip(
@@ -483,13 +482,11 @@ class CommandManager(ManagerBase):
         if self._terms and not bool(getattr(self._env, "defer_finite_validation", False)):
             blockers.append(
                 "CommandManager: reset metrics are read on the host unless "
-                "defer_finite_validation is enabled"
+                "finite_validation_mode='deferred'"
             )
         return blockers
 
-    def reset(
-        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
-    ) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> dict[str, float]:
         """Reset command terms for the selected environment rows.
 
         Every term consumes the public ``env_ids`` row selector; the packed
@@ -669,7 +666,7 @@ class NullCommandManager:
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         return []
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         del env_ids
         return {}
 

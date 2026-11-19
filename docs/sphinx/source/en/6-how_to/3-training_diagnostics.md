@@ -22,7 +22,6 @@ on-device and writes one state dump at an explicit host boundary. The chain:
        buffer_size: 100
        max_envs_to_dump: 5
        output_dir: null        # null -> /tmp/unilab/nan_dumps
-       defer_validation: true
        check_interval: 32
        capture_interval: 32
    ```
@@ -30,7 +29,9 @@ on-device and writes one state dump at an explicit host boundary. The chain:
    Fields are defined by `NanGuardCfg` in
    `src/unilab/training/tensor_diagnostics.py`. `capture_interval` controls how
    often a physics-state snapshot is retained (0 disables snapshots);
-   `check_interval` is the poll period in deferred mode.
+   `check_interval` is the poll period in deferred mode. The defer mode itself
+   is not a guard field: it follows the env's single validation strictness
+   (`env.finite_validation_mode`, issue #2618) when the guard is attached.
 2. The training entrypoint attaches the guard to the env
    (`apply_env_nan_guard` in `src/unilab/training/run.py`), and
    `TorchEnv.step` calls `NanGuard.check(...)` each step. On detection,

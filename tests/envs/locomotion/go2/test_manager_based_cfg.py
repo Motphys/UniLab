@@ -304,6 +304,8 @@ def test_go2_flat_registry_executes_real_manager_runtime(backend: str, owner: st
     override = {
         **env_override,
         "events": {**env_override.get("events", {}), "pd_gains": None},
+        # Real-runtime smoke test on the eager selected-row path on CPU.
+        "autoreset_cuda_graph": False,
     }
     env = registry.make(
         str(hydra_cfg.training.task_name),

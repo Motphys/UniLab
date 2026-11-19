@@ -20,14 +20,15 @@ NaN guard 在设备侧检查观测、reward 与控制量中的非有限行，并
        buffer_size: 100
        max_envs_to_dump: 5
        output_dir: null        # null -> /tmp/unilab/nan_dumps
-       defer_validation: true
        check_interval: 32
        capture_interval: 32
    ```
 
    字段由 `src/unilab/training/tensor_diagnostics.py` 的 `NanGuardCfg` 定义。
    `capture_interval` 控制物理状态快照的保留频率（0 表示不快照）；
-   `check_interval` 是 deferred 模式下的轮询周期。
+   `check_interval` 是 deferred 模式下的轮询周期。defer 模式本身不是 guard
+   字段：guard 挂载时跟随 env 的单一校验严格度
+   （`env.finite_validation_mode`，issue #2618）。
 2. 训练入口把 guard 挂到 env 上（`src/unilab/training/run.py` 的
    `apply_env_nan_guard`），`TorchEnv.step` 每步调用 `NanGuard.check(...)`。
    检出时 `NanGuard.dump(...)` 写出 `nan_dump_<时间戳>_step<N>.npz`

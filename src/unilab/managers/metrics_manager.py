@@ -157,7 +157,7 @@ class MetricsManager(ManagerBase):
 
     # Methods.
 
-    def clear_episode_state(self, env_ids: torch.Tensor | slice | None = None) -> None:
+    def clear_episode_state(self, env_ids: torch.Tensor | None = None) -> None:
         """Clear episode accumulators without publishing summaries.
 
         Reset owners consume this boundary when they own metric reset. Generic
@@ -180,19 +180,20 @@ class MetricsManager(ManagerBase):
         if self._term_names and not self._defer_finite_validation:
             blockers.append(
                 "MetricsManager: episode summaries are read on the host unless "
-                "defer_finite_validation is enabled"
+                "finite_validation_mode='deferred'"
             )
         return blockers
 
-    def reset(
-        self, env_ids: torch.Tensor | slice | ResetSelection | None = None
-    ) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> dict[str, float]:
         """Publish episode summaries and clear state for the selected rows."""
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="MetricsManager.reset"
         )
         if isinstance(ids, ResetSelection) and not self._defer_finite_validation:
-            raise RuntimeError("MetricsManager ResetSelection requires defer_finite_validation")
+            raise RuntimeError(
+                "MetricsManager ResetSelection requires deferred finite "
+                "validation (env.finite_validation_mode='deferred')"
+            )
         if self._defer_finite_validation:
             if isinstance(ids, ResetSelection):
                 reset_mask = ids.mask
@@ -396,14 +397,14 @@ class NullMetricsManager:
     def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
         return []
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         del env_ids
         return {}
 
     def publish_pending_reset_metrics(self) -> dict[str, float]:
         return {}
 
-    def clear_episode_state(self, env_ids: torch.Tensor | slice | None = None) -> None:
+    def clear_episode_state(self, env_ids: torch.Tensor | None = None) -> None:
         del env_ids
 
     def compute_substep(self) -> None:

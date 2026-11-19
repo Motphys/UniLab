@@ -240,14 +240,14 @@ class ActionManager(ManagerBase):
 
     supports_reset_selection = True
 
-    def reset(self, env_ids: torch.Tensor | slice | None = None) -> dict[str, float]:
+    def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         self.clear_action_state(env_ids)
         return {}
 
     def reset_selection_blockers(self) -> list[str]:
         return selection_blockers("ActionManager", self._terms.items())
 
-    def clear_action_state(self, env_ids: torch.Tensor | slice | None = None) -> None:
+    def clear_action_state(self, env_ids: torch.Tensor | None = None) -> None:
         """Clear manager and term action state for the selected envs without logging.
 
         Reset owners consume this boundary when they own the action reset pass.

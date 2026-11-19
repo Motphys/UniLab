@@ -10,7 +10,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from unilab.training.run import finite_validation_env_overrides, resolve_nan_guard_cfg
+from unilab.training.run import reject_removed_validation_keys, resolve_nan_guard_cfg
 from unilab.training.tensor_diagnostics import NanGuard, NanGuardCfg
 
 
@@ -57,7 +57,8 @@ def test_detection_unions_bad_rows_across_groups_and_reward() -> None:
 
 
 def test_deferred_verdict_accumulates_mixed_rows_until_poll(tmp_path: Path) -> None:
-    guard = _guard(tmp_path, defer_validation=True, check_interval=4)
+    guard = _guard(tmp_path, check_interval=4)
+    guard.set_defer_validation(True)
     obs = {"obs": torch.tensor([[1.0, 2.0], [3.0, float("nan")], [4.0, 5.0]])}
     assert guard.check(obs, torch.zeros(3), step=1) is None
     assert guard.check_ctrl(torch.tensor([[0.0], [1.0], [float("inf")]]), step=2) is None
@@ -77,7 +78,8 @@ def test_deferred_verdict_accumulates_mixed_rows_until_poll(tmp_path: Path) -> N
 def test_explicit_non_deferred_check_ignores_configured_poll_interval(
     tmp_path: Path, check_interval: int
 ) -> None:
-    guard = _guard(tmp_path, defer_validation=True, check_interval=check_interval)
+    guard = _guard(tmp_path, check_interval=check_interval)
+    guard.set_defer_validation(True)
     obs = {"obs": torch.tensor([[0.0], [float("nan")], [0.0]])}
 
     obs_ids = guard.check(obs, torch.zeros(3), step=1, defer=False)
@@ -170,36 +172,33 @@ def test_configuration_and_shapes_fail_closed(tmp_path: Path) -> None:
         guard.check({"obs": torch.zeros((3, 2), dtype=torch.int32)}, torch.zeros(3))
 
 
-def test_training_routes_guard_and_shared_finite_boundary() -> None:
+def test_training_routes_guard_and_rejects_removed_validation_keys() -> None:
     cfg = OmegaConf.create(
         {
             "training": {
-                "defer_finite_validation": True,
-                "finite_validation_interval": 32,
                 "nan_guard": {
                     "enabled": True,
                     "capture_interval": 32,
                     "check_interval": 32,
-                    "defer_validation": True,
                 },
             }
         }
     )
-    assert finite_validation_env_overrides(cfg) == {
-        "defer_finite_validation": True,
-        "finite_validation_interval": 32,
-    }
     guard_cfg = resolve_nan_guard_cfg(cfg.training)
     assert guard_cfg is not None
-    assert (guard_cfg.capture_interval, guard_cfg.check_interval, guard_cfg.defer_validation) == (
-        32,
-        32,
-        True,
-    )
+    assert (guard_cfg.capture_interval, guard_cfg.check_interval) == (32, 32)
+    reject_removed_validation_keys(cfg)
 
-    cfg.training.finite_validation_interval = 0
-    with pytest.raises(ValueError, match="positive integer"):
-        finite_validation_env_overrides(cfg)
+    cfg.training.finite_validation_interval = 32
+    with pytest.raises(ValueError, match="training.finite_validation_interval was removed"):
+        reject_removed_validation_keys(cfg)
+    del cfg.training.finite_validation_interval
+
+    cfg.training.nan_guard.defer_validation = True
+    with pytest.raises(ValueError, match="training.nan_guard.defer_validation was removed"):
+        reject_removed_validation_keys(cfg)
+    with pytest.raises(ValueError, match="training.nan_guard.defer_validation was removed"):
+        resolve_nan_guard_cfg(cfg.training)
 
 
 def test_reset_verdict_allows_inference_tensor_latches(tmp_path: Path) -> None:

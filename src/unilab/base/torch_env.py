@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import abc
 import dataclasses
-import os
 import sys
-import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from os import PathLike
@@ -38,6 +36,7 @@ from unilab.base.backend_timing import (
 )
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.cpu_runtime import apply_cpu_confinement
+from unilab.base.phase_timer import PhaseTimer
 from unilab.base.reset_selection import ResetSelection
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
@@ -67,16 +66,19 @@ class TorchEnvState:
         return dataclasses.replace(self, **updates)
 
 
-def _cpu_time() -> float:
-    process = os.times()
-    return process.user + process.system
-
-
 # Backends whose ``step_tensor`` publishes an event-backed asynchronous step
 # receipt (a unisim ``CompletionToken`` carried in ``info["completion"]``).
 # Event-backed Genesis and MJWarp CUDA paths publish a receipt per step;
 # synchronous host-bridge producers publish none.
 _EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"genesis", "mjwarp"})
+
+# Internal fixed-shape step tuning constants (not user configuration; see
+# ``TorchEnv._configure_fixed_shape_step``). The publication ring depth serves
+# the off-policy double-buffer contract (a published obs_t stays stable while
+# the next step writes obs_tp1); the warmup gives lazily allocated buffers
+# eager executions before the CUDA graph capture.
+_PUBLISHED_BUFFER_DEPTH = 2
+_AUTORESET_GRAPH_WARMUP = 2
 
 
 class TorchEnv(ABEnv):
@@ -117,8 +119,9 @@ class TorchEnv(ABEnv):
                 ``cuda`` device is resolved to the current device index.
 
         Raises:
-            ValueError: If ``finite_validation_interval`` is not a positive
-                integer.
+            ValueError: If ``finite_validation_mode`` is not ``'strict'`` or
+                ``'deferred'``, or ``finite_validation_interval`` is not a
+                positive integer.
         """
         apply_cpu_confinement(cfg.cpu_ids)
         self._cfg = cfg
@@ -147,7 +150,14 @@ class TorchEnv(ABEnv):
         self._rgb_array_renderer_ready = False
         self._nan_guard: "NanGuard | None" = None
         self._pending_backend_step_completion: CompletionToken | None = None
-        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", True))
+        # ``finite_validation_mode`` is the single public validation
+        # strictness switch; it is declared on ``ManagerBasedRlEnvCfg`` and
+        # soft-read here so plain ``EnvCfg`` subclasses keep the deferred
+        # default.
+        mode = getattr(cfg, "finite_validation_mode", "deferred")
+        if mode not in ("strict", "deferred"):
+            raise ValueError(f"finite_validation_mode must be 'strict' or 'deferred', got {mode!r}")
+        self._defer_finite_validation = mode == "deferred"
         interval = getattr(cfg, "finite_validation_interval", 1)
         if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
             raise ValueError("finite_validation_interval must be a positive integer")
@@ -159,19 +169,28 @@ class TorchEnv(ABEnv):
         self._configure_fixed_shape_step(cfg)
 
     def _configure_fixed_shape_step(self, cfg: EnvCfg) -> None:
-        """Resolve the opt-in sync-free / graph-capturable step switches.
+        """Resolve the sync-free / graph-capturable step switch.
 
-        - ``masked_autoreset``: autoreset runs every step as a fixed-shape
-          ``reset(ResetSelection)`` under the device done mask (no ``any()``
-          gate, no ``nonzero``); requires deferred finite validation.
-        - ``persistent_step_buffers``: the working step carriers (observations,
-          reward, terminated, truncated) are allocated once and updated with
-          ``copy_``; consumers receive a ring of ``published_buffer_depth``
-          persistent slots (``0`` publishes the working carriers themselves).
-        - ``autoreset_cuda_graph``: the masked autoreset segment is captured into
-          one CUDA graph after ``autoreset_graph_warmup`` eager executions and
-          replayed afterwards; requires both switches above, a CUDA device and
-          a backend declaring ``external_graph_capture``.
+        ``autoreset_cuda_graph`` is the single public switch (default ``true``
+        on the public ``ManagerBasedRlEnvCfg``). Enabling it
+        implies the whole fixed-shape chain: ``masked_autoreset`` (the
+        autoreset runs every step as a fixed-shape ``reset(ResetSelection)``
+        under the device done mask — no ``any()`` gate, no ``nonzero``),
+        ``persistent_step_buffers`` (the working step carriers — observations,
+        reward, terminated, truncated — are allocated once, updated with
+        ``copy_``, and published through a ring of persistent slots), and
+        deferred finite validation (fail-closed checks publish at the poll
+        boundary). On CUDA the masked autoreset segment is captured into one
+        CUDA graph after ``_AUTORESET_GRAPH_WARMUP`` eager executions and
+        replayed afterwards; this requires a backend declaring
+        ``external_graph_capture``.
+
+        The intermediate chain values are no longer public configuration.
+        They are still read here through a soft ``getattr`` protocol so tests
+        can inject a middle state (masked autoreset without graph capture or
+        ring depth ``0`` / warmup ``1``) by setting attributes on their own
+        stub configs; the Hydra materialization path fails closed on these
+        undeclared keys.
         """
 
         def flag(name: str) -> bool:
@@ -186,11 +205,19 @@ class TorchEnv(ABEnv):
                 raise ValueError(f"{name} must be an integer >= {minimum}, got {value!r}")
             return value
 
-        self._masked_autoreset = flag("masked_autoreset")
-        self._persistent_step_buffers = flag("persistent_step_buffers")
         self._autoreset_cuda_graph = flag("autoreset_cuda_graph")
-        self._published_buffer_depth = bounded_int("published_buffer_depth", 2, 0)
-        self._autoreset_graph_warmup = bounded_int("autoreset_graph_warmup", 2, 1)
+        # ``autoreset_cuda_graph`` implies the chain; the soft reads below are
+        # the documented test-only injection for intermediate states.
+        self._masked_autoreset = self._autoreset_cuda_graph or flag("masked_autoreset")
+        self._persistent_step_buffers = self._autoreset_cuda_graph or flag(
+            "persistent_step_buffers"
+        )
+        self._published_buffer_depth = bounded_int(
+            "published_buffer_depth", _PUBLISHED_BUFFER_DEPTH, 0
+        )
+        self._autoreset_graph_warmup = bounded_int(
+            "autoreset_graph_warmup", _AUTORESET_GRAPH_WARMUP, 1
+        )
         capture_mode = getattr(cfg, "autoreset_graph_capture_mode", "thread_local")
         if capture_mode not in ("global", "thread_local", "relaxed"):
             raise ValueError(
@@ -200,18 +227,11 @@ class TorchEnv(ABEnv):
         self._autoreset_graph_capture_mode = capture_mode
         if self._masked_autoreset and not self._defer_finite_validation:
             raise ValueError(
-                "masked_autoreset requires defer_finite_validation: its fail-closed checks "
-                "are published at the deferred validation boundary"
+                "masked_autoreset requires finite_validation_mode='deferred': its "
+                "fail-closed checks are published at the deferred validation boundary"
             )
-        if self._autoreset_cuda_graph:
-            if not (self._masked_autoreset and self._persistent_step_buffers):
-                raise ValueError(
-                    "autoreset_cuda_graph requires masked_autoreset and persistent_step_buffers"
-                )
-            if self._device.type != "cuda":
-                raise ValueError(
-                    f"autoreset_cuda_graph requires a CUDA env device, got {self._device}"
-                )
+        if self._autoreset_cuda_graph and self._device.type != "cuda":
+            raise ValueError(f"autoreset_cuda_graph requires a CUDA env device, got {self._device}")
         self._reset_selection: ResetSelection | None = (
             ResetSelection.allocate(self._num_envs, self._device)
             if self._masked_autoreset
@@ -439,41 +459,33 @@ class TorchEnv(ABEnv):
         Returns:
             The updated ``TorchEnvState``.
         """
-        started = time.perf_counter()
-        cpu_started = _cpu_time()
-        phase = time.perf_counter()
-        self._validate_action_contract(actions)
-        self._record_action_finite(actions)
-        action_validate_ms = (time.perf_counter() - phase) * 1000.0
+        timer = PhaseTimer()
+        with timer.phase("action_validate", cpu=False):
+            self._validate_action_contract(actions)
+            self._record_action_finite(actions)
         self._bind_tensor_runtime()
         if self._state is None:
             self.init_state()
         assert self._state is not None
 
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
-        # Action terms publish into one device-resident control verdict. Clear
-        # both publication carriers before each new action is processed.
-        self._control_finite_valid.fill_(True)
-        self._pending_control_finite_check = None
-        ctrl = self.apply_action(actions, self._state)
-        guard_defer = self._defer_finite_validation
-        if self._nan_guard is not None:
-            guard_defer = self._defer_finite_validation or self._nan_guard.defer_validation
-        self._validate_control_with_nan_guard(ctrl, defer=guard_defer)
-        apply_action_ms = (time.perf_counter() - phase) * 1000.0
-        apply_action_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
+        with timer.phase("apply_action"):
+            # Action terms publish into one device-resident control verdict. Clear
+            # both publication carriers before each new action is processed.
+            self._control_finite_valid.fill_(True)
+            self._pending_control_finite_check = None
+            ctrl = self.apply_action(actions, self._state)
+            # The attached NanGuard follows the env's validation strictness
+            # (set_nan_guard derives its defer mode), so the env mode decides.
+            guard_defer = self._defer_finite_validation
+            self._validate_control_with_nan_guard(ctrl, defer=guard_defer)
 
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
-        self._pending_backend_step_completion = None
-        # A receipt describes only the transition being published. Remove the
-        # previous one before the backend call so unsupported or failed steps
-        # cannot expose stale completion metadata.
-        self._state.info.pop("completion", None)
-        backend_result = self.advance_physics(ctrl)
-        step_core_ms = (time.perf_counter() - phase) * 1000.0
-        step_core_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
+        with timer.phase("step_core"):
+            self._pending_backend_step_completion = None
+            # A receipt describes only the transition being published. Remove the
+            # previous one before the backend call so unsupported or failed steps
+            # cannot expose stale completion metadata.
+            self._state.info.pop("completion", None)
+            backend_result = self.advance_physics(ctrl)
         pending_completion = self._backend_step_completion(backend_result)
         # Publish the receipt before update_state so public transition consumers
         # can only read it after the update boundary succeeds.
@@ -484,9 +496,8 @@ class TorchEnv(ABEnv):
             self._state.truncated.fill_(False)
             self._clear_step_final_observation()
 
-            phase = time.perf_counter()
-            phase_cpu = _cpu_time()
-            self._state = self.update_state(self._state)
+            with timer.phase("update_state"):
+                self._state = self.update_state(self._state)
         finally:
             self._pending_backend_step_completion = None
         if self._nan_guard is not None:
@@ -501,29 +512,14 @@ class TorchEnv(ABEnv):
             )
             if nan_ids is not None:
                 self._nan_guard.dump(nan_ids, self._resolve_nan_guard_model_file(), transition_step)
-            if not self._defer_finite_validation and self._nan_guard.defer_validation:
-                deferred_nan_ids = self._nan_guard.poll(step=self.step_counter, force=True)
-                if deferred_nan_ids is not None:
-                    self._nan_guard.dump(
-                        deferred_nan_ids,
-                        self._resolve_nan_guard_model_file(),
-                        transition_step,
-                    )
-                    raise ValueError(
-                        "NanGuard detected NaN or Inf for environments "
-                        f"{deferred_nan_ids[:10].detach().cpu().tolist()}"
-                    )
         self._validate_state(self._state)
-        update_state_ms = (time.perf_counter() - phase) * 1000.0
-        update_state_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
         if self.produces_completion_receipts:
             # An event-backed asynchronous step drains its device work at the
             # first update-state host read; re-attribute that measured window
             # to the backend step phase so update_state reports manager work.
             drain_ms = self._collect_step_core_drain_ms(self._state)
             if drain_ms > 0.0:
-                step_core_ms += drain_ms
-                update_state_ms = max(update_state_ms - drain_ms, 0.0)
+                timer.move_wall("update_state", "step_core", drain_ms)
 
         self._state.info["steps"] += 1
         self.step_counter += 1
@@ -532,8 +528,6 @@ class TorchEnv(ABEnv):
         truncated = self._compute_truncated(self._state)
         self._state.truncated.logical_or_(truncated)
 
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
         # Preserve the semantic autoreset gate: an empty done mask must not
         # consume reset RNG or publish a terminal carrier. When update_state
         # made no host read of the step outputs, this gate is the first
@@ -542,21 +536,18 @@ class TorchEnv(ABEnv):
         # reset bookkeeping.
         # The fixed-shape autoreset has no gate: it runs every step under the
         # device done mask, so nothing here reads the device.
-        did_reset = self._autoreset and (
-            self._masked_autoreset or bool((self._state.terminated | self._state.truncated).any())
-        )
-        step_core_ms += (time.perf_counter() - phase) * 1000.0
-        step_core_cpu_ms += (_cpu_time() - phase_cpu) * 1000.0
+        with timer.phase("step_core"):
+            did_reset = self._autoreset and (
+                self._masked_autoreset
+                or bool((self._state.terminated | self._state.truncated).any())
+            )
 
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
-        if did_reset:
-            if self._masked_autoreset:
-                self._run_masked_autoreset()
-            else:
-                self._reset_done_envs(done_active=True)
-        reset_done_ms = (time.perf_counter() - phase) * 1000.0
-        reset_done_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
+        with timer.phase("reset_done"):
+            if did_reset:
+                if self._masked_autoreset:
+                    self._run_masked_autoreset()
+                else:
+                    self._reset_done_envs(done_active=True)
         self.poll_finite_validation()
 
         timing = self._state.info.setdefault("timing", {})
@@ -564,25 +555,10 @@ class TorchEnv(ABEnv):
             # The fixed-shape path has no host row count or per-phase split.
             self._clear_reset_done_detail_timing(timing)
             if did_reset:
-                timing["reset_done_reset_call_ms"] = reset_done_ms
-        timing["env_step_total_ms"] = (time.perf_counter() - started) * 1000.0
-        timing["action_validate_ms"] = action_validate_ms
-        timing["apply_action_ms"] = apply_action_ms
-        timing["apply_action_cpu_ms"] = apply_action_cpu_ms
-        timing["step_core_ms"] = step_core_ms
-        timing["step_core_cpu_ms"] = step_core_cpu_ms
-        timing["update_state_ms"] = update_state_ms
-        timing["update_state_cpu_ms"] = update_state_cpu_ms
-        timing["reset_done_ms"] = reset_done_ms
-        timing["reset_done_cpu_ms"] = reset_done_cpu_ms
-        timing["env_step_other_cpu_ms"] = max(
-            (_cpu_time() - cpu_started) * 1000.0
-            - apply_action_cpu_ms
-            - step_core_cpu_ms
-            - update_state_cpu_ms
-            - reset_done_cpu_ms,
-            0.0,
-        )
+                timing["reset_done_reset_call_ms"] = timer.wall_ms("reset_done")
+        timing["env_step_total_ms"] = timer.total_wall_ms()
+        timer.publish(timing)
+        timing["env_step_other_cpu_ms"] = timer.residual_cpu_ms()
         if isinstance(backend_result, dict):
             for key, value in backend_result.get("timing", {}).items():
                 timing[f"backend_{key}"] = value
@@ -663,11 +639,7 @@ class TorchEnv(ABEnv):
         for substep in range(self._cfg.sim_substeps):
             if substep > 0:
                 ctrl = self.apply_substep_action()
-                self._validate_control_with_nan_guard(
-                    ctrl,
-                    defer=self._defer_finite_validation
-                    or (self._nan_guard is not None and self._nan_guard.defer_validation),
-                )
+                self._validate_control_with_nan_guard(ctrl, defer=self._defer_finite_validation)
             result = self._backend.step_tensor(ctrl, 1)
             completion = self._backend_step_completion(result)
             result_publishes_receipts = completion is not None
@@ -913,7 +885,7 @@ class TorchEnv(ABEnv):
         edge (backend inputs stay fixed-width masks).
         """
         assert self._state is not None
-        reset_total_started = time.perf_counter()
+        timer = PhaseTimer(cpu=False)
         detail_timing = {key: 0.0 for key in RESET_DONE_DETAIL_TIMING_KEYS}
         done = self._state.terminated | self._state.truncated
         if not done_active and not bool(done.any()):
@@ -922,53 +894,43 @@ class TorchEnv(ABEnv):
         self._reset_done_count.copy_(done.sum())
         done_env_ids = torch.nonzero(done, as_tuple=False).flatten()
 
-        terminal_started = time.perf_counter()
         # The nonzero above already published the done-row count to the host;
         # reuse it instead of reading the device counter back for timing.
-        detail_timing["reset_done_count"] = float(done_env_ids.numel())
-        self._state.info["steps"].masked_fill_(done, 0)
-        final_observation = self._ensure_final_observation_scratch()
-        for name, values in self._state.obs.items():
-            final_observation[name].copy_(values)
-        self._state.final_observation = final_observation
-        detail_timing["reset_done_terminal_obs_ms"] = (
-            time.perf_counter() - terminal_started
-        ) * 1000.0
+        with timer.phase("reset_done_terminal_obs"):
+            detail_timing["reset_done_count"] = float(done_env_ids.numel())
+            self._state.info["steps"].masked_fill_(done, 0)
+            final_observation = self._ensure_final_observation_scratch()
+            for name, values in self._state.obs.items():
+                final_observation[name].copy_(values)
+            self._state.final_observation = final_observation
 
-        reset_started = time.perf_counter()
-        self._autoreset_reset_active = True
-        self._autoreset_scattered_reset_obs = False
-        try:
-            new_obs, reset_info = self.reset(done_env_ids)
-        finally:
-            self._autoreset_reset_active = False
-        detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - reset_started) * 1000.0
+        with timer.phase("reset_done_reset_call"):
+            self._autoreset_reset_active = True
+            self._autoreset_scattered_reset_obs = False
+            try:
+                new_obs, reset_info = self.reset(done_env_ids)
+            finally:
+                self._autoreset_reset_active = False
         collected = self._collect_reset_backend_timing_ms()
         detail_timing.update(
             {key: value for key, value in collected.items() if key in detail_timing}
         )
 
-        scatter_started = time.perf_counter()
-        if not self._autoreset_scattered_reset_obs:
-            self._validate_reset_observation_mask(new_obs)
-            for name, values in new_obs.items():
-                self._state.obs[name].copy_(
-                    torch.where(done[:, None], values, self._state.obs[name])
-                )
-        self._scatter_reset_info_mask(reset_info, done)
-        detail_timing["reset_done_obs_scatter_ms"] = (
-            time.perf_counter() - scatter_started
-        ) * 1000.0
+        with timer.phase("reset_done_obs_scatter"):
+            if not self._autoreset_scattered_reset_obs:
+                self._validate_reset_observation_mask(new_obs)
+                for name, values in new_obs.items():
+                    self._state.obs[name].copy_(
+                        torch.where(done[:, None], values, self._state.obs[name])
+                    )
+            self._scatter_reset_info_mask(reset_info, done)
         detail_timing["reset_done_info_scatter_ms"] = 0.0
-        measured = (
-            detail_timing["reset_done_terminal_obs_ms"]
-            + detail_timing["reset_done_reset_call_ms"]
-            + detail_timing["reset_done_obs_scatter_ms"]
-            + detail_timing["reset_done_info_scatter_ms"]
-        )
+        detail_timing["reset_done_terminal_obs_ms"] = timer.wall_ms("reset_done_terminal_obs")
+        detail_timing["reset_done_reset_call_ms"] = timer.wall_ms("reset_done_reset_call")
+        detail_timing["reset_done_obs_scatter_ms"] = timer.wall_ms("reset_done_obs_scatter")
         detail_timing["reset_done_internal_gap_ms"] = (
-            time.perf_counter() - reset_total_started
-        ) * 1000.0 - measured
+            timer.total_wall_ms() - timer.attributed_wall_ms()
+        )
 
         timing = self._state.info.setdefault("timing", {})
         self._clear_reset_done_detail_timing(timing)
@@ -1446,12 +1408,15 @@ class TorchEnv(ABEnv):
         """Attach the owner-provided diagnostic guard.
 
         Detection stays device-resident. Artifact export occurs only at the
-        guard's explicit abnormal-diagnostic host boundary.
+        guard's explicit abnormal-diagnostic host boundary. The guard's defer
+        mode is not owner configuration: it follows the env's single
+        validation strictness (``finite_validation_mode``).
         """
         from unilab.training.tensor_diagnostics import NanGuard as _NanGuard
 
         if not isinstance(guard, _NanGuard):
             raise TypeError(f"TorchEnv nan guard must be NanGuard, got {type(guard).__name__}")
+        guard.set_defer_validation(self._defer_finite_validation)
         self._nan_guard = guard
 
     def _resolve_nan_guard_model_file(self) -> str:

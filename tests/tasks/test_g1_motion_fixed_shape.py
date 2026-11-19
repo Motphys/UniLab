@@ -72,9 +72,9 @@ def test_g1_motion_tracking_captures_and_replays_autoreset_without_host_sync() -
         pytest.skip("CUDA graph capture requires a CUDA device")
     env = _make_env(
         64,
-        mjwarp_defer_tensor_validation=True,
-        masked_autoreset=True,
-        persistent_step_buffers=True,
+        # The public switch implies the masked/persistent chain, and the
+        # deferred validation mode derives the backend defer option
+        # (issue #2617, #2618).
         autoreset_cuda_graph=True,
         # Poll explicitly below so every step is checked for host syncs.
         finite_validation_interval=10**6,

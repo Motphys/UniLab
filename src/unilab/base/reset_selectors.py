@@ -59,7 +59,7 @@ class ResetMaskBuffer:
         return self._mask
 
     def resolve(
-        self, selector: torch.Tensor | slice | ResetSelection | None, *, owner: str
+        self, selector: torch.Tensor | ResetSelection | None, *, owner: str
     ) -> torch.Tensor:
         """Resolve a public reset selector like ``resolve_reset_mask``.
 
@@ -84,7 +84,7 @@ def resolve_reset_env_ids(
 
 @overload
 def resolve_reset_env_ids(
-    selector: torch.Tensor | slice | None,
+    selector: torch.Tensor | None,
     *,
     num_envs: int,
     device: torch.device,
@@ -92,8 +92,18 @@ def resolve_reset_env_ids(
 ) -> torch.Tensor: ...
 
 
+@overload
 def resolve_reset_env_ids(
-    selector: torch.Tensor | slice | ResetSelection | None,
+    selector: ResetSelection | None,
+    *,
+    num_envs: int,
+    device: torch.device,
+    owner: str,
+) -> torch.Tensor | ResetSelection: ...
+
+
+def resolve_reset_env_ids(
+    selector: torch.Tensor | ResetSelection | None,
     *,
     num_envs: int,
     device: torch.device,
@@ -101,9 +111,10 @@ def resolve_reset_env_ids(
 ) -> torch.Tensor | ResetSelection:
     """Normalize a public reset selector to an int64 row-index tensor.
 
-    ``None`` selects every row; a slice selects ``arange(num_envs)[slice]``; an
-    integer tensor is validated and moved onto ``device``. Fixed-width bool
-    masks are rejected: the v1.4 mask form was removed in v1.5.
+    ``None`` selects every row; an integer tensor is validated and moved onto
+    ``device``. Fixed-width bool masks are rejected: the v1.4 mask form was
+    removed in v1.5. Slice selectors are rejected as well (issue #2619): pass
+    explicit row indices, e.g. ``torch.arange(num_envs)[slice]``.
 
     A ``ResetSelection`` is returned unchanged after a host-only structural
     check: it is the fixed-shape selector of selection-capable participants
@@ -119,10 +130,14 @@ def resolve_reset_env_ids(
     if selector is None:
         return torch.arange(num_envs, dtype=torch.int64, device=device)
     if isinstance(selector, slice):
-        return torch.arange(num_envs, dtype=torch.int64, device=device)[selector]
+        raise TypeError(
+            f"{owner} env_ids must be a torch.Tensor or None; got a slice "
+            "(the slice selector form was removed; pass explicit row indices, "
+            "e.g. torch.arange(num_envs)[slice])"
+        )
     if not isinstance(selector, torch.Tensor):
         raise TypeError(
-            f"{owner} env_ids must be a torch.Tensor, slice, or None; got {type(selector).__name__}"
+            f"{owner} env_ids must be a torch.Tensor or None; got {type(selector).__name__}"
         )
     if selector.dtype == torch.bool:
         raise TypeError(
@@ -160,7 +175,7 @@ def reset_env_ids_mask(
 
 
 def resolve_reset_mask(
-    selector: torch.Tensor | slice | ResetSelection | None,
+    selector: torch.Tensor | ResetSelection | None,
     *,
     num_envs: int,
     device: torch.device,

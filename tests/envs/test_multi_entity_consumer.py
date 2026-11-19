@@ -183,6 +183,8 @@ def build_fixture_cfg(*, passive: bool, num_envs: int = 2, mirror: bool | None =
         sim_dt=0.001,
         ctrl_dt=0.001,
         max_episode_seconds=1.0,
+        # Registry factory tests run the eager selected-row path on CPU.
+        autoreset_cuda_graph=False,
         observations={
             "policy": ObservationGroupCfg(terms={"state": ObservationTermCfg(func=observations)})
         },

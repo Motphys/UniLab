@@ -115,11 +115,11 @@ class TerminationManager(ManagerBase):
         if not self._deferred_validation_enabled():
             blockers.append(
                 "TerminationManager: episode counts are read on the host unless "
-                "defer_finite_validation is enabled"
+                "finite_validation_mode='deferred'"
             )
         return blockers
 
-    def reset(self, env_ids: torch.Tensor | slice | ResetSelection | None = None) -> dict[str, int]:
+    def reset(self, env_ids: torch.Tensor | ResetSelection | None = None) -> dict[str, int]:
         """Publish episodic counts and clear terms for the selected rows."""
         ids = resolve_reset_env_ids(
             env_ids, num_envs=self.num_envs, device=self._device, owner="TerminationManager.reset"
@@ -129,7 +129,8 @@ class TerminationManager(ManagerBase):
         if isinstance(ids, ResetSelection):
             if not self._deferred_validation_enabled():
                 raise RuntimeError(
-                    "TerminationManager ResetSelection requires defer_finite_validation"
+                    "TerminationManager ResetSelection requires deferred finite "
+                    "validation (env.finite_validation_mode='deferred')"
                 )
             counts = [(self._term_dones[key] & ids.mask).sum() for key in keys]
             selected_rows = True

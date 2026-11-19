@@ -79,6 +79,70 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Changed / 变更
 
+- Collapse the fixed-shape autoreset switch chain into the single public
+  switch `env.autoreset_cuda_graph`: enabling it now implies masked autoreset,
+  persistent step buffers and deferred finite validation. The intermediate
+  switches (`env.masked_autoreset`, `env.persistent_step_buffers`,
+  `env.defer_finite_validation` / `training.defer_finite_validation`),
+  `env.published_buffer_depth` and `env.autoreset_graph_warmup` are removed
+  from the public config surface (they are derived or internal constants);
+  supplying a deleted key fails closed with a clear config error. Behavior of
+  the graph capture protocol, `ResetSelection` negotiation and the eager
+  fallback path is unchanged
+  ([#2617](https://github.com/Motphys/UniLab/issues/2617))。
+  收敛 fixed-shape autoreset 开关链为单一公共开关 `env.autoreset_cuda_graph`：
+  启用它即隐含 masked autoreset、持久 step buffer 与推迟有限值校验。中间层
+  开关（`env.masked_autoreset`、`env.persistent_step_buffers`、
+  `env.defer_finite_validation` / `training.defer_finite_validation`）、
+  `env.published_buffer_depth` 与 `env.autoreset_graph_warmup` 从公共配置面
+  删除（改为内部派生值或常量）；传入已删除的键会以明确的配置错误 fail
+  closed。graph 捕获协议、`ResetSelection` 协商与 eager fallback 路径行为
+  不变（[#2617](https://github.com/Motphys/UniLab/issues/2617)）。
+
+- Collapse the three deferred finite-validation switches into the single
+  env-owned validation strictness concept: `env.finite_validation_mode`
+  (`"strict"` or `"deferred"`, default `"deferred"`) together with
+  `env.finite_validation_interval`. The env's deferred finite validation, the
+  NaN guard defer mode (an attached guard follows the env), and the MJWarp
+  backend options are all derived from it (strict keeps the backend's
+  immediate per-call operand check; deferred latches its fail-closed checks
+  into device verdicts published at the env poll). The removed
+  `training.finite_validation_interval` pass-through,
+  `training.nan_guard.defer_validation` and the backend switches
+  `env.mjwarp_validate_tensor_finite` / `env.mjwarp_defer_tensor_validation`
+  fail closed with a clear config error naming the replacement. Judgment
+  semantics and the verdict carriers are unchanged
+  ([#2618](https://github.com/Motphys/UniLab/issues/2618))。
+  收敛三处"推迟有限性校验"开关为 env 持有的单一校验严格度概念：
+  `env.finite_validation_mode`（`"strict"` 或 `"deferred"`，默认
+  `"deferred"`）与 `env.finite_validation_interval`。env 的推迟有限性校验、
+  NaN guard 的 defer 模式（挂载的 guard 跟随 env）与 MJWarp 后端选项均由其
+  派生（strict 保持后端逐调用算子检查立即生效；deferred 将 fail-closed 检查
+  锁存为设备 verdict，由 env 在轮询边界发布）。删除的
+  `training.finite_validation_interval` 透传、`training.nan_guard.defer_validation`
+  与后端开关 `env.mjwarp_validate_tensor_finite` /
+  `env.mjwarp_defer_tensor_validation` 会以指明替代键的明确配置错误 fail
+  closed。判定语义与 verdict 载体不变
+  （[#2618](https://github.com/Motphys/UniLab/issues/2618)）。
+- `env.autoreset_cuda_graph` now defaults to `true`: task configs that do not
+  mention the switch run the fixed-shape autoreset path (masked full-width
+  reset, persistent step buffers, deferred finite validation, and — on CUDA —
+  autoreset segment CUDA graph capture). Unsupported combinations keep failing
+  closed at startup with the switch or backend named (a non-CUDA env device,
+  reset participants that do not accept a `ResetSelection`, or a backend
+  without the `external_graph_capture` capability); there is no silent eager
+  fallback. Set `env.autoreset_cuda_graph=false` explicitly to opt out — the
+  escape hatch for debugging or when a graph-related problem is suspected
+  ([#2621](https://github.com/Motphys/UniLab/issues/2621))。
+  `env.autoreset_cuda_graph` 默认值翻转为 `true`：任务配置不写该开关时即运行
+  fixed-shape autoreset 路径（masked 全宽 reset、持久 step buffer、推迟有限值
+  校验，CUDA 下捕获 autoreset 段 CUDA graph）。不支持的组合仍在启动时按名 fail
+  closed（非 CUDA env 设备、不接受 `ResetSelection` 的 reset 参与者、或未声明
+  `external_graph_capture` 能力的后端）；不做静默 eager 回退。显式设置
+  `env.autoreset_cuda_graph=false` 即可退出——用于调试或疑似 graph 相关问题时的
+  回退逃生口
+  （[#2621](https://github.com/Motphys/UniLab/issues/2621)）。
+
 - High-traffic public interfaces — the Manager protocols in
   `unilab.managers.types`, `TorchEnv`, the reset-state transaction, the MDP
   observation/action/curriculum/ray terms, and the PPO/APPO/SAC/FlashSAC
@@ -125,6 +189,24 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   status → start → train → stop 完整生命周期，包括 orphan daemon 的手动恢复
   路径。
   ([#2610](https://github.com/Motphys/UniLab/issues/2610)).
+
+### Removed / 移除
+
+- The public reset selector no longer accepts a Python `slice`: the slice
+  branch is removed from `resolve_reset_env_ids` / `resolve_reset_mask` /
+  `ResetMaskBuffer.resolve` and from the `fill_rows_` / `assign_rows_`
+  signatures. Passing a slice now raises `TypeError`; pass explicit row
+  indices instead (e.g. `torch.arange(num_envs)[slice]`) or `None` for all
+  rows. The remaining forms are `None`, a 1-D integer row-index tensor, and
+  the internal `ResetSelection` protocol; no deprecation alias is kept
+  ([#2619](https://github.com/Motphys/UniLab/issues/2619)).
+  公共 reset 选择器不再接受 Python `slice`：`resolve_reset_env_ids` /
+  `resolve_reset_mask` / `ResetMaskBuffer.resolve` 的 slice 分支与
+  `fill_rows_` / `assign_rows_` 签名中的 slice 形式均已删除。传入 slice
+  现在抛 `TypeError`；请改用显式行索引（如 `torch.arange(num_envs)[slice]`）
+  或用 `None` 表示全部行。保留形式为 `None`、一维整数行索引张量与内部
+  `ResetSelection` 协议；不留 deprecation 别名
+  （[#2619](https://github.com/Motphys/UniLab/issues/2619)）。
 
 ## 1.5.11 (2026-11-16)
 

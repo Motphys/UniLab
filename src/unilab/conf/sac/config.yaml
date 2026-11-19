@@ -76,11 +76,8 @@ training:
     buffer_size: 100
     max_envs_to_dump: 5
     output_dir: null
-    defer_validation: true
     check_interval: 32
     capture_interval: 32
-  defer_finite_validation: true
-  finite_validation_interval: 32
   use_amp: true
   play_only: false
   no_play: false
@@ -120,6 +117,15 @@ training:
     collector_num_interop_threads: 1
     compile_threads: auto
     set_env_vars: true
+
+# Finite (NaN/Inf) validation strictness, owned by the env: 'deferred'
+# (default) latches verdicts on-device and publishes once per
+# finite_validation_interval steps; 'strict' raises at the check site.
+# Debug: env.finite_validation_interval=1 raises at every poll boundary;
+# env.finite_validation_mode=strict gives immediate checks everywhere,
+# including the MJWarp backend operand checks.
+env:
+  finite_validation_interval: 32
 
 interactive:
   action_mode: zero

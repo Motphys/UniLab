@@ -1301,6 +1301,9 @@ def _make_cfg(
         ctrl_dt=0.01 * sim_substeps,
         max_episode_seconds=1.0,
         seed=7,
+        # This file exercises the eager selected-row lifecycle on a fake
+        # CPU backend; pin the default-on public switch (issue #2621) off.
+        autoreset_cuda_graph=False,
         observations=observations,
         actions={"drive": _DriveCfg(entity_name="robot")} if actions is None else actions,
         rewards={"track": RewardTermCfg(func=_reward, weight=1.0)} if rewards is None else rewards,
@@ -1404,7 +1407,6 @@ def test_deferred_episode_metrics_flush_at_fixed_step_without_reset() -> None:
         metrics={"length": MetricsTermCfg(func=_metric, reduce="mean")},
     )
     cfg.terminations = {"failure": TerminationTermCfg(func=_failure)}
-    cfg.defer_finite_validation = True
     cfg.finite_validation_interval = 4
     env, _ = _make_env(cfg)
     env.reset()
@@ -1429,7 +1431,6 @@ def test_deferred_episode_metrics_flush_at_fixed_step_without_reset() -> None:
 
 def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
     cfg = _make_cfg(include_optional_managers=False)
-    cfg.defer_finite_validation = True
     env, _backend = _make_env(cfg)
     try:
         env._reset_state.declare_packed_reset_device(env.device)
@@ -1442,7 +1443,7 @@ def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
         env.close()
 
     eager_cfg = _make_cfg(include_optional_managers=False)
-    eager_cfg.defer_finite_validation = False
+    eager_cfg.finite_validation_mode = "strict"
     eager_env, _ = _make_env(eager_cfg)
     try:
         eager_env._reset_state.declare_packed_reset_device(eager_env.device)
@@ -1455,7 +1456,6 @@ def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
 
 def test_packed_reset_deferred_verdict_raises_at_poll_boundary() -> None:
     cfg = _make_cfg(include_optional_managers=False)
-    cfg.defer_finite_validation = True
     cfg.finite_validation_interval = 4
     env, _backend = _make_env(cfg)
     try:
@@ -1709,6 +1709,8 @@ def test_mujoco_host_bridge_packed_reset_lifecycle(
         sim_dt=0.01,
         ctrl_dt=0.02,
         max_episode_seconds=0.04,
+        # Host-bridge MuJoCo observation test on the eager selected-row path.
+        autoreset_cuda_graph=False,
         observations={
             "actor": ObservationGroupCfg(
                 terms={"joint": ObservationTermCfg(func=mdp.joint_pos_rel)}
@@ -1779,6 +1781,8 @@ def test_mujoco_tensor_ray_observation_uses_public_rich_query_contract(
             sim_dt=0.01,
             ctrl_dt=0.02,
             max_episode_seconds=0.04,
+            # Host-bridge ray-observation test on the eager selected-row path.
+            autoreset_cuda_graph=False,
             observations={
                 "actor": ObservationGroupCfg(
                     terms={
@@ -2461,6 +2465,8 @@ def test_real_mujoco_backend_runs_packed_reset_lifecycle() -> None:
         sim_dt=0.01,
         ctrl_dt=0.02,
         max_episode_seconds=1.0,
+        # Real-backend packed-reset test on the eager selected-row path.
+        autoreset_cuda_graph=False,
         observations={
             "actor": ObservationGroupCfg(
                 terms={"state": ObservationTermCfg(func=_episode_step_observation)}
@@ -2539,6 +2545,8 @@ def test_real_mujoco_default_state_applies_keyframe_baseline(
         sim_dt=0.01,
         ctrl_dt=0.02,
         max_episode_seconds=1.0,
+        # Host-state playback test on the eager selected-row path.
+        autoreset_cuda_graph=False,
         observations={
             "actor": ObservationGroupCfg(
                 terms={"state": ObservationTermCfg(func=_episode_step_observation)}
