@@ -40,7 +40,7 @@ def _state_tensor(
         # Deferred mode accumulates the verdict on the env's device-resident
         # carrier; the fixed poll boundary raises on a latched failure instead
         # of synchronizing here on every step.
-        env.record_finite_validation(state, f"termination[{term_name!r}]")
+        env.record_finite_validation(state)
         return state
     if not bool(torch.isfinite(state).all()):
         invalid_rows = torch.nonzero(~torch.isfinite(state).all(dim=1)).flatten()[:10]

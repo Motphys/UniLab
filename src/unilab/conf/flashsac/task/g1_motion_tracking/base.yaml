@@ -175,7 +175,6 @@ env:
         anchor_body_name: torso_link
         body_names: *tracked_bodies
         sampling_mode: adaptive
-        sampling_start_ratio: 0.0
         truncate_on_clip_end: true
         pose_range:
           x: [-0.05, 0.05]
@@ -191,8 +190,6 @@ env:
           roll: [-0.52, 0.52]
           pitch: [-0.52, 0.52]
           yaw: [-0.78, 0.78]
-        joint_position_range: [-0.1, 0.1]
-        joint_default_position_range: [0.0, 0.0]
   terminations:
     time_out:
       func: unilab.envs.mdp.time_out

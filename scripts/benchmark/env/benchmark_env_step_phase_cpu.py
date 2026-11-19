@@ -102,9 +102,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             overrides=[f"task={args.task}", f"algo.num_envs={args.num_envs}"],
         )
     OmegaConf.resolve(cfg)
-    env_cfg_override = EnvConfigAdapter(
-        cfg, root_dir=REPO_ROOT, algo_name=str(cfg.algo.algo)
-    ).build_task_env_cfg_override()
+    env_cfg_override = EnvConfigAdapter(cfg, root_dir=REPO_ROOT).build_task_env_cfg_override()
     if args.cpu_ids is not None:
         env_cfg_override = {
             **(env_cfg_override or {}),

@@ -394,7 +394,7 @@ if TYPE_CHECKING:
     from unilab.managers.types import ManagerBasedRlEnv
 
 
-SamplingMode = Literal["start", "clip_start", "uniform", "adaptive", "mixed"]
+SamplingMode = Literal["adaptive", "mixed"]
 _RANGE_KEYS = ("x", "y", "z", "roll", "pitch", "yaw")
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
@@ -442,7 +442,7 @@ def _validate_motion_command_cfg(cfg: MotionCommandCfg) -> None:
         raise ValueError("MotionCommandCfg anchor_body_name must occur in body_names")
     if len(set(cfg.body_names)) != len(cfg.body_names):
         raise ValueError("MotionCommandCfg body_names must be unique")
-    if cfg.sampling_mode not in ("start", "clip_start", "uniform", "adaptive", "mixed"):
+    if cfg.sampling_mode not in ("adaptive", "mixed"):
         raise ValueError(f"MotionCommandCfg has unsupported sampling_mode {cfg.sampling_mode!r}")
     if not 0.0 <= cfg.params.sampling_start_ratio <= 1.0:
         raise ValueError("MotionCommandCfg sampling_start_ratio must be within [0, 1]")

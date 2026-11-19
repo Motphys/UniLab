@@ -100,10 +100,7 @@ def _collector_ms(tag: str, description: str) -> MetricSpec:
     )
 
 
-_STEP_AXIS = (
-    "collector-reported total env steps with iteration fallback for OffPolicyLogger; "
-    "zero-based iteration for OnPolicyLogger"
-)
+_STEP_AXIS = "collector-reported total env steps with iteration fallback for OffPolicyLogger"
 
 
 METRIC_SPECS: dict[str, MetricSpec] = {

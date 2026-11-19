@@ -183,9 +183,7 @@ def _build_cfg(backend: str, num_envs: int, *, isaacsim_test_fixture: bool = Fal
                 "hydra/hydra_logging=disabled",
             ],
         )
-    override = EnvConfigAdapter(
-        owner_cfg, root_dir=ROOT_DIR, algo_name="flashsac"
-    ).build_task_env_cfg_override()
+    override = EnvConfigAdapter(owner_cfg, root_dir=ROOT_DIR).build_task_env_cfg_override()
     cfg = ManagerBasedRlEnvCfg()
     apply_cfg_overrides(cfg, override)
     return cfg

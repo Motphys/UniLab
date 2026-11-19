@@ -1389,9 +1389,6 @@ def test_step_publishes_fixed_width_reward_components_for_tensor_collectors() ->
     state = env.step(torch.tensor([[0.25], [0.75]], dtype=torch.float32))
 
     assert env.algo_capabilities.reward_component_names == ("track",)
-    assert env.algo_capabilities.action_low is None
-    assert env.algo_capabilities.action_high is None
-    assert env.algo_capabilities.joint_names is None
     assert "reward_components" in state.info
     assert "reward/track" not in state.info["log"]
     torch.testing.assert_close(

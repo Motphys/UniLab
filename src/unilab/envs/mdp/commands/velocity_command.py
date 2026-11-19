@@ -56,11 +56,6 @@ class UniformVelocityCommand(CommandTerm):
     def __init__(self, cfg: UniformVelocityCommandCfg, env: ManagerBasedRlEnv):
         self._validate_cfg(cfg)
         super().__init__(cfg, env)
-        if cfg.init_velocity_prob > 0.0:
-            raise NotImplementedError(
-                "UniformVelocityCommand capability 'initial root velocity write' is "
-                "unavailable in the UniLab entity facade; set init_velocity_prob=0"
-            )
 
         self.robot = cast("Entity", env.scene[cfg.entity_name])
         self._tensor_command = torch.zeros(
@@ -92,7 +87,6 @@ class UniformVelocityCommand(CommandTerm):
             "rel_heading_envs",
             "rel_world_envs",
             "rel_forward_envs",
-            "init_velocity_prob",
         ):
             _ratio(getattr(cfg, name), label=f"UniformVelocityCommandCfg {name}")
         if not isinstance(cfg.ranges, UniformVelocityCommandCfg.Ranges):
@@ -352,7 +346,6 @@ class UniformVelocityCommandCfg(CommandTermCfg):
     rel_heading_envs: float = 1.0
     rel_world_envs: float = 0.0
     rel_forward_envs: float = 0.0
-    init_velocity_prob: float = 0.0
 
     @dataclass
     class Ranges:
@@ -362,13 +355,6 @@ class UniformVelocityCommandCfg(CommandTermCfg):
         heading: tuple[float, float] | None = None
 
     ranges: Ranges
-
-    @dataclass
-    class VizCfg:
-        z_offset: float = 0.2
-        scale: float = 0.5
-
-    viz: VizCfg = field(default_factory=VizCfg)
 
     def build(self, env: ManagerBasedRlEnv) -> UniformVelocityCommand:
         return UniformVelocityCommand(self, env)

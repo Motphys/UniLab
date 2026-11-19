@@ -809,7 +809,7 @@ def create_playback_session(
             env_cfg_override = build_offpolicy_env_cfg_override(algo, cfg, root_dir=Path.cwd())
         else:
             env_cfg_override = build_play_backend_adapter(
-                cfg, root_dir=Path.cwd(), algo_name=algo
+                cfg, root_dir=Path.cwd()
             ).build_task_env_cfg_override()
         env_cfg_override = apply_backend_env_device_override(
             env_cfg_override,

@@ -13,12 +13,9 @@ algo:
   obs_groups:
     actor:
       - policy
-  experiment_name: test
-  run_name: ""
   resume: false
   load_run: "-1"
   checkpoint: -1
-  resume_path: null
   actor:
     class_name: rsl_rl.models.MLPModel
     hidden_dims: [512, 256, 128]

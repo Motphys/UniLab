@@ -51,7 +51,7 @@ class RewardManager(ManagerBase):
         - ``reward_buf`` = raw_value * weight (no dt scaling)
 
       Regardless of the scaling setting:
-        - ``_step_reward`` (via ``get_active_iterable_terms()``) always contains
+        - ``_step_reward`` always contains
           the unscaled reward rate (raw_value * weight)
 
       ``step_reward_extras()`` exposes the latest ``compute()`` call's per-term
@@ -126,9 +126,6 @@ class RewardManager(ManagerBase):
 
     def reset_finite_verdict(self) -> None:
         self._finite_verdict.fill_(True)
-
-    def clear_finite_verdict(self) -> None:
-        self.reset_finite_verdict()
 
     def poll_finite_validation(self) -> bool:
         """Report a deferred reward failure at the host validation boundary."""
@@ -335,12 +332,6 @@ class RewardManager(ManagerBase):
     def step_rewards(self) -> torch.Tensor:
         """Latest full-width per-term weighted rewards on the Manager device."""
         return self._step_reward
-
-    def get_active_iterable_terms(self, env_idx: int) -> list[tuple[str, list[float]]]:
-        terms = []
-        for idx, name in enumerate(self._term_names):
-            terms.append((name, [self._step_reward[env_idx, idx].item()]))
-        return terms
 
     def get_term_cfg(self, term_name: str) -> RewardTermCfg:
         if term_name not in self._term_names:

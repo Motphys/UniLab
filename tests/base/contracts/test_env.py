@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 import torch
 
@@ -31,9 +30,7 @@ def test_get_algo_capabilities_default_when_env_does_not_provide():
 
     caps = get_algo_capabilities(env)
     assert isinstance(caps, EnvAlgoCapabilitiesProtocol)
-    assert caps.action_low is None
-    assert caps.action_high is None
-    assert caps.joint_names is None
+    assert caps.reward_component_names is None
 
 
 def test_get_produces_completion_receipts_defaults_to_fail_closed():
@@ -67,30 +64,24 @@ def test_get_produces_completion_receipts_rejects_non_bool_declaration():
 
 def test_get_algo_capabilities_returns_provided_values():
     provided = EnvAlgoCapabilities(
-        action_low=np.array([-1.0, -2.0, -3.0], dtype=np.float32),
-        joint_names=("hip", "knee", "ankle"),
+        reward_component_names=("track",),
     )
     env = _make_env(algo_capabilities=provided)
     assert isinstance(env, SupportsAlgoCapabilitiesProtocol)
 
     caps = get_algo_capabilities(env)
     assert caps is provided
-    np.testing.assert_array_equal(caps.action_low, provided.action_low)
-    assert caps.action_high is None
-    assert caps.joint_names == ("hip", "knee", "ankle")
+    assert caps.reward_component_names == ("track",)
 
 
 def test_runtime_checkable_isinstance_semantics():
     assert isinstance(EnvAlgoCapabilities(), EnvAlgoCapabilitiesProtocol)
 
     class _Full:
-        action_low = np.zeros((2,), dtype=np.float32)
-        action_high = np.ones((2,), dtype=np.float32)
-        joint_names = ("a", "b")
         reward_component_names = ("alive",)
 
     class _MissingField:
-        action_low = np.zeros((2,), dtype=np.float32)
+        pass
 
     # runtime_checkable protocols check attribute presence only.
     assert isinstance(_Full(), EnvAlgoCapabilitiesProtocol)
@@ -102,7 +93,7 @@ def test_runtime_checkable_isinstance_semantics():
 def test_default_carrier_is_frozen():
     caps = EnvAlgoCapabilities()
     try:
-        caps.action_low = np.zeros((1,), dtype=np.float32)  # type: ignore[misc]
+        caps.reward_component_names = ("track",)  # type: ignore[misc]
     except AttributeError:
         pass
     else:  # pragma: no cover

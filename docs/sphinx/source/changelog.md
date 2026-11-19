@@ -207,6 +207,22 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   的模式相矛盾。该方法现在免同步；调用方需自行保证概率有限、非负且和为正，
   方法 docstring 已注明
   （[#2624](https://github.com/Motphys/UniLab/issues/2624)）。
+- The crawl-slope WBT example in the motion-tracking task guide no longer
+  recommends `sampling_mode=start`, which the tensor sampler has never
+  supported (it raises `NotImplementedError` at env construction). The example
+  now uses `sampling_mode=mixed` with `sampling_start_ratio=1.0`, the
+  supported deterministic clip-start form, in both the English and Chinese
+  pages; `MotionCommandCfg.sampling_mode` is narrowed to
+  `Literal["adaptive", "mixed"]` so invalid values are rejected by config
+  validation with a clear error instead of failing deep inside the tensor
+  sampler ([#2629](https://github.com/Motphys/UniLab/issues/2629)).
+  motion-tracking 任务指南中的 crawl-slope WBT 示例不再推荐
+  `sampling_mode=start`（tensor sampler 从未支持该值，会在 env 构造期抛
+  `NotImplementedError`）。示例改用受支持的确定性 clip 起点形式
+  `sampling_mode=mixed` 加 `sampling_start_ratio=1.0`，中英文页面同步修正；
+  `MotionCommandCfg.sampling_mode` 收窄为 `Literal["adaptive", "mixed"]`，
+  非法值在配置校验处即被清晰拒绝，不再深入 tensor sampler 才失败
+  （[#2629](https://github.com/Motphys/UniLab/issues/2629)）。
 
 ### Removed / 移除
 
@@ -225,6 +241,82 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   或用 `None` 表示全部行。保留形式为 `None`、一维整数行索引张量与内部
   `ResetSelection` 协议；不留 deprecation 别名
   （[#2619](https://github.com/Motphys/UniLab/issues/2619)）。
+- Remove zero-consumer public surface identified by the repo-wide YAGNI scan
+  ([#2629](https://github.com/Motphys/UniLab/issues/2629)): the
+  `clear_finite_verdict` alias on the observation/action/reward managers,
+  `TerminationManager.dones` / `TerminationManager.get_term`,
+  `RecorderManager.__contains__` (and the Null variant), `DelayBuffer.set_lags`,
+  `apply_cuda_process_sharing_manifest`, `get_hydra_runtime_choice` (and its
+  `unilab.training` re-export), `registry.find_available_sim_backend`,
+  `MotionLoader.get_clip_indices`, the `VizCfg`/`viz` field on
+  `UniformVelocityCommandCfg`, `BaseActionCfg.preserve_order`, the
+  `Sequence[str]` branch of `resolve_checkpoint_file`, the
+  `resolve_torch_device_alias` group in `rl.runtime.device`, the ignored
+  `num_envs` parameter of `build_actor`, and the silently ignored `algo_name`
+  parameter of `EnvConfigAdapter` (its forwarding parameter on
+  `build_play_backend_adapter` is removed as well). Owner YAML cleanup: drop
+  the never-consumed PPO `algo.experiment_name` / `algo.run_name` and the SAC
+  `algo.actor: {}` fake-compat key, plus motion-tracking owner YAML lines that
+  only restate dataclass defaults (`sampling_start_ratio`, `joint_position_range`,
+  `joint_default_position_range`).
+  删除全仓 YAGNI 扫描确认的零消费公共面
+  （[#2629](https://github.com/Motphys/UniLab/issues/2629)）：observation /
+  action / reward manager 上的 `clear_finite_verdict` 别名、
+  `TerminationManager.dones` / `TerminationManager.get_term`、
+  `RecorderManager.__contains__`（含 Null 版）、`DelayBuffer.set_lags`、
+  `apply_cuda_process_sharing_manifest`、`get_hydra_runtime_choice`（及其
+  `unilab.training` re-export）、`registry.find_available_sim_backend`、
+  `MotionLoader.get_clip_indices`、`UniformVelocityCommandCfg` 上的
+  `VizCfg`/`viz` 字段、`BaseActionCfg.preserve_order`、
+  `resolve_checkpoint_file` 的 `Sequence[str]` 分支、`rl.runtime.device` 中的
+  `resolve_torch_device_alias` 整组、`build_actor` 被静默忽略的 `num_envs`
+  参数，以及 `EnvConfigAdapter` 被静默忽略的 `algo_name` 参数（其转发参数
+  `build_play_backend_adapter.algo_name` 一并移除）。owner YAML 清理：删除
+  从未被消费的 PPO `algo.experiment_name` / `algo.run_name` 与 SAC
+  `algo.actor: {}` 假兼容键，以及仅重复 dataclass 默认值的 motion-tracking
+  owner YAML 行（`sampling_start_ratio`、`joint_position_range`、
+  `joint_default_position_range`）。
+- Second YAGNI batch from the downstream-ecosystem audit in issue #2629 (all
+  previously "maintainer decision" items, now confirmed deletable): the
+  `init_velocity_prob` fake knob on `UniformVelocityCommandCfg` (all eight
+  owner YAML lines removed; the five downstream repos that still write
+  `init_velocity_prob: 0.0` must drop those lines on upgrade, tracked in the
+  issue), the never-consumed `action_low` / `action_high` / `joint_names`
+  reserved fields on `EnvAlgoCapabilities`, the tensor-migration leftovers
+  `motion_tracking/common/tensor_runtime.py`,
+  `motion_tracking/common/tensor_state_store.py` (`DeviceStateStore`), and
+  `locomotion/go2/tensor_parity.py` (ADR-0011/0012 evidence pointers updated),
+  the PPO-owner `algo.resume` / `algo.resume_path` dead keys (the PPO
+  entrypoint now fails closed via `reject_removed_ppo_resume_keys`; PPO
+  resume stays on `algo.load_run` + `algo.checkpoint`; the off-policy owners
+  still own the live keys), the silently dropped `label` argument of
+  `TorchEnv.record_finite_validation`, the tests-only debug surface
+  (`ManagerBase.get_active_iterable_terms` and its manager implementations,
+  `extract_reset_obs`, the `render_play_mode` and
+  `run_native_viewer_play_loop` thin wrappers — callers use
+  `env.run_playback` directly — and `OnPolicyLogger` with its api_reference
+  entry), and the zero-consumer noise cfgs `ConstantNoiseCfg`,
+  `GaussianNoiseCfg`, and `SegmentwiseUniformNoiseCfg` (`UniformNoiseCfg` and
+  the `NoiseModel` extension base stay).
+  issue #2629 下游生态审计复核后的第二批 YAGNI 删除（原"维护者决策"项全部
+  转删除）：`UniformVelocityCommandCfg` 的假旋钮 `init_velocity_prob`（8 个
+  owner YAML 行同步删除；5 个下游仓库仍需在升级时删掉各自 YAML 中的
+  `init_velocity_prob: 0.0`，见 issue 跟踪）；`EnvAlgoCapabilities` 上从未被
+  消费的预留字段 `action_low` / `action_high` / `joint_names`；tensor 迁移
+  遗留三模块（`motion_tracking/common/tensor_runtime.py`、
+  `motion_tracking/common/tensor_state_store.py` 的 `DeviceStateStore`、
+  `locomotion/go2/tensor_parity.py`，ADR-0011/0012 证据引用已同步）；PPO
+  owner 的死键 `algo.resume` / `algo.resume_path`（PPO 入口经
+  `reject_removed_ppo_resume_keys` fail-closed；PPO resume 仍走
+  `algo.load_run` + `algo.checkpoint`；off-policy owner 继续拥有活键）；
+  `TorchEnv.record_finite_validation` 被静默丢弃的 `label` 参数；仅 tests
+  消费的调试面（`ManagerBase.get_active_iterable_terms` 及其各 manager 实现、
+  `extract_reset_obs`、`render_play_mode` 与
+  `run_native_viewer_play_loop` 薄封装——调用方改为直接使用
+  `env.run_playback`——以及 `OnPolicyLogger` 及其 api_reference 条目）；
+  零消费的 noise cfg（`ConstantNoiseCfg`、`GaussianNoiseCfg`、
+  `SegmentwiseUniformNoiseCfg`；保留 `UniformNoiseCfg` 与 `NoiseModel`
+  扩展基座）。
 
 ## 1.5.11 (2026-11-16)
 

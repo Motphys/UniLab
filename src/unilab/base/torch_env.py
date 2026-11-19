@@ -862,7 +862,7 @@ class TorchEnv(ABEnv):
                 )
             if self._defer_finite_validation:
                 self._require_floating_float(value)
-                self._record_finite_validation(value, f"final_observation[{name!r}]")
+                self._record_finite_validation(value)
             else:
                 self._validate_finite_float(value, f"final_observation[{name!r}]")
 
@@ -1313,15 +1313,14 @@ class TorchEnv(ABEnv):
         """Number of steps between deferred finite-validation polls."""
         return self._finite_validation_interval
 
-    def _record_finite_validation(self, value: torch.Tensor, label: str = "") -> None:
+    def _record_finite_validation(self, value: torch.Tensor) -> None:
         """Accumulate one finite verdict without a scalar host read."""
-        del label
         if self._defer_finite_validation:
             self._finite_verdict.logical_and_(torch.isfinite(value).all())
 
-    def record_finite_validation(self, value: torch.Tensor, label: str = "") -> None:
+    def record_finite_validation(self, value: torch.Tensor) -> None:
         """Allow a manager to add a finite verdict to the shared boundary."""
-        self._record_finite_validation(value, label)
+        self._record_finite_validation(value)
 
     def poll_finite_validation(self, *, force: bool = False) -> bool:
         """Publish all deferred verdicts at one fixed host boundary."""

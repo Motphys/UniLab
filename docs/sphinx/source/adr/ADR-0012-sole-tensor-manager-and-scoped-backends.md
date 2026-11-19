@@ -218,8 +218,10 @@ useful for launcher/debug/MPS isolation.
 ## Evidence In Repo
 
 - Manager runtime: `src/unilab/envs/manager_based_rl_env.py`
-- Tensor state store/readiness consumer:
-  `src/unilab/tasks/motion_tracking/common/tensor_state_store.py`
+- The tensor state store once cited here
+  (`src/unilab/tasks/motion_tracking/common/tensor_state_store.py`) had no
+  production consumer once the Manager runtime became device-native; it was
+  removed in the YAGNI sweep for issue #2629.
 - Public backend contract: `unisim.backend.base.SimBackend`
 - Current tensor Manager backend scope:
   `src/unilab/base/registry.py` (`_SUPPORTED_SIM_BACKENDS`,

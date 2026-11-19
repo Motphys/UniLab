@@ -1037,7 +1037,7 @@ assert hydra_cfg.training.sim_backend == "genesis"
 assert hydra_cfg.training.play_render_mode == "auto"
 
 env_override = EnvConfigAdapter(
-    hydra_cfg, root_dir=ROOT, algo_name=CONFIG_GROUP
+    hydra_cfg, root_dir=ROOT
 ).build_task_env_cfg_override()
 env_cfg = registry.materialize_env_config("G1WalkFlat")
 assert isinstance(env_cfg, ManagerBasedRlEnvCfg)

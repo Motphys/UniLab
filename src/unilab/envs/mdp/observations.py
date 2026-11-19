@@ -157,7 +157,7 @@ class _NamedSensorObservation(ManagerTermBase):
         if getattr(env, "defer_finite_validation", False):
             record = getattr(env, "record_finite_validation", None)
             if callable(record):
-                record(value, f"observation/{self._term_name}")
+                record(value)
             elif not bool(torch.isfinite(value).all()):
                 raise ValueError(f"Observation term '{self._term_name}' received NaN or Inf")
         elif not bool(torch.isfinite(value).all()):

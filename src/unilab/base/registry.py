@@ -211,18 +211,6 @@ def env(name: str, sim_backend: str) -> Callable[[TEnvFactory], TEnvFactory]:
     return decorator
 
 
-def find_available_sim_backend(env_name: str) -> str:
-    """Find the explicit default simulation backend for an environment."""
-    if env_name not in _envs:
-        raise ValueError(f"Environment '{env_name}' is not registered.")
-
-    meta: EnvMeta = _envs[env_name]
-    backend = meta.available_sim_backend()
-    if backend is None:
-        raise ValueError(f"Environment '{env_name}' does not support any simulation backend.")
-    return backend
-
-
 def resolve_reward_override_field(env_name: str) -> RewardOverrideField:
     """Resolve the Manager-Based Hydra root reward target for an env config."""
     if env_name not in _envs:

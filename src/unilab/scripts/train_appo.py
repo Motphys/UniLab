@@ -234,7 +234,7 @@ def play_appo(
     if bound_device is not None:
         device = bound_device
     play_env_cfg_override = apply_backend_env_device_override(
-        EnvConfigAdapter(cfg, root_dir=Path.cwd(), algo_name="appo").build_play_env_cfg_override(),
+        EnvConfigAdapter(cfg, root_dir=Path.cwd()).build_play_env_cfg_override(),
         str(cfg.training.sim_backend),
         learner_device=device,
     )
@@ -373,7 +373,7 @@ def main(cfg: DictConfig) -> None:
             collector_device = bound_device
 
     env_cfg_override = apply_backend_env_device_override(
-        EnvConfigAdapter(cfg, root_dir=Path.cwd(), algo_name="appo").build_task_env_cfg_override(),
+        EnvConfigAdapter(cfg, root_dir=Path.cwd()).build_task_env_cfg_override(),
         str(cfg.training.sim_backend),
         learner_device=_env_carrier_device(cfg, collector_device, runner_device=learner_device),
     )

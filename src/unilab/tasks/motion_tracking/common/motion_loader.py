@@ -272,11 +272,6 @@ class MotionLoader:
             raise ValueError("motion_file entries must be non-empty strings")
         return motion_files
 
-    def get_clip_indices(self, frame_idx: np.ndarray) -> np.ndarray:
-        """Map global frame indices to clip indices."""
-        clip_indices = np.searchsorted(self.clip_offsets, frame_idx, side="right") - 1
-        return np.asarray(clip_indices, dtype=np.int32)
-
     def motion_features_torch(self, device: str | torch.device) -> torch.Tensor:
         """Return the immutable motion feature table on the requested device.
 

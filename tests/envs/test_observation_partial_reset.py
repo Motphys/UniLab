@@ -38,9 +38,7 @@ def _make_env(config_root: str, task: str, backend: str, identity: str, num_envs
         owner = compose("config", overrides=[f"task={task}/{backend}"])
     cfg = registry.materialize_env_config(identity)
     assert isinstance(cfg, ManagerBasedRlEnvCfg)
-    override = EnvConfigAdapter(
-        owner, root_dir=_ROOT, algo_name=config_root
-    ).build_task_env_cfg_override()
+    override = EnvConfigAdapter(owner, root_dir=_ROOT).build_task_env_cfg_override()
     apply_cfg_overrides(cfg, override)
     return registry.make(
         identity, num_envs=num_envs, sim_backend=backend, env_cfg_override=override

@@ -217,21 +217,6 @@ def test_duplicate_env_config_raises():
         registry_mod.register_env_config(_TEST_ENV_A, _TestCfgA)
 
 
-def test_find_available_sim_backend():
-    backend = registry_mod.find_available_sim_backend(_TEST_ENV_A)
-    assert backend == "mujoco"
-
-
-def test_find_available_sim_backend_prefers_explicit_default_order():
-    backend = registry_mod.find_available_sim_backend(_TEST_ENV_C)
-    assert backend == "mujoco"
-
-
-def test_find_available_sim_backend_missing_raises():
-    with pytest.raises(ValueError):
-        registry_mod.find_available_sim_backend("__nonexistent_env__")
-
-
 def test_make_returns_correct_type():
     env = registry_mod.make(_TEST_ENV_A, sim_backend="mujoco")
     assert isinstance(env, _TestEnvA)
@@ -272,7 +257,7 @@ def test_register_env_accepts_explicit_isaac_backend(backend):
         registry_mod.register_env(_name, _TestEnvA, "mujoco")
 
     assert registry_mod.register_env(_name, _TestEnvA, backend) is _TestEnvA
-    assert registry_mod.find_available_sim_backend(_name) == "mujoco"
+    assert registry_mod._envs[_name].available_sim_backend() == "mujoco"
 
 
 def test_default_backend_order_is_tensor_manager_scope():
@@ -312,13 +297,6 @@ def test_register_env_rejects_non_callable_factory():
 
     with pytest.raises(TypeError, match=r"_TestNonCallableEnvFactory.*mujoco.*callable.*object"):
         registry_mod.register_env(_name, object(), "mujoco")  # type: ignore[arg-type]
-
-
-def test_find_available_sim_backend_no_env_factory_raises():
-    """find_available_sim_backend() raises when config exists but no env factory is registered."""
-    # _TEST_ENV_B has config but no env factory (registered above without env)
-    with pytest.raises(ValueError, match="does not support any simulation backend"):
-        registry_mod.find_available_sim_backend(_TEST_ENV_B)
 
 
 # ---------------------------------------------------------------------------

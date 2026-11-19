@@ -77,9 +77,7 @@ def _g1_manager_override(
         config_dir=str(repo_root / "src" / "unilab" / "conf" / config_group), version_base="1.3"
     ):
         cfg = compose("config", overrides=[f"task={task}/{backend}"])
-    return EnvConfigAdapter(
-        cfg, root_dir=repo_root, algo_name=config_group
-    ).build_task_env_cfg_override()
+    return EnvConfigAdapter(cfg, root_dir=repo_root).build_task_env_cfg_override()
 
 
 def _motion_manager_override(
@@ -103,7 +101,6 @@ def _motion_manager_override(
     return str(cfg.training.task_name), EnvConfigAdapter(
         cfg,
         root_dir=repo_root,
-        algo_name=config_root,
     ).build_task_env_cfg_override()
 
 
@@ -485,7 +482,7 @@ def test_flashsac_g1_motion_mujoco_tensor_command_roll_out() -> None:
         ):
             owner = compose("config", overrides=["task=g1_motion_tracking/mujoco"])
         override = EnvConfigAdapter(
-            owner, root_dir=root, algo_name="flashsac"
+            owner, root_dir=root
         ).build_task_env_cfg_override()
         env = registry.make(
             "G1MotionTracking",

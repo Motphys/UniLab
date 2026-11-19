@@ -9,7 +9,6 @@ from unilab.rl.logging.metric_schema import (
     MetricSpec,
 )
 from unilab.rl.logging.offpolicy import OffPolicyLogger
-from unilab.rl.logging.onpolicy import OnPolicyLogger
 from unilab.rl.logging.trace_event import TraceRecorder
 
 __all__ = [
@@ -20,6 +19,5 @@ __all__ = [
     "MetricFamilySpec",
     "MetricSpec",
     "OffPolicyLogger",
-    "OnPolicyLogger",
     "TraceRecorder",
 ]

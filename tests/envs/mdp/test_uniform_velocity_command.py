@@ -315,7 +315,6 @@ def test_heading_world_forward_and_standing_modes() -> None:
         ),
         ({"heading_control_stiffness": float("nan")}, ValueError, "must be finite"),
         ({"resampling_time_range": (0.0, 0.0)}, ValueError, "must be positive"),
-        ({"init_velocity_prob": 0.1}, NotImplementedError, "root velocity write"),
     ],
 )
 def test_invalid_or_unsupported_config_fails_at_construction(

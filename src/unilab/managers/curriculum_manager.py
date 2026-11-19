@@ -78,25 +78,6 @@ class CurriculumManager(ManagerBase):
             raise ValueError(f"Term '{term_name}' not found in active terms.")
         return self._term_cfgs[self._term_names.index(term_name)]
 
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        terms = []
-        for term_name, term_state in self._curriculum_state.items():
-            if term_state is not None:
-                data = []
-                if isinstance(term_state, dict):
-                    for _key, value in term_state.items():
-                        if isinstance(value, torch.Tensor):
-                            value = value.detach().cpu().item()
-                        data.append(value)
-                else:
-                    if isinstance(term_state, torch.Tensor):
-                        term_state = term_state.detach().cpu().item()
-                    data.append(term_state)
-                terms.append((term_name, data))
-        return terms
-
-    supports_reset_selection = True
-
     def reset_selection_blockers(self) -> list[str]:
         # Curriculum state is published to the reset log as host scalars, so
         # configured terms cannot run inside a host-sync-free reset.
@@ -187,9 +168,6 @@ class NullCurriculumManager:
 
     def __repr__(self) -> str:
         return "NullCurriculumManager()"
-
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        return []
 
     def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         del env_ids

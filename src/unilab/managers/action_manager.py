@@ -202,9 +202,6 @@ class ActionManager(ManagerBase):
         self._finite_verdict.fill_(True)
         self._finite_bad_rows.zero_()
 
-    def clear_finite_verdict(self) -> None:
-        self.reset_finite_verdict()
-
     def poll_finite_validation(self) -> bool:
         """Report a deferred action failure at the host validation boundary."""
         valid = bool(self._finite_verdict.detach().cpu().item())
@@ -334,15 +331,6 @@ class ActionManager(ManagerBase):
                 term.apply_actions()
             except (TypeError, ValueError, NotImplementedError) as exc:
                 raise type(exc)(f"ActionManager term '{name}': {exc}") from exc
-
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        terms = []
-        idx = 0
-        for name, term in self._terms.items():
-            term_actions = self._action[env_idx, idx : idx + term.action_dim]
-            terms.append((name, term_actions.tolist()))
-            idx += term.action_dim
-        return terms
 
     def _prepare_terms(self) -> None:
         self._term_names: list[str] = list()

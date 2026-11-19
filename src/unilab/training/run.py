@@ -125,6 +125,26 @@ def reject_removed_validation_keys(cfg: DictConfig) -> None:
         )
 
 
+def reject_removed_ppo_resume_keys(cfg: DictConfig) -> None:
+    """Fail closed on the PPO-owner resume keys removed from the public config surface.
+
+    PPO resume is owned by ``algo.load_run`` + ``algo.checkpoint`` (resolved via
+    ``resolve_configured_checkpoint_path``). The off-policy owners still consume
+    ``algo.resume`` / ``algo.resume_path``, so the rejection is scoped to the PPO
+    entrypoint instead of :func:`reject_removed_validation_keys`.
+    """
+    if OmegaConf.select(cfg, "algo.resume", default=None) is not None:
+        raise ValueError(
+            "algo.resume was removed from the PPO owner config: PPO resume is opt-in via "
+            "algo.load_run (with algo.checkpoint); the off-policy owners still own algo.resume"
+        )
+    if OmegaConf.select(cfg, "algo.resume_path", default=None) is not None:
+        raise ValueError(
+            "algo.resume_path was removed from the PPO owner config: PPO resume is opt-in via "
+            "algo.load_run (with algo.checkpoint); the off-policy owners still own algo.resume_path"
+        )
+
+
 def apply_env_nan_guard(env: Any, training_cfg: Any) -> None:
     """Attach a ``NanGuard`` to ``env`` when diagnostics are enabled."""
     nan_guard_cfg = resolve_nan_guard_cfg(training_cfg)

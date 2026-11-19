@@ -423,14 +423,13 @@ def _scene_visual_materializer() -> Any:
     return config_adapter.materialize_scene_visual_override
 
 
-def build_play_backend_adapter(cfg: Any, *, root_dir: str | Path, algo_name: str = "ppo") -> Any:
+def build_play_backend_adapter(cfg: Any, *, root_dir: str | Path) -> Any:
     """Build the EnvConfigAdapter used by play entrypoints to derive env cfg overrides."""
     from unilab.base.config_adapter import EnvConfigAdapter
 
     return EnvConfigAdapter(
         cfg,
         root_dir=root_dir,
-        algo_name=algo_name,
         scene_materializer=_scene_visual_materializer(),
     )
 
@@ -745,15 +744,6 @@ def default_device(torch_module, preferred: str | None = None) -> str:
     return "cpu"
 
 
-def extract_reset_obs(reset_result):
-    """Extract obs_dict from env.reset(...) using the current (obs_dict, info_dict) contract."""
-    if isinstance(reset_result, tuple):
-        if len(reset_result) == 2:
-            obs_out, _ = reset_result
-            return obs_out
-    raise ValueError(f"Unexpected env.reset return format: {type(reset_result)!r}")
-
-
 def resolve_play_obs_dims(obs_groups_spec: dict[str, int]) -> tuple[int, int]:
     from unilab.base.contracts.observations import get_obs_dims
 
@@ -940,7 +930,7 @@ def build_offpolicy_env_cfg_override(
     assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
     return cast(
         dict[str, Any] | None,
-        EnvConfigAdapter(cfg, root_dir=root_dir, algo_name=algo_name).build_task_env_cfg_override(),
+        EnvConfigAdapter(cfg, root_dir=root_dir).build_task_env_cfg_override(),
     )
 
 
@@ -962,7 +952,7 @@ def build_offpolicy_play_env_cfg_override(
     assert_offpolicy_task_choice_matches_algo(cfg, algo_name=algo_name)
     return cast(
         dict[str, Any] | None,
-        EnvConfigAdapter(cfg, root_dir=root_dir, algo_name=algo_name).build_play_env_cfg_override(),
+        EnvConfigAdapter(cfg, root_dir=root_dir).build_play_env_cfg_override(),
     )
 
 

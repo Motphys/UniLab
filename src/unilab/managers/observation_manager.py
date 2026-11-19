@@ -274,39 +274,6 @@ class ObservationManager(ManagerBase):
             msg += "\n"
         return msg
 
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        terms = []
-
-        if self._obs_buffer is None:
-            self.compute()
-        assert self._obs_buffer is not None
-        obs_buffer: dict[str, torch.Tensor | dict[str, torch.Tensor]] = self._obs_buffer
-
-        for group_name, _ in self.group_obs_dim.items():
-            if not self.group_obs_concatenate[group_name]:
-                buffers = obs_buffer[group_name]
-                assert isinstance(buffers, dict)
-                for name, term in buffers.items():
-                    terms.append((group_name + "-" + name, term[env_idx].tolist()))
-                continue
-
-            idx = 0
-            data = obs_buffer[group_name]
-            assert isinstance(data, torch.Tensor)
-            for name, shape in zip(
-                self._group_obs_term_names[group_name],
-                self._group_obs_term_dim[group_name],
-                strict=False,
-            ):
-                data_length = _shape_product(shape)
-                term = data[env_idx, idx : idx + data_length]
-                terms.append((group_name + "-" + name, term.tolist()))
-                idx += data_length
-
-        return terms
-
-    # Properties.
-
     @property
     def active_terms(self) -> dict[str, list[str]]:
         return self._group_obs_term_names
@@ -325,9 +292,6 @@ class ObservationManager(ManagerBase):
         self._finite_verdict.fill_(True)
         for verdict in self._group_finite_verdict.values():
             verdict.fill_(True)
-
-    def clear_finite_verdict(self) -> None:
-        self.reset_finite_verdict()
 
     def poll_finite_validation(self) -> bool:
         """Report deferred observation failures at the host validation boundary."""

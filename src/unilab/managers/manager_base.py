@@ -149,10 +149,6 @@ class ManagerBase(abc.ABC):
             return []
         return [f"{type(self).__qualname__}.reset does not accept a ResetSelection"]
 
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        """Return ``(term_name, values)`` pairs iterated by the given environment row."""
-        raise NotImplementedError
-
     @abc.abstractmethod
     def _prepare_terms(self) -> None:
         raise NotImplementedError

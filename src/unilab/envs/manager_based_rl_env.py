@@ -1710,16 +1710,8 @@ class ManagerBasedRlEnv(TorchEnv):
 
     @property
     def algo_capabilities(self) -> Any:
-        """Expose cold-path metadata to algorithm owners.
-
-        Per-dimension action bounds and action-order joint names are reserved
-        fields. They intentionally stay unset until an algorithm consumes them;
-        the Manager-Based action owner, not the RL runtime, owns their source.
-        """
+        """Expose cold-path metadata to algorithm owners."""
         return EnvAlgoCapabilities(
-            action_low=None,
-            action_high=None,
-            joint_names=None,
             reward_component_names=self.reward_manager.step_reward_names,
         )
 

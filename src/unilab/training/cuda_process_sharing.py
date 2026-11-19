@@ -538,19 +538,9 @@ def probe_cuda_process_sharing(
     )
 
 
-def apply_cuda_process_sharing_manifest(
-    runtime_manifest: MutableMapping[str, Any],
-    evidence: CudaProcessSharingEvidence,
-) -> None:
-    """Record process-sharing evidence in a producer-owned manifest mapping."""
-
-    runtime_manifest["cuda_process_sharing"] = evidence.to_dict()
-
-
 __all__ = [
     "CudaProcessSharingEvidence",
     "SUPPORTED_CUDA_PROCESS_SHARING_BACKENDS",
-    "apply_cuda_process_sharing_manifest",
     "canonicalize_gpu_uuid",
     "probe_cuda_process_sharing",
     "resolve_mps_visibility_entries",

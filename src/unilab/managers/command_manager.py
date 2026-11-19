@@ -225,7 +225,7 @@ class CommandTerm(ManagerTermBase):
         for metric_name, metric_value in metric_values:
             selected = torch.where(reset_mask, metric_value, 0.0)
             if callable(record):
-                record(selected, f"command/{self.name}/metric/{metric_name}")
+                record(selected)
             elif not _finite(selected):
                 raise ValueError(
                     f"CommandTerm '{self.name}' metric '{metric_name}' contains NaN or Inf."
@@ -283,7 +283,7 @@ class CommandTerm(ManagerTermBase):
             if self._deferred_validation_enabled():
                 record = getattr(self._env, "record_finite_validation", None)
                 if callable(record):
-                    record(dt_tensor, f"command/{self.name}/dt")
+                    record(dt_tensor)
                     dt_is_finite = True
                 else:
                     dt_is_finite = bool(torch.isfinite(dt_tensor).all())
@@ -337,7 +337,7 @@ class CommandTerm(ManagerTermBase):
             record = getattr(self._env, "record_finite_validation", None)
             if callable(record):
                 for metric_name, metric_value in metric_values:
-                    record(metric_value, f"command/{self.name}/metric/{metric_name}")
+                    record(metric_value)
                 return
         if metric_values:
             finite = torch.stack([torch.isfinite(value) for _, value in metric_values]).all()
@@ -467,15 +467,6 @@ class CommandManager(ManagerBase):
                     f"environments {invalid_rows.detach().cpu().tolist()}."
                 )
         raise ValueError("CommandManager returned a non-finite command.")
-
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        terms = []
-        for name, term in self._terms.items():
-            command = self._validate_command(name, term.command)
-            terms.append((name, command[env_idx].detach().cpu().tolist()))
-        return terms
-
-    supports_reset_selection = True
 
     def reset_selection_blockers(self) -> list[str]:
         blockers = selection_blockers("CommandManager", self._terms.items())
@@ -662,9 +653,6 @@ class NullCommandManager:
 
     def __repr__(self) -> str:
         return "NullCommandManager()"
-
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        return []
 
     def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         del env_ids

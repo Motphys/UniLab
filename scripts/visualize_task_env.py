@@ -10,7 +10,7 @@ The script is self-contained: it does NOT read any Hydra training config.
 Mujoco backend: stitches all `--num_envs` robot replicas into the same scene
 and drives every replica's qpos/qvel each frame from `env.get_physics_state_snapshot()`.
 
-Motrix backend: delegates to `render_play_mode`, whose native renderer lays
+Motrix backend: delegates to `env.run_playback`, whose native renderer lays
 all `num_envs` robots out on a grid using `cfg.render_spacing`.
 
 Usage:
@@ -103,8 +103,6 @@ def _stitch_replicas(parent_scene_xml: Path, robot_base_xml: Path, env_origins: 
 
 
 def _run_motrix(env, num_envs: int) -> None:
-    from unilab.visualization import render_play_mode
-
     actions = np.zeros((num_envs, env.action_space.shape[0]), dtype=np.float32)
     camera_kwargs = _motrix_camera_kwargs(env, num_envs)
 
@@ -114,8 +112,7 @@ def _run_motrix(env, num_envs: int) -> None:
     def step(_obs):
         return env.step(actions)
 
-    render_play_mode(
-        env,
+    env.run_playback(
         initialize=initialize,
         step=step,
         num_steps=None,

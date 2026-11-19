@@ -920,13 +920,12 @@ def test_build_play_backend_adapter_injects_root_dir_and_materializer(
     monkeypatch.setattr(config_adapter, "materialize_scene_visual_override", sentinel_materializer)
 
     cfg = SimpleNamespace(training=SimpleNamespace(task_name="Task"))
-    adapter = build_play_backend_adapter(cfg, root_dir="/repo", algo_name="appo")
+    adapter = build_play_backend_adapter(cfg, root_dir="/repo")
 
     assert isinstance(adapter, FakeEnvConfigAdapter)
     assert captured == {
         "cfg": cfg,
         "root_dir": "/repo",
-        "algo_name": "appo",
         "scene_materializer": sentinel_materializer,
     }
 
