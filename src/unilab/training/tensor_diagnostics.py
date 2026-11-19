@@ -23,7 +23,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class NanGuardCfg:
-    """Pickleable configuration for the tensor finite-state guard."""
+    """Pickleable configuration for the tensor finite-state guard.
+
+    The defer mode is not part of this configuration: it is derived from the
+    environment's single validation strictness (``finite_validation_mode``)
+    when the guard is attached (``TorchEnv.set_nan_guard``).
+    """
 
     enabled: bool = False
     buffer_size: int = 100
@@ -34,7 +39,6 @@ class NanGuardCfg:
     capture_interval: int = 1
     # Zero means the owner must invoke poll explicitly at its cycle boundary.
     check_interval: int = 1
-    defer_validation: bool = False
 
 
 def _bad_row_mask(value: torch.Tensor, num_envs: int) -> torch.Tensor:
@@ -80,6 +84,9 @@ class NanGuard:
         self._buffer_idx = 0
         self._buffer_full = False
         self._dumped = False
+        # Derived, not configured: TorchEnv.set_nan_guard follows the env's
+        # single validation strictness (finite_validation_mode).
+        self._defer_validation = False
         # Both latches live on the first input's device. They retain all bad
         # rows until a single explicit host poll closes the validation interval.
         self._device: torch.device | None = None
@@ -120,7 +127,16 @@ class NanGuard:
 
     @property
     def defer_validation(self) -> bool:
-        return self._cfg.defer_validation
+        """Whether bad rows latch on-device until an explicit poll.
+
+        Derived from the owning env's ``finite_validation_mode`` at attach
+        time; not an owner-facing configuration key.
+        """
+        return self._defer_validation
+
+    def set_defer_validation(self, enabled: bool) -> None:
+        """Set the defer mode from the env's single validation strictness."""
+        self._defer_validation = bool(enabled)
 
     def capture_due(self, step: int) -> bool:
         """Allow the owner to skip even the backend state read on ordinary steps."""
@@ -200,7 +216,7 @@ class NanGuard:
         for mask in masks[1:]:
             bad_rows.logical_or_(mask)
         self._record_bad_rows(bad_rows)
-        should_defer = self._cfg.defer_validation if defer is None else bool(defer)
+        should_defer = self._defer_validation if defer is None else bool(defer)
         return None if should_defer else self.poll(step=step, force=defer is False)
 
     def check_ctrl(
@@ -211,7 +227,7 @@ class NanGuard:
             return None
         self._validate_finite_float(ctrl, "ctrl")
         self._record_bad_rows(_bad_row_mask(ctrl, self._num_envs))
-        should_defer = self._cfg.defer_validation if defer is None else bool(defer)
+        should_defer = self._defer_validation if defer is None else bool(defer)
         return None if should_defer else self.poll(step=step, force=defer is False)
 
     def poll(self, step: int = 0, *, force: bool = False) -> torch.Tensor | None:
@@ -220,7 +236,7 @@ class NanGuard:
             return None
         if (
             not force
-            and self._cfg.defer_validation
+            and self._defer_validation
             and (self._cfg.check_interval == 0 or step % self._cfg.check_interval != 0)
         ):
             return None

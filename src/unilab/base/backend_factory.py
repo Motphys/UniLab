@@ -267,11 +267,28 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
     if cfg.genesis_device_id is not None:
         result["genesis_device_id"] = cfg.genesis_device_id
     result["newton_use_cuda_graph"] = cfg.newton_use_cuda_graph
-    # Always explicit: never fall back to UniSim's blocking MJWarp default.
-    # Other backends ignore this option.
-    result["mjwarp_validate_tensor_finite"] = cfg.mjwarp_validate_tensor_finite
-    if cfg.mjwarp_defer_tensor_validation:
+    # MJWarp finite validation derives from the env's single validation
+    # strictness (``finite_validation_mode``); the removed ``mjwarp_*``
+    # switches are no longer owner config. Strict mode keeps the backend's
+    # per-call operand check immediate; deferred mode disables that duplicate
+    # check and latches the backend's fail-closed checks into device verdicts
+    # that the env publishes at its poll boundary. Other backends ignore
+    # these options.
+    for removed in ("mjwarp_validate_tensor_finite", "mjwarp_defer_tensor_validation"):
+        if hasattr(cfg, removed):
+            raise ValueError(
+                f"{removed} was removed from the public config surface: MJWarp finite "
+                "validation derives from env.finite_validation_mode "
+                "('strict' -> immediate backend checks, 'deferred' -> device verdicts)"
+            )
+    mode = getattr(cfg, "finite_validation_mode", "deferred")
+    if mode == "strict":
+        result["mjwarp_validate_tensor_finite"] = True
+    elif mode == "deferred":
+        result["mjwarp_validate_tensor_finite"] = False
         result["mjwarp_defer_tensor_validation"] = True
+    else:
+        raise ValueError(f"finite_validation_mode must be 'strict' or 'deferred', got {mode!r}")
     return result
 
 

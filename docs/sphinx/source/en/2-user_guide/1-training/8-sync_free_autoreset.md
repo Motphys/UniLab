@@ -31,22 +31,32 @@ Implementation: `src/unilab/base/torch_env.py`,
 
 `env.autoreset_cuda_graph` is the single public switch. Setting it to `true`
 implies the whole fixed-shape chain; the intermediate switches
-(`masked_autoreset`, `persistent_step_buffers`, `defer_finite_validation`),
-the publication ring depth and the graph warmup are internal — derived from
-this switch or owned as constants by `TorchEnv` — and are no longer
-configuration keys. Supplying a deleted key fails closed with a config error.
+(`masked_autoreset`, `persistent_step_buffers`), the publication ring depth and
+the graph warmup are internal — derived from this switch or owned as constants
+by `TorchEnv` — and are no longer configuration keys. Supplying a deleted key
+fails closed with a config error. The fixed-shape chain also requires the
+deferred finite validation mode: `finite_validation_mode='deferred'` is the
+default, and `autoreset_cuda_graph=true` with `finite_validation_mode='strict'`
+fails closed at env construction.
 
 ```bash
 uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp \
-  ++env.autoreset_cuda_graph=true \
-  ++env.mjwarp_defer_tensor_validation=true
+  ++env.autoreset_cuda_graph=true
 ```
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `autoreset_cuda_graph` | `False` | Runs the autoreset on every step as a full-width `reset(ResetSelection)` under the device done mask (no `any()` gate, no `nonzero`), keeps the observation, reward, terminated and truncated carriers persistent, defers every fail-closed finite check to the poll boundary, and — on CUDA — captures the masked autoreset segment, including the backend reset, into one `torch.cuda.graph` and replays it afterwards. Requires a CUDA device and a backend with external graph capture. |
+| `autoreset_cuda_graph` | `False` | Runs the autoreset on every step as a full-width `reset(ResetSelection)` under the device done mask (no `any()` gate, no `nonzero`), keeps the observation, reward, terminated and truncated carriers persistent, defers every fail-closed finite check to the poll boundary, and — on CUDA — captures the masked autoreset segment, including the backend reset, into one `torch.cuda.graph` and replays it afterwards. Requires a CUDA device, a backend with external graph capture, and `finite_validation_mode='deferred'`. |
 | `autoreset_graph_capture_mode` | `"thread_local"` | `torch.cuda.graph` capture error mode: `"global"`, `"thread_local"` or `"relaxed"`. |
-| `mjwarp_defer_tensor_validation` | `False` | Latches MJWarp's fail-closed operand and reset-mask checks into device verdicts instead of reading each one on the host. The env publishes them at its deferred-validation poll. Inside a graph capture MJWarp always defers. The flag also removes the host reads from the eager steps outside the captured segment. UniLab forwards it only when it is `True`. |
+
+The MJWarp backend options follow the env's single validation strictness
+(`env.finite_validation_mode`, issue #2618): deferred mode latches MJWarp's
+fail-closed operand and reset-mask checks into device verdicts (the removed
+`mjwarp_defer_tensor_validation` switch) that the env publishes at its
+deferred-validation poll, and also removes the host reads from the eager steps
+outside the captured segment; strict mode keeps MJWarp's per-call operand check
+immediate (`mjwarp_validate_tensor_finite`). Inside a graph capture MJWarp
+always defers.
 
 A published state stays valid for one further step (the ring holds two
 persistent slots, which the off-policy double-buffer contract needs); the
@@ -74,11 +84,11 @@ on done rows.
 latched on the device. This covers finite checks, `TorchEnv.require` verdicts,
 reset-mask containment and MJWarp/packed-reset verdicts.
 `poll_finite_validation` reads all of them together every
-`training.finite_validation_interval` steps (32 in the shipped configs). A
+`env.finite_validation_interval` steps (32 in the shipped configs). A
 failure is therefore raised at the next poll, up to `interval - 1` steps after
 the faulty step. Packed-reset failures name the poll step
 (`first detected at poll boundary, step N`). To localize a fault, rerun with
-`training.finite_validation_interval=1` so every step is a poll boundary.
+`env.finite_validation_interval=1` so every step is a poll boundary.
 
 **Stale diagnostic counters.** On the fixed-shape path the env has no
 host-side reset row count or per-phase split. Consequences:
@@ -169,7 +179,7 @@ ResetSelection; unsupported: EventManager: <term name> (<function name>); ...
 Each entry has the form `<Manager>: <term name> (<function or class name>)`. A
 manager that cannot take a selection for a structural reason reports a sentence
 instead. One example is `TerminationManager: episode counts are read on the
-host unless defer_finite_validation is enabled`.
+host unless finite_validation_mode='deferred'`.
 
 To list blockers without starting a training run, construct the env with the
 flag off and call the method:

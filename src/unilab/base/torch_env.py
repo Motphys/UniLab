@@ -119,8 +119,9 @@ class TorchEnv(ABEnv):
                 ``cuda`` device is resolved to the current device index.
 
         Raises:
-            ValueError: If ``finite_validation_interval`` is not a positive
-                integer.
+            ValueError: If ``finite_validation_mode`` is not ``'strict'`` or
+                ``'deferred'``, or ``finite_validation_interval`` is not a
+                positive integer.
         """
         apply_cpu_confinement(cfg.cpu_ids)
         self._cfg = cfg
@@ -149,9 +150,14 @@ class TorchEnv(ABEnv):
         self._rgb_array_renderer_ready = False
         self._nan_guard: "NanGuard | None" = None
         self._pending_backend_step_completion: CompletionToken | None = None
-        # Deferred finite validation is the only public mode; the soft read is
-        # the documented test-only injection for the eager-validation path.
-        self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", True))
+        # ``finite_validation_mode`` is the single public validation
+        # strictness switch; it is declared on ``ManagerBasedRlEnvCfg`` and
+        # soft-read here so plain ``EnvCfg`` subclasses keep the deferred
+        # default.
+        mode = getattr(cfg, "finite_validation_mode", "deferred")
+        if mode not in ("strict", "deferred"):
+            raise ValueError(f"finite_validation_mode must be 'strict' or 'deferred', got {mode!r}")
+        self._defer_finite_validation = mode == "deferred"
         interval = getattr(cfg, "finite_validation_interval", 1)
         if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
             raise ValueError("finite_validation_interval must be a positive integer")
@@ -180,10 +186,10 @@ class TorchEnv(ABEnv):
 
         The intermediate chain values are no longer public configuration.
         They are still read here through a soft ``getattr`` protocol so tests
-        can inject a middle state (masked autoreset without graph capture,
-        ring depth ``0``, warmup ``1``, eager validation) by setting
-        attributes on their own stub configs; the Hydra materialization path
-        fails closed on these undeclared keys.
+        can inject a middle state (masked autoreset without graph capture or
+        ring depth ``0`` / warmup ``1``) by setting attributes on their own
+        stub configs; the Hydra materialization path fails closed on these
+        undeclared keys.
         """
 
         def flag(name: str) -> bool:
@@ -220,8 +226,8 @@ class TorchEnv(ABEnv):
         self._autoreset_graph_capture_mode = capture_mode
         if self._masked_autoreset and not self._defer_finite_validation:
             raise ValueError(
-                "masked_autoreset requires defer_finite_validation: its fail-closed checks "
-                "are published at the deferred validation boundary"
+                "masked_autoreset requires finite_validation_mode='deferred': its "
+                "fail-closed checks are published at the deferred validation boundary"
             )
         if self._autoreset_cuda_graph and self._device.type != "cuda":
             raise ValueError(f"autoreset_cuda_graph requires a CUDA env device, got {self._device}")
@@ -467,9 +473,9 @@ class TorchEnv(ABEnv):
             self._control_finite_valid.fill_(True)
             self._pending_control_finite_check = None
             ctrl = self.apply_action(actions, self._state)
+            # The attached NanGuard follows the env's validation strictness
+            # (set_nan_guard derives its defer mode), so the env mode decides.
             guard_defer = self._defer_finite_validation
-            if self._nan_guard is not None:
-                guard_defer = self._defer_finite_validation or self._nan_guard.defer_validation
             self._validate_control_with_nan_guard(ctrl, defer=guard_defer)
 
         with timer.phase("step_core"):
@@ -505,18 +511,6 @@ class TorchEnv(ABEnv):
             )
             if nan_ids is not None:
                 self._nan_guard.dump(nan_ids, self._resolve_nan_guard_model_file(), transition_step)
-            if not self._defer_finite_validation and self._nan_guard.defer_validation:
-                deferred_nan_ids = self._nan_guard.poll(step=self.step_counter, force=True)
-                if deferred_nan_ids is not None:
-                    self._nan_guard.dump(
-                        deferred_nan_ids,
-                        self._resolve_nan_guard_model_file(),
-                        transition_step,
-                    )
-                    raise ValueError(
-                        "NanGuard detected NaN or Inf for environments "
-                        f"{deferred_nan_ids[:10].detach().cpu().tolist()}"
-                    )
         self._validate_state(self._state)
         if self.produces_completion_receipts:
             # An event-backed asynchronous step drains its device work at the
@@ -644,11 +638,7 @@ class TorchEnv(ABEnv):
         for substep in range(self._cfg.sim_substeps):
             if substep > 0:
                 ctrl = self.apply_substep_action()
-                self._validate_control_with_nan_guard(
-                    ctrl,
-                    defer=self._defer_finite_validation
-                    or (self._nan_guard is not None and self._nan_guard.defer_validation),
-                )
+                self._validate_control_with_nan_guard(ctrl, defer=self._defer_finite_validation)
             result = self._backend.step_tensor(ctrl, 1)
             completion = self._backend_step_completion(result)
             result_publishes_receipts = completion is not None
@@ -1417,12 +1407,15 @@ class TorchEnv(ABEnv):
         """Attach the owner-provided diagnostic guard.
 
         Detection stays device-resident. Artifact export occurs only at the
-        guard's explicit abnormal-diagnostic host boundary.
+        guard's explicit abnormal-diagnostic host boundary. The guard's defer
+        mode is not owner configuration: it follows the env's single
+        validation strictness (``finite_validation_mode``).
         """
         from unilab.training.tensor_diagnostics import NanGuard as _NanGuard
 
         if not isinstance(guard, _NanGuard):
             raise TypeError(f"TorchEnv nan guard must be NanGuard, got {type(guard).__name__}")
+        guard.set_defer_validation(self._defer_finite_validation)
         self._nan_guard = guard
 
     def _resolve_nan_guard_model_file(self) -> str:

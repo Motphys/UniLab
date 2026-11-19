@@ -427,7 +427,7 @@ class ObservationManager(ManagerBase):
         ):
             blockers.append(
                 "ObservationManager: NaN policies read the host unless "
-                "defer_finite_validation is enabled"
+                "finite_validation_mode='deferred'"
             )
         return blockers
 

@@ -115,7 +115,7 @@ class TerminationManager(ManagerBase):
         if not self._deferred_validation_enabled():
             blockers.append(
                 "TerminationManager: episode counts are read on the host unless "
-                "defer_finite_validation is enabled"
+                "finite_validation_mode='deferred'"
             )
         return blockers
 
@@ -129,7 +129,8 @@ class TerminationManager(ManagerBase):
         if isinstance(ids, ResetSelection):
             if not self._deferred_validation_enabled():
                 raise RuntimeError(
-                    "TerminationManager ResetSelection requires defer_finite_validation"
+                    "TerminationManager ResetSelection requires deferred finite "
+                    "validation (env.finite_validation_mode='deferred')"
                 )
             counts = [(self._term_dones[key] & ids.mask).sum() for key in keys]
             selected_rows = True

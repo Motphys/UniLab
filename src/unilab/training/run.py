@@ -85,6 +85,16 @@ def resolve_nan_guard_cfg(training_cfg: Any) -> NanGuardCfg | None:
         return None
     from unilab.training.tensor_diagnostics import NanGuardCfg
 
+    defer_validation = (
+        OmegaConf.select(nan_guard_cfg, "defer_validation", default=None)
+        if OmegaConf.is_config(nan_guard_cfg)
+        else getattr(nan_guard_cfg, "defer_validation", None)
+    )
+    if defer_validation is not None:
+        raise ValueError(
+            "training.nan_guard.defer_validation was removed from the public config "
+            "surface: the guard's defer mode is derived from env.finite_validation_mode"
+        )
     return NanGuardCfg(
         enabled=True,
         buffer_size=int(getattr(nan_guard_cfg, "buffer_size", 100)),
@@ -92,16 +102,27 @@ def resolve_nan_guard_cfg(training_cfg: Any) -> NanGuardCfg | None:
         output_dir=getattr(nan_guard_cfg, "output_dir", None),
         capture_interval=getattr(nan_guard_cfg, "capture_interval", 1),
         check_interval=getattr(nan_guard_cfg, "check_interval", 1),
-        defer_validation=getattr(nan_guard_cfg, "defer_validation", False),
     )
 
 
-def finite_validation_interval_override(cfg: DictConfig) -> dict[str, Any]:
-    """Route training's finite-check poll interval to the environment owner."""
-    interval = OmegaConf.select(cfg, "training.finite_validation_interval", default=1)
-    if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
-        raise ValueError("training.finite_validation_interval must be a positive integer")
-    return {"finite_validation_interval": interval}
+def reject_removed_validation_keys(cfg: DictConfig) -> None:
+    """Fail closed on validation-strictness keys removed from the public config surface.
+
+    Finite validation is owned by the environment: ``env.finite_validation_mode``
+    (``"strict"`` or ``"deferred"``) together with ``env.finite_validation_interval``
+    is the single public concept. The removed training-level pass-throughs raise
+    a clear config error here instead of being silently ignored.
+    """
+    if OmegaConf.select(cfg, "training.finite_validation_interval", default=None) is not None:
+        raise ValueError(
+            "training.finite_validation_interval was removed: finite validation is "
+            "owned by the env; use env.finite_validation_interval instead"
+        )
+    if OmegaConf.select(cfg, "training.nan_guard.defer_validation", default=None) is not None:
+        raise ValueError(
+            "training.nan_guard.defer_validation was removed: the guard's defer mode "
+            "is derived from env.finite_validation_mode"
+        )
 
 
 def apply_env_nan_guard(env: Any, training_cfg: Any) -> None:

@@ -139,7 +139,7 @@ uv run train --algo ppo --task go2_joystick_flat --sim mujoco \
 | `training.tf32_matmul` | str | ieee | learner FP32 矩阵乘后端；`tf32` 启用 tensor core 并自动回退 IEEE |
 | `training.nan_guard.enabled` | bool | true | 检测非有限张量并转储诊断信息 |
 | `training.nan_guard.check_interval` | int | 32 | NaN 检查之间的 env step 数 |
-| `training.finite_validation_interval` | int | 32 | 每个批量有限性检查周期的步数 |
+| `env.finite_validation_interval` | int | 32 | 每个批量有限性检查轮询周期的步数（env 持有的校验严格度） |
 | `training.collector_tensor_device` | str | auto | collector 侧张量设备；`auto` 跟随 learner |
 | `training.logger` | str | tensorboard | 标量日志后端（`tensorboard` 或 `wandb`） |
 | `training.num_timesteps` | int / null | null | 全局样本预算；设置后覆盖推导出的迭代数 |

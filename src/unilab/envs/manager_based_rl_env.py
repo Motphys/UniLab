@@ -133,6 +133,17 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     policy_observation_group: str = "policy"
     critic_observation_group: str | None = None
     finite_validation_interval: int = 1
+    # Single public validation-strictness switch for all finite (NaN/Inf)
+    # checks. "deferred" (default) latches every fail-closed verdict on the
+    # device and publishes them at one host poll every
+    # ``finite_validation_interval`` steps; "strict" raises at each check
+    # site immediately (host-syncing). The concept derives the env's deferred
+    # finite validation, the NaN guard defer mode (an attached guard follows
+    # the env), and the backend options (MJWarp: strict keeps its per-call
+    # operand check, deferred latches its fail-closed checks into device
+    # verdicts). ``autoreset_cuda_graph`` requires the deferred mode: the
+    # fixed-shape chain publishes its fail-closed checks at the poll boundary.
+    finite_validation_mode: str = "deferred"
     # Single public switch for the fixed-shape, host-sync-free autoreset fast
     # path. ``true`` implies the whole chain: the autoreset runs on every
     # step as a full-width ``reset(ResetSelection)`` under the device done
@@ -147,10 +158,11 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     # samplers also draw RNG on steps without a done row and same-seed
     # trajectories differ from the selected-row lifecycle;
     # ``final_observation`` is published every step and is meaningful on done
-    # rows only. The intermediate chain switches (``masked_autoreset``,
-    # ``persistent_step_buffers``, ``defer_finite_validation``), the
-    # publication ring depth and the graph warmup are internal: derived from
-    # this switch or owned as constants by ``TorchEnv``.
+    # rows only. ``masked_autoreset`` and ``persistent_step_buffers`` are
+    # internal chain switches derived from this one, and the publication ring
+    # depth and the graph warmup are owned as constants by ``TorchEnv``;
+    # deferred finite validation comes from
+    # ``finite_validation_mode='deferred'`` (required, validated below).
     autoreset_cuda_graph: bool = False
     autoreset_graph_capture_mode: str = "thread_local"
 
@@ -234,6 +246,17 @@ class ManagerBasedRlEnvCfg(EnvCfg):
         ):
             raise ValueError(
                 "ManagerBasedRlEnvCfg finite_validation_interval must be a positive integer"
+            )
+        if self.finite_validation_mode not in ("strict", "deferred"):
+            raise ValueError(
+                "ManagerBasedRlEnvCfg finite_validation_mode must be 'strict' or "
+                f"'deferred', got {self.finite_validation_mode!r}"
+            )
+        if self.autoreset_cuda_graph and self.finite_validation_mode != "deferred":
+            raise ValueError(
+                "ManagerBasedRlEnvCfg autoreset_cuda_graph requires "
+                "finite_validation_mode='deferred': its fail-closed checks are "
+                "published at the deferred validation boundary"
             )
         if not isinstance(self.policy_observation_group, str) or not self.policy_observation_group:
             raise ValueError("policy_observation_group must be a non-empty string")
