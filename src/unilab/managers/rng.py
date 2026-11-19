@@ -174,21 +174,18 @@ class ManagerRng:
         size: int | tuple[int, ...],
         *,
         p: torch.Tensor,
-        replacement: bool = True,
     ) -> torch.Tensor:
         """Sample category indices from ``{0, ..., a - 1}`` with probabilities ``p``.
 
-        The method performs no host reads: it is sync-free and safe on
-        fixed-shape autoreset and CUDA graph hot paths. ``p`` must therefore be
-        trusted by the caller: finite, non-negative, with a positive sum. An
-        invalid ``p`` fails in ``torch.multinomial`` itself — a clean
-        ``RuntimeError`` on CPU, but a device-side assert with a poisoned CUDA
-        context on CUDA.
+        Sampling is always with replacement. The method performs no host
+        reads: it is sync-free and safe on fixed-shape autoreset and CUDA
+        graph hot paths. ``p`` must therefore be trusted by the caller:
+        finite, non-negative, with a positive sum. An invalid ``p`` fails in
+        ``torch.multinomial`` itself — a clean ``RuntimeError`` on CPU, but a
+        device-side assert with a poisoned CUDA context on CUDA.
         """
         if isinstance(a, bool) or not isinstance(a, int) or a <= 0:
             raise ValueError(f"ManagerRng choice population must be a positive int, got {a}")
-        if not replacement:
-            raise NotImplementedError("ManagerRng choice supports replacement=True only")
         if not isinstance(p, torch.Tensor):
             raise TypeError("ManagerRng choice probabilities must be a torch.Tensor")
         if p.ndim != 1 or p.numel() != a:

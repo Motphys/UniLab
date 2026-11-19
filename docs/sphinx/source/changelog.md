@@ -32,6 +32,31 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   分配）说明
   ([#2631](https://github.com/Motphys/UniLab/pull/2631)，
   [#2628](https://github.com/Motphys/UniLab/issues/2628))。
+- Built-in reset-mode model-field DR terms now accept a ``ResetSelection``,
+  so tasks using them (for example G1 motion tracking with `foot_friction`)
+  can enable fixed-shape autoreset (`env.autoreset_cuda_graph`): the masked
+  path samples at full width and merges through the packed reset
+  transaction instead of the row-index staging. Covered terms: geom
+  friction, joint armature, PD gains, rigid-body CoM and encoder bias; the
+  value-validity check that the row-index path runs eagerly on the host is
+  published as a deferred device verdict on the masked path. New public
+  entity tensor-mask write gateways back the model-field terms:
+  `Entity.write_geom_friction_tensor_mask`,
+  `Entity.write_joint_armature_tensor_mask` and
+  `Entity.write_body_ipos_tensor_mask`
+  ([#2623](https://github.com/Motphys/UniLab/issues/2623)).
+  内置 reset 模式 model-field DR term 现接受 ``ResetSelection``，使用这些
+  term 的任务（例如带 `foot_friction` 的 G1 motion tracking）可以开启
+  fixed-shape autoreset（`env.autoreset_cuda_graph`）：掩码路径以全宽度采样，
+  并通过 packed reset 事务合并，取代行索引暂存。覆盖项：geom friction、
+  joint armature、PD gains、刚体质心与 encoder bias；行索引路径在 host 上
+  即时执行的值合法性检查在掩码路径上发布为推迟 device verdict。新增公共
+  entity 张量掩码写入口支撑这些 model-field term：
+  `Entity.write_geom_friction_tensor_mask`、
+  `Entity.write_joint_armature_tensor_mask` 与
+  `Entity.write_body_ipos_tensor_mask`
+  （[#2623](https://github.com/Motphys/UniLab/issues/2623)）。
+
 - The documentation site is now versioned with sphinx-multiversion: the `main`
   track plus the `x.y.0` release of every minor line (v1.0.0, v1.1.0, v1.2.0,
   v1.3.0, v1.4.0, v1.5.0 at time of writing) are published with a
@@ -93,6 +118,16 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
 
 ### Changed / 变更
+
+- `ResetStateTransaction` materializes the full-width device default table
+  for each reset randomization field only once and caches it per field
+  (invalidated when the packed reset device is redeclared), instead of
+  rebuilding it on every `write_randomization_tensor_mask` call
+  ([#2623](https://github.com/Motphys/UniLab/issues/2623)).
+  `ResetStateTransaction` 现在对每个 reset 随机化字段只物化一次全宽度
+  device 默认表并按字段缓存（重声明 packed reset device 时失效），不再在
+  每次 `write_randomization_tensor_mask` 调用时重建
+  （[#2623](https://github.com/Motphys/UniLab/issues/2623)）。
 
 - Collapse the fixed-shape autoreset switch chain into the single public
   switch `env.autoreset_cuda_graph`: enabling it now implies masked autoreset,
@@ -172,6 +207,31 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   覆盖率门槛（`pyproject.toml` 中 `fail-under = 40`）
   （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- The default and ROCm profiles now pin `unisim-core==2.7.3`, which removes
+  the per-reset host-blocking stream synchronize from MJWarp's device reset
+  randomization scatter (unilabsim/unisim#537): under the default deferred
+  finite-validation mode the reset hot path no longer drains the Torch stream
+  on every reset when backend-owned graphs are off. Paired with the masked DR
+  writers in #2630, fixed-shape autoreset is sync-free end to end
+  ([#2623](https://github.com/Motphys/UniLab/issues/2623))。
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.7.3`：该版本移除了 MJWarp
+  设备 reset 随机化 scatter 处每次 reset 阻塞 host 的 stream 同步
+  （unilabsim/unisim#537）——在默认的 deferred 有限值校验模式下，关闭
+  backend 自有 graph 时 reset 热路径不再每步排空 Torch stream。与 #2630 的
+  掩码 DR 写入门配合，fixed-shape autoreset 端到端免同步
+  （[#2623](https://github.com/Motphys/UniLab/issues/2623)）。
+- `ManagerRng.choice` drops the `replacement` parameter: sampling was always
+  with replacement (`replacement=False` raised `NotImplementedError` from the
+  API's introduction), and a parameter that can only ever take its default
+  misleads callers into discovering the limitation at runtime. The narrower
+  signature makes "with replacement only" explicit at the contract level; no
+  in-repo or known downstream caller passed the argument
+  ([#2624](https://github.com/Motphys/UniLab/issues/2624))。
+  `ManagerRng.choice` 删除 `replacement` 参数：采样本就只有有放回一种
+  （自该 API 引入起 `replacement=False` 即抛 `NotImplementedError`），一个
+  只能取默认值的参数会让调用方直到运行时才撞见这一限制。收窄后的签名在
+  契约层面显式表达"仅有放回"；仓库内及已知下游均无调用方传入该参数
+  （[#2624](https://github.com/Motphys/UniLab/issues/2624)）。
 
 ### Fixed / 修复
 
