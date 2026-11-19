@@ -99,6 +99,32 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   closed。graph 捕获协议、`ResetSelection` 协商与 eager fallback 路径行为
   不变（[#2617](https://github.com/Motphys/UniLab/issues/2617)）。
 
+- Collapse the three deferred finite-validation switches into the single
+  env-owned validation strictness concept: `env.finite_validation_mode`
+  (`"strict"` or `"deferred"`, default `"deferred"`) together with
+  `env.finite_validation_interval`. The env's deferred finite validation, the
+  NaN guard defer mode (an attached guard follows the env), and the MJWarp
+  backend options are all derived from it (strict keeps the backend's
+  immediate per-call operand check; deferred latches its fail-closed checks
+  into device verdicts published at the env poll). The removed
+  `training.finite_validation_interval` pass-through,
+  `training.nan_guard.defer_validation` and the backend switches
+  `env.mjwarp_validate_tensor_finite` / `env.mjwarp_defer_tensor_validation`
+  fail closed with a clear config error naming the replacement. Judgment
+  semantics and the verdict carriers are unchanged
+  ([#2618](https://github.com/Motphys/UniLab/issues/2618))。
+  收敛三处"推迟有限性校验"开关为 env 持有的单一校验严格度概念：
+  `env.finite_validation_mode`（`"strict"` 或 `"deferred"`，默认
+  `"deferred"`）与 `env.finite_validation_interval`。env 的推迟有限性校验、
+  NaN guard 的 defer 模式（挂载的 guard 跟随 env）与 MJWarp 后端选项均由其
+  派生（strict 保持后端逐调用算子检查立即生效；deferred 将 fail-closed 检查
+  锁存为设备 verdict，由 env 在轮询边界发布）。删除的
+  `training.finite_validation_interval` 透传、`training.nan_guard.defer_validation`
+  与后端开关 `env.mjwarp_validate_tensor_finite` /
+  `env.mjwarp_defer_tensor_validation` 会以指明替代键的明确配置错误 fail
+  closed。判定语义与 verdict 载体不变
+  （[#2618](https://github.com/Motphys/UniLab/issues/2618)）。
+
 - High-traffic public interfaces — the Manager protocols in
   `unilab.managers.types`, `TorchEnv`, the reset-state transaction, the MDP
   observation/action/curriculum/ray terms, and the PPO/APPO/SAC/FlashSAC

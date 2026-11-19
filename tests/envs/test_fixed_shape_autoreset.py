@@ -476,10 +476,16 @@ def test_collapsed_switch_keys_fail_closed_as_env_overrides() -> None:
 
 
 def test_masked_autoreset_requires_deferred_validation() -> None:
-    with pytest.raises(ValueError, match="defer_finite_validation"):
-        _make_env("cpu", masked_autoreset=True, defer_finite_validation=False)
+    with pytest.raises(ValueError, match="finite_validation_mode"):
+        _make_env("cpu", masked_autoreset=True, finite_validation_mode="strict")
     with pytest.raises(ValueError, match="CUDA env device"):
         _make_env("cpu", autoreset_cuda_graph=True)
+
+
+def test_autoreset_cuda_graph_rejects_strict_validation() -> None:
+    cfg = _make_cfg("cuda", autoreset_cuda_graph=True, finite_validation_mode="strict")
+    with pytest.raises(ValueError, match="finite_validation_mode='deferred'"):
+        cfg.validate()
 
 
 def test_masked_autoreset_reports_every_unsupported_participant() -> None:

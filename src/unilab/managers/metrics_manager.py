@@ -180,7 +180,7 @@ class MetricsManager(ManagerBase):
         if self._term_names and not self._defer_finite_validation:
             blockers.append(
                 "MetricsManager: episode summaries are read on the host unless "
-                "defer_finite_validation is enabled"
+                "finite_validation_mode='deferred'"
             )
         return blockers
 
@@ -190,7 +190,10 @@ class MetricsManager(ManagerBase):
             env_ids, num_envs=self.num_envs, device=self._device, owner="MetricsManager.reset"
         )
         if isinstance(ids, ResetSelection) and not self._defer_finite_validation:
-            raise RuntimeError("MetricsManager ResetSelection requires defer_finite_validation")
+            raise RuntimeError(
+                "MetricsManager ResetSelection requires deferred finite "
+                "validation (env.finite_validation_mode='deferred')"
+            )
         if self._defer_finite_validation:
             if isinstance(ids, ResetSelection):
                 reset_mask = ids.mask

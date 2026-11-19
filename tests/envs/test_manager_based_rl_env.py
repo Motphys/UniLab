@@ -1404,10 +1404,6 @@ def test_deferred_episode_metrics_flush_at_fixed_step_without_reset() -> None:
         metrics={"length": MetricsTermCfg(func=_metric, reduce="mean")},
     )
     cfg.terminations = {"failure": TerminationTermCfg(func=_failure)}
-    # Test-only injection: deferred validation is the only public mode, so
-    # eager/deferred variants are set as plain attributes (TorchEnv's soft
-    # getattr protocol) rather than through a removed config field.
-    cfg.defer_finite_validation = True
     cfg.finite_validation_interval = 4
     env, _ = _make_env(cfg)
     env.reset()
@@ -1432,7 +1428,6 @@ def test_deferred_episode_metrics_flush_at_fixed_step_without_reset() -> None:
 
 def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
     cfg = _make_cfg(include_optional_managers=False)
-    cfg.defer_finite_validation = True
     env, _backend = _make_env(cfg)
     try:
         env._reset_state.declare_packed_reset_device(env.device)
@@ -1445,7 +1440,7 @@ def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
         env.close()
 
     eager_cfg = _make_cfg(include_optional_managers=False)
-    eager_cfg.defer_finite_validation = False
+    eager_cfg.finite_validation_mode = "strict"
     eager_env, _ = _make_env(eager_cfg)
     try:
         eager_env._reset_state.declare_packed_reset_device(eager_env.device)
@@ -1458,7 +1453,6 @@ def test_packed_reset_validation_mode_follows_defer_finite_validation() -> None:
 
 def test_packed_reset_deferred_verdict_raises_at_poll_boundary() -> None:
     cfg = _make_cfg(include_optional_managers=False)
-    cfg.defer_finite_validation = True
     cfg.finite_validation_interval = 4
     env, _backend = _make_env(cfg)
     try:

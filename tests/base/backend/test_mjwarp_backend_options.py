@@ -1,10 +1,17 @@
-"""MJWarp hot-path finite-check routing (#2587).
+"""MJWarp hot-path finite-check routing (#2587, #2618).
 
 TorchEnv validates the final control for NaN/Inf on every step, eagerly or
 through deferred finite validation, so MJWarp's own blocking per-call read is
 a duplicate. UniLab therefore always passes ``mjwarp_validate_tensor_finite``
-explicitly (default ``False``) instead of inheriting UniSim's blocking default;
-UniSim's factory maps it to the MJWarp adapter's ``validate_tensor_finite``.
+explicitly instead of inheriting UniSim's blocking default; UniSim's factory
+maps it to the MJWarp adapter's ``validate_tensor_finite``.
+
+Both MJWarp options are derived from the env's single validation strictness
+(``finite_validation_mode``, issue #2618): strict mode keeps the backend's
+per-call operand check immediate, deferred mode disables it and latches the
+backend's fail-closed checks into device verdicts
+(``mjwarp_defer_tensor_validation``) that the env publishes at its poll
+boundary. The removed ``mjwarp_*`` config keys fail closed with a clear error.
 """
 
 from __future__ import annotations
@@ -15,6 +22,7 @@ import pytest
 
 from unilab.base.backend_factory import create_backend, env_backend_kwargs
 from unilab.base.base import EnvCfg
+from unilab.base.registry import apply_cfg_overrides
 from unilab.base.scene import SceneCfg
 from unilab.envs.manager_based_rl_env import ManagerBasedRlEnvCfg
 
@@ -32,19 +40,43 @@ _MODEL_FILE = str(
     ],
     ids=["env_cfg", "default", "autoreset_graph"],
 )
-def test_mjwarp_finite_check_is_explicitly_disabled_by_default(cfg: EnvCfg) -> None:
-    assert env_backend_kwargs(cfg)["mjwarp_validate_tensor_finite"] is False
+def test_mjwarp_finite_check_is_derived_from_validation_mode(cfg: EnvCfg) -> None:
+    kwargs = env_backend_kwargs(cfg)
+    assert kwargs["mjwarp_validate_tensor_finite"] is False
+    assert kwargs["mjwarp_defer_tensor_validation"] is True
 
 
-def test_mjwarp_finite_check_can_be_reenabled_explicitly() -> None:
-    cfg = ManagerBasedRlEnvCfg(mjwarp_validate_tensor_finite=True)
-    assert env_backend_kwargs(cfg)["mjwarp_validate_tensor_finite"] is True
+def test_mjwarp_strict_mode_keeps_the_immediate_backend_check() -> None:
+    cfg = ManagerBasedRlEnvCfg(finite_validation_mode="strict")
+    kwargs = env_backend_kwargs(cfg)
+    assert kwargs["mjwarp_validate_tensor_finite"] is True
+    assert "mjwarp_defer_tensor_validation" not in kwargs
 
 
-@pytest.mark.parametrize("value", [None, 1, "false", 0.0])
-def test_mjwarp_validate_tensor_finite_rejects_non_bool(value: object) -> None:
-    with pytest.raises(ValueError, match="mjwarp_validate_tensor_finite must be bool"):
-        EnvCfg(mjwarp_validate_tensor_finite=value).validate()  # type: ignore[arg-type]
+def test_mjwarp_derived_options_reject_unknown_mode() -> None:
+    cfg = ManagerBasedRlEnvCfg()
+    cfg.finite_validation_mode = "sometimes"
+    with pytest.raises(ValueError, match="finite_validation_mode must be 'strict' or 'deferred'"):
+        env_backend_kwargs(cfg)
+
+
+@pytest.mark.parametrize(
+    "removed", ["mjwarp_validate_tensor_finite", "mjwarp_defer_tensor_validation"]
+)
+def test_mjwarp_removed_keys_fail_closed_as_env_overrides(removed: str) -> None:
+    cfg = ManagerBasedRlEnvCfg()
+    with pytest.raises(ValueError, match=f"has no attribute '{removed}'"):
+        apply_cfg_overrides(cfg, {removed: True})
+
+
+@pytest.mark.parametrize(
+    "removed", ["mjwarp_validate_tensor_finite", "mjwarp_defer_tensor_validation"]
+)
+def test_mjwarp_removed_keys_fail_closed_as_injected_attributes(removed: str) -> None:
+    cfg = ManagerBasedRlEnvCfg()
+    setattr(cfg, removed, True)
+    with pytest.raises(ValueError, match=f"{removed} was removed from the public config surface"):
+        env_backend_kwargs(cfg)
 
 
 def test_non_mjwarp_backend_accepts_the_routed_option() -> None:
@@ -60,10 +92,8 @@ def test_non_mjwarp_backend_accepts_the_routed_option() -> None:
     backend.close()
 
 
-@pytest.mark.parametrize(("validate", "raises"), [(None, False), (True, True)])
-def test_mjwarp_step_tensor_finite_check_follows_env_cfg(
-    validate: bool | None, raises: bool
-) -> None:
+@pytest.mark.parametrize(("mode", "raises"), [("deferred", False), ("strict", True)])
+def test_mjwarp_step_tensor_finite_check_follows_validation_mode(mode: str, raises: bool) -> None:
     pytest.importorskip("mujoco_warp")
     torch = pytest.importorskip("torch")
     warp = pytest.importorskip("warp")
@@ -71,11 +101,9 @@ def test_mjwarp_step_tensor_finite_check_follows_env_cfg(
     if not bool(warp.get_device().is_cuda):
         pytest.skip("mjwarp runtime tests require an active CUDA Warp device")
 
-    # ``None`` exercises the UniLab default; both runs build the backend
-    # directly, so the env-level validation mode does not affect the check.
-    cfg = ManagerBasedRlEnvCfg()
-    if validate is not None:
-        cfg.mjwarp_validate_tensor_finite = validate
+    # The backend check is derived from the env-level validation mode:
+    # deferred disables the duplicate per-call read, strict keeps it.
+    cfg = ManagerBasedRlEnvCfg(finite_validation_mode=mode)
     backend = create_backend(
         "mjwarp",
         SceneCfg(model_file=_MODEL_FILE),

@@ -106,7 +106,8 @@ class CommandTerm(ManagerTermBase):
     ) -> dict[str, float]:
         if isinstance(env_ids, ResetSelection) and not self._deferred_validation_enabled():
             raise RuntimeError(
-                f"CommandTerm '{self.name}' ResetSelection requires defer_finite_validation"
+                f"CommandTerm '{self.name}' ResetSelection requires deferred finite "
+                "validation (env.finite_validation_mode='deferred')"
             )
         reset_mask = self._reset_mask_buffer.resolve(
             env_ids,
@@ -481,7 +482,7 @@ class CommandManager(ManagerBase):
         if self._terms and not bool(getattr(self._env, "defer_finite_validation", False)):
             blockers.append(
                 "CommandManager: reset metrics are read on the host unless "
-                "defer_finite_validation is enabled"
+                "finite_validation_mode='deferred'"
             )
         return blockers
 

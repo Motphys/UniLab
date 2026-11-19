@@ -155,7 +155,7 @@ uv run train --algo flashsac --task g1_walk_flat --sim mujoco \
 | `training.dp_gradient_wire_dtype` | str | float32 | 多卡梯度平均的传输 dtype；`bfloat16` 会压缩 |
 | `training.nan_guard.enabled` | bool | true | 检测非有限张量并转储诊断信息 |
 | `training.nan_guard.check_interval` | int | 32 | NaN 检查之间的 env step 数 |
-| `training.finite_validation_interval` | int | 32 | 每个批量有限性检查周期的步数 |
+| `env.finite_validation_interval` | int | 32 | 每个批量有限性检查轮询周期的步数（env 持有的校验严格度） |
 | `training.collector_tensor_device` | str | auto | collector 侧张量设备；`auto` 跟随 learner |
 | `training.env_steps_per_sync` | int | 1 | 每次采集同步的 env step 数 |
 | `training.inference_slot_capacity` | int | 1 | 在途 learner 推理请求数；1 表示严格串行 |
