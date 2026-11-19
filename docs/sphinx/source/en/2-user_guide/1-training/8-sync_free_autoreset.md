@@ -5,10 +5,10 @@ mask on the host (`any()`), builds `env_ids` with `nonzero`, and launches reset
 kernels whose shape depends on the number of reset rows. Each of these steps
 synchronizes the host with the GPU.
 
-An opt-in fixed-shape path removes these synchronizations, and on CUDA it can
+A fixed-shape path removes these synchronizations, and on CUDA it can
 replay the whole reset segment as one CUDA graph. The path is controlled by a
-single public switch, `env.autoreset_cuda_graph`, so tasks that do not opt in
-keep the selected-row behavior unchanged.
+single public switch, `env.autoreset_cuda_graph`, which defaults to `true`;
+tasks that opt out with an explicit `false` keep the selected-row behavior.
 
 Implementation: `src/unilab/base/torch_env.py`,
 `src/unilab/base/reset_selection.py`, `src/unilab/base/autoreset_graph.py`,
@@ -29,24 +29,25 @@ Implementation: `src/unilab/base/torch_env.py`,
 
 ## Configuration flags
 
-`env.autoreset_cuda_graph` is the single public switch. Setting it to `true`
-implies the whole fixed-shape chain; the intermediate switches
+`env.autoreset_cuda_graph` is the single public switch and defaults to
+`true`. It implies the whole fixed-shape chain; the intermediate switches
 (`masked_autoreset`, `persistent_step_buffers`), the publication ring depth and
 the graph warmup are internal — derived from this switch or owned as constants
 by `TorchEnv` — and are no longer configuration keys. Supplying a deleted key
 fails closed with a config error. The fixed-shape chain also requires the
 deferred finite validation mode: `finite_validation_mode='deferred'` is the
 default, and `autoreset_cuda_graph=true` with `finite_validation_mode='strict'`
-fails closed at env construction.
+fails closed at env construction. Set the switch to `false` explicitly to opt
+out; that escape hatch is the fallback for debugging or when a graph-related
+problem is suspected (the run then uses the selected-row eager path).
 
 ```bash
-uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp \
-  ++env.autoreset_cuda_graph=true
+uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp
 ```
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `autoreset_cuda_graph` | `False` | Runs the autoreset on every step as a full-width `reset(ResetSelection)` under the device done mask (no `any()` gate, no `nonzero`), keeps the observation, reward, terminated and truncated carriers persistent, defers every fail-closed finite check to the poll boundary, and — on CUDA — captures the masked autoreset segment, including the backend reset, into one `torch.cuda.graph` and replays it afterwards. Requires a CUDA device, a backend with external graph capture, and `finite_validation_mode='deferred'`. |
+| `autoreset_cuda_graph` | `True` | Runs the autoreset on every step as a full-width `reset(ResetSelection)` under the device done mask (no `any()` gate, no `nonzero`), keeps the observation, reward, terminated and truncated carriers persistent, defers every fail-closed finite check to the poll boundary, and — on CUDA — captures the masked autoreset segment, including the backend reset, into one `torch.cuda.graph` and replays it afterwards. Requires a CUDA device, a backend with external graph capture, and `finite_validation_mode='deferred'`. |
 | `autoreset_graph_capture_mode` | `"thread_local"` | `torch.cuda.graph` capture error mode: `"global"`, `"thread_local"` or `"relaxed"`. |
 
 The MJWarp backend options follow the env's single validation strictness

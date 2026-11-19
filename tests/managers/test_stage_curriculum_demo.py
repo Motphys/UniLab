@@ -67,6 +67,8 @@ def test_stage_curriculum_demo_real_backend_runs_packed_reset_lifecycle() -> Non
         reason="unisim-core MuJoCo adapter (mjbatch build) not available",
     )
     _, override = _materialize()
+    # These packed-reset lifecycle tests run the eager selected-row path on CPU.
+    override["autoreset_cuda_graph"] = False
     env = registry.make(
         FIXTURE_ENV_NAME,
         sim_backend="mujoco",
@@ -93,6 +95,8 @@ def test_stage_curriculum_demo_owner_invalid_stages_fail_closed() -> None:
         {"step": 4, "weight": 0.5},
         {"step": 2, "weight": 0.25},
     ]
+    # Keep the fail-closed assertion reachable: run the eager path on CPU.
+    override["autoreset_cuda_graph"] = False
     with pytest.raises(ValueError, match="nondecreasing"):
         registry.make(
             FIXTURE_ENV_NAME,

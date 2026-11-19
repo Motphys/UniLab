@@ -268,6 +268,12 @@ def _make_cfg(device: str, **overrides: Any) -> ManagerBasedRlEnvCfg:
     attributes instead; ``TorchEnv`` reads them through its soft-``getattr``
     test-only injection protocol, so tests can construct intermediate chain
     states that production Hydra configs can no longer express.
+
+    The fixture pins ``autoreset_cuda_graph=False``: this file exercises the
+    fixed-shape chain through the test-only injection protocol and compares
+    it against the selected-row eager path, so the default-on public switch
+    (issue #2621) is pinned off here. Tests that exercise the public switch
+    itself set it through ``overrides``; its default is asserted separately.
     """
     cfg = ManagerBasedRlEnvCfg(
         scene=SceneCfg(
@@ -279,6 +285,7 @@ def _make_cfg(device: str, **overrides: Any) -> ManagerBasedRlEnvCfg:
         max_episode_seconds=1.0,
         seed=11,
         collector_tensor_device=device,
+        autoreset_cuda_graph=False,
         observations={
             "actor": ObservationGroupCfg(
                 terms={"policy": ObservationTermCfg(func=_policy_obs, history_length=3)}
@@ -722,3 +729,39 @@ def test_autoreset_graph_requires_cuda_and_backend_capability() -> None:
             persistent_step_buffers=True,
             autoreset_cuda_graph=True,
         )
+
+
+# ---------------------------------------------------------------------------
+# Default-on flip (issue #2621)
+# ---------------------------------------------------------------------------
+
+
+def test_autoreset_cuda_graph_defaults_to_true() -> None:
+    """A task config that does not mention the switch runs the graph path."""
+    assert ManagerBasedRlEnvCfg().autoreset_cuda_graph is True
+
+
+def test_autoreset_cuda_graph_default_fails_closed_on_non_cuda_device() -> None:
+    """Default-on stays fail-closed off CUDA: startup raises, naming the switch.
+
+    There is no silent eager fallback; the escape hatch is an explicit
+    ``autoreset_cuda_graph=false``.
+    """
+    cfg = _make_cfg("cpu")
+    # A task YAML that does not set the switch keeps the dataclass default;
+    # deleting the instance attribute reads it back from the class default.
+    del cfg.autoreset_cuda_graph
+    assert cfg.autoreset_cuda_graph is True
+    backend = _TensorBackend(NUM_ENVS, "cpu")
+    with pytest.raises(ValueError, match="autoreset_cuda_graph requires a CUDA env device"):
+        ManagerBasedRlEnv(cfg, cast(SimBackend, backend), NUM_ENVS)
+
+
+def test_autoreset_cuda_graph_explicit_false_keeps_the_selected_row_path() -> None:
+    """The explicit ``false`` escape hatch falls back to the eager lifecycle."""
+    env, backend = _make_env("cpu", autoreset_cuda_graph=False)
+    assert not env.masked_autoreset
+    assert not env.persistent_step_buffers
+    assert env.autoreset_graph is None
+    trajectory, _ = _run(env, backend, _actions("cpu", 4))
+    assert any(bool((snap["terminated"] | snap["truncated"]).any()) for snap in trajectory)
