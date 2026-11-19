@@ -157,6 +157,18 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   覆盖率门槛（`pyproject.toml` 中 `fail-under = 40`）
   （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- `ManagerRng.choice` drops the `replacement` parameter: sampling was always
+  with replacement (`replacement=False` raised `NotImplementedError` from the
+  API's introduction), and a parameter that can only ever take its default
+  misleads callers into discovering the limitation at runtime. The narrower
+  signature makes "with replacement only" explicit at the contract level; no
+  in-repo or known downstream caller passed the argument
+  ([#2624](https://github.com/Motphys/UniLab/issues/2624))。
+  `ManagerRng.choice` 删除 `replacement` 参数：采样本就只有有放回一种
+  （自该 API 引入起 `replacement=False` 即抛 `NotImplementedError`），一个
+  只能取默认值的参数会让调用方直到运行时才撞见这一限制。收窄后的签名在
+  契约层面显式表达"仅有放回"；仓库内及已知下游均无调用方传入该参数
+  （[#2624](https://github.com/Motphys/UniLab/issues/2624)）。
 
 ### Fixed / 修复
 
