@@ -79,6 +79,26 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Changed / 变更
 
+- Collapse the fixed-shape autoreset switch chain into the single public
+  switch `env.autoreset_cuda_graph`: enabling it now implies masked autoreset,
+  persistent step buffers and deferred finite validation. The intermediate
+  switches (`env.masked_autoreset`, `env.persistent_step_buffers`,
+  `env.defer_finite_validation` / `training.defer_finite_validation`),
+  `env.published_buffer_depth` and `env.autoreset_graph_warmup` are removed
+  from the public config surface (they are derived or internal constants);
+  supplying a deleted key fails closed with a clear config error. Behavior of
+  the graph capture protocol, `ResetSelection` negotiation and the eager
+  fallback path is unchanged
+  ([#2617](https://github.com/Motphys/UniLab/issues/2617))。
+  收敛 fixed-shape autoreset 开关链为单一公共开关 `env.autoreset_cuda_graph`：
+  启用它即隐含 masked autoreset、持久 step buffer 与推迟有限值校验。中间层
+  开关（`env.masked_autoreset`、`env.persistent_step_buffers`、
+  `env.defer_finite_validation` / `training.defer_finite_validation`）、
+  `env.published_buffer_depth` 与 `env.autoreset_graph_warmup` 从公共配置面
+  删除（改为内部派生值或常量）；传入已删除的键会以明确的配置错误 fail
+  closed。graph 捕获协议、`ResetSelection` 协商与 eager fallback 路径行为
+  不变（[#2617](https://github.com/Motphys/UniLab/issues/2617)）。
+
 - High-traffic public interfaces — the Manager protocols in
   `unilab.managers.types`, `TorchEnv`, the reset-state transaction, the MDP
   observation/action/curriculum/ray terms, and the PPO/APPO/SAC/FlashSAC

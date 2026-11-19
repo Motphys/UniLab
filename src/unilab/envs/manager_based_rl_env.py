@@ -131,29 +131,26 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     scale_rewards_by_dt: bool = True
     policy_observation_group: str = "policy"
     critic_observation_group: str | None = None
-    defer_finite_validation: bool = True
     finite_validation_interval: int = 1
-    # Fixed-shape, host-sync-free autoreset (opt-in). Every reset participant
-    # must accept a ``ResetSelection`` (see unilab.base.reset_selection); the
-    # env reports unsupported participants by name at init_state. The reset
-    # lifecycle runs on every step (an all-false mask is a no-op), so
-    # full-width reset samplers also draw RNG on steps without a done row and
-    # same-seed trajectories differ from the selected-row lifecycle;
+    # Single public switch for the fixed-shape, host-sync-free autoreset fast
+    # path. ``true`` implies the whole chain: the autoreset runs on every
+    # step as a full-width ``reset(ResetSelection)`` under the device done
+    # mask (no ``any()`` gate, no ``nonzero``), the step carriers are
+    # persistent and published through a ring of fixed slots, and fail-closed
+    # finite checks are deferred to the poll boundary. On CUDA the masked
+    # autoreset segment is additionally captured into one CUDA graph and
+    # replayed afterwards. Every reset participant must accept a
+    # ``ResetSelection`` (see unilab.base.reset_selection); the env reports
+    # unsupported participants by name at init_state. The reset lifecycle
+    # runs on every step (an all-false mask is a no-op), so full-width reset
+    # samplers also draw RNG on steps without a done row and same-seed
+    # trajectories differ from the selected-row lifecycle;
     # ``final_observation`` is published every step and is meaningful on done
-    # rows only.
-    masked_autoreset: bool = False
-    # Persistent step carriers updated in place (opt-in). Consumers receive a
-    # ring of ``published_buffer_depth`` persistent publication slots; a
-    # published state stays valid for ``published_buffer_depth - 1`` further
-    # steps. ``0`` publishes the working carriers themselves (no copy; the
-    # next step overwrites them in place).
-    persistent_step_buffers: bool = False
-    published_buffer_depth: int = 2
-    # Capture the masked autoreset segment into one CUDA graph (opt-in;
-    # requires masked_autoreset, persistent_step_buffers, a CUDA collector
-    # device and a backend declaring ``external_graph_capture``).
+    # rows only. The intermediate chain switches (``masked_autoreset``,
+    # ``persistent_step_buffers``, ``defer_finite_validation``), the
+    # publication ring depth and the graph warmup are internal: derived from
+    # this switch or owned as constants by ``TorchEnv``.
     autoreset_cuda_graph: bool = False
-    autoreset_graph_warmup: int = 2
     autoreset_graph_capture_mode: str = "thread_local"
 
     def validate(self) -> None:
@@ -220,32 +217,14 @@ class ManagerBasedRlEnvCfg(EnvCfg):
             "is_finite_horizon",
             "auto_reset",
             "scale_rewards_by_dt",
-            "defer_finite_validation",
-            "masked_autoreset",
-            "persistent_step_buffers",
             "autoreset_cuda_graph",
         ):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"ManagerBasedRlEnvCfg {name} must be bool")
-        for name, minimum in (("published_buffer_depth", 0), ("autoreset_graph_warmup", 1)):
-            value = getattr(self, name)
-            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-                raise ValueError(f"ManagerBasedRlEnvCfg {name} must be an integer >= {minimum}")
         if self.autoreset_graph_capture_mode not in ("global", "thread_local", "relaxed"):
             raise ValueError(
                 "ManagerBasedRlEnvCfg autoreset_graph_capture_mode must be 'global', "
                 "'thread_local' or 'relaxed'"
-            )
-        if self.masked_autoreset and not self.defer_finite_validation:
-            raise ValueError(
-                "ManagerBasedRlEnvCfg masked_autoreset requires defer_finite_validation"
-            )
-        if self.autoreset_cuda_graph and not (
-            self.masked_autoreset and self.persistent_step_buffers
-        ):
-            raise ValueError(
-                "ManagerBasedRlEnvCfg autoreset_cuda_graph requires masked_autoreset and "
-                "persistent_step_buffers"
             )
         if (
             isinstance(self.finite_validation_interval, bool)

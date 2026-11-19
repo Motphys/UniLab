@@ -78,6 +78,14 @@ def _cpu_time() -> float:
 # synchronous host-bridge producers publish none.
 _EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"genesis", "mjwarp"})
 
+# Internal fixed-shape step tuning constants (not user configuration; see
+# ``TorchEnv._configure_fixed_shape_step``). The publication ring depth serves
+# the off-policy double-buffer contract (a published obs_t stays stable while
+# the next step writes obs_tp1); the warmup gives lazily allocated buffers
+# eager executions before the CUDA graph capture.
+_PUBLISHED_BUFFER_DEPTH = 2
+_AUTORESET_GRAPH_WARMUP = 2
+
 
 class TorchEnv(ABEnv):
     """Backend-agnostic Torch environment lifecycle.
@@ -147,6 +155,8 @@ class TorchEnv(ABEnv):
         self._rgb_array_renderer_ready = False
         self._nan_guard: "NanGuard | None" = None
         self._pending_backend_step_completion: CompletionToken | None = None
+        # Deferred finite validation is the only public mode; the soft read is
+        # the documented test-only injection for the eager-validation path.
         self._defer_finite_validation = bool(getattr(cfg, "defer_finite_validation", True))
         interval = getattr(cfg, "finite_validation_interval", 1)
         if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
@@ -159,19 +169,27 @@ class TorchEnv(ABEnv):
         self._configure_fixed_shape_step(cfg)
 
     def _configure_fixed_shape_step(self, cfg: EnvCfg) -> None:
-        """Resolve the opt-in sync-free / graph-capturable step switches.
+        """Resolve the opt-in sync-free / graph-capturable step switch.
 
-        - ``masked_autoreset``: autoreset runs every step as a fixed-shape
-          ``reset(ResetSelection)`` under the device done mask (no ``any()``
-          gate, no ``nonzero``); requires deferred finite validation.
-        - ``persistent_step_buffers``: the working step carriers (observations,
-          reward, terminated, truncated) are allocated once and updated with
-          ``copy_``; consumers receive a ring of ``published_buffer_depth``
-          persistent slots (``0`` publishes the working carriers themselves).
-        - ``autoreset_cuda_graph``: the masked autoreset segment is captured into
-          one CUDA graph after ``autoreset_graph_warmup`` eager executions and
-          replayed afterwards; requires both switches above, a CUDA device and
-          a backend declaring ``external_graph_capture``.
+        ``autoreset_cuda_graph`` is the single public switch. Enabling it
+        implies the whole fixed-shape chain: ``masked_autoreset`` (the
+        autoreset runs every step as a fixed-shape ``reset(ResetSelection)``
+        under the device done mask — no ``any()`` gate, no ``nonzero``),
+        ``persistent_step_buffers`` (the working step carriers — observations,
+        reward, terminated, truncated — are allocated once, updated with
+        ``copy_``, and published through a ring of persistent slots), and
+        deferred finite validation (fail-closed checks publish at the poll
+        boundary). On CUDA the masked autoreset segment is captured into one
+        CUDA graph after ``_AUTORESET_GRAPH_WARMUP`` eager executions and
+        replayed afterwards; this requires a backend declaring
+        ``external_graph_capture``.
+
+        The intermediate chain values are no longer public configuration.
+        They are still read here through a soft ``getattr`` protocol so tests
+        can inject a middle state (masked autoreset without graph capture,
+        ring depth ``0``, warmup ``1``, eager validation) by setting
+        attributes on their own stub configs; the Hydra materialization path
+        fails closed on these undeclared keys.
         """
 
         def flag(name: str) -> bool:
@@ -186,11 +204,19 @@ class TorchEnv(ABEnv):
                 raise ValueError(f"{name} must be an integer >= {minimum}, got {value!r}")
             return value
 
-        self._masked_autoreset = flag("masked_autoreset")
-        self._persistent_step_buffers = flag("persistent_step_buffers")
         self._autoreset_cuda_graph = flag("autoreset_cuda_graph")
-        self._published_buffer_depth = bounded_int("published_buffer_depth", 2, 0)
-        self._autoreset_graph_warmup = bounded_int("autoreset_graph_warmup", 2, 1)
+        # ``autoreset_cuda_graph`` implies the chain; the soft reads below are
+        # the documented test-only injection for intermediate states.
+        self._masked_autoreset = self._autoreset_cuda_graph or flag("masked_autoreset")
+        self._persistent_step_buffers = self._autoreset_cuda_graph or flag(
+            "persistent_step_buffers"
+        )
+        self._published_buffer_depth = bounded_int(
+            "published_buffer_depth", _PUBLISHED_BUFFER_DEPTH, 0
+        )
+        self._autoreset_graph_warmup = bounded_int(
+            "autoreset_graph_warmup", _AUTORESET_GRAPH_WARMUP, 1
+        )
         capture_mode = getattr(cfg, "autoreset_graph_capture_mode", "thread_local")
         if capture_mode not in ("global", "thread_local", "relaxed"):
             raise ValueError(
@@ -203,15 +229,8 @@ class TorchEnv(ABEnv):
                 "masked_autoreset requires defer_finite_validation: its fail-closed checks "
                 "are published at the deferred validation boundary"
             )
-        if self._autoreset_cuda_graph:
-            if not (self._masked_autoreset and self._persistent_step_buffers):
-                raise ValueError(
-                    "autoreset_cuda_graph requires masked_autoreset and persistent_step_buffers"
-                )
-            if self._device.type != "cuda":
-                raise ValueError(
-                    f"autoreset_cuda_graph requires a CUDA env device, got {self._device}"
-                )
+        if self._autoreset_cuda_graph and self._device.type != "cuda":
+            raise ValueError(f"autoreset_cuda_graph requires a CUDA env device, got {self._device}")
         self._reset_selection: ResetSelection | None = (
             ResetSelection.allocate(self._num_envs, self._device)
             if self._masked_autoreset

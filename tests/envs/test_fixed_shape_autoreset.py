@@ -27,6 +27,7 @@ from unisim.backend.graph_capture import ExternalGraphCapture, GraphCaptureError
 
 from tests.envs.test_manager_based_rl_env import _ResetBackend
 from unilab.base.entity import EntityCfg
+from unilab.base.registry import apply_cfg_overrides
 from unilab.base.reset_selection import (
     ResetSelection,
     assign_rows_,
@@ -258,6 +259,16 @@ def _curriculum(env: ManagerBasedRlEnv, env_ids: Any) -> float:
 
 
 def _make_cfg(device: str, **overrides: Any) -> ManagerBasedRlEnvCfg:
+    """Build the canonical test env cfg.
+
+    ``overrides`` first lands on declared ``ManagerBasedRlEnvCfg`` fields.
+    Names outside the collapsed public surface (``masked_autoreset``,
+    ``persistent_step_buffers``, ``defer_finite_validation``,
+    ``published_buffer_depth``, ``autoreset_graph_warmup``) attach as plain
+    attributes instead; ``TorchEnv`` reads them through its soft-``getattr``
+    test-only injection protocol, so tests can construct intermediate chain
+    states that production Hydra configs can no longer express.
+    """
     cfg = ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             model_file="fake.xml",
@@ -285,7 +296,6 @@ def _make_cfg(device: str, **overrides: Any) -> ManagerBasedRlEnvCfg:
         metrics={"length": MetricsTermCfg(func=_metric, reduce="mean")},
         policy_observation_group="actor",
         critic_observation_group="value",
-        defer_finite_validation=True,
     )
     for name, value in overrides.items():
         setattr(cfg, name, value)
@@ -451,11 +461,25 @@ def test_circular_buffer_selection_reset_and_backfill_match_ids() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_collapsed_switch_keys_fail_closed_as_env_overrides() -> None:
+    """Deleted chain keys raise a clear config error instead of being ignored."""
+    cfg = _make_cfg("cpu")
+    for key in (
+        "masked_autoreset",
+        "persistent_step_buffers",
+        "defer_finite_validation",
+        "published_buffer_depth",
+        "autoreset_graph_warmup",
+    ):
+        with pytest.raises(ValueError, match=f"has no attribute '{key}'"):
+            apply_cfg_overrides(cfg, {key: True})
+
+
 def test_masked_autoreset_requires_deferred_validation() -> None:
     with pytest.raises(ValueError, match="defer_finite_validation"):
-        _make_cfg("cpu", masked_autoreset=True, defer_finite_validation=False).validate()
-    with pytest.raises(ValueError, match="requires masked_autoreset"):
-        _make_cfg("cpu", autoreset_cuda_graph=True).validate()
+        _make_env("cpu", masked_autoreset=True, defer_finite_validation=False)
+    with pytest.raises(ValueError, match="CUDA env device"):
+        _make_env("cpu", autoreset_cuda_graph=True)
 
 
 def test_masked_autoreset_reports_every_unsupported_participant() -> None:
@@ -584,15 +608,31 @@ cuda_only = pytest.mark.skipif(not CUDA, reason="requires CUDA")
 
 
 @cuda_only
+def test_autoreset_cuda_graph_implies_the_whole_fixed_shape_chain() -> None:
+    """Setting only the public switch enables the full chain (issue #2617)."""
+    env, _ = _make_env("cuda", autoreset_cuda_graph=True)
+    assert env.masked_autoreset
+    assert env.persistent_step_buffers
+    assert env.defer_finite_validation
+    assert env._reset_selection is not None
+    env.reset()
+    for action in _actions("cuda", 3):
+        env.step(action)
+    graph = env.autoreset_graph
+    assert graph is not None and graph.captured
+    assert graph.replays >= 1
+
+
+@cuda_only
 def test_autoreset_graph_replay_matches_eager_masked_autoreset() -> None:
     actions = _actions("cuda", 30)
     eager_env, eager_backend = _make_env(
         "cuda", masked_autoreset=True, persistent_step_buffers=True
     )
+    # The graph owner sets only the public switch; the masked/persistent
+    # middle states are its necessary consequences, not independent inputs.
     graph_env, graph_backend = _make_env(
         "cuda",
-        masked_autoreset=True,
-        persistent_step_buffers=True,
         autoreset_cuda_graph=True,
         autoreset_graph_warmup=2,
     )
