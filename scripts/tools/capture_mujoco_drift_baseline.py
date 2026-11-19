@@ -162,6 +162,9 @@ def _build_env(task_path: str, args: argparse.Namespace):
         {
             "seed": args.seed,
             "cpu_ids": list(args.cpu_ids),
+            # The baseline captures the eager selected-row backend behavior;
+            # opt out of the default-on autoreset graph path.
+            "autoreset_cuda_graph": False,
         }
     )
     env = registry.make(

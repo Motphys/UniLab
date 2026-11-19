@@ -37,6 +37,8 @@ def test_eager_mujoco_replay_rows_own_their_tick_across_autoreset() -> None:
     with initialize_config_dir(config_dir=str(CONF_DIR / "ppo"), version_base="1.3"):
         cfg = compose("config", overrides=["task=go2_joystick_flat/mujoco"])
     override = EnvConfigAdapter(cfg, root_dir=ROOT_DIR).build_task_env_cfg_override()
+    # The replay integration drives the eager selected-row lifecycle on CPU.
+    override["autoreset_cuda_graph"] = False
     env = registry.make(
         str(cfg.training.task_name),
         sim_backend="mujoco",

@@ -288,6 +288,8 @@ def test_real_mujoco_reset_applies_selected_terrain_origin(monkeypatch: pytest.M
         ctrl_dt=0.02,
         max_episode_seconds=1.0,
         seed=19,
+        # Terrain reset test on the eager selected-row path on CPU.
+        autoreset_cuda_graph=False,
         observations={
             "actor": ObservationGroupCfg(terms={"state": ObservationTermCfg(func=observation)})
         },

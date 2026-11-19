@@ -53,7 +53,7 @@ Reproduce and operate the scoped single-GPU G1 FlashSAC/MJWarp long soak.
 :::{grid-item-card} Sync-free autoreset
 :link: 8-sync_free_autoreset
 :link-type: doc
-Opt-in fixed-shape autoreset, reset CUDA graph, and `ResetSelection` terms.
+Default-on fixed-shape autoreset, reset CUDA graph, and `ResetSelection` terms.
 :::
 
 ::::

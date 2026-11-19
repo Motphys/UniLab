@@ -134,12 +134,12 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     critic_observation_group: str | None = None
     finite_validation_interval: int = 1
     # Single public switch for the fixed-shape, host-sync-free autoreset fast
-    # path. ``true`` implies the whole chain: the autoreset runs on every
-    # step as a full-width ``reset(ResetSelection)`` under the device done
-    # mask (no ``any()`` gate, no ``nonzero``), the step carriers are
-    # persistent and published through a ring of fixed slots, and fail-closed
-    # finite checks are deferred to the poll boundary. On CUDA the masked
-    # autoreset segment is additionally captured into one CUDA graph and
+    # path, on by default (issue #2621). ``true`` implies the whole chain: the
+    # autoreset runs on every step as a full-width ``reset(ResetSelection)``
+    # under the device done mask (no ``any()`` gate, no ``nonzero``), the step
+    # carriers are persistent and published through a ring of fixed slots, and
+    # fail-closed finite checks are deferred to the poll boundary. On CUDA the
+    # masked autoreset segment is additionally captured into one CUDA graph and
     # replayed afterwards. Every reset participant must accept a
     # ``ResetSelection`` (see unilab.base.reset_selection); the env reports
     # unsupported participants by name at init_state. The reset lifecycle
@@ -151,7 +151,13 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     # ``persistent_step_buffers``, ``defer_finite_validation``), the
     # publication ring depth and the graph warmup are internal: derived from
     # this switch or owned as constants by ``TorchEnv``.
-    autoreset_cuda_graph: bool = False
+    #
+    # Unsupported combinations fail closed at startup instead of silently
+    # falling back to eager: a non-CUDA env device, or a backend without the
+    # ``external_graph_capture`` capability. Set the switch explicitly to
+    # ``false`` to opt out — the escape hatch for debugging or for falling
+    # back when a graph-related problem is suspected.
+    autoreset_cuda_graph: bool = True
     autoreset_graph_capture_mode: str = "thread_local"
 
     def validate(self) -> None:
