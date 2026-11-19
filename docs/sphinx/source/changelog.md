@@ -96,6 +96,11 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Fixed / 修复
 
+- The docs deploy build now builds historical tags prose-only: autodoc can
+  only document the installed (current) package, so generating the API
+  reference for tags failed on modules removed since those releases.
+  文档部署构建对历史 tag 版本改用 prose-only:autodoc 只能反映当前安装的
+  代码,为 tag 版本生成 API 参考会因已移除模块而失败。
 - Documentation corrections verified by smoke-running the documented commands
   on 1.5.9: training requires the `unirl` extra (install/quick-start/CLI pages
   previously omitted it); run log directories use the registry task name; the

@@ -454,19 +454,26 @@ def _inject_language_sidebar_navigation(
 # Expose `_UNILAB_AVAILABLE` as a Sphinx tag so `.. only:: api_ref` blocks
 # in prose can be conditionally rendered.
 def setup(app):
-    if _UNILAB_AVAILABLE:
-        app.tags.add("api_ref")
-    else:
-        app.tags.add("prose_only")
-    app.connect("config-inited", _versioned_html_baseurl)
+    app.connect("config-inited", _apply_per_version_overrides)
     app.connect("html-page-context", _inject_language_switcher)
     app.connect("html-page-context", _inject_language_sidebar_navigation, priority=700)
 
 
-def _versioned_html_baseurl(app, config):
-    # sphinx-multiversion builds every whitelisted ref with this same conf.py;
-    # point each version's canonical URLs (sitemap etc.) at its own subdir.
+def _apply_per_version_overrides(app, config):
+    # sphinx-multiversion builds every whitelisted ref with this same conf.py.
     current = getattr(config, "smv_current_version", "")
+    historical = bool(current) and current != "main"
+    # autodoc can only document the *installed* package, which is always the
+    # checkout being deployed. Generating API reference for historical tags
+    # would therefore fail on removed modules (and misdescribe the old API
+    # even when imports happen to resolve), so tags build prose-only.
+    if _UNILAB_AVAILABLE and not historical:
+        app.tags.add("api_ref")
+    else:
+        app.tags.add("prose_only")
     if current:
         config.html_baseurl = f"https://unilabsim.github.io/UniLab-doc/{current}/"
+    if historical:
+        config.exclude_patterns.append("api_reference/**")
+        config.autosummary_generate = False
     return {"parallel_read_safe": True}
