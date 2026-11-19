@@ -9,9 +9,7 @@ from __future__ import annotations
 
 import abc
 import dataclasses
-import os
 import sys
-import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from os import PathLike
@@ -38,6 +36,7 @@ from unilab.base.backend_timing import (
 )
 from unilab.base.base import ABEnv, EnvCfg, EnvPlayCapabilities
 from unilab.base.cpu_runtime import apply_cpu_confinement
+from unilab.base.phase_timer import PhaseTimer
 from unilab.base.reset_selection import ResetSelection
 from unilab.base.scene import SceneCfg
 from unilab.dtype_config import get_global_dtype
@@ -65,11 +64,6 @@ class TorchEnvState:
     def replace(self, **updates: Any) -> "TorchEnvState":
         """Return a copy of this transition with ``updates`` applied."""
         return dataclasses.replace(self, **updates)
-
-
-def _cpu_time() -> float:
-    process = os.times()
-    return process.user + process.system
 
 
 # Backends whose ``step_tensor`` publishes an event-backed asynchronous step
@@ -458,41 +452,33 @@ class TorchEnv(ABEnv):
         Returns:
             The updated ``TorchEnvState``.
         """
-        started = time.perf_counter()
-        cpu_started = _cpu_time()
-        phase = time.perf_counter()
-        self._validate_action_contract(actions)
-        self._record_action_finite(actions)
-        action_validate_ms = (time.perf_counter() - phase) * 1000.0
+        timer = PhaseTimer()
+        with timer.phase("action_validate", cpu=False):
+            self._validate_action_contract(actions)
+            self._record_action_finite(actions)
         self._bind_tensor_runtime()
         if self._state is None:
             self.init_state()
         assert self._state is not None
 
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
-        # Action terms publish into one device-resident control verdict. Clear
-        # both publication carriers before each new action is processed.
-        self._control_finite_valid.fill_(True)
-        self._pending_control_finite_check = None
-        ctrl = self.apply_action(actions, self._state)
-        guard_defer = self._defer_finite_validation
-        if self._nan_guard is not None:
-            guard_defer = self._defer_finite_validation or self._nan_guard.defer_validation
-        self._validate_control_with_nan_guard(ctrl, defer=guard_defer)
-        apply_action_ms = (time.perf_counter() - phase) * 1000.0
-        apply_action_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
+        with timer.phase("apply_action"):
+            # Action terms publish into one device-resident control verdict. Clear
+            # both publication carriers before each new action is processed.
+            self._control_finite_valid.fill_(True)
+            self._pending_control_finite_check = None
+            ctrl = self.apply_action(actions, self._state)
+            guard_defer = self._defer_finite_validation
+            if self._nan_guard is not None:
+                guard_defer = self._defer_finite_validation or self._nan_guard.defer_validation
+            self._validate_control_with_nan_guard(ctrl, defer=guard_defer)
 
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
-        self._pending_backend_step_completion = None
-        # A receipt describes only the transition being published. Remove the
-        # previous one before the backend call so unsupported or failed steps
-        # cannot expose stale completion metadata.
-        self._state.info.pop("completion", None)
-        backend_result = self.advance_physics(ctrl)
-        step_core_ms = (time.perf_counter() - phase) * 1000.0
-        step_core_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
+        with timer.phase("step_core"):
+            self._pending_backend_step_completion = None
+            # A receipt describes only the transition being published. Remove the
+            # previous one before the backend call so unsupported or failed steps
+            # cannot expose stale completion metadata.
+            self._state.info.pop("completion", None)
+            backend_result = self.advance_physics(ctrl)
         pending_completion = self._backend_step_completion(backend_result)
         # Publish the receipt before update_state so public transition consumers
         # can only read it after the update boundary succeeds.
@@ -503,9 +489,8 @@ class TorchEnv(ABEnv):
             self._state.truncated.fill_(False)
             self._clear_step_final_observation()
 
-            phase = time.perf_counter()
-            phase_cpu = _cpu_time()
-            self._state = self.update_state(self._state)
+            with timer.phase("update_state"):
+                self._state = self.update_state(self._state)
         finally:
             self._pending_backend_step_completion = None
         if self._nan_guard is not None:
@@ -533,16 +518,13 @@ class TorchEnv(ABEnv):
                         f"{deferred_nan_ids[:10].detach().cpu().tolist()}"
                     )
         self._validate_state(self._state)
-        update_state_ms = (time.perf_counter() - phase) * 1000.0
-        update_state_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
         if self.produces_completion_receipts:
             # An event-backed asynchronous step drains its device work at the
             # first update-state host read; re-attribute that measured window
             # to the backend step phase so update_state reports manager work.
             drain_ms = self._collect_step_core_drain_ms(self._state)
             if drain_ms > 0.0:
-                step_core_ms += drain_ms
-                update_state_ms = max(update_state_ms - drain_ms, 0.0)
+                timer.move_wall("update_state", "step_core", drain_ms)
 
         self._state.info["steps"] += 1
         self.step_counter += 1
@@ -551,8 +533,6 @@ class TorchEnv(ABEnv):
         truncated = self._compute_truncated(self._state)
         self._state.truncated.logical_or_(truncated)
 
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
         # Preserve the semantic autoreset gate: an empty done mask must not
         # consume reset RNG or publish a terminal carrier. When update_state
         # made no host read of the step outputs, this gate is the first
@@ -561,21 +541,18 @@ class TorchEnv(ABEnv):
         # reset bookkeeping.
         # The fixed-shape autoreset has no gate: it runs every step under the
         # device done mask, so nothing here reads the device.
-        did_reset = self._autoreset and (
-            self._masked_autoreset or bool((self._state.terminated | self._state.truncated).any())
-        )
-        step_core_ms += (time.perf_counter() - phase) * 1000.0
-        step_core_cpu_ms += (_cpu_time() - phase_cpu) * 1000.0
+        with timer.phase("step_core"):
+            did_reset = self._autoreset and (
+                self._masked_autoreset
+                or bool((self._state.terminated | self._state.truncated).any())
+            )
 
-        phase = time.perf_counter()
-        phase_cpu = _cpu_time()
-        if did_reset:
-            if self._masked_autoreset:
-                self._run_masked_autoreset()
-            else:
-                self._reset_done_envs(done_active=True)
-        reset_done_ms = (time.perf_counter() - phase) * 1000.0
-        reset_done_cpu_ms = (_cpu_time() - phase_cpu) * 1000.0
+        with timer.phase("reset_done"):
+            if did_reset:
+                if self._masked_autoreset:
+                    self._run_masked_autoreset()
+                else:
+                    self._reset_done_envs(done_active=True)
         self.poll_finite_validation()
 
         timing = self._state.info.setdefault("timing", {})
@@ -583,25 +560,10 @@ class TorchEnv(ABEnv):
             # The fixed-shape path has no host row count or per-phase split.
             self._clear_reset_done_detail_timing(timing)
             if did_reset:
-                timing["reset_done_reset_call_ms"] = reset_done_ms
-        timing["env_step_total_ms"] = (time.perf_counter() - started) * 1000.0
-        timing["action_validate_ms"] = action_validate_ms
-        timing["apply_action_ms"] = apply_action_ms
-        timing["apply_action_cpu_ms"] = apply_action_cpu_ms
-        timing["step_core_ms"] = step_core_ms
-        timing["step_core_cpu_ms"] = step_core_cpu_ms
-        timing["update_state_ms"] = update_state_ms
-        timing["update_state_cpu_ms"] = update_state_cpu_ms
-        timing["reset_done_ms"] = reset_done_ms
-        timing["reset_done_cpu_ms"] = reset_done_cpu_ms
-        timing["env_step_other_cpu_ms"] = max(
-            (_cpu_time() - cpu_started) * 1000.0
-            - apply_action_cpu_ms
-            - step_core_cpu_ms
-            - update_state_cpu_ms
-            - reset_done_cpu_ms,
-            0.0,
-        )
+                timing["reset_done_reset_call_ms"] = timer.wall_ms("reset_done")
+        timing["env_step_total_ms"] = timer.total_wall_ms()
+        timer.publish(timing)
+        timing["env_step_other_cpu_ms"] = timer.residual_cpu_ms()
         if isinstance(backend_result, dict):
             for key, value in backend_result.get("timing", {}).items():
                 timing[f"backend_{key}"] = value
@@ -932,7 +894,7 @@ class TorchEnv(ABEnv):
         edge (backend inputs stay fixed-width masks).
         """
         assert self._state is not None
-        reset_total_started = time.perf_counter()
+        timer = PhaseTimer(cpu=False)
         detail_timing = {key: 0.0 for key in RESET_DONE_DETAIL_TIMING_KEYS}
         done = self._state.terminated | self._state.truncated
         if not done_active and not bool(done.any()):
@@ -941,53 +903,43 @@ class TorchEnv(ABEnv):
         self._reset_done_count.copy_(done.sum())
         done_env_ids = torch.nonzero(done, as_tuple=False).flatten()
 
-        terminal_started = time.perf_counter()
         # The nonzero above already published the done-row count to the host;
         # reuse it instead of reading the device counter back for timing.
-        detail_timing["reset_done_count"] = float(done_env_ids.numel())
-        self._state.info["steps"].masked_fill_(done, 0)
-        final_observation = self._ensure_final_observation_scratch()
-        for name, values in self._state.obs.items():
-            final_observation[name].copy_(values)
-        self._state.final_observation = final_observation
-        detail_timing["reset_done_terminal_obs_ms"] = (
-            time.perf_counter() - terminal_started
-        ) * 1000.0
+        with timer.phase("reset_done_terminal_obs"):
+            detail_timing["reset_done_count"] = float(done_env_ids.numel())
+            self._state.info["steps"].masked_fill_(done, 0)
+            final_observation = self._ensure_final_observation_scratch()
+            for name, values in self._state.obs.items():
+                final_observation[name].copy_(values)
+            self._state.final_observation = final_observation
 
-        reset_started = time.perf_counter()
-        self._autoreset_reset_active = True
-        self._autoreset_scattered_reset_obs = False
-        try:
-            new_obs, reset_info = self.reset(done_env_ids)
-        finally:
-            self._autoreset_reset_active = False
-        detail_timing["reset_done_reset_call_ms"] = (time.perf_counter() - reset_started) * 1000.0
+        with timer.phase("reset_done_reset_call"):
+            self._autoreset_reset_active = True
+            self._autoreset_scattered_reset_obs = False
+            try:
+                new_obs, reset_info = self.reset(done_env_ids)
+            finally:
+                self._autoreset_reset_active = False
         collected = self._collect_reset_backend_timing_ms()
         detail_timing.update(
             {key: value for key, value in collected.items() if key in detail_timing}
         )
 
-        scatter_started = time.perf_counter()
-        if not self._autoreset_scattered_reset_obs:
-            self._validate_reset_observation_mask(new_obs)
-            for name, values in new_obs.items():
-                self._state.obs[name].copy_(
-                    torch.where(done[:, None], values, self._state.obs[name])
-                )
-        self._scatter_reset_info_mask(reset_info, done)
-        detail_timing["reset_done_obs_scatter_ms"] = (
-            time.perf_counter() - scatter_started
-        ) * 1000.0
+        with timer.phase("reset_done_obs_scatter"):
+            if not self._autoreset_scattered_reset_obs:
+                self._validate_reset_observation_mask(new_obs)
+                for name, values in new_obs.items():
+                    self._state.obs[name].copy_(
+                        torch.where(done[:, None], values, self._state.obs[name])
+                    )
+            self._scatter_reset_info_mask(reset_info, done)
         detail_timing["reset_done_info_scatter_ms"] = 0.0
-        measured = (
-            detail_timing["reset_done_terminal_obs_ms"]
-            + detail_timing["reset_done_reset_call_ms"]
-            + detail_timing["reset_done_obs_scatter_ms"]
-            + detail_timing["reset_done_info_scatter_ms"]
-        )
+        detail_timing["reset_done_terminal_obs_ms"] = timer.wall_ms("reset_done_terminal_obs")
+        detail_timing["reset_done_reset_call_ms"] = timer.wall_ms("reset_done_reset_call")
+        detail_timing["reset_done_obs_scatter_ms"] = timer.wall_ms("reset_done_obs_scatter")
         detail_timing["reset_done_internal_gap_ms"] = (
-            time.perf_counter() - reset_total_started
-        ) * 1000.0 - measured
+            timer.total_wall_ms() - timer.attributed_wall_ms()
+        )
 
         timing = self._state.info.setdefault("timing", {})
         self._clear_reset_done_detail_timing(timing)

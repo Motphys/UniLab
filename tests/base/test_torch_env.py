@@ -23,7 +23,7 @@ from unisim.backend.base import (
     TensorRuntimeDiagnostic,
 )
 
-import unilab.base.torch_env as torch_env_module
+import unilab.base.phase_timer as phase_timer_module
 from unilab.base.base import EnvCfg, EnvPlayCapabilities
 from unilab.base.scene import SceneCfg
 from unilab.base.torch_env import TorchEnv, TorchEnvState
@@ -459,11 +459,11 @@ def test_step_done_gate_host_read_is_attributed_to_step_core(monkeypatch) -> Non
     wall = itertools.count(start=0.0, step=0.001)
     cpu = itertools.count(start=0.0, step=0.001)
     monkeypatch.setattr(
-        torch_env_module,
+        phase_timer_module,
         "time",
         types.SimpleNamespace(perf_counter=lambda: next(wall)),
     )
-    monkeypatch.setattr(torch_env_module, "_cpu_time", lambda: next(cpu))
+    monkeypatch.setattr(phase_timer_module, "_cpu_time", lambda: next(cpu))
 
     env = _StubTorchEnv(terminate=False)
     env.init_state()
@@ -484,11 +484,11 @@ def test_step_reattributes_update_state_drain_to_step_core(monkeypatch) -> None:
     wall = itertools.count(start=0.0, step=0.001)
     cpu = itertools.count(start=0.0, step=0.001)
     monkeypatch.setattr(
-        torch_env_module,
+        phase_timer_module,
         "time",
         types.SimpleNamespace(perf_counter=lambda: next(wall)),
     )
-    monkeypatch.setattr(torch_env_module, "_cpu_time", lambda: next(cpu))
+    monkeypatch.setattr(phase_timer_module, "_cpu_time", lambda: next(cpu))
 
     class _DrainEnv(_StubTorchEnv):
         def _collect_step_core_drain_ms(self, state: TorchEnvState) -> float:

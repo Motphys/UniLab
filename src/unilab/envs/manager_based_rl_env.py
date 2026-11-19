@@ -46,6 +46,7 @@ from unilab.base.entity import (
     SceneTensorReadPlan,
     SceneTensorReadSpec,
 )
+from unilab.base.phase_timer import PhaseTimer
 from unilab.base.reset_selection import ResetSelection
 from unilab.base.reset_selectors import ResetMaskBuffer, resolve_reset_env_ids
 from unilab.base.reset_state import ResetStateTransaction
@@ -1450,126 +1451,132 @@ class ManagerBasedRlEnv(TorchEnv):
         # the action-phase packet first; in-phase mutations explicitly invalidate
         # it below.
         timing = state.info.setdefault("timing", {})
-        boundary_started = time.perf_counter()
+        timer = PhaseTimer(cpu=False)
+        timer.mark("update_state_read_boundary")
         self.scene._invalidate_state_reads()
         with self.scene._scoped_state_reads():
             read_plan = self.scene.read_plan
             if read_plan is not None and not read_plan.ready:
                 read_plan.refresh()
-            boundary_ms = (time.perf_counter() - boundary_started) * 1000.0
-            timing["update_state_read_boundary_ms"] = boundary_ms
+            timing["update_state_read_boundary_ms"] = timer.span_ms("update_state_read_boundary")
             return self._update_state_in_read_phase(state)
 
     def _update_state_in_read_phase(self, state: TorchEnvState) -> TorchEnvState:
         timing = state.info.setdefault("timing", {})
-        update_started_ns = time.perf_counter_ns()
-        prelude_started_ns = time.perf_counter_ns()
-        queue_started = time.perf_counter()
-        phase_started = time.perf_counter()
-        log: dict[str, Any] = {}
-        state.info["log"] = log
-        self.extras = state.info
+        timer = PhaseTimer(cpu=False)
+        timer.mark("update_state_queue")
+        with timer.phase("update_state_termination"):
+            with timer.phase("update_state_prelude"):
+                log: dict[str, Any] = {}
+                state.info["log"] = log
+                self.extras = state.info
 
-        self.common_step_counter = self.step_counter + 1
-        self._sim_step_counter = self.common_step_counter * self._cfg.sim_substeps
-        timing["update_state_prelude_ms"] = (time.perf_counter_ns() - prelude_started_ns) / 1.0e6
+                self.common_step_counter = self.step_counter + 1
+                self._sim_step_counter = self.common_step_counter * self._cfg.sim_substeps
+            timing["update_state_prelude_ms"] = timer.wall_ms("update_state_prelude")
 
-        termination_compute_started = time.perf_counter()
-        self._advance_episode_steps(state.info["steps"])
-        self._compute_termination_and_reset_flags()
-        termination_compute_ms = (time.perf_counter() - termination_compute_started) * 1000.0
-        termination_timing = getattr(self.termination_manager, "last_step_timing_ms", {})
-        timing.update(termination_timing)
-        state.info["update_state_timing"] = dict(termination_timing)
-        # Termination is normally the first update-state reduction after the
-        # backend step. Its wall time can therefore drain pre-update GPU work;
-        # keep that synchronization attribution separate from Manager work.
-        timing["update_state_queue_drain_ms"] = (time.perf_counter() - queue_started) * 1000.0
-        timing["update_state_termination_ms"] = (time.perf_counter() - phase_started) * 1000.0
-        timing["update_state_termination_host_ms"] = termination_compute_ms
-        phase_started = time.perf_counter()
-        timing["update_state_reset_flags_ms"] = (time.perf_counter() - phase_started) * 1000.0
-        phase_started = time.perf_counter()
+            with timer.phase("update_state_termination_host"):
+                self._advance_episode_steps(state.info["steps"])
+                self._compute_termination_and_reset_flags()
+            termination_timing = getattr(self.termination_manager, "last_step_timing_ms", {})
+            timing.update(termination_timing)
+            state.info["update_state_timing"] = dict(termination_timing)
+            # Termination is normally the first update-state reduction after the
+            # backend step. Its wall time can therefore drain pre-update GPU work;
+            # keep that synchronization attribution separate from Manager work.
+            timing["update_state_queue_drain_ms"] = timer.span_ms("update_state_queue")
+        timing["update_state_termination_ms"] = timer.wall_ms("update_state_termination")
+        timing["update_state_termination_host_ms"] = timer.wall_ms("update_state_termination_host")
 
-        self.reward_buf = self._compute_rewards()
-        reward_timing = getattr(self.reward_manager, "last_step_timing_ms", {})
-        state.info["update_state_timing"].update(reward_timing)
-        timing.update(reward_timing)
-        timing["update_state_reward_ms"] = (time.perf_counter() - phase_started) * 1000.0
-        phase_started = time.perf_counter()
-        self._reward_log_names = self.reward_manager.step_reward_names
-        self._reward_log_means = self.reward_manager.step_reward_means
+        with timer.phase("update_state_reset_flags"):
+            pass
+        timing["update_state_reset_flags_ms"] = timer.wall_ms("update_state_reset_flags")
 
-        if self._cfg.sim_substeps == 1:
-            self.metrics_manager.compute_substep()
-        self._compute_metrics()
-        timing["update_state_metrics_ms"] = (time.perf_counter() - phase_started) * 1000.0
-        phase_started = time.perf_counter()
+        with timer.phase("update_state_reward"):
+            self.reward_buf = self._compute_rewards()
+            reward_timing = getattr(self.reward_manager, "last_step_timing_ms", {})
+            state.info["update_state_timing"].update(reward_timing)
+            timing.update(reward_timing)
+        timing["update_state_reward_ms"] = timer.wall_ms("update_state_reward")
 
-        events_started = time.perf_counter()
-        self._apply_runtime_events()
-        timing["update_state_events_ms"] = (time.perf_counter() - events_started) * 1000.0
+        with timer.phase("update_state_metrics"):
+            self._reward_log_names = self.reward_manager.step_reward_names
+            self._reward_log_means = self.reward_manager.step_reward_means
 
-        command_preflight_started = time.perf_counter()
-        step_reset_context = self._prepare_command_update()
-        timing["update_state_command_preflight_ms"] = (
-            time.perf_counter() - command_preflight_started
-        ) * 1000.0
-        command_started = time.perf_counter()
-        with step_reset_context:
-            self._compute_commands()
-            step_timing = getattr(self.command_manager, "last_step_timing_ms", {})
-            state.info["update_state_timing"].update(step_timing)
-            timing.update(step_timing)
-        timing["update_state_command_compute_ms"] = (time.perf_counter() - command_started) * 1000.0
-        command_epilogue_started = time.perf_counter()
-        read_refresh_ms = self._refresh_reads_after_command_commit()
-        post_compute_started = time.perf_counter()
-        self._post_compute_commands()
-        post_compute_ms = (time.perf_counter() - post_compute_started) * 1000.0
-        timing["update_state_command_read_refresh_ms"] = read_refresh_ms
-        timing["update_state_command_post_compute_ms"] = post_compute_ms
-        timing["update_state_command_epilogue_ms"] = (
-            time.perf_counter() - command_epilogue_started
-        ) * 1000.0
-        timing["update_state_command_ms"] = (time.perf_counter() - phase_started) * 1000.0
-        phase_started = time.perf_counter()
+            if self._cfg.sim_substeps == 1:
+                self.metrics_manager.compute_substep()
+            self._compute_metrics()
+        timing["update_state_metrics_ms"] = timer.wall_ms("update_state_metrics")
 
-        manager_obs = self._compute_observations()
-        observation_timing = getattr(self.observation_manager, "last_step_timing_ms", {})
-        state.info["update_state_timing"].update(observation_timing)
-        timing.update(observation_timing)
-        timing["update_state_observation_ms"] = (time.perf_counter() - phase_started) * 1000.0
-        phase_started = time.perf_counter()
+        with timer.phase("update_state_command"):
+            with timer.phase("update_state_events"):
+                self._apply_runtime_events()
+            timing["update_state_events_ms"] = timer.wall_ms("update_state_events")
 
-        mapped_obs = self._map_observations(manager_obs)
-        if not self.persistent_step_buffers:
-            self.obs_buf = mapped_obs
-        self._has_transition = True
-        timing["update_state_map_ms"] = (time.perf_counter() - phase_started) * 1000.0
-        phase_started = time.perf_counter()
-
-        publish_started = time.perf_counter()
-        if self.persistent_step_buffers:
-            self._copy_step_outputs(state, mapped_obs)
-        else:
-            public_obs, public_reward, public_terminated, public_truncated = (
-                self._publish_step_outputs(mapped_obs)
+            with timer.phase("update_state_command_preflight"):
+                step_reset_context = self._prepare_command_update()
+            timing["update_state_command_preflight_ms"] = timer.wall_ms(
+                "update_state_command_preflight"
             )
-        timing["update_state_publication_ms"] = (time.perf_counter() - publish_started) * 1000.0
 
-        replace_started = time.perf_counter()
-        if self.persistent_step_buffers:
-            replacement = state
-        else:
-            replacement = state.replace(
-                obs=public_obs,
-                reward=public_reward,
-                terminated=public_terminated,
-                truncated=public_truncated,
+            with timer.phase("update_state_command_compute"):
+                with step_reset_context:
+                    self._compute_commands()
+                    step_timing = getattr(self.command_manager, "last_step_timing_ms", {})
+                    state.info["update_state_timing"].update(step_timing)
+                    timing.update(step_timing)
+            timing["update_state_command_compute_ms"] = timer.wall_ms(
+                "update_state_command_compute"
             )
-        timing["update_state_state_replace_ms"] = (time.perf_counter() - replace_started) * 1000.0
-        timing["update_state_publish_ms"] = (time.perf_counter() - phase_started) * 1000.0
+
+            with timer.phase("update_state_command_epilogue"):
+                read_refresh_ms = self._refresh_reads_after_command_commit()
+                with timer.phase("update_state_command_post_compute"):
+                    self._post_compute_commands()
+                post_compute_ms = timer.wall_ms("update_state_command_post_compute")
+            timing["update_state_command_read_refresh_ms"] = read_refresh_ms
+            timing["update_state_command_post_compute_ms"] = post_compute_ms
+            timing["update_state_command_epilogue_ms"] = timer.wall_ms(
+                "update_state_command_epilogue"
+            )
+        timing["update_state_command_ms"] = timer.wall_ms("update_state_command")
+
+        with timer.phase("update_state_observation"):
+            manager_obs = self._compute_observations()
+            observation_timing = getattr(self.observation_manager, "last_step_timing_ms", {})
+            state.info["update_state_timing"].update(observation_timing)
+            timing.update(observation_timing)
+        timing["update_state_observation_ms"] = timer.wall_ms("update_state_observation")
+
+        with timer.phase("update_state_map"):
+            mapped_obs = self._map_observations(manager_obs)
+            if not self.persistent_step_buffers:
+                self.obs_buf = mapped_obs
+            self._has_transition = True
+        timing["update_state_map_ms"] = timer.wall_ms("update_state_map")
+
+        with timer.phase("update_state_publish"):
+            with timer.phase("update_state_publication"):
+                if self.persistent_step_buffers:
+                    self._copy_step_outputs(state, mapped_obs)
+                else:
+                    public_obs, public_reward, public_terminated, public_truncated = (
+                        self._publish_step_outputs(mapped_obs)
+                    )
+            timing["update_state_publication_ms"] = timer.wall_ms("update_state_publication")
+
+            with timer.phase("update_state_state_replace"):
+                if self.persistent_step_buffers:
+                    replacement = state
+                else:
+                    replacement = state.replace(
+                        obs=public_obs,
+                        reward=public_reward,
+                        terminated=public_terminated,
+                        truncated=public_truncated,
+                    )
+            timing["update_state_state_replace_ms"] = timer.wall_ms("update_state_state_replace")
+        timing["update_state_publish_ms"] = timer.wall_ms("update_state_publish")
         update_children = (
             timing.get("update_state_termination_ms"),
             timing.get("update_state_reward_ms"),
@@ -1580,18 +1587,18 @@ class ManagerBasedRlEnv(TorchEnv):
             timing.get("update_state_publish_ms"),
         )
         if all(value is not None for value in update_children):
-            epilogue_started_ns = time.perf_counter_ns()
-            # Queue drain and the same boundary inside termination are excluded:
-            # they drain pre-update GPU work already timed by step_core_ms.
-            drain_ns = int(float(timing["update_state_queue_drain_ms"]) * 1.0e6)
-            child_sum_ms = sum(float(value) for value in update_children)
-            timing["update_state_child_sum_ms"] = child_sum_ms
-            timing["update_state_nonattributed_ms"] = (
-                time.perf_counter_ns() - update_started_ns - child_sum_ms * 1.0e6 + drain_ns
-            ) / 1.0e6
-            timing["update_state_timing_epilogue_ms"] = (
-                time.perf_counter_ns() - epilogue_started_ns
-            ) / 1.0e6
+            with timer.phase("update_state_timing_epilogue"):
+                # Queue drain and the same boundary inside termination are excluded:
+                # they drain pre-update GPU work already timed by step_core_ms.
+                drain_ns = int(float(timing["update_state_queue_drain_ms"]) * 1.0e6)
+                child_sum_ms = sum(float(value) for value in update_children)
+                timing["update_state_child_sum_ms"] = child_sum_ms
+                timing["update_state_nonattributed_ms"] = (
+                    timer.total_wall_ms() - child_sum_ms + drain_ns / 1.0e6
+                )
+            timing["update_state_timing_epilogue_ms"] = timer.wall_ms(
+                "update_state_timing_epilogue"
+            )
         return replacement
 
     def _advance_episode_steps(self, steps: torch.Tensor) -> None:
