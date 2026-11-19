@@ -40,6 +40,7 @@ from unisim.dr.interval import (
 from unisim.dr.types import (
     RESET_TERM_BODY_IPOS,
     RESET_TERM_BODY_MASS,
+    RESET_TERM_DOF_ARMATURE,
     RESET_TERM_GEOM_FRICTION,
     RESET_TERM_KD,
     RESET_TERM_KP,
@@ -3761,6 +3762,39 @@ class Entity:
             term_name=f"{term_name}:{self.name}",
         )
 
+    def write_joint_armature_tensor_mask(
+        self,
+        reset_mask: torch.Tensor,
+        values: torch.Tensor,
+        joint_ids: torch.Tensor | Sequence[int] | slice | None = None,
+        *,
+        term_name: str = "joint_armature",
+    ) -> None:
+        """Stage full-width joint armatures selected by the transaction mask.
+
+        Fixed-shape counterpart of :meth:`write_joint_armature_to_sim` for the
+        ``ResetSelection`` reset dispatch: ``values`` must be a contiguous
+        float32 tensor of shape ``(num_envs, selected_joints)`` on the packed
+        reset device; the transaction validates width, dtype, and device.
+        """
+        if self._reset_state is None:
+            raise self._capability_error(
+                "reset joint-armature write",
+                "EntityScene was materialized without an env-owned reset transaction",
+            )
+        model_dof_ids = self._materialize_joint_model_dof_ids()
+        local_ids = self._normalize_local_joint_ids(
+            joint_ids,
+            capability="reset joint-armature write",
+        )
+        self._reset_state.write_randomization_tensor_mask(
+            RESET_TERM_DOF_ARMATURE,
+            reset_mask,
+            model_dof_ids[local_ids],
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
     def bind_geom_friction_write(
         self,
         geom_ids: np.ndarray | Sequence[int] | slice | None = None,
@@ -3805,6 +3839,38 @@ class Entity:
         )
         self._reset_state.write_geom_friction(
             self._normalize_reset_env_ids(env_ids),
+            self._geom_ids[local_ids],
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def write_geom_friction_tensor_mask(
+        self,
+        reset_mask: torch.Tensor,
+        values: torch.Tensor,
+        geom_ids: torch.Tensor | Sequence[int] | slice | None = None,
+        *,
+        term_name: str = "geom_friction",
+    ) -> None:
+        """Stage full-width geom friction selected by the transaction mask.
+
+        Fixed-shape counterpart of :meth:`write_geom_friction_to_sim` for the
+        ``ResetSelection`` reset dispatch: ``values`` must be a contiguous
+        float32 tensor of shape ``(num_envs, selected_geoms, 3)`` on the packed
+        reset device; the transaction validates width, dtype, and device.
+        """
+        if self._reset_state is None or self._geom_ids is None:
+            raise self._capability_error(
+                "reset geom-friction write",
+                "geom metadata or the env-owned reset transaction was not materialized",
+            )
+        local_ids = self._normalize_local_geom_ids(
+            geom_ids,
+            capability="reset geom-friction write",
+        )
+        self._reset_state.write_randomization_tensor_mask(
+            RESET_TERM_GEOM_FRICTION,
+            reset_mask,
             self._geom_ids[local_ids],
             values,
             term_name=f"{term_name}:{self.name}",
@@ -3907,6 +3973,33 @@ class Entity:
         )
         reset_state.write_body_ipos(
             self._normalize_reset_env_ids(env_ids),
+            backend_ids,
+            values,
+            term_name=f"{term_name}:{self.name}",
+        )
+
+    def write_body_ipos_tensor_mask(
+        self,
+        reset_mask: torch.Tensor,
+        values: torch.Tensor,
+        body_ids: np.ndarray | Sequence[int] | slice | None = None,
+        *,
+        term_name: str = "randomize_rigid_body_com",
+    ) -> None:
+        """Stage full-width body inertial positions selected by the transaction mask.
+
+        Fixed-shape counterpart of :meth:`write_body_ipos_to_sim` for the
+        ``ResetSelection`` reset dispatch: ``values`` must be a contiguous
+        float32 tensor of shape ``(num_envs, selected_bodies, 3)`` on the packed
+        reset device; the transaction validates width, dtype, and device.
+        """
+        reset_state, _, backend_ids = self._bind_body_randomization(
+            body_ids,
+            capability="reset body-ipos write",
+        )
+        reset_state.write_randomization_tensor_mask(
+            RESET_TERM_BODY_IPOS,
+            reset_mask,
             backend_ids,
             values,
             term_name=f"{term_name}:{self.name}",
