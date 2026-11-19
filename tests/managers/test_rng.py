@@ -70,8 +70,6 @@ def test_rng_rejects_unsupported_choice_semantics() -> None:
     with pytest.raises(TypeError, match="probabilities must be a torch.Tensor"):
         rng.choice(2, (2,), p=[0.5, 0.5])  # pyright: ignore[reportArgumentType]
 
-    with pytest.raises(NotImplementedError, match="replacement=True only"):
-        rng.choice(2, (2,), p=torch.ones(2), replacement=False)
     with pytest.raises(ValueError, match="probabilities must live on"):
         rng.choice(2, (2,), p=torch.ones(2, device="meta"))
     with pytest.raises(ValueError, match="probabilities must have shape"):

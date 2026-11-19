@@ -1110,6 +1110,146 @@ def test_packed_transaction_owns_dr_merge_and_baselines() -> None:
     )
 
 
+class _CountingPackedBackend(_PackedTensorResetBackend):
+    """Packed fake counting per-term default fetches."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.default_term_calls: dict[str, int] = {}
+
+    def get_reset_term_default(self, term: str) -> np.ndarray:
+        self.default_term_calls[term] = self.default_term_calls.get(term, 0) + 1
+        return super().get_reset_term_default(term)
+
+
+def _count_tensor_default_materializations(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record every ``_materialize_tensor_randomization_default`` field argument."""
+    materialized: list[str] = []
+    original = ResetStateTransaction._materialize_tensor_randomization_default
+
+    def counting(self: ResetStateTransaction, field: str, term_name: str) -> torch.Tensor:
+        if field not in self._tensor_randomization_defaults:
+            materialized.append(field)
+        return original(self, field, term_name)
+
+    monkeypatch.setattr(
+        ResetStateTransaction, "_materialize_tensor_randomization_default", counting
+    )
+    return materialized
+
+
+def test_tensor_randomization_defaults_materialize_once_per_field(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _CountingPackedBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    _bind_device_mass(transaction)
+    materialized = _count_tensor_default_materializations(monkeypatch)
+
+    first_mask = torch.tensor([True, True, False, False])
+    with transaction.scoped_device_event_tensor(first_mask):
+        transaction.write_randomization_tensor_mask(
+            RESET_TERM_BODY_MASS,
+            first_mask,
+            np.array([0], dtype=np.int32),
+            torch.tensor([[7.0], [8.0], [0.0], [0.0]]),
+            term_name="first_reset_mass",
+        )
+    second_mask = torch.tensor([False, True, True, False])
+    with transaction.scoped_device_event_tensor(second_mask):
+        transaction.write_randomization_tensor_mask(
+            RESET_TERM_BODY_MASS,
+            second_mask,
+            np.array([1], dtype=np.int32),
+            torch.tensor([[0.0], [9.0], [10.0], [0.0]]),
+            term_name="second_reset_mass",
+        )
+
+    assert materialized == [RESET_TERM_BODY_MASS]
+    randomization = backend.tensor_reset_calls[-1][3]
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+    torch.testing.assert_close(
+        randomization.body_mass,
+        torch.tensor([[8.0, 9.0], [2.0, 10.0]]),
+    )
+
+
+def test_actuator_gain_tensor_defaults_materialize_once_across_transactions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _CountingPackedBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    materialized = _count_tensor_default_materializations(monkeypatch)
+
+    first_mask = torch.tensor([True, False, False, False])
+    with transaction.scoped_device_event_tensor(first_mask):
+        transaction.write_randomization_tensor_mask(
+            RESET_TERM_KP,
+            first_mask,
+            np.array([0], dtype=np.int32),
+            torch.tensor([[7.0], [0.0], [0.0], [0.0]]),
+            term_name="first_reset_kp",
+        )
+        transaction.write_randomization_tensor_mask(
+            RESET_TERM_KD,
+            first_mask,
+            np.array([1], dtype=np.int32),
+            torch.tensor([[0.0], [0.0], [0.0], [0.0]]),
+            term_name="first_reset_kd",
+        )
+    second_mask = torch.tensor([False, True, False, False])
+    with transaction.scoped_device_event_tensor(second_mask):
+        transaction.write_randomization_tensor_mask(
+            RESET_TERM_KP,
+            second_mask,
+            np.array([0], dtype=np.int32),
+            torch.tensor([[0.0], [8.0], [0.0], [0.0]]),
+            term_name="second_reset_kp",
+        )
+
+    assert materialized == [RESET_TERM_KP, RESET_TERM_KD]
+    randomization = backend.tensor_reset_calls[-1][3]
+    assert isinstance(randomization, TensorResetRandomizationPayload)
+    torch.testing.assert_close(randomization.kp[:, 0], torch.tensor([8.0]))
+
+
+def test_redeclaring_packed_reset_device_clears_tensor_default_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _CountingPackedBackend()
+    transaction = _transaction(backend)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    _bind_device_mass(transaction)
+    materialized = _count_tensor_default_materializations(monkeypatch)
+
+    def write_masked() -> None:
+        mask = torch.tensor([True, False, False, False])
+        with transaction.scoped_device_event_tensor(mask):
+            transaction.write_randomization_tensor_mask(
+                RESET_TERM_BODY_MASS,
+                mask,
+                np.array([0], dtype=np.int32),
+                torch.tensor([[7.0], [0.0], [0.0], [0.0]]),
+                term_name="reset_mass",
+            )
+
+    write_masked()
+    assert materialized == [RESET_TERM_BODY_MASS]
+    # The same device short-circuits and keeps the cache.
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    write_masked()
+    assert materialized == [RESET_TERM_BODY_MASS]
+    # A changed declaration rebuilds the packed composer and invalidates the
+    # cache. Torch collapses ``cpu:0`` to ``cpu`` at tensor creation, so nudge
+    # the stored device directly to simulate the rebuild trigger.
+    transaction._packed_reset_device = torch.device("cpu", 0)
+    transaction.declare_packed_reset_device(torch.device("cpu"))
+    write_masked()
+    assert materialized == [RESET_TERM_BODY_MASS, RESET_TERM_BODY_MASS]
+
+
 def test_host_commit_promotes_public_packed_reset_baseline() -> None:
     backend = _PackedTensorResetBackend()
     transaction = _transaction(backend)

@@ -151,6 +151,11 @@ class ResetStateTransaction:
         self._default_kp: np.ndarray | None = None
         self._default_kd: np.ndarray | None = None
         self._randomization_defaults: dict[str, np.ndarray] = {}
+        # Immutable full-width float32 default tables on the packed reset
+        # device, materialized once per field and reused by every
+        # ``write_randomization_tensor_mask`` call; cleared when the packed
+        # reset device is (re)declared.
+        self._tensor_randomization_defaults: dict[str, torch.Tensor] = {}
         self._startup_randomization_fields: set[str] = set()
         self._requesting_terms: set[str] = set()
         self._last_commit_had_writes = False
@@ -288,6 +293,9 @@ class ResetStateTransaction:
             "PackedResetTransaction", bind_packed_reset(device=resolved)
         )
         self._packed_reset_transaction.validation = self._packed_validation_mode
+        # The packed composer and its device tables are rebuilt: per-field
+        # tensor defaults cached for the previous declaration are stale.
+        self._tensor_randomization_defaults.clear()
         self._packed_state_default_installed = False
 
     @contextmanager
@@ -1119,7 +1127,16 @@ class ResetStateTransaction:
         self._tensor_has_writes = True
 
     def _materialize_tensor_randomization_default(self, field: str, term_name: str) -> torch.Tensor:
-        """Build the immutable per-env device base for one DR field on the cold path."""
+        """Return the immutable per-env device base for one DR field.
+
+        The full-width float32 table is materialized once per field and cached:
+        ``write_randomization_tensor_mask`` only reads ``shape[1]`` (the column
+        width) from it, so the cached tensor is never mutated. The cache is
+        cleared when the packed reset device is (re)declared.
+        """
+        cached = self._tensor_randomization_defaults.get(field)
+        if cached is not None:
+            return cached
         device = self._packed_reset_device
         if device is None:
             raise RuntimeError("device tensor reset requires its selected device to be declared")
@@ -1133,9 +1150,10 @@ class ResetStateTransaction:
             default = self._require_randomization_default(field, term_name)
         assert default is not None
         table = torch.as_tensor(np.array(default, dtype=np.float32, copy=True), device=device)
-        if self._default_is_per_env(default, field=field):
-            return table
-        return table.unsqueeze(0).expand(self._num_envs, *table.shape).contiguous()
+        if not self._default_is_per_env(default, field=field):
+            table = table.unsqueeze(0).expand(self._num_envs, *table.shape).contiguous()
+        self._tensor_randomization_defaults[field] = table
+        return table
 
     def reset_to_default(self, reset_mask: torch.Tensor, *, term_name: str) -> None:
         """Stage backend default qpos/qvel for the active full-width mask."""
