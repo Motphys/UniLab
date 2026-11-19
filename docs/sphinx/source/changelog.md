@@ -157,6 +157,19 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   覆盖率门槛（`pyproject.toml` 中 `fail-under = 40`）
   （[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
+- The default and ROCm profiles now pin `unisim-core==2.7.3`, which removes
+  the per-reset host-blocking stream synchronize from MJWarp's device reset
+  randomization scatter (unilabsim/unisim#537): under the default deferred
+  finite-validation mode the reset hot path no longer drains the Torch stream
+  on every reset when backend-owned graphs are off. Paired with the masked DR
+  writers in #2630, fixed-shape autoreset is sync-free end to end
+  ([#2623](https://github.com/Motphys/UniLab/issues/2623))。
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.7.3`：该版本移除了 MJWarp
+  设备 reset 随机化 scatter 处每次 reset 阻塞 host 的 stream 同步
+  （unilabsim/unisim#537）——在默认的 deferred 有限值校验模式下，关闭
+  backend 自有 graph 时 reset 热路径不再每步排空 Torch stream。与 #2630 的
+  掩码 DR 写入门配合，fixed-shape autoreset 端到端免同步
+  （[#2623](https://github.com/Motphys/UniLab/issues/2623)）。
 
 ### Fixed / 修复
 
