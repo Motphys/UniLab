@@ -51,7 +51,10 @@ class TorchEnvState:
 
     Terminal pre-reset observations are represented only by
     ``final_observation``; ``info`` never carries duplicate
-    terminal-observation entries.
+    terminal-observation entries. ``carriers`` holds task-registered custom
+    step-output tensors (see ``TorchEnv.register_step_carrier``); like
+    ``obs``/``reward``, the published state's entries are zero-copy views
+    into persistent ring storage.
     """
 
     obs: dict[str, torch.Tensor]
@@ -60,6 +63,7 @@ class TorchEnvState:
     truncated: torch.Tensor
     info: dict[str, Any]
     final_observation: dict[str, torch.Tensor] | None = None
+    carriers: dict[str, torch.Tensor] = dataclasses.field(default_factory=dict)
 
     def replace(self, **updates: Any) -> "TorchEnvState":
         """Return a copy of this transition with ``updates`` applied."""
@@ -245,6 +249,10 @@ class TorchEnv(ABEnv):
         self._publication_ring: list[TorchEnvState] = []
         self._publication_cursor = 0
         self._published_state: TorchEnvState | None = None
+        # Task-owned custom step-output carriers (issue #2628), published
+        # through the same ring as obs/reward/done. Registration closes at
+        # the first publish; the mapping then backs ``TorchEnvState.carriers``.
+        self._step_carriers: dict[str, torch.Tensor] = {}
 
     @property
     def device(self) -> torch.device:
@@ -307,9 +315,10 @@ class TorchEnv(ABEnv):
         """The latest published transition.
 
         With ``persistent_step_buffers`` this is a publication slot whose
-        tensors stay unchanged for ``published_buffer_depth - 1`` further
-        steps (or, at depth 0, the working carriers that the next step
-        overwrites in place).
+        tensors — observations, reward, terminated, truncated and the
+        registered custom ``carriers`` — stay unchanged for
+        ``published_buffer_depth - 1`` further steps (or, at depth 0, the
+        working carriers that the next step overwrites in place).
         """
         if self._published_state is not None:
             return self._published_state
@@ -357,6 +366,65 @@ class TorchEnv(ABEnv):
             transition()
             return
         capture.record_host_transition(f"env.{name}", transition)
+
+    def register_step_carrier(self, name: str, carrier: torch.Tensor) -> None:
+        """Register a task-owned tensor as a persistent step-output carrier.
+
+        The carrier is a device tensor the task updates in place during
+        ``update_state`` — for example a transition snapshot or a custom
+        per-step metric tensor. With ``persistent_step_buffers`` (implied by
+        ``autoreset_cuda_graph``) the env copies it, with ``copy_``, into the
+        current publication-ring slot at every step boundary, so consumers of
+        the published state can hold the slot's tensor for
+        ``published_buffer_depth`` further steps without a defensive clone.
+        Ring slots are pre-allocated with ``torch.empty_like``, so every
+        address is fixed after the first publish — the address-stability
+        precondition for capturing the step-output publication in a CUDA
+        graph (issue #2628). Consumers read the published values through
+        ``TorchEnvState.carriers``.
+
+        Registration is a cold-path call. It must happen before the first
+        ``reset``/``step`` (which allocates the publication ring), and it
+        requires the fixed-shape chain. Fails closed on a duplicate or empty
+        name, a non-tensor carrier, a carrier that is not on the env device,
+        a carrier registered after the first publish, or when persistent
+        step buffers are disabled.
+
+        Args:
+            name: Unique non-empty name under which the carrier is published
+                in ``TorchEnvState.carriers``.
+            carrier: Tensor on the env device. The task keeps ownership and
+                updates it in place; dtype and shape are captured by the
+                ring slots with ``torch.empty_like``.
+
+        Raises:
+            RuntimeError: If the publication ring is already allocated (the
+                first ``reset``/``step`` has run).
+            ValueError: On an empty or duplicate name, a carrier on the wrong
+                device, or when persistent step buffers are disabled.
+            TypeError: If ``carrier`` is not a ``torch.Tensor``.
+        """
+        if self._state is not None:
+            raise RuntimeError(
+                "register_step_carrier must be called before the first reset: "
+                "the publication ring is already allocated"
+            )
+        if not self._persistent_step_buffers:
+            raise ValueError(
+                "register_step_carrier requires persistent step buffers "
+                "(enable env.autoreset_cuda_graph)"
+            )
+        if not isinstance(name, str) or not name:
+            raise ValueError(f"step carrier name must be a non-empty string, got {name!r}")
+        if name in self._step_carriers:
+            raise ValueError(f"step carrier {name!r} is already registered")
+        if not isinstance(carrier, torch.Tensor):
+            raise TypeError(f"step carrier {name!r} must be a torch.Tensor")
+        if carrier.device != self._device:
+            raise ValueError(
+                f"step carrier {name!r} must be on {self._device}, got {carrier.device}"
+            )
+        self._step_carriers[name] = carrier
 
     def reset_selection_blockers(self) -> list[str]:
         """Reset participants that cannot take a ``ResetSelection``."""
@@ -408,6 +476,7 @@ class TorchEnv(ABEnv):
             terminated=torch.ones((self._num_envs,), dtype=torch.bool, device=self._device),
             truncated=torch.zeros((self._num_envs,), dtype=torch.bool, device=self._device),
             info={"steps": initial_steps},
+            carriers=self._step_carriers,
         )
         self._last_initial_episode_steps = initial_steps.clone()
         if self._masked_autoreset:
@@ -1019,6 +1088,9 @@ class TorchEnv(ABEnv):
                 terminated=torch.empty_like(state.terminated),
                 truncated=torch.empty_like(state.truncated),
                 info=state.info,
+                carriers={
+                    name: torch.empty_like(value) for name, value in self._step_carriers.items()
+                },
             )
             for _ in range(self._published_buffer_depth)
         ]
@@ -1037,6 +1109,8 @@ class TorchEnv(ABEnv):
         slot.reward.copy_(state.reward)
         slot.terminated.copy_(state.terminated)
         slot.truncated.copy_(state.truncated)
+        for name, value in state.carriers.items():
+            slot.carriers[name].copy_(value)
         slot.info = state.info
         slot.final_observation = state.final_observation
         self._published_state = slot
