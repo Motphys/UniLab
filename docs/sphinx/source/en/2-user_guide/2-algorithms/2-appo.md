@@ -138,7 +138,6 @@ uv run train --algo appo --task go2_joystick_flat --sim mujoco \
 | `training.tf32_matmul` | str | ieee | Learner FP32 matmul backend; `tf32` opts into tensor cores with automatic IEEE fallback |
 | `training.nan_guard.enabled` | bool | true | Detect non-finite tensors and dump diagnostics |
 | `training.nan_guard.check_interval` | int | 32 | Env steps between NaN checks |
-| `training.defer_finite_validation` | bool | true | Batch finite checks into a periodic cycle |
 | `training.finite_validation_interval` | int | 32 | Steps per batched finite-check cycle |
 | `training.collector_tensor_device` | str | auto | Device of collector-side tensors; `auto` follows the learner |
 | `training.logger` | str | tensorboard | Scalar logging backend (`tensorboard` or `wandb`) |

@@ -27,10 +27,10 @@ _MODEL_FILE = str(
     "cfg",
     [
         EnvCfg(),
-        ManagerBasedRlEnvCfg(defer_finite_validation=True),
-        ManagerBasedRlEnvCfg(defer_finite_validation=False),
+        ManagerBasedRlEnvCfg(),
+        ManagerBasedRlEnvCfg(autoreset_cuda_graph=True),
     ],
-    ids=["env_cfg", "deferred", "eager"],
+    ids=["env_cfg", "default", "autoreset_graph"],
 )
 def test_mjwarp_finite_check_is_explicitly_disabled_by_default(cfg: EnvCfg) -> None:
     assert env_backend_kwargs(cfg)["mjwarp_validate_tensor_finite"] is False
@@ -71,9 +71,9 @@ def test_mjwarp_step_tensor_finite_check_follows_env_cfg(
     if not bool(warp.get_device().is_cuda):
         pytest.skip("mjwarp runtime tests require an active CUDA Warp device")
 
-    # ``None`` exercises the UniLab default; both runs use eager env-level
-    # validation to show the backend default does not depend on deferral.
-    cfg = ManagerBasedRlEnvCfg(defer_finite_validation=False)
+    # ``None`` exercises the UniLab default; both runs build the backend
+    # directly, so the env-level validation mode does not affect the check.
+    cfg = ManagerBasedRlEnvCfg()
     if validate is not None:
         cfg.mjwarp_validate_tensor_finite = validate
     backend = create_backend(

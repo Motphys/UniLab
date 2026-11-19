@@ -83,7 +83,6 @@ training:
     defer_validation: true
     check_interval: 32
     capture_interval: 32
-  defer_finite_validation: true
   finite_validation_interval: 32
   play_only: false
   no_play: false

@@ -6,8 +6,9 @@ kernels whose shape depends on the number of reset rows. Each of these steps
 synchronizes the host with the GPU.
 
 An opt-in fixed-shape path removes these synchronizations, and on CUDA it can
-replay the whole reset segment as one CUDA graph. Every switch defaults to
-`False`, so tasks that do not opt in keep the selected-row behavior unchanged.
+replay the whole reset segment as one CUDA graph. The path is controlled by a
+single public switch, `env.autoreset_cuda_graph`, so tasks that do not opt in
+keep the selected-row behavior unchanged.
 
 Implementation: `src/unilab/base/torch_env.py`,
 `src/unilab/base/reset_selection.py`, `src/unilab/base/autoreset_graph.py`,
@@ -21,8 +22,6 @@ Implementation: `src/unilab/base/torch_env.py`,
   `ResetSelection` (see "Opting terms into `ResetSelection`" below).
   The G1 motion-tracking terms (`MotionCommand`, `JointPositionAction`, the
   motion body rewards and the anchor/body height terminations) already opt in.
-- `training.defer_finite_validation=true`, the default in every shipped
-  algorithm config.
 - For the CUDA graph: a CUDA env device, and a backend that declares the
   `external_graph_capture` capability and implements
   `torch_graph_capture_scope`. MJWarp does both from `unisim-core` 2.7.2, the
@@ -30,35 +29,37 @@ Implementation: `src/unilab/base/torch_env.py`,
 
 ## Configuration flags
 
-All flags are fields of `ManagerBasedRlEnvCfg` (or of the base `EnvCfg` for the
-backend flag). They live in the `env` section of the owner YAML. They are not
-present in the shipped owner YAMLs, so set them with `++` from the command line:
+`env.autoreset_cuda_graph` is the single public switch. Setting it to `true`
+implies the whole fixed-shape chain; the intermediate switches
+(`masked_autoreset`, `persistent_step_buffers`, `defer_finite_validation`),
+the publication ring depth and the graph warmup are internal — derived from
+this switch or owned as constants by `TorchEnv` — and are no longer
+configuration keys. Supplying a deleted key fails closed with a config error.
 
 ```bash
 uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp \
-  ++env.masked_autoreset=true \
-  ++env.persistent_step_buffers=true \
   ++env.autoreset_cuda_graph=true \
   ++env.mjwarp_defer_tensor_validation=true
 ```
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `masked_autoreset` | `False` | Runs the autoreset on every step as a full-width `reset(ResetSelection)` under the device done mask, with no `any()` gate and no `nonzero`. Requires `defer_finite_validation`. |
-| `persistent_step_buffers` | `False` | Allocates the observation, reward, terminated and truncated carriers once and updates them with `copy_`. Consumers receive one of `published_buffer_depth` persistent publication slots. |
-| `published_buffer_depth` | `2` | Size of the publication ring. A published state stays valid for `published_buffer_depth - 1` further steps. `0` publishes the working carriers themselves, which the next step overwrites. |
-| `autoreset_cuda_graph` | `False` | Captures the masked autoreset segment, including the backend reset, into one `torch.cuda.graph` and replays it afterwards. Requires `masked_autoreset`, `persistent_step_buffers`, a CUDA device and a backend with external graph capture. |
-| `autoreset_graph_warmup` | `2` | Eager executions before capture, so that lazily allocated buffers exist outside the graph. |
+| `autoreset_cuda_graph` | `False` | Runs the autoreset on every step as a full-width `reset(ResetSelection)` under the device done mask (no `any()` gate, no `nonzero`), keeps the observation, reward, terminated and truncated carriers persistent, defers every fail-closed finite check to the poll boundary, and — on CUDA — captures the masked autoreset segment, including the backend reset, into one `torch.cuda.graph` and replays it afterwards. Requires a CUDA device and a backend with external graph capture. |
 | `autoreset_graph_capture_mode` | `"thread_local"` | `torch.cuda.graph` capture error mode: `"global"`, `"thread_local"` or `"relaxed"`. |
 | `mjwarp_defer_tensor_validation` | `False` | Latches MJWarp's fail-closed operand and reset-mask checks into device verdicts instead of reading each one on the host. The env publishes them at its deferred-validation poll. Inside a graph capture MJWarp always defers. The flag also removes the host reads from the eager steps outside the captured segment. UniLab forwards it only when it is `True`. |
 
-Invalid combinations fail when the config is validated: for example,
-`autoreset_cuda_graph` without `masked_autoreset` and `persistent_step_buffers`,
-or `masked_autoreset` without `defer_finite_validation`.
+A published state stays valid for one further step (the ring holds two
+persistent slots, which the off-policy double-buffer contract needs); the
+capture happens after two eager warmup executions so that lazily allocated
+buffers exist outside the graph.
+
+Invalid combinations fail when the environment is constructed: for example,
+`autoreset_cuda_graph` on a non-CUDA device, or a backend without the
+`external_graph_capture` capability.
 
 ## Behavior notes
 
-**RNG draw order.** With `masked_autoreset` the reset lifecycle runs on every
+**RNG draw order.** On the fixed-shape path the reset lifecycle runs on every
 step; an all-false mask leaves the state unchanged. Full-width samplers, such as
 the `MotionCommand` resample or the reset-event interval times, therefore draw
 from the Manager RNG on steps where no row is done. With the same seed,
@@ -77,11 +78,10 @@ reset-mask containment and MJWarp/packed-reset verdicts.
 failure is therefore raised at the next poll, up to `interval - 1` steps after
 the faulty step. Packed-reset failures name the poll step
 (`first detected at poll boundary, step N`). To localize a fault, rerun with
-`training.finite_validation_interval=1`; the masked path still requires
-`training.defer_finite_validation=true`.
+`training.finite_validation_interval=1` so every step is a poll boundary.
 
-**Stale diagnostic counters.** In masked mode the env has no host-side reset row
-count or per-phase split. Consequences:
+**Stale diagnostic counters.** On the fixed-shape path the env has no
+host-side reset row count or per-phase split. Consequences:
 
 - The per-reset detail keys in `info["timing"]`
   (`RESET_DONE_DETAIL_TIMING_KEYS` in `src/unilab/base/backend_timing.py`, for
@@ -157,7 +157,7 @@ Some managers impose extra rules:
 
 ### Debugging `reset_selection_blockers`
 
-With `masked_autoreset`, `init_state` calls
+With the fixed-shape path, `init_state` calls
 `ManagerBasedRlEnv.reset_selection_blockers()`. It collects one entry per
 unsupported participant from every manager and raises:
 
@@ -175,7 +175,7 @@ To list blockers without starting a training run, construct the env with the
 flag off and call the method:
 
 ```python
-env.reset_selection_blockers()  # [] when the task can enable masked_autoreset
+env.reset_selection_blockers()  # [] when the task can enable the fixed-shape path
 ```
 
 Then convert, replace or remove each named term. Reset-randomization events are

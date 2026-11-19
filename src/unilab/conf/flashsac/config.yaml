@@ -104,9 +104,9 @@ training:
     check_interval: 32
     capture_interval: 32
   # Collect finite verdicts on-device and publish once per 32-step cycle.
-  # Debug: set defer_finite_validation=false, nan_guard.defer_validation=false,
-  # and nan_guard.capture_interval=1 for immediate checks/full snapshots.
-  defer_finite_validation: true
+  # Debug: finite_validation_interval=1 raises at every step;
+  # nan_guard.defer_validation=false with nan_guard.capture_interval=1 gives
+  # immediate guard checks and full snapshots.
   finite_validation_interval: 32
   use_amp: true
   play_only: false

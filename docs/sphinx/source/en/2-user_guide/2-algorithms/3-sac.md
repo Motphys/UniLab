@@ -118,7 +118,6 @@ uv run train --algo sac --task g1_walk_flat --sim mujoco \
 | `training.dp_gradient_wire_dtype` | str | float32 | Gradient wire dtype for multi-GPU averaging; `bfloat16` compresses |
 | `training.nan_guard.enabled` | bool | true | Detect non-finite tensors and dump diagnostics |
 | `training.nan_guard.check_interval` | int | 32 | Env steps between NaN checks |
-| `training.defer_finite_validation` | bool | true | Batch finite checks into a periodic cycle |
 | `training.finite_validation_interval` | int | 32 | Steps per batched finite-check cycle |
 | `training.collector_tensor_device` | str | auto | Device of collector-side tensors; `auto` follows the learner |
 | `training.env_steps_per_sync` | int | 1 | Env steps per collection sync |

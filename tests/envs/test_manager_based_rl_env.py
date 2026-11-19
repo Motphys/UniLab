@@ -1404,6 +1404,9 @@ def test_deferred_episode_metrics_flush_at_fixed_step_without_reset() -> None:
         metrics={"length": MetricsTermCfg(func=_metric, reduce="mean")},
     )
     cfg.terminations = {"failure": TerminationTermCfg(func=_failure)}
+    # Test-only injection: deferred validation is the only public mode, so
+    # eager/deferred variants are set as plain attributes (TorchEnv's soft
+    # getattr protocol) rather than through a removed config field.
     cfg.defer_finite_validation = True
     cfg.finite_validation_interval = 4
     env, _ = _make_env(cfg)

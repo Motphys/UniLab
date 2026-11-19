@@ -10,7 +10,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 
-from unilab.training.run import finite_validation_env_overrides, resolve_nan_guard_cfg
+from unilab.training.run import finite_validation_interval_override, resolve_nan_guard_cfg
 from unilab.training.tensor_diagnostics import NanGuard, NanGuardCfg
 
 
@@ -174,7 +174,6 @@ def test_training_routes_guard_and_shared_finite_boundary() -> None:
     cfg = OmegaConf.create(
         {
             "training": {
-                "defer_finite_validation": True,
                 "finite_validation_interval": 32,
                 "nan_guard": {
                     "enabled": True,
@@ -185,10 +184,7 @@ def test_training_routes_guard_and_shared_finite_boundary() -> None:
             }
         }
     )
-    assert finite_validation_env_overrides(cfg) == {
-        "defer_finite_validation": True,
-        "finite_validation_interval": 32,
-    }
+    assert finite_validation_interval_override(cfg) == {"finite_validation_interval": 32}
     guard_cfg = resolve_nan_guard_cfg(cfg.training)
     assert guard_cfg is not None
     assert (guard_cfg.capture_interval, guard_cfg.check_interval, guard_cfg.defer_validation) == (
@@ -199,7 +195,7 @@ def test_training_routes_guard_and_shared_finite_boundary() -> None:
 
     cfg.training.finite_validation_interval = 0
     with pytest.raises(ValueError, match="positive integer"):
-        finite_validation_env_overrides(cfg)
+        finite_validation_interval_override(cfg)
 
 
 def test_reset_verdict_allows_inference_tensor_latches(tmp_path: Path) -> None:
