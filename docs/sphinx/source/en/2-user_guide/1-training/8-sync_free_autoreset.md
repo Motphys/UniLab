@@ -112,6 +112,51 @@ lower bound, must be declared with
 re-applies these transitions after every replay. Undeclared host state keeps the
 value it had at capture time.
 
+## Step-output lifetime and custom carriers
+
+With `persistent_step_buffers` (implied by `autoreset_cuda_graph`) the step
+outputs are zero-copy views into pre-allocated storage — no per-step output
+allocation:
+
+- `state.obs`, `state.reward`, `state.terminated` and `state.truncated` are
+  views into the current publication-ring slot. A published state stays valid
+  for one further step: the ring holds two persistent slots, which the
+  off-policy double-buffer contract needs (a published `obs_t` stays stable
+  while the next step writes `obs_tp1`).
+- `state.carriers` holds task-registered custom carriers (below); the same
+  ring semantics apply to them.
+- `state.info` is host-side state shared by reference, not ring storage:
+  `info["steps"]` is a device tensor, but `info["timing"]`, `info["log"]` and
+  other entries are replaced or mutated every step. Read them before the next
+  `step` returns.
+- `state.final_observation` aliases the env's single working scratch. It is
+  valid until the next reset segment runs (every step on the fixed-shape
+  path); clone it if it must be kept longer.
+
+### Registering a custom step-output carrier
+
+Tasks that materialize per-step data — transition snapshots, custom metric
+tensors — can publish it through the same ring instead of defending against
+overwrites with per-step `detach().clone()`:
+
+```python
+snapshot = torch.zeros((env.num_envs, snapshot_dim), device=env.device)
+env.register_step_carrier("transition", snapshot)  # cold path: before the first reset()
+
+# ... a term or manager updates `snapshot` in place during update_state ...
+
+state = env.step(actions)
+state.carriers["transition"]  # ring-slot view; stable for one further step
+```
+
+`register_step_carrier` fails closed: it requires the fixed-shape chain
+(`env.autoreset_cuda_graph`), must be called before the first `reset` (the
+ring is allocated there), rejects duplicate or empty names and carriers that
+are not tensors on the env device. Ring slots are allocated with
+`torch.empty_like` at the first publish, so every address involved is fixed
+from then on — the address-stability precondition for capturing the
+step-output publication in a CUDA graph (issue #2628).
+
 ## Opting terms into `ResetSelection`
 
 A `ResetSelection` (`src/unilab/base/reset_selection.py`) is a persistent
