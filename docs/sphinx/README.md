@@ -82,7 +82,8 @@ CI 工作流在 `.github/workflows/docs.yml`:
   UniLab + autodoc)并通过 deploy key(`UNILAB_DOC_DEPLOY_KEY` secret)推送到
   [`unilabsim/UniLab-doc`](https://github.com/unilabsim/UniLab-doc) 的
   `gh-pages` 分支,GitHub Pages 自动更新站点。完整构建安装失败时降级为
-  prose-only 构建并仍然部署
+  prose-only 构建并仍然部署。历史 tag 版本始终为 prose-only(autodoc 只能
+  反映当前安装的代码,给旧版本生成 API 文档既会失败也不正确)
 - **手动**: `workflow_dispatch` 在 `main` 上触发时走同一套构建 + 部署;
   在其他分支触发时只做 prose-only build
 
