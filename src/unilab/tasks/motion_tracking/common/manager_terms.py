@@ -394,7 +394,7 @@ if TYPE_CHECKING:
     from unilab.managers.types import ManagerBasedRlEnv
 
 
-SamplingMode = Literal["adaptive", "mixed"]
+SamplingMode = Literal["start", "uniform", "adaptive", "mixed"]
 _RANGE_KEYS = ("x", "y", "z", "roll", "pitch", "yaw")
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
 
@@ -442,7 +442,7 @@ def _validate_motion_command_cfg(cfg: MotionCommandCfg) -> None:
         raise ValueError("MotionCommandCfg anchor_body_name must occur in body_names")
     if len(set(cfg.body_names)) != len(cfg.body_names):
         raise ValueError("MotionCommandCfg body_names must be unique")
-    if cfg.sampling_mode not in ("adaptive", "mixed"):
+    if cfg.sampling_mode not in ("start", "uniform", "adaptive", "mixed"):
         raise ValueError(f"MotionCommandCfg has unsupported sampling_mode {cfg.sampling_mode!r}")
     if not 0.0 <= cfg.params.sampling_start_ratio <= 1.0:
         raise ValueError("MotionCommandCfg sampling_start_ratio must be within [0, 1]")
@@ -458,6 +458,10 @@ class MotionCommandParamsCfg:
     anchor_body_name: str
     body_names: tuple[str, ...] | list[str]
     sampling_mode: SamplingMode = "adaptive"
+    """Frame sampling strategy: deterministic clip start (``start``), uniform
+    frame sampling (``uniform``), failure-bucket EMA sampling (``adaptive``),
+    or a ``start``/``uniform`` mixture tuned by ``sampling_start_ratio``
+    (``mixed``, UniLab extension)."""
     sampling_start_ratio: float = 0.0
     truncate_on_clip_end: bool = False
     pose_range: dict[str, tuple[float, float]] = field(default_factory=dict)
@@ -657,9 +661,9 @@ class MotionCommand(CommandTerm):
             self.metrics[name] = torch.zeros(
                 self.num_envs, dtype=torch.float32, device=self._device
             )
-        if self.cfg.params.sampling_mode not in ("adaptive", "mixed"):
+        if self.cfg.params.sampling_mode not in ("start", "uniform", "adaptive", "mixed"):
             raise NotImplementedError(
-                "MotionCommand tensor sampler requires adaptive or mixed sampling"
+                "MotionCommand tensor sampler requires a start/uniform/adaptive/mixed sampling mode"
             )
         self._make_tensor_sampler()
         self._defer_read_phase_binding()

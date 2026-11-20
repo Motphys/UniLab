@@ -3043,9 +3043,15 @@ class Entity:
         return self._find("joint", self._joint_names, keys, preserve_order)
 
     def find_joints_by_actuator_names(
-        self, keys: str | Sequence[str]
+        self, keys: str | Sequence[str], preserve_order: bool = False
     ) -> tuple[list[int], list[str]]:
-        """Resolve actuator-target joint patterns in natural entity joint order."""
+        """Resolve actuator-target joint patterns in natural or key order.
+
+        With ``preserve_order=False`` (default) matched joints follow the
+        entity's natural joint order; with ``preserve_order=True`` they follow
+        the order of the ``keys`` patterns (mjlab ``BaseActionCfg.preserve_order``
+        semantics on the joint transmission path).
+        """
         target_names = self._actuator_target_joint_names
         if target_names is None:
             raise self._capability_error(
@@ -3055,7 +3061,7 @@ class Entity:
         target_set = set(target_names)
         natural_ids = [index for index, name in enumerate(self.joint_names) if name in target_set]
         natural_names = [self.joint_names[index] for index in natural_ids]
-        matched_ids, matched_names = _resolve_matching_names(keys, natural_names, False)
+        matched_ids, matched_names = _resolve_matching_names(keys, natural_names, preserve_order)
         return [natural_ids[index] for index in matched_ids], matched_names
 
     def set_joint_position_target(

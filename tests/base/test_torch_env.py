@@ -1005,8 +1005,11 @@ def test_nonfatal_manager_verdict_does_not_hide_base_failure() -> None:
 
     env.observation_manager = _NonfatalVerdict()  # type: ignore[attr-defined]
     env.record_finite_validation(torch.tensor([float("nan")]))
-    with pytest.raises(ValueError, match="deferred finite validation"):
+    with pytest.raises(ValueError, match="deferred finite validation") as excinfo:
         env.poll_finite_validation(force=True)
+    message = str(excinfo.value)
+    assert "env-internal finite checks" in message
+    assert "observation_manager.finite_verdict" in message
 
 
 def test_deferred_and_strict_paths_preserve_finite_rollout() -> None:

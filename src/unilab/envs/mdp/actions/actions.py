@@ -73,6 +73,8 @@ class BaseActionCfg(ActionTermCfg):
     actuator_names: tuple[str, ...] | list[str]
     scale: float | dict[str, float] = 1.0
     offset: float | dict[str, float] = 0.0
+    preserve_order: bool = False
+    """Whether to preserve the order of actuator names."""
 
 
 class BaseAction(ActionTerm):
@@ -89,7 +91,11 @@ class BaseAction(ActionTerm):
     def __init__(self, cfg: BaseActionCfg, env: ManagerBasedRlEnv):
         """Resolve target joints and allocate the raw/processed action carriers."""
         super().__init__(cfg=cfg, env=env)
-        target_ids, target_names = self._entity.find_joints_by_actuator_names(cfg.actuator_names)
+        if not isinstance(cfg.preserve_order, bool):
+            raise TypeError(f"{type(cfg).__name__} preserve_order must be bool")
+        target_ids, target_names = self._entity.find_joints_by_actuator_names(
+            cfg.actuator_names, preserve_order=cfg.preserve_order
+        )
         self._target_ids = tuple(target_ids)
         self._device = env.device
         self._target_index = torch.tensor(self._target_ids, dtype=torch.int64, device=self._device)

@@ -1405,6 +1405,7 @@ class TorchEnv(ABEnv):
 
         verdicts = [self._finite_verdict]
         managers: list[Any] = []
+        manager_names: list[str] = []
         for name in (
             "action_manager",
             "reward_manager",
@@ -1417,6 +1418,7 @@ class TorchEnv(ABEnv):
             if isinstance(verdict, torch.Tensor):
                 verdicts.append(verdict)
                 managers.append(manager)
+                manager_names.append(name)
 
         guard = self._nan_guard
         guard_bad: torch.Tensor | None = None
@@ -1450,6 +1452,11 @@ class TorchEnv(ABEnv):
             named.flush()
         base_valid = bool(self._finite_verdict.detach().cpu().item())
         self._finite_verdict.fill_(True)
+        failed_managers = [
+            name
+            for name, manager in zip(manager_names, managers, strict=True)
+            if not bool(manager.finite_verdict.detach().cpu().item())
+        ]
         if guard is not None and guard_bad is not None:
             nan_ids = guard.poll(step=self.step_counter, force=True)
             if nan_ids is not None:
@@ -1465,7 +1472,14 @@ class TorchEnv(ABEnv):
                 handled_nonfatal = True
         if handled_nonfatal and base_valid:
             return True
-        raise ValueError("TorchEnv deferred finite validation detected NaN or Inf")
+        sources: list[str] = []
+        if not base_valid:
+            sources.append(
+                "env-internal finite checks (observations, reward, actions, control, reset)"
+            )
+        sources.extend(f"{name}.finite_verdict" for name in failed_managers)
+        detail = f": {'; '.join(sources)}" if sources else ""
+        raise ValueError(f"TorchEnv deferred finite validation detected NaN or Inf{detail}")
 
     def _named_verdict_sets(self) -> list[DeviceVerdicts]:
         """Env-owned and backend-owned named verdicts, for the single poll read."""

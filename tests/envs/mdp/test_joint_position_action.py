@@ -182,6 +182,42 @@ def test_default_offset_encoder_bias_and_control_order() -> None:
     np.testing.assert_array_equal(control[:, 2], 0.0)
 
 
+def test_preserve_order_makes_action_dims_follow_actuator_names() -> None:
+    action, control, _ = _build_action(
+        JointPositionActionCfg,
+        actuator_names=("knee", "hip"),
+        preserve_order=True,
+        scale={"knee": 3.0, "hip": 2.0},
+        use_default_offset=False,
+    )
+    assert isinstance(action, JointPositionAction)
+
+    assert action.target_names == ["knee", "hip"]
+    assert action.target_ids == (1, 0)
+    action.process_actions(torch.tensor([[1.0, 2.0], [3.0, 4.0]], dtype=torch.float32))
+    action.apply_actions()
+
+    # Action dimension 0 drives the knee (joint 1 -> actuator 0), dimension 1 the
+    # hip (joint 0 -> actuator 1); dict scales resolve by name, not position.
+    np.testing.assert_allclose(control[:, 0].numpy(), np.asarray([3.0, 9.0]))
+    np.testing.assert_allclose(control[:, 1].numpy(), np.asarray([4.0, 8.0]))
+    np.testing.assert_array_equal(control[:, 2], 0.0)
+    torch.testing.assert_close(
+        action.processed_action, torch.tensor([[3.0, 4.0], [9.0, 8.0]], dtype=torch.float32)
+    )
+
+
+def test_actuator_name_order_defaults_to_natural_joint_order() -> None:
+    action, _, _ = _build_action(
+        JointPositionActionCfg,
+        actuator_names=("knee", "hip"),
+        use_default_offset=False,
+    )
+
+    assert action.target_names == ["hip", "knee"]
+    assert action.target_ids == (0, 1)
+
+
 def test_tensor_control_writes_stay_on_control_plane() -> None:
     action, control, scene = _action()
     raw = np.asarray([[0.25, -0.5], [1.0, 1.5]], dtype=np.float32)

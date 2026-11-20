@@ -500,6 +500,10 @@ class ManagerBasedRlEnv(Protocol):
         """Accumulate one finite verdict into the env's deferred poll boundary."""
         ...
 
+    def require(self, ok: torch.Tensor, name: str, message: str) -> None:
+        """Fail-closed named check published at the deferred poll boundary."""
+        ...
+
     @property
     def reset_buf(self) -> torch.Tensor:
         """Per-row reset flags."""
