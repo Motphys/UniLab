@@ -66,6 +66,7 @@ from unilab.managers import (
     RewardTermCfg,
     TerminationTermCfg,
 )
+from unilab.managers._noise import ConstantNoiseCfg
 from unilab.managers.rng import ManagerRng
 from unilab.managers.scene_entity_config import SceneEntityCfg
 
@@ -3764,7 +3765,10 @@ def test_manual_reset_is_required_when_autoreset_is_disabled() -> None:
     reset_obs, info = env.reset(torch.tensor([0], dtype=torch.int64))
     assert reset_obs["obs"].shape == (2, 2)
     assert "log" in info
-    assert not state.terminated[0]
+    assert state.terminated[0]
+    latest = env.state
+    assert latest is not None and latest is not state
+    assert not latest.terminated[0]
     env.step(torch.zeros((2, 1), dtype=torch.float32))
 
 
@@ -4464,22 +4468,20 @@ def test_manager_public_outputs_do_not_alias_reset_flags() -> None:
     torch.testing.assert_close(truncated, env.reset_time_outs)
 
 
-def test_public_observation_groups_do_not_alias_step_outputs() -> None:
+def test_manager_tensor_preserves_compatible_result_storage() -> None:
     env = object.__new__(ManagerBasedRlEnv)
     object.__setattr__(env, "_device", torch.device("cpu"))
     values = {"obs": torch.ones((2, 3), dtype=torch.float32), "critic": torch.ones((2, 1))}
 
-    # Same-device/dtype contiguous Manager results remain non-copied eager
-    # outputs; deferred validation stages its own public carriers separately.
+    # The conversion helper preserves compatible results; the eager publication
+    # boundary separately clones any result that still aliases its source.
     assert env._manager_tensor(values["obs"], dtype=torch.float32) is values["obs"]
 
 
-def test_eager_public_observations_survive_later_steps() -> None:
+@pytest.mark.parametrize("noise", [None, ConstantNoiseCfg(bias=0.0)])
+def test_eager_public_step_outputs_survive_later_steps(noise: ConstantNoiseCfg | None) -> None:
     def episode_observation(env: _TestEnv) -> torch.Tensor:
         return env.episode_length_buf[:, None].to(dtype=torch.float32)
-
-    def action_observation(env: _TestEnv) -> torch.Tensor:
-        return env.action_manager.action.to(dtype=torch.float32)
 
     def critic_action_observation(env: _TestEnv) -> torch.Tensor:
         return env.action_manager.action.to(dtype=torch.float32)
@@ -4487,10 +4489,7 @@ def test_eager_public_observations_survive_later_steps() -> None:
     cfg = _make_cfg(
         observations={
             "actor": ObservationGroupCfg(
-                terms={
-                    "episode": ObservationTermCfg(func=episode_observation),
-                    "action": ObservationTermCfg(func=action_observation),
-                }
+                terms={"action": ObservationTermCfg(func=mdp.last_action, noise=noise)}
             ),
             "value": ObservationGroupCfg(
                 terms={
@@ -4513,19 +4512,33 @@ def test_eager_public_observations_survive_later_steps() -> None:
             torch.tensor([[-0.5], [-1.0]]),
             torch.tensor([[1.0], [0.0]]),
         ]
-        states = []
-        expected: list[dict[str, torch.Tensor]] = []
+        published: list[tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]] = []
         for action in actions:
             state = env.step(action)
-            states.append(state)
-            expected.append({name: value.clone() for name, value in state.obs.items()})
+            current = {
+                **state.obs,
+                "reward": state.reward,
+                "terminated": state.terminated,
+                "truncated": state.truncated,
+            }
+            published.append((current, {name: value.clone() for name, value in current.items()}))
+            assert state.obs["obs"].data_ptr() != env.action_manager.action.data_ptr()
+            assert state.reward.data_ptr() != env.reward_buf.data_ptr()
+            assert state.terminated.data_ptr() != env.reset_terminated.data_ptr()
+            assert state.truncated.data_ptr() != env.reset_time_outs.data_ptr()
 
         for group in ("obs", "critic"):
-            pointers = [state.obs[group].data_ptr() for state in states]
+            pointers = [current[group].data_ptr() for current, _ in published]
             assert len(set(pointers)) == len(pointers)
-        for state, expected_obs in zip(states, expected, strict=True):
-            for group, snapshot in expected_obs.items():
-                torch.testing.assert_close(state.obs[group], snapshot)
+        for index, (current, snapshot) in enumerate(published):
+            for name, value in current.items():
+                torch.testing.assert_close(value, snapshot[name], msg=f"step {index} {name}")
+        env.reset()
+        for name, value in published[0][0].items():
+            torch.testing.assert_close(value, published[0][1][name], msg=f"reset {name}")
+        manager_action = env.action_manager.action.clone()
+        published[0][0]["obs"].fill_(-100.0)
+        torch.testing.assert_close(env.action_manager.action, manager_action)
     finally:
         env.close()
 

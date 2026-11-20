@@ -147,20 +147,21 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     # Single public switch for the fixed-shape, host-sync-free autoreset fast
     # path, on by default (issue #2621). ``true`` implies the whole chain: the
     # autoreset runs on every step as a full-width ``reset(ResetSelection)``
-    # under the device done mask (no ``any()`` gate, no ``nonzero``), the step
-    # carriers are persistent and published through a ring of fixed slots, and
-    # fail-closed finite checks are deferred to the poll boundary. On CUDA the
-    # masked autoreset segment is additionally captured into one CUDA graph and
-    # replayed afterwards. Every reset participant must accept a
-    # ``ResetSelection`` (see unilab.base.reset_selection); the env reports
-    # unsupported participants by name at init_state. The reset lifecycle
-    # runs on every step (an all-false mask is a no-op), so full-width reset
-    # samplers also draw RNG on steps without a done row and same-seed
-    # trajectories differ from the selected-row lifecycle;
-    # ``final_observation`` is published every step and is meaningful on done
-    # rows only. The intermediate chain switches (``masked_autoreset`` and
-    # ``persistent_step_buffers``) are internal, derived from this one; the
-    # publication ring depth and the graph warmup are owned as constants by
+    # under the device done mask (no ``any()`` gate, no ``nonzero``), internal
+    # working/reset carriers have fixed addresses, and fail-closed finite
+    # checks are deferred to the poll boundary. On CUDA the masked autoreset
+    # segment is additionally captured into one CUDA graph and replayed
+    # afterwards. Public obs/reward/done outputs are freshly published outside
+    # that segment and remain caller-owned across later steps. Every reset
+    # participant must accept a ``ResetSelection`` (see
+    # unilab.base.reset_selection); the env reports unsupported participants by
+    # name at init_state. The reset lifecycle runs on every step (an all-false
+    # mask is a no-op), so full-width reset samplers also draw RNG on steps
+    # without a done row and same-seed trajectories differ from the
+    # selected-row lifecycle; ``final_observation`` is published every step and
+    # is meaningful on done rows only. The intermediate chain switches
+    # (``masked_autoreset`` and ``persistent_step_buffers``) are internal,
+    # derived from this one; the graph warmup is owned as a constant by
     # ``TorchEnv``; deferred finite validation comes from
     # ``finite_validation_mode='deferred'`` (required, validated below).
     #
@@ -1402,8 +1403,8 @@ class ManagerBasedRlEnv(TorchEnv):
         if self.persistent_step_buffers:
             # The working observation carriers are the env's persistent
             # ``obs_buf``: update_state and the masked reset write them in place.
-            assert self._state is not None
-            self.obs_buf = self._state.obs
+            assert self._working_state is not None
+            self.obs_buf = self._working_state.obs
         return state
 
     def step(self, actions: torch.Tensor) -> TorchEnvState:
@@ -1734,13 +1735,15 @@ class ManagerBasedRlEnv(TorchEnv):
         self, mapped_obs: Mapping[str, torch.Tensor]
     ) -> tuple[dict[str, torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor]:
         """Publish fresh step outputs without aliasing mutable manager carriers."""
-        eager_obs = {
-            name: self._manager_tensor(values, dtype=self._dtype)
-            for name, values in mapped_obs.items()
-        }
+        eager_obs = {}
+        for name, values in mapped_obs.items():
+            published = self._manager_tensor(values, dtype=self._dtype)
+            eager_obs[name] = published.clone() if published is values else published
         eager_reward = self._manager_tensor(self.reward_buf, dtype=self._dtype)
         eager_terminated = self._manager_tensor(self.reset_terminated, dtype=torch.bool)
         eager_truncated = self._manager_tensor(self.reset_time_outs, dtype=torch.bool)
+        if eager_reward is self.reward_buf:
+            eager_reward = eager_reward.clone()
         if eager_terminated is self.reset_terminated:
             eager_terminated = eager_terminated.clone()
         if eager_truncated is self.reset_time_outs:
@@ -1792,11 +1795,25 @@ class ManagerBasedRlEnv(TorchEnv):
         persistent device mask) when every participant supports it; the
         masked autoreset uses this form.
         """
+        previous_state = self._state
+        try:
+            return self._reset(env_ids, seed=seed)
+        except BaseException:
+            self._state = previous_state
+            raise
+
+    def _reset(
+        self,
+        env_ids: torch.Tensor | ResetSelection | None = None,
+        *,
+        seed: int | None = None,
+    ) -> tuple[dict[str, torch.Tensor], dict[str, Any]]:
         if seed is not None:
             self.seed(seed)
         if self._state is None:
             state = self.init_state()
             return state.obs, {"log": state.info.get("log", {})}
+        self._activate_working_state(copy_outputs=not self._autoreset_reset_active)
         selection = env_ids if isinstance(env_ids, ResetSelection) else None
         if selection is not None:
             if selection is not self._reset_selection:
@@ -1960,11 +1977,8 @@ class ManagerBasedRlEnv(TorchEnv):
         self.extras = self._state.info
         self.recorder_manager.record_post_reset(env_ids)
         if self.persistent_step_buffers and not self._autoreset_reset_active:
-            # A caller-driven reset is its own publication boundary.
+            # A caller-driven reset is its own fresh-publication boundary.
             self._publish_step_state()
-            published = self.state
-            assert published is not None
-            return published.obs, {"log": log}
         return self._state.obs, {"log": log}
 
     def _map_observations(

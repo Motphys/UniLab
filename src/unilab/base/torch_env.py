@@ -51,10 +51,10 @@ class TorchEnvState:
 
     Terminal pre-reset observations are represented only by
     ``final_observation``; ``info`` never carries duplicate
-    terminal-observation entries. ``carriers`` holds task-registered custom
-    step-output tensors (see ``TorchEnv.register_step_carrier``); like
-    ``obs``/``reward``, the published state's entries are zero-copy views
-    into persistent ring storage.
+    terminal-observation entries. Public ``obs``, ``reward``, ``terminated``
+    and ``truncated`` outputs are fresh, caller-owned tensors that later steps
+    do not mutate. ``info`` and ``final_observation`` retain their separate
+    shared/scratch lifetimes.
     """
 
     obs: dict[str, torch.Tensor]
@@ -63,7 +63,6 @@ class TorchEnvState:
     truncated: torch.Tensor
     info: dict[str, Any]
     final_observation: dict[str, torch.Tensor] | None = None
-    carriers: dict[str, torch.Tensor] = dataclasses.field(default_factory=dict)
 
     def replace(self, **updates: Any) -> "TorchEnvState":
         """Return a copy of this transition with ``updates`` applied."""
@@ -76,12 +75,7 @@ class TorchEnvState:
 # synchronous host-bridge producers publish none.
 _EVENT_BACKED_STEP_RECEIPT_BACKENDS = frozenset({"genesis", "mjwarp"})
 
-# Internal fixed-shape step tuning constants (not user configuration; see
-# ``TorchEnv._configure_fixed_shape_step``). The publication ring depth serves
-# the off-policy double-buffer contract (a published obs_t stays stable while
-# the next step writes obs_tp1); the warmup gives lazily allocated buffers
-# eager executions before the CUDA graph capture.
-_PUBLISHED_BUFFER_DEPTH = 2
+# Give lazily allocated buffers eager executions before CUDA graph capture.
 _AUTORESET_GRAPH_WARMUP = 2
 
 
@@ -103,7 +97,7 @@ class TorchEnv(ABEnv):
     _reset_selection: ResetSelection | None = None
     _active_graph_capture: ExternalGraphCapture | None = None
     _autoreset_graph: AutoresetGraph | None = None
-    _published_state: TorchEnvState | None = None
+    _working_state: TorchEnvState | None = None
 
     def __init__(
         self,
@@ -176,25 +170,23 @@ class TorchEnv(ABEnv):
         """Resolve the sync-free / graph-capturable step switch.
 
         ``autoreset_cuda_graph`` is the single public switch (default ``true``
-        on the public ``ManagerBasedRlEnvCfg``). Enabling it
-        implies the whole fixed-shape chain: ``masked_autoreset`` (the
-        autoreset runs every step as a fixed-shape ``reset(ResetSelection)``
-        under the device done mask — no ``any()`` gate, no ``nonzero``),
-        ``persistent_step_buffers`` (the working step carriers — observations,
-        reward, terminated, truncated — are allocated once, updated with
-        ``copy_``, and published through a ring of persistent slots), and
-        deferred finite validation (fail-closed checks publish at the poll
-        boundary). On CUDA the masked autoreset segment is captured into one
-        CUDA graph after ``_AUTORESET_GRAPH_WARMUP`` eager executions and
-        replayed afterwards; this requires a backend declaring
-        ``external_graph_capture``.
+        on the public ``ManagerBasedRlEnvCfg``). Enabling it implies the whole
+        fixed-shape chain: ``masked_autoreset`` (the autoreset runs every step
+        as a fixed-shape ``reset(ResetSelection)`` under the device done mask —
+        no ``any()`` gate, no ``nonzero``), ``persistent_step_buffers`` (the
+        internal working step carriers are allocated once and updated with
+        ``copy_``), and deferred finite validation (fail-closed checks publish
+        at the poll boundary). On CUDA the masked autoreset segment is captured
+        into one CUDA graph after ``_AUTORESET_GRAPH_WARMUP`` eager executions
+        and replayed afterwards; this requires a backend declaring
+        ``external_graph_capture``. Public step outputs are cloned from the
+        working carriers after the graph boundary and remain caller-owned.
 
         The intermediate chain values are no longer public configuration.
         They are still read here through a soft ``getattr`` protocol so tests
         can inject a middle state (masked autoreset without graph capture or
-        ring depth ``0`` / warmup ``1``) by setting attributes on their own
-        stub configs; the Hydra materialization path fails closed on these
-        undeclared keys.
+        warmup ``1``) by setting attributes on their own stub configs; the
+        Hydra materialization path fails closed on these undeclared keys.
         """
 
         def flag(name: str) -> bool:
@@ -215,9 +207,6 @@ class TorchEnv(ABEnv):
         self._masked_autoreset = self._autoreset_cuda_graph or flag("masked_autoreset")
         self._persistent_step_buffers = self._autoreset_cuda_graph or flag(
             "persistent_step_buffers"
-        )
-        self._published_buffer_depth = bounded_int(
-            "published_buffer_depth", _PUBLISHED_BUFFER_DEPTH, 0
         )
         self._autoreset_graph_warmup = bounded_int(
             "autoreset_graph_warmup", _AUTORESET_GRAPH_WARMUP, 1
@@ -246,13 +235,7 @@ class TorchEnv(ABEnv):
         self._step_counter_tensor = torch.zeros((), dtype=torch.int64, device=self._device)
         self._active_graph_capture: ExternalGraphCapture | None = None
         self._autoreset_graph: AutoresetGraph | None = None
-        self._publication_ring: list[TorchEnvState] = []
-        self._publication_cursor = 0
-        self._published_state: TorchEnvState | None = None
-        # Task-owned custom step-output carriers (issue #2628), published
-        # through the same ring as obs/reward/done. Registration closes at
-        # the first publish; the mapping then backs ``TorchEnvState.carriers``.
-        self._step_carriers: dict[str, torch.Tensor] = {}
+        self._working_state: TorchEnvState | None = None
 
     @property
     def device(self) -> torch.device:
@@ -312,16 +295,7 @@ class TorchEnv(ABEnv):
 
     @property
     def state(self) -> Optional[TorchEnvState]:
-        """The latest published transition.
-
-        With ``persistent_step_buffers`` this is a publication slot whose
-        tensors — observations, reward, terminated, truncated and the
-        registered custom ``carriers`` — stay unchanged for
-        ``published_buffer_depth - 1`` further steps (or, at depth 0, the
-        working carriers that the next step overwrites in place).
-        """
-        if self._published_state is not None:
-            return self._published_state
+        """The latest transition with fresh, caller-owned public step outputs."""
         return self._state
 
     @property
@@ -366,65 +340,6 @@ class TorchEnv(ABEnv):
             transition()
             return
         capture.record_host_transition(f"env.{name}", transition)
-
-    def register_step_carrier(self, name: str, carrier: torch.Tensor) -> None:
-        """Register a task-owned tensor as a persistent step-output carrier.
-
-        The carrier is a device tensor the task updates in place during
-        ``update_state`` — for example a transition snapshot or a custom
-        per-step metric tensor. With ``persistent_step_buffers`` (implied by
-        ``autoreset_cuda_graph``) the env copies it, with ``copy_``, into the
-        current publication-ring slot at every step boundary, so consumers of
-        the published state can hold the slot's tensor for
-        ``published_buffer_depth`` further steps without a defensive clone.
-        Ring slots are pre-allocated with ``torch.empty_like``, so every
-        address is fixed after the first publish — the address-stability
-        precondition for capturing the step-output publication in a CUDA
-        graph (issue #2628). Consumers read the published values through
-        ``TorchEnvState.carriers``.
-
-        Registration is a cold-path call. It must happen before the first
-        ``reset``/``step`` (which allocates the publication ring), and it
-        requires the fixed-shape chain. Fails closed on a duplicate or empty
-        name, a non-tensor carrier, a carrier that is not on the env device,
-        a carrier registered after the first publish, or when persistent
-        step buffers are disabled.
-
-        Args:
-            name: Unique non-empty name under which the carrier is published
-                in ``TorchEnvState.carriers``.
-            carrier: Tensor on the env device. The task keeps ownership and
-                updates it in place; dtype and shape are captured by the
-                ring slots with ``torch.empty_like``.
-
-        Raises:
-            RuntimeError: If the publication ring is already allocated (the
-                first ``reset``/``step`` has run).
-            ValueError: On an empty or duplicate name, a carrier on the wrong
-                device, or when persistent step buffers are disabled.
-            TypeError: If ``carrier`` is not a ``torch.Tensor``.
-        """
-        if self._state is not None:
-            raise RuntimeError(
-                "register_step_carrier must be called before the first reset: "
-                "the publication ring is already allocated"
-            )
-        if not self._persistent_step_buffers:
-            raise ValueError(
-                "register_step_carrier requires persistent step buffers "
-                "(enable env.autoreset_cuda_graph)"
-            )
-        if not isinstance(name, str) or not name:
-            raise ValueError(f"step carrier name must be a non-empty string, got {name!r}")
-        if name in self._step_carriers:
-            raise ValueError(f"step carrier {name!r} is already registered")
-        if not isinstance(carrier, torch.Tensor):
-            raise TypeError(f"step carrier {name!r} must be a torch.Tensor")
-        if carrier.device != self._device:
-            raise ValueError(
-                f"step carrier {name!r} must be on {self._device}, got {carrier.device}"
-            )
-        self._step_carriers[name] = carrier
 
     def reset_selection_blockers(self) -> list[str]:
         """Reset participants that cannot take a ``ResetSelection``."""
@@ -476,7 +391,6 @@ class TorchEnv(ABEnv):
             terminated=torch.ones((self._num_envs,), dtype=torch.bool, device=self._device),
             truncated=torch.zeros((self._num_envs,), dtype=torch.bool, device=self._device),
             info={"steps": initial_steps},
-            carriers=self._step_carriers,
         )
         self._last_initial_episode_steps = initial_steps.clone()
         if self._masked_autoreset:
@@ -494,7 +408,6 @@ class TorchEnv(ABEnv):
         if self._autoreset_cuda_graph and self._autoreset_graph is None:
             self._autoreset_graph = self._build_autoreset_graph()
         if self._persistent_step_buffers:
-            self._allocate_publication_ring()
             self._publish_step_state()
         state = self.state
         assert state is not None
@@ -526,8 +439,18 @@ class TorchEnv(ABEnv):
                 ``(num_envs, *action_space.shape)`` on the env device.
 
         Returns:
-            The updated ``TorchEnvState``.
+            The updated ``TorchEnvState``. Its ``obs``, ``reward``,
+            ``terminated`` and ``truncated`` tensors are fresh and caller-owned;
+            later steps do not mutate them.
         """
+        previous_state = self._state
+        try:
+            return self._step(actions)
+        except BaseException:
+            self._state = previous_state
+            raise
+
+    def _step(self, actions: torch.Tensor) -> TorchEnvState:
         timer = PhaseTimer()
         with timer.phase("action_validate", cpu=False):
             self._validate_action_contract(actions)
@@ -535,6 +458,7 @@ class TorchEnv(ABEnv):
         self._bind_tensor_runtime()
         if self._state is None:
             self.init_state()
+        self._activate_working_state()
         assert self._state is not None
 
         with timer.phase("apply_action"):
@@ -1076,44 +1000,41 @@ class TorchEnv(ABEnv):
         """CUDA generators consumed by the autoreset segment (besides the default)."""
         return []
 
-    def _allocate_publication_ring(self) -> None:
-        assert self._state is not None
-        if self._publication_ring or self._published_buffer_depth == 0:
+    def _activate_working_state(self, *, copy_outputs: bool = False) -> None:
+        """Select mutable state before a step or caller-driven reset.
+
+        This is a protected protocol for the Manager-Based owner. Fixed-address
+        working storage is never exposed as the latest public state. Eager steps
+        copy only the truncated carrier that the base lifecycle clears in place;
+        caller-driven resets request copies of every output they may mutate.
+        """
+        if self._persistent_step_buffers:
+            if self._working_state is not None:
+                self._state = self._working_state
             return
         state = self._state
-        self._publication_ring = [
-            TorchEnvState(
-                obs={name: torch.empty_like(value) for name, value in state.obs.items()},
-                reward=torch.empty_like(state.reward),
-                terminated=torch.empty_like(state.terminated),
-                truncated=torch.empty_like(state.truncated),
-                info=state.info,
-                carriers={
-                    name: torch.empty_like(value) for name, value in self._step_carriers.items()
-                },
-            )
-            for _ in range(self._published_buffer_depth)
-        ]
+        if state is None:
+            return
+        self._state = state.replace(
+            obs={name: value.clone() for name, value in state.obs.items()}
+            if copy_outputs
+            else state.obs,
+            reward=state.reward.clone() if copy_outputs else state.reward,
+            terminated=state.terminated.clone() if copy_outputs else state.terminated,
+            truncated=state.truncated.clone(),
+        )
 
     def _publish_step_state(self) -> None:
-        """Publish the working carriers into the next persistent ring slot."""
+        """Publish fresh public outputs while retaining internal working storage."""
         state = self._state
         assert state is not None
-        if self._published_buffer_depth == 0:
-            self._published_state = state
-            return
-        slot = self._publication_ring[self._publication_cursor]
-        self._publication_cursor = (self._publication_cursor + 1) % self._published_buffer_depth
-        for name, value in state.obs.items():
-            slot.obs[name].copy_(value)
-        slot.reward.copy_(state.reward)
-        slot.terminated.copy_(state.terminated)
-        slot.truncated.copy_(state.truncated)
-        for name, value in state.carriers.items():
-            slot.carriers[name].copy_(value)
-        slot.info = state.info
-        slot.final_observation = state.final_observation
-        self._published_state = slot
+        self._working_state = state
+        self._state = state.replace(
+            obs={name: value.clone() for name, value in state.obs.items()},
+            reward=state.reward.clone(),
+            terminated=state.terminated.clone(),
+            truncated=state.truncated.clone(),
+        )
 
     def _validate_reset_observation_mask(self, obs: Mapping[str, torch.Tensor]) -> None:
         if not isinstance(obs, dict) or set(obs) != set(self.obs_groups_spec):

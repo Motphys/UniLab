@@ -31,10 +31,10 @@ Implementation: `src/unilab/base/torch_env.py`,
 
 `env.autoreset_cuda_graph` is the single public switch and defaults to
 `true`. It implies the whole fixed-shape chain; the intermediate switches
-(`masked_autoreset`, `persistent_step_buffers`), the publication ring depth and
-the graph warmup are internal — derived from this switch or owned as constants
-by `TorchEnv` — and are no longer configuration keys. Supplying a deleted key
-fails closed with a config error. The fixed-shape chain also requires the
+(`masked_autoreset`, `persistent_step_buffers`) and the graph warmup are
+internal — derived from this switch or owned as constants by `TorchEnv` — and
+are no longer configuration keys. Supplying a deleted key fails closed with a
+config error. The fixed-shape chain also requires the
 deferred finite validation mode: `finite_validation_mode='deferred'` is the
 default, and `autoreset_cuda_graph=true` with `finite_validation_mode='strict'`
 fails closed at env construction. Set the switch to `false` explicitly to opt
@@ -47,7 +47,7 @@ uv run train --algo flashsac --task g1_motion_tracking --sim mjwarp
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `autoreset_cuda_graph` | `True` | Runs the autoreset on every step as a full-width `reset(ResetSelection)` under the device done mask (no `any()` gate, no `nonzero`), keeps the observation, reward, terminated and truncated carriers persistent, defers every fail-closed finite check to the poll boundary, and — on CUDA — captures the masked autoreset segment, including the backend reset, into one `torch.cuda.graph` and replays it afterwards. Requires a CUDA device, a backend with external graph capture, and `finite_validation_mode='deferred'`. |
+| `autoreset_cuda_graph` | `True` | Runs the autoreset on every step as a full-width `reset(ResetSelection)` under the device done mask (no `any()` gate, no `nonzero`), keeps internal working/reset carriers at fixed addresses, defers every fail-closed finite check to the poll boundary, and — on CUDA — captures the masked autoreset segment, including the backend reset, into one `torch.cuda.graph` and replays it afterwards. Public step outputs are freshly published outside that segment. Requires a CUDA device, a backend with external graph capture, and `finite_validation_mode='deferred'`. |
 | `autoreset_graph_capture_mode` | `"thread_local"` | `torch.cuda.graph` capture error mode: `"global"`, `"thread_local"` or `"relaxed"`. |
 
 The MJWarp backend options follow the env's single validation strictness
@@ -59,10 +59,9 @@ outside the captured segment; strict mode keeps MJWarp's per-call operand check
 immediate (`mjwarp_validate_tensor_finite`). Inside a graph capture MJWarp
 always defers.
 
-A published state stays valid for one further step (the ring holds two
-persistent slots, which the off-policy double-buffer contract needs); the
-capture happens after two eager warmup executions so that lazily allocated
-buffers exist outside the graph.
+Capture happens after two eager warmup executions so that lazily allocated
+internal buffers exist outside the graph. Fresh public output publication runs
+after the captured reset segment and does not participate in graph capture.
 
 Invalid combinations fail when the environment is constructed: for example,
 `autoreset_cuda_graph` on a non-CUDA device, or a backend without the
@@ -121,50 +120,28 @@ lower bound, must be declared with
 re-applies these transitions after every replay. Undeclared host state keeps the
 value it had at capture time.
 
-## Step-output lifetime and custom carriers
+## Step-output ownership
 
-With `persistent_step_buffers` (implied by `autoreset_cuda_graph`) the step
-outputs are zero-copy views into pre-allocated storage — no per-step output
-allocation:
+On both the eager and fixed-shape paths, `state.obs`, `state.reward`,
+`state.terminated` and `state.truncated` are freshly published, caller-owned
+tensors. They do not alias mutable Manager or internal working/reset carriers,
+and later steps do not change their values. Consumers can therefore retain
+`obs_t` and `next_obs_t` across transitions without defensive clones. The
+fixed-address buffers required by reset capture remain internal and are not
+publication slots.
 
-- `state.obs`, `state.reward`, `state.terminated` and `state.truncated` are
-  views into the current publication-ring slot. A published state stays valid
-  for one further step: the ring holds two persistent slots, which the
-  off-policy double-buffer contract needs (a published `obs_t` stays stable
-  while the next step writes `obs_tp1`).
-- `state.carriers` holds task-registered custom carriers (below); the same
-  ring semantics apply to them.
-- `state.info` is host-side state shared by reference, not ring storage:
-  `info["steps"]` is a device tensor, but `info["timing"]`, `info["log"]` and
-  other entries are replaced or mutated every step. Read them before the next
-  `step` returns.
+Two fields have separate lifetimes:
+
+- `state.info` is shared by reference: `info["steps"]` is a device tensor, but
+  `info["timing"]`, `info["log"]` and other entries are replaced or mutated
+  every step. Read them before the next `step` returns.
 - `state.final_observation` aliases the env's single working scratch. It is
   valid until the next reset segment runs (every step on the fixed-shape
   path); clone it if it must be kept longer.
 
-### Registering a custom step-output carrier
-
-Tasks that materialize per-step data — transition snapshots, custom metric
-tensors — can publish it through the same ring instead of defending against
-overwrites with per-step `detach().clone()`:
-
-```python
-snapshot = torch.zeros((env.num_envs, snapshot_dim), device=env.device)
-env.register_step_carrier("transition", snapshot)  # cold path: before the first reset()
-
-# ... a term or manager updates `snapshot` in place during update_state ...
-
-state = env.step(actions)
-state.carriers["transition"]  # ring-slot view; stable for one further step
-```
-
-`register_step_carrier` fails closed: it requires the fixed-shape chain
-(`env.autoreset_cuda_graph`), must be called before the first `reset` (the
-ring is allocated there), rejects duplicate or empty names and carriers that
-are not tensors on the env device. Ring slots are allocated with
-`torch.empty_like` at the first publish, so every address involved is fixed
-from then on — the address-stability precondition for capturing the
-step-output publication in a CUDA graph (issue #2628).
+Tasks that retain custom per-step data must publish fresh tensors explicitly
+or let the consumer take an ownership copy at its boundary. `TorchEnv` has no
+custom-carrier registration or rotating public-output protocol.
 
 ## Opting terms into `ResetSelection`
 

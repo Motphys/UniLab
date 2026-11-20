@@ -17,21 +17,6 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Added / 新增
 
-- `TorchEnv.register_step_carrier` publishes task-owned step-output tensors
-  (for example transition snapshots) through the persistent-step-buffer
-  publication ring: consumers get address-stable, zero-copy slot views that
-  stay valid for one further step instead of per-step defensive clones. The
-  sync-free autoreset user guide documents the step-output lifetime contract,
-  including which outputs remain per-step fresh
-  ([#2631](https://github.com/Motphys/UniLab/pull/2631),
-  [#2628](https://github.com/Motphys/UniLab/issues/2628)).
-  `TorchEnv.register_step_carrier` 将任务自有的 step 输出张量（如
-  transition 快照）通过 persistent step buffer 发布环发布：消费者获得地址
-  稳定、可零拷贝持有一步的槽位视图，替代逐步防御性 clone。sync-free
-  autoreset 用户指南补充了 step 输出生命周期契约（含哪些输出仍逐步重新
-  分配）说明
-  ([#2631](https://github.com/Motphys/UniLab/pull/2631)，
-  [#2628](https://github.com/Motphys/UniLab/issues/2628))。
 - Built-in reset-mode model-field DR terms now accept a ``ResetSelection``,
   so tasks using them (for example G1 motion tracking with `foot_friction`)
   can enable fixed-shape autoreset (`env.autoreset_cuda_graph`): the masked
@@ -342,6 +327,22 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Removed / 移除
 
+- Remove the `TorchEnv` two-slot publication ring and the custom-carrier
+  protocol (`TorchEnv.register_step_carrier` and `TorchEnvState.carriers`)
+  without compatibility aliases. Public `obs`, `reward`, `terminated`, and
+  `truncated` outputs are fresh and caller-owned on eager and fixed-shape
+  paths, remain unchanged across later steps, and no longer alias internal
+  working/reset carriers. `autoreset_cuda_graph` still retains fixed-address
+  internal buffers, masked autoreset, and reset-segment graph capture/replay;
+  fresh publication happens outside the captured segment
+  ([#2640](https://github.com/Motphys/UniLab/issues/2640)).
+  删除 `TorchEnv` 两槽 publication ring 与 custom-carrier 协议
+  （`TorchEnv.register_step_carrier` 和 `TorchEnvState.carriers`），不留兼容别名。
+  eager 与 fixed-shape 路径的公共 `obs`、`reward`、`terminated`、`truncated`
+  输出均逐步 fresh 且归调用方所有，后续 step 不再改写，也不与内部
+  working/reset carrier 别名。`autoreset_cuda_graph` 仍保留固定地址内部
+  buffer、masked autoreset 与 reset 段图捕获/replay；fresh publication 在图外
+  执行（[#2640](https://github.com/Motphys/UniLab/issues/2640)）。
 - The public reset selector no longer accepts a Python `slice`: the slice
   branch is removed from `resolve_reset_env_ids` / `resolve_reset_mask` /
   `ResetMaskBuffer.resolve` and from the `fill_rows_` / `assign_rows_`

@@ -10,8 +10,10 @@ Contract summary (tensor-native, autoresetting vectorized env):
   environment's authoritative device. It returns a state whose ``obs`` is a
   mapping of ``(num_envs, dim)`` Torch tensors keyed by observation group,
   along with floating-point ``reward`` and boolean ``terminated`` /
-  ``truncated`` tensors. ``final_observation`` is the optional mapping of
-  pre-reset tensors for environments that terminated on that step.
+  ``truncated`` tensors. These four public outputs are fresh and caller-owned:
+  they do not alias mutable Manager or internal working/reset carriers, and
+  later steps do not mutate them. ``final_observation`` is the optional mapping
+  of pre-reset tensors for environments that terminated on that step.
 - ``obs_groups_spec`` maps observation group name -> dim, e.g. ``{"obs": 48}``
   or ``{"obs": 48, "critic": 101}``. ``"obs"`` is the actor group;
   ``"critic"`` is the optional privileged critic group.
