@@ -33,7 +33,6 @@ from unilab.utils.checkpoint import (
     get_latest_run,
     resolve_checkpoint_path,
 )
-from unilab.visualization.playback import render_play_mode
 
 _ROOT_DIR = Path(__file__).resolve().parents[2]
 _CONF_DIR = _ROOT_DIR / "src" / "unilab" / "conf"
@@ -279,7 +278,7 @@ def test_backend_adapter_env_cfg_override_for_sac_g1_walk_flat():
     """Env cfg override carries reward + env preset fields. Algo is NOT touched."""
     cfg = _offpolicy_cfg(["task=g1_walk_flat/mujoco"])
 
-    adapter = EnvConfigAdapter(cfg, root_dir=_ROOT_DIR, algo_name="sac")
+    adapter = EnvConfigAdapter(cfg, root_dir=_ROOT_DIR)
     env_cfg_override = adapter.build_task_env_cfg_override()
 
     assert env_cfg_override["rewards"]["tracking_lin_vel"]["weight"] == pytest.approx(2.0)
@@ -290,9 +289,7 @@ def test_backend_adapter_env_cfg_override_for_sac_g1_walk_flat():
 
 def test_backend_adapter_preserves_mask_reset_owner_yaml():
     cfg = _offpolicy_cfg(["task=g1_walk_flat/mjwarp"])
-    override = EnvConfigAdapter(
-        cfg, root_dir=_ROOT_DIR, algo_name="sac"
-    ).build_task_env_cfg_override()
+    override = EnvConfigAdapter(cfg, root_dir=_ROOT_DIR).build_task_env_cfg_override()
     assert (
         override["events"]["reset_scene_to_default"]["func"] == "unilab.envs.mdp.skip_scene_reset"
     )
@@ -306,12 +303,12 @@ def test_backend_adapter_injects_superdex_serial_mode_only_for_interactive_play(
     interactive = _ppo_cfg(
         ["task=go2_joystick_flat/superdex", "training.play_render_mode=interactive"]
     )
-    adapter = EnvConfigAdapter(interactive, root_dir=_ROOT_DIR, algo_name="ppo")
+    adapter = EnvConfigAdapter(interactive, root_dir=_ROOT_DIR)
     assert "superdex_execution_mode" not in adapter.build_task_env_cfg_override()
     assert adapter.build_play_env_cfg_override()["superdex_execution_mode"] == "serial"
 
     record = _ppo_cfg(["task=go2_joystick_flat/superdex", "training.play_render_mode=record"])
-    record_override = EnvConfigAdapter(record, root_dir=_ROOT_DIR, algo_name="ppo")
+    record_override = EnvConfigAdapter(record, root_dir=_ROOT_DIR)
     assert "superdex_execution_mode" not in record_override.build_play_env_cfg_override()
 
 
@@ -327,7 +324,6 @@ def test_backend_adapter_keeps_motion_manager_scene_during_play():
     env_cfg_override = EnvConfigAdapter(
         cfg,
         root_dir=_ROOT_DIR,
-        algo_name="ppo",
         scene_materializer=_fake_materializer,
     ).build_play_env_cfg_override()
 
@@ -416,12 +412,14 @@ def test_render_play_mode_uses_env_interactive_contract():
     env = FakeEnv()
     seen: list[int] = []
 
-    result = render_play_mode(
-        env,
+    result = env.run_playback(
         initialize=lambda: 0,
         step=lambda obs: seen.append(obs) or obs + 1,
         num_steps=3,
+        output_video=None,
         render_spacing=2.5,
+        render_offset_mode=None,
+        camera_kwargs=None,
     )
 
     assert result is None
@@ -566,13 +564,13 @@ def test_render_play_mode_uses_motrix_native_video_capture(
 
     env = FakeEnv()
     output_path = tmp_path / "motrix.mp4"
-    result = render_play_mode(
-        env,
+    result = env.run_playback(
         initialize=lambda: 0,
         step=lambda obs: obs + 1,
         num_steps=2,
         output_video=output_path,
         render_spacing=2.5,
+        render_offset_mode=None,
         camera_kwargs={"cam_distance": 3.0},
     )
 
@@ -637,8 +635,7 @@ def test_render_play_mode_rejects_motrix_record_with_interactive_window(
     env = FakeEnv()
     output_path = tmp_path / "motrix_interactive.mp4"
     with pytest.raises(ValueError, match="Motrix video recording requires headless=true"):
-        render_play_mode(
-            env,
+        env.run_playback(
             initialize=lambda: 0,
             step=lambda obs: obs + 1,
             num_steps=2,
@@ -646,6 +643,8 @@ def test_render_play_mode_rejects_motrix_record_with_interactive_window(
             headless=False,
             record_video=True,
             render_spacing=1.5,
+            render_offset_mode=None,
+            camera_kwargs=None,
         )
 
     assert env.init_calls == []
@@ -694,12 +693,14 @@ def test_render_play_mode_defaults_to_env_physics_snapshot(
 
     env = FakeEnv()
     output_path = tmp_path / "play.mp4"
-    result = render_play_mode(
-        env,
+    result = env.run_playback(
         initialize=lambda: 0,
         step=lambda obs: obs + 1,
         num_steps=2,
         output_video=output_path,
+        render_spacing=None,
+        frame_state_getter=None,
+        camera_kwargs=None,
     )
 
     assert result == str(output_path)
@@ -782,12 +783,14 @@ def test_render_play_mode_uses_visual_playback_model_for_video_export(
 
     env = FakeEnv()
     output_path = tmp_path / "play.mp4"
-    result = render_play_mode(
-        env,
+    result = env.run_playback(
         initialize=lambda: 0,
         step=lambda obs: obs + 1,
         num_steps=2,
         output_video=output_path,
+        render_spacing=None,
+        frame_state_getter=None,
+        camera_kwargs=None,
     )
 
     assert result == str(output_path)
@@ -814,10 +817,12 @@ def test_render_play_mode_requires_env_snapshot_contract_for_video_export(tmp_pa
             return run_mujoco_playback(env=self, **kwargs)
 
     with pytest.raises(NotImplementedError, match="unsupported"):
-        render_play_mode(
-            FakeEnv(),
+        FakeEnv().run_playback(
             initialize=lambda: 0,
             step=lambda obs: obs + 1,
             num_steps=1,
             output_video=tmp_path / "play.mp4",
+            render_spacing=None,
+            frame_state_getter=None,
+            camera_kwargs=None,
         )

@@ -1944,7 +1944,7 @@ class Entity:
         # When the owning env defers finite validation, per-step write checks
         # accumulate into the env's device-resident verdict instead of
         # synchronizing on every call; the env's poll boundary raises.
-        self._finite_validation_recorder: Callable[[torch.Tensor, str], None] | None = None
+        self._finite_validation_recorder: Callable[[torch.Tensor], None] | None = None
         self._interval_operand_device_value: torch.device | None = None
         self._interval_root_body_ids_value: torch.Tensor | None = None
         self._body_tensor_layouts: dict[tuple[str, ...], np.ndarray] = {}
@@ -2172,7 +2172,7 @@ class Entity:
         return self._motion_body_ids
 
     def set_finite_validation_recorder(
-        self, recorder: Callable[[torch.Tensor, str], None] | None
+        self, recorder: Callable[[torch.Tensor], None] | None
     ) -> None:
         """Route per-step tensor-write finite verdicts into the env boundary.
 
@@ -4362,7 +4362,7 @@ class Entity:
             )
         recorder = self._finite_validation_recorder
         if recorder is not None:
-            recorder(values, f"{term_name} body {label}")
+            recorder(values)
         elif not bool(torch.isfinite(values).all()):
             raise ValueError(
                 f"EventManager term '{term_name}' body {label} must be finite floating data"

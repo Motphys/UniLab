@@ -12,7 +12,7 @@ import pytest
 from unisim.backend.base import CameraCfg, DebugPrimitive
 
 from unilab.base.base import EnvPlayCapabilities
-from unilab.visualization.playback import camera_cfg_from_training, render_play_mode
+from unilab.visualization.playback import camera_cfg_from_training
 from unilab.visualization.playback_session import SnapshotPlaybackSession
 
 
@@ -230,8 +230,7 @@ def test_render_play_mode_forwards_overlay_and_on_frame() -> None:
 
     getter = lambda: None  # noqa: E731
     on_frame = lambda i, frame: frame  # noqa: E731
-    result = render_play_mode(
-        _Env(),
+    result = _Env().run_playback(
         initialize=lambda: None,
         step=lambda obs: obs,
         num_steps=1,

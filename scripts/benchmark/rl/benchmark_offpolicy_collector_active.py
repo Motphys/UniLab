@@ -1133,7 +1133,6 @@ def _build_and_run_case(
     env_cfg_override = EnvConfigAdapter(
         cfg,
         root_dir=ROOT_DIR,
-        algo_name=algo,
     ).build_task_env_cfg_override()
 
     env = None

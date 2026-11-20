@@ -10,7 +10,7 @@ from rich.console import Console
 
 import unilab.rl.logging.base as base_module
 import unilab.training.experiment as experiment_module
-from unilab.rl.logging import OffPolicyLogger, OnPolicyLogger
+from unilab.rl.logging import OffPolicyLogger
 from unilab.training.experiment import ExperimentTracker, build_wandb_settings
 
 
@@ -138,42 +138,6 @@ def test_offpolicy_training_terminal_uses_fixed_clock_and_only_forces_errors(mon
 
     logger.log_status("[red]ERROR: Collector died[/]")
     assert update_refresh_values == [True]
-
-    logger.close()
-
-
-def test_onpolicy_logger_uses_offpolicy_terminal_layout():
-    logger = OnPolicyLogger(
-        algo_name="PPO",
-        env_name="Go2JoystickFlat",
-        max_iterations=10,
-        num_envs=4,
-        num_steps=8,
-        log_backend="no_print",
-    )
-    logger.start()
-    logger.log_step(
-        iteration=1,
-        metrics={"Loss/surrogate": 0.1, "Loss/value": 0.2},
-        return_mean_ep100=3.0,
-        collect_time=0.02,
-        train_time=0.03,
-    )
-    logger.update_mean_episode_length(12.0)
-
-    console = Console(record=True, width=120)
-    console.print(logger._build_display())
-    output = console.export_text()
-
-    assert "Losses & Metrics" in output
-    assert "Learner" in output
-    assert "Collector" in output
-    assert "Train" in output
-    assert "Collect" in output
-    assert "Steps/s" in output
-    assert "Rollout Steps" not in output
-    assert "Steps/Env" not in output
-    assert "Policy Metrics" not in output
 
     logger.close()
 
@@ -432,24 +396,6 @@ def test_run_config_snapshot_passes_sim2sim_reader(tmp_path):
     assert resolve_sim2sim_config(tmp_path, target) is target
 
 
-def test_onpolicy_logger_reuses_existing_wandb_run(monkeypatch):
-    fake_run = _FakeRun()
-    fake_wandb = _FakeWandb(existing_run=fake_run)
-    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
-
-    logger = OnPolicyLogger(
-        algo_name="PPO",
-        env_name="Go2JoystickFlat",
-        log_backend="wandb",
-    )
-
-    assert logger._wandb_run is fake_run
-    assert fake_wandb.init_calls == []
-
-    logger.finish()
-    assert fake_wandb.finish_calls == 0
-
-
 def test_offpolicy_logger_reuses_existing_wandb_run(monkeypatch):
     fake_run = _FakeRun()
     fake_wandb = _FakeWandb(existing_run=fake_run)
@@ -466,41 +412,6 @@ def test_offpolicy_logger_reuses_existing_wandb_run(monkeypatch):
 
     logger.finish()
     assert fake_wandb.finish_calls == 0
-
-
-def test_onpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):
-    fake_wandb = _FakeWandb()
-    monkeypatch.setitem(sys.modules, "wandb", fake_wandb)
-
-    logger = OnPolicyLogger(
-        algo_name="PPO",
-        env_name="Go2JoystickFlat",
-        log_backend="wandb",
-        wandb_project="unilab",
-        wandb_entity="team",
-        wandb_name="ppo-go2",
-        wandb_group="go2",
-        wandb_job_type="train",
-        wandb_tags=["ppo", "go2"],
-        wandb_notes="notes",
-    )
-
-    assert logger._owns_wandb_run is True
-    assert len(fake_wandb.init_calls) == 1
-    init_call = fake_wandb.init_calls[0]
-    assert init_call["project"] == "unilab"
-    assert init_call["entity"] == "team"
-    assert init_call["name"] == "ppo-go2"
-    assert init_call["group"] == "go2"
-    assert init_call["job_type"] == "train"
-    assert init_call["tags"] == ["ppo", "go2"]
-    assert init_call["notes"] == "notes"
-    assert init_call["config"]["algo"] == "PPO"
-    assert init_call["config"]["env"] == "Go2JoystickFlat"
-    assert init_call["config"]["num_envs"] == 4096
-
-    logger.finish()
-    assert fake_wandb.finish_calls == 1
 
 
 def test_offpolicy_logger_creates_and_finishes_owned_wandb_run(monkeypatch):

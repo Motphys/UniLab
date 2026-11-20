@@ -13,7 +13,6 @@ from unilab.interruption import graceful_keyboard_interrupt
 from unilab.training.common import (
     assert_offpolicy_task_choice_matches_algo,
     ensure_registries,
-    get_hydra_runtime_choice,
     setup_logger,
 )
 from unilab.training.experiment import ExperimentTracker
@@ -52,7 +51,6 @@ __all__ = [
     "create_env",
     "ensure_registries",
     "format_play_checkpoint_error",
-    "get_hydra_runtime_choice",
     "get_latest_checkpoint",
     "get_latest_run",
     "get_log_root",

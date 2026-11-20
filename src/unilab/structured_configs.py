@@ -407,18 +407,12 @@ class PPOConfig(BaseConfig):
     save_interval: int = 100
     # Observation group assignment per network input.
     obs_groups: dict = field(default_factory=lambda: {"actor": ["policy"]})
-    # Experiment name used for run directories.
-    experiment_name: str = "test"
-    # Optional run name suffix.
-    run_name: str = ""
     # Resume training from a checkpoint.
     resume: bool = False
     # Run directory to load from; -1 selects the most recent.
     load_run: str = "-1"
     # Checkpoint iteration to load; -1 selects the latest.
     checkpoint: int = -1
-    # Explicit checkpoint path overriding run/checkpoint selection.
-    resume_path: Optional[str] = None
     # Actor network configuration.
     actor: PPOActorConfig = field(default_factory=PPOActorConfig)
     # Critic network configuration.

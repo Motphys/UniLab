@@ -22,12 +22,10 @@ class EnvConfigAdapter:
         cfg: DictConfig,
         *,
         root_dir: str | Path,
-        algo_name: str | None = None,
         scene_materializer: Callable[..., str] = materialize_scene_visual_override,
     ) -> None:
         self.cfg = cfg
         self.root_dir = Path(root_dir)
-        self.algo_name = algo_name
         self.scene_materializer = scene_materializer
 
     def build_task_env_cfg_override(self) -> dict[str, Any]:

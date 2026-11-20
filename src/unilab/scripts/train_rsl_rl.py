@@ -56,7 +56,7 @@ from unilab.training.experiment import (
     patch_rsl_rl_tensorboard_logging,
     patch_rsl_rl_wandb_writer,
 )
-from unilab.training.run import reject_removed_validation_keys
+from unilab.training.run import reject_removed_ppo_resume_keys, reject_removed_validation_keys
 from unilab.training.seed import apply_configured_training_seed
 from unilab.training.tensor_runtime import (
     resolve_recorded_collector_tensor_device,
@@ -86,7 +86,6 @@ def _backend_adapter(cfg: DictConfig) -> EnvConfigAdapter:
     return EnvConfigAdapter(
         cfg,
         root_dir=Path.cwd(),
-        algo_name="ppo",
         scene_materializer=materialize_scene_visual_override,
     )
 
@@ -382,6 +381,7 @@ def main(cfg: DictConfig) -> None:
             "select one device"
         )
     validate_ppo_run_completion_topology(cfg, world_size=world_size)
+    reject_removed_ppo_resume_keys(cfg)
 
     if world_size > 1 and os.environ.get("LOCAL_RANK") == "0":
         # A launcher parent invokes this branch once. World size comes from the

@@ -496,7 +496,7 @@ class ManagerBasedRlEnv(Protocol):
         """Whether finite checks accumulate on the device between polls."""
         ...
 
-    def record_finite_validation(self, value: torch.Tensor, label: str = "") -> None:
+    def record_finite_validation(self, value: torch.Tensor) -> None:
         """Accumulate one finite verdict into the env's deferred poll boundary."""
         ...
 

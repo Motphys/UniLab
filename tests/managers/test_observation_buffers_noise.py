@@ -14,7 +14,6 @@ from unilab.managers._noise import (
     GaussianNoiseCfg,
     NoiseCfg,
     NoiseModelWithAdditiveBiasCfg,
-    SegmentwiseUniformNoiseCfg,
     UniformNoiseCfg,
 )
 
@@ -181,7 +180,6 @@ def test_noise_configs_use_supplied_generator() -> None:
     [
         ConstantNoiseCfg(bias=2.0),
         UniformNoiseCfg(n_min=-0.2, n_max=0.2),
-        SegmentwiseUniformNoiseCfg(ranges=((-0.2, 0.2),)),
         GaussianNoiseCfg(std=0.1),
     ],
 )
@@ -258,34 +256,6 @@ def test_uniform_tensor_noise_uses_manager_rng_stream_and_device(operation: str)
     assert isinstance(first, torch.Tensor)
     assert first.device == device
     torch.testing.assert_close(first, second)
-
-
-@pytest.mark.parametrize("operation", ["add", "scale", "abs"])
-def test_segmentwise_tensor_noise_bounds_each_final_column(operation: str) -> None:
-    cfg = SegmentwiseUniformNoiseCfg(
-        ranges=((-0.1, 0.1), (-0.2, 0.2), (0.0, 0.0)),
-        operation=operation,
-    )
-    data = torch.ones((8, 3), dtype=torch.float32)
-    generator = torch.Generator().manual_seed(1811)
-    tensor_result = cfg.apply(data, torch_rng=generator)
-
-    assert tensor_result.shape == data.shape
-    if operation == "abs":
-        assert bool((tensor_result[:, 0] >= -0.1).all()) and bool((tensor_result[:, 0] < 0.1).all())
-        assert bool((tensor_result[:, 1] >= -0.2).all()) and bool((tensor_result[:, 1] < 0.2).all())
-    elif operation == "scale":
-        assert bool((tensor_result[:, 0] >= -0.1).all()) and bool((tensor_result[:, 0] < 0.1).all())
-        assert bool((tensor_result[:, 1] >= -0.2).all()) and bool((tensor_result[:, 1] < 0.2).all())
-    else:
-        assert bool((tensor_result[:, 0] >= 0.9).all()) and bool((tensor_result[:, 0] < 1.1).all())
-        assert bool((tensor_result[:, 1] >= 0.8).all()) and bool((tensor_result[:, 1] < 1.2).all())
-    if operation == "scale":
-        torch.testing.assert_close(tensor_result[:, 2], torch.zeros(8))
-    elif operation == "abs":
-        torch.testing.assert_close(tensor_result[:, 2], torch.zeros(8))
-    else:
-        torch.testing.assert_close(tensor_result[:, 2], torch.ones(8))
 
 
 def test_gaussian_tensor_noise_uses_manager_rng_stream_and_device() -> None:
@@ -395,7 +365,7 @@ def test_observation_groups_pipeline_order_and_history(fake_env: FakeEnv) -> Non
     # re-clipped or re-scaled when a new frame arrives.
     torch.testing.assert_close(second[:, :2], expected_first)
     torch.testing.assert_close(second[:, 2:4], expected_second)
-    assert manager.get_active_iterable_terms(0)[0][0] == "policy-state"
+    assert "policy" in manager.group_obs_dim
 
 
 def test_concatenated_observations_remain_caller_owned_across_later_computes(

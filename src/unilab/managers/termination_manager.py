@@ -87,11 +87,6 @@ class TerminationManager(ManagerBase):
         return self._term_names
 
     @property
-    def dones(self) -> torch.Tensor:
-        torch.logical_or(self._truncated_buf, self._terminated_buf, out=self._dones_buf)
-        return self._dones_buf
-
-    @property
     def time_outs(self) -> torch.Tensor:
         return self._truncated_buf
 
@@ -206,19 +201,10 @@ class TerminationManager(ManagerBase):
         torch.logical_or(self._truncated_buf, self._terminated_buf, out=self._dones_buf)
         return self._dones_buf
 
-    def get_term(self, name: str) -> torch.Tensor:
-        return self._term_dones[name]
-
     def get_term_cfg(self, term_name: str) -> TerminationTermCfg:
         if term_name not in self._term_names:
             raise ValueError(f"Term '{term_name}' not found in active terms.")
         return self._term_cfgs[self._term_names.index(term_name)]
-
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        terms = []
-        for key in self._term_dones.keys():
-            terms.append((key, [self._term_dones[key][env_idx].item()]))
-        return terms
 
     def _prepare_terms(self) -> None:
         for term_name, term_cfg in self.cfg.items():

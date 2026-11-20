@@ -31,7 +31,6 @@ algo:
   num_atoms: 101
   obs_normalization: false
   use_layer_norm: true
-  actor: {}
   algo_params:
     alpha_lr: 3.0e-4
     alpha_init: 0.01

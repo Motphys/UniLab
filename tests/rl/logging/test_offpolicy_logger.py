@@ -8,10 +8,8 @@ from rich.console import Console
 
 import unilab.rl.logging.base as base_logger_module
 import unilab.rl.logging.offpolicy as offpolicy_logger_module
-import unilab.rl.logging.onpolicy as onpolicy_logger_module
 from unilab.rl.logging.base import BaseTrainingLogger
 from unilab.rl.logging.offpolicy import OffPolicyLogger
-from unilab.rl.logging.onpolicy import OnPolicyLogger
 
 
 def test_offpolicy_logger_only_forces_refresh_for_errors(monkeypatch) -> None:
@@ -846,19 +844,6 @@ def test_offpolicy_final_iteration_logs_when_interval_is_not_divisible() -> None
     assert [event.step for event in writer.events] == [4, 8, 9]
 
 
-def test_onpolicy_final_iteration_logs_when_interval_is_not_divisible() -> None:
-    logger = OnPolicyLogger(
-        log_backend="none", num_envs=1, num_steps=1, max_iterations=9, log_interval=4
-    )
-    writer = _BatchedWriter()
-    logger._tb_writer = writer
-
-    for iteration in range(10):
-        logger.log_step(iteration=iteration, metrics={"Loss/surrogate": float(iteration)})
-
-    assert [event.step for event in writer.events] == [0, 4, 8, 9]
-
-
 def test_offpolicy_source_contract_fails_even_when_backend_write_is_skipped() -> None:
     logger = OffPolicyLogger(log_backend="none", max_iterations=10, log_interval=5)
 
@@ -875,10 +860,6 @@ def test_offpolicy_source_contract_fails_even_when_backend_write_is_skipped() ->
         (lambda: OffPolicyLogger(log_backend="none"), "Train/mean_episode_length"),
         (lambda: OffPolicyLogger(log_backend="none"), "Episode/timeout_rate"),
         (lambda: OffPolicyLogger(log_backend="none"), "Perf/collection_time"),
-        (
-            lambda: OnPolicyLogger(log_backend="none", num_envs=1, num_steps=1),
-            "Train/mean_episode_length",
-        ),
     ],
 )
 def test_source_metrics_cannot_bypass_logger_owned_telemetry(
@@ -888,15 +869,6 @@ def test_source_metrics_cannot_bypass_logger_owned_telemetry(
 
     with pytest.raises(ValueError, match="logger-owned metrics"):
         logger.log_step(iteration=1, metrics={tag: 1.0})
-
-
-def test_onpolicy_source_contract_fails_even_when_backend_write_is_skipped() -> None:
-    logger = OnPolicyLogger(log_backend="none", max_iterations=10, log_interval=5)
-
-    with pytest.raises(ValueError, match="unregistered canonical training metric"):
-        logger.log_step(iteration=1, metrics={"train/actor_loss": 1.0})
-    with pytest.raises(ValueError, match="reserved reward component name"):
-        logger.log_step(iteration=1, reward_components={"mean": 1.0})
 
 
 def test_offpolicy_backend_step_axis_prefers_collector_env_steps() -> None:
@@ -1055,84 +1027,3 @@ def test_offpolicy_replay_ingress_diagnostics_use_canonical_backend_payload() ->
     assert backend_scalars["Train/replay_ingress_depth"] == pytest.approx(2.0)
     assert backend_scalars["Train/replay_ingress_backpressure_wait_ms"] == pytest.approx(250.0)
     assert backend_scalars["Train/replay_ingress_dropped_batches"] == pytest.approx(1.0)
-
-
-def test_onpolicy_tensorboard_and_wandb_use_the_same_canonical_payload(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    logger = OnPolicyLogger(log_backend="none", num_envs=10, num_steps=3)
-    writer = _BatchedWriter()
-    logger._tb_writer = writer
-    logger._wandb_run = object()
-
-    wandb_calls: list[dict[str, Any]] = []
-
-    class _FakeWandb:
-        @staticmethod
-        def log(payload: dict[str, Any], *, step: int) -> None:
-            wandb_calls.append({"payload": payload, "step": step})
-
-    monkeypatch.setattr(onpolicy_logger_module, "_load_wandb", lambda: _FakeWandb)
-
-    logger.log_step(
-        iteration=4,
-        metrics={"Loss/surrogate": 2.0},
-        return_mean_ep100=2.5,
-        reward_components={"alive": 0.5},
-        collect_time=0.1,
-        train_time=0.2,
-    )
-
-    assert len(writer.events) == len(wandb_calls) == 1
-    assert writer.events[0].step == wandb_calls[0]["step"] == 4
-    tb_payload = _batched_scalar_map(writer)
-    wandb_payload = wandb_calls[0]["payload"]
-    assert set(wandb_payload) == set(tb_payload)
-    for key, value in wandb_payload.items():
-        assert value == pytest.approx(tb_payload[key])
-
-
-def test_onpolicy_backend_uses_canonical_reward_and_loss_tags() -> None:
-    logger = OnPolicyLogger(log_backend="none", num_envs=10, num_steps=3)
-    writer = _BatchedWriter()
-    logger._tb_writer = writer
-
-    logger.log_step(
-        iteration=2,
-        metrics={"Loss/surrogate": 1.0},
-        return_mean_ep100=2.0,
-        reward_components={"alive": 0.5},
-        collect_time=0.1,
-        train_time=0.2,
-    )
-
-    assert len(writer.events) == 1
-    assert writer.events[0].step == 2
-    scalars = _batched_scalar_map(writer)
-    assert scalars["Loss/surrogate"] == pytest.approx(1.0)
-    assert scalars["Train/mean_reward"] == pytest.approx(2.0)
-    assert scalars["reward/alive"] == pytest.approx(0.5)
-    assert scalars["Perf/total_fps"] == pytest.approx(100.0)
-    assert scalars["Perf/collection_time"] == pytest.approx(0.1)
-    assert scalars["Perf/learning_time"] == pytest.approx(0.2)
-    assert "Train/iteration" not in scalars
-    assert "Perf/iteration_time" not in scalars
-    assert {"reward/mean", "reward/mean_ep100", "perf/steps_per_sec"}.isdisjoint(scalars)
-
-
-def test_onpolicy_source_episode_return_owner_fails_closed() -> None:
-    logger = OnPolicyLogger(log_backend="none")
-
-    with pytest.raises(ValueError, match="logger-owned metrics"):
-        logger.log_step(
-            iteration=1,
-            metrics={"Train/mean_reward": 1.0},
-            return_mean_ep100=2.0,
-        )
-
-
-def test_onpolicy_runner_iteration_metric_fails_closed() -> None:
-    logger = OnPolicyLogger(log_backend="none")
-
-    with pytest.raises(ValueError, match="iteration as the step axis"):
-        logger.log_step(iteration=1, metrics={"Train/iteration": 1.0})

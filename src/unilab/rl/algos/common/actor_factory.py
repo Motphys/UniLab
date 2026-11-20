@@ -12,7 +12,6 @@ def build_actor(
     actor_hidden_dim,
     use_layer_norm,
     device,
-    num_envs=1,
     actor_num_blocks: int = 2,
     actor_noise_zeta_mu: float = 2.0,
     actor_noise_zeta_max: int = 16,

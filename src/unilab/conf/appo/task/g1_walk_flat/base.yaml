@@ -167,7 +167,6 @@ env:
       rel_heading_envs: 0.0
       rel_world_envs: 0.0
       rel_forward_envs: 0.0
-      init_velocity_prob: 0.0
       planar_dead_zone: 0.2
       ranges:
         lin_vel_x: [-0.6, 1.0]

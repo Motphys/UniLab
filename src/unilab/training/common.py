@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
 from unilab.base.registry import ensure_registries as _ensure_registries
@@ -14,22 +13,6 @@ from unilab.base.registry import ensure_registries as _ensure_registries
 def ensure_registries() -> None:
     """Import env modules so registry-based entrypoints can instantiate tasks."""
     _ensure_registries()
-
-
-def get_hydra_runtime_choice(cfg: DictConfig, group: str) -> str | None:
-    """Return a selected Hydra config-group choice when runtime metadata is available."""
-    cfg_choice = OmegaConf.select(cfg, f"hydra.runtime.choices.{group}")
-    if cfg_choice is not None:
-        return str(cfg_choice)
-
-    if not HydraConfig.initialized():
-        return None
-
-    try:
-        runtime_choice = HydraConfig.get().runtime.choices.get(group)
-    except (AttributeError, KeyError):
-        return None
-    return str(runtime_choice) if runtime_choice is not None else None
 
 
 def assert_offpolicy_task_choice_matches_algo(

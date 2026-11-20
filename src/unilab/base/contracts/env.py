@@ -84,21 +84,6 @@ class EnvAlgoCapabilitiesProtocol(Protocol):
     """
 
     @property
-    def action_low(self) -> torch.Tensor | None:
-        """Per-dimension lower action bounds, shape ``(action_dim,)``."""
-        ...
-
-    @property
-    def action_high(self) -> torch.Tensor | None:
-        """Per-dimension upper action bounds, shape ``(action_dim,)``."""
-        ...
-
-    @property
-    def joint_names(self) -> tuple[str, ...] | None:
-        """Joint names in action order, for symmetry-augmentation maps."""
-        ...
-
-    @property
     def reward_component_names(self) -> tuple[str, ...] | None:
         """Reward component names for fixed-width device metric aggregation."""
         ...
@@ -108,9 +93,6 @@ class EnvAlgoCapabilitiesProtocol(Protocol):
 class EnvAlgoCapabilities:
     """Default capability carrier with every field unset."""
 
-    action_low: torch.Tensor | None = None
-    action_high: torch.Tensor | None = None
-    joint_names: tuple[str, ...] | None = None
     reward_component_names: tuple[str, ...] | None = None
 
 

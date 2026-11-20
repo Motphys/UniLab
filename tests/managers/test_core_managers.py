@@ -264,7 +264,6 @@ def test_reward_dt_scaling_reset_and_config_immutability(fake_env: FakeEnv) -> N
     assert isinstance(reward, torch.Tensor)
     assert reward.device.type == "cpu"
     torch.testing.assert_close(reward, fake_env.value * 0.5)
-    assert manager.get_active_iterable_terms(2) == [("stateful", [4.0])]
     reset_ids = torch.tensor([1, 2], dtype=torch.int64)
     extras = manager.reset(reset_ids)
     assert extras == {}
@@ -543,8 +542,8 @@ def test_termination_aggregation_recomputes_correct_values(fake_env: FakeEnv) ->
 
     first = manager.compute()
     torch.testing.assert_close(first, timeout | failure)
-    torch.testing.assert_close(manager.get_term("timeout"), timeout)
-    torch.testing.assert_close(manager.get_term("failure"), failure)
+    torch.testing.assert_close(manager.time_outs, timeout)
+    torch.testing.assert_close(manager.terminated, failure)
 
     # The returned dones are an internal view; the observable contract is that
     # the next compute reflects the new inputs exactly.
@@ -552,9 +551,8 @@ def test_termination_aggregation_recomputes_correct_values(fake_env: FakeEnv) ->
     failure[2] = True
     second = manager.compute()
     torch.testing.assert_close(second, timeout | failure)
-    torch.testing.assert_close(manager.get_term("failure"), failure)
-    torch.testing.assert_close(manager.time_outs, timeout)
     torch.testing.assert_close(manager.terminated, failure)
+    torch.testing.assert_close(manager.time_outs, timeout)
 
 
 def test_transient_tensor_termination_opt_in_preserves_manager_buffers(
@@ -562,13 +560,15 @@ def test_transient_tensor_termination_opt_in_preserves_manager_buffers(
 ) -> None:
     class TransientFailure:
         returns_transient_tensor = True
+        last: torch.Tensor | None = None
 
         def __init__(self, cfg: TerminationTermCfg, env: FakeEnv):
             del cfg, env
 
         def __call__(self, env: FakeEnv) -> torch.Tensor:
             del env
-            return torch.tensor([False, True, False, True])
+            self.last = torch.tensor([False, True, False, True])
+            return self.last
 
     manager = TerminationManager(
         {"failure": TerminationTermCfg(func=TransientFailure)},
@@ -576,11 +576,13 @@ def test_transient_tensor_termination_opt_in_preserves_manager_buffers(
     )
 
     manager.compute()
-    original = manager.get_term("failure").clone()
+    original = manager.terminated.clone()
     # This marker is an ownership declaration by the term: the term promises
     # not to mutate this transient expression after returning it. Manager-owned
     # aggregate/per-term buffers therefore receive a copy during aggregation.
-    manager.get_term("failure").logical_not_()
+    term = manager.get_term_cfg("failure").func
+    assert term.last is not None
+    term.last.logical_not_()
 
     torch.testing.assert_close(manager.terminated, original)
 
@@ -605,16 +607,14 @@ def test_termination_terms_own_their_returned_carrier(fake_env: FakeEnv) -> None
 
     manager.compute()
     assert failure.output is not None
-    assert manager.get_term("failure") is not failure.output
+    assert manager.terminated is not failure.output
 
     failure.output.logical_not_()
 
     # A non-transient term owns the returned full-width carrier. The manager
     # publishes it into persistent aggregation buffers and remains immune to
     # later owner mutation.
-    torch.testing.assert_close(
-        manager._term_dones["failure"], torch.tensor([False, True, False, True])
-    )
+    torch.testing.assert_close(manager.terminated, torch.tensor([False, True, False, True]))
 
 
 def test_termination_aggregation_publishes_time_outs_through_owner_scratch(

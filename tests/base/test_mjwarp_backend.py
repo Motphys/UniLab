@@ -225,7 +225,6 @@ def test_g1_walk_flat_owner_one_step(
     env_cfg_override = EnvConfigAdapter(
         cfg,
         root_dir=REPO_ROOT,
-        algo_name=algo_name,
     ).build_task_env_cfg_override()
     registry.ensure_registries()
     env = registry.make(
@@ -258,7 +257,6 @@ def test_g1_walk_flat_owner_eager_capture_warmup_and_replay_share_semantics() ->
     env_cfg_override = EnvConfigAdapter(
         cfg,
         root_dir=REPO_ROOT,
-        algo_name="ppo",
     ).build_task_env_cfg_override()
     registry.ensure_registries()
 

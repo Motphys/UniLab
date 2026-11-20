@@ -319,7 +319,6 @@ def _resolve_env_shape(cfg: DictConfig, algo: str) -> ReplayShape:
     env_cfg_override = EnvConfigAdapter(
         cfg,
         root_dir=ROOT_DIR,
-        algo_name=algo,
     ).build_task_env_cfg_override()
     env = create_env(cfg, num_envs=1, env_cfg_override=env_cfg_override)
     try:

@@ -1004,7 +1004,7 @@ def test_nonfatal_manager_verdict_does_not_hide_base_failure() -> None:
             return False
 
     env.observation_manager = _NonfatalVerdict()  # type: ignore[attr-defined]
-    env.record_finite_validation(torch.tensor([float("nan")]), "base")
+    env.record_finite_validation(torch.tensor([float("nan")]))
     with pytest.raises(ValueError, match="deferred finite validation"):
         env.poll_finite_validation(force=True)
 

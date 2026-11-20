@@ -944,11 +944,9 @@ def test_build_ppo_play_env_cfg_override_keeps_task_owned_manager_scene(
     assert env_cfg_override["scene"]["entities"]["robot"]["joint_names"]
 
 
-def test_run_native_viewer_play_loop_uses_render_spacing_and_offset_mode():
+def test_native_viewer_playback_uses_render_spacing_and_offset_mode():
     import torch
     from tensordict import TensorDict
-
-    from unilab.visualization.playback import run_native_viewer_play_loop
 
     class FakePolicy:
         def __call__(self, obs):
@@ -1016,8 +1014,7 @@ def test_run_native_viewer_play_loop_uses_render_spacing_and_offset_mode():
     wrapped_env = FakeWrapper()
     policy = FakePolicy()
 
-    run_native_viewer_play_loop(
-        wrapped_env.env,
+    wrapped_env.env.run_playback(
         render_spacing=2.5,
         render_offset_mode="zero",
         num_steps=3,
@@ -1115,9 +1112,7 @@ def test_appo_host_bridge_carriers_follow_collector_tensor_device_auto(monkeypat
     assert explicit_cuda["env_cfg_overrides"]["collector_tensor_device"] == "cuda"
 
 
-def test_run_native_viewer_play_loop_runs_without_physics_state():
-    from unilab.visualization.playback import run_native_viewer_play_loop
-
+def test_native_viewer_playback_runs_without_physics_state():
     class FakeActor:
         def __call__(self, td):
             batch = td.batch_size[0]
@@ -1213,7 +1208,7 @@ def test_run_native_viewer_play_loop_runs_without_physics_state():
     if env.state is None:
         env.init_state()
 
-    run_native_viewer_play_loop(env, num_steps=3, initialize=_reset_obs, step=_step)
+    env.run_playback(num_steps=3, initialize=_reset_obs, step=_step)
 
     assert env.init_state_calls == 1
     assert env.reset_calls == 1
@@ -1616,25 +1611,6 @@ def test_resolve_checkpoint_empty_run_dir(tmp_path):
         tmp_path / "logs" / "sac" / "MyTask", "-1"
     )
     assert path is None
-
-
-def test_offpolicy_extract_reset_obs_handles_two_tuple():
-    from unilab.visualization.interactive_playback import extract_reset_obs
-
-    obs = {"obs": "value"}
-
-    result = extract_reset_obs((obs, {"info": 1}))
-
-    assert result is obs
-
-
-def test_offpolicy_extract_reset_obs_rejects_three_tuple():
-    from unilab.visualization.interactive_playback import extract_reset_obs
-
-    obs = {"obs": "value"}
-
-    with pytest.raises(ValueError, match="Unexpected env.reset return format"):
-        extract_reset_obs(("ignored", obs, {"info": 1}))
 
 
 def test_offpolicy_resolve_play_obs_dims_ignore_critic():

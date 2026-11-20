@@ -135,23 +135,16 @@ def resolve_motion_files(
     return [_resolve_single(p, repo_id=_HF_MOTIONS_REPO_ID) for p in motion_file]
 
 
-def resolve_checkpoint_file(
-    checkpoint_file: str | Sequence[str],
-) -> str | list[str]:
-    """Ensure checkpoint file(s) exist locally, downloading from HF if needed.
+def resolve_checkpoint_file(checkpoint_file: str) -> str:
+    """Ensure a checkpoint file exists locally, downloading from HF if needed.
 
     Args:
-        checkpoint_file: Absolute path or ``ASSETS_ROOT_PATH``-relative path
-            (single string or sequence of strings).
+        checkpoint_file: Absolute path or ``ASSETS_ROOT_PATH``-relative path.
 
     Returns:
-        Resolved absolute path(s) guaranteed to exist on disk.
-        A single string input returns a single string; a sequence input
-        returns a list of strings.
+        Resolved absolute path guaranteed to exist on disk.
     """
-    if isinstance(checkpoint_file, str):
-        return _resolve_single(checkpoint_file, repo_id=_HF_CHECKPOINTS_REPO_ID)
-    return [_resolve_single(p, repo_id=_HF_CHECKPOINTS_REPO_ID) for p in checkpoint_file]
+    return _resolve_single(checkpoint_file, repo_id=_HF_CHECKPOINTS_REPO_ID)
 
 
 def _resolve_single(

@@ -165,10 +165,6 @@ class RecorderManager(ManagerBase):
             table.add_row([idx, name])
         return msg + str(table.get_string())
 
-    def __contains__(self, name: str) -> bool:
-        """Return True if a term named ``name`` is registered."""
-        return name in self._terms
-
     @property
     def active_terms(self) -> list[str]:
         """List of active term names."""
@@ -253,11 +249,6 @@ class NullRecorderManager:
 
     def __repr__(self) -> str:
         return "NullRecorderManager()"
-
-    def __contains__(self, name: str) -> bool:
-        """Always returns False since there are no terms."""
-        del name
-        return False
 
     def get_term(self, name: str) -> RecorderTerm:
         """Always raises KeyError since there are no terms."""

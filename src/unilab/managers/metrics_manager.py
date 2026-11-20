@@ -316,12 +316,6 @@ class MetricsManager(ManagerBase):
             if name in self._episode_max:
                 torch.maximum(self._episode_max[name], value, out=self._episode_max[name])
 
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        terms = []
-        for idx, name in enumerate(self._term_names):
-            terms.append((name, [self._step_values[env_idx, idx].item()]))
-        return terms
-
     def _prepare_terms(self) -> None:
         for term_name, term_cfg in self.cfg.items():
             if term_cfg is None:
@@ -393,9 +387,6 @@ class NullMetricsManager:
 
     def __repr__(self) -> str:
         return "NullMetricsManager()"
-
-    def get_active_iterable_terms(self, env_idx: int) -> Sequence[tuple[str, Sequence[float]]]:
-        return []
 
     def reset(self, env_ids: torch.Tensor | None = None) -> dict[str, float]:
         del env_ids

@@ -96,10 +96,10 @@ def test_observation_row_scoped_indexing_and_reset_on_cuda() -> None:
         env,
     )
     manager.compute()
-
-    terms = manager.get_active_iterable_terms(1)
-    assert terms[0][0] == "policy-obs"
-    assert terms[0][1] == pytest.approx([4.0, 1.5])
+    policy = manager.compute()["policy"]
+    torch.testing.assert_close(
+        policy[1], torch.tensor([4.0, 1.5], dtype=policy.dtype, device=policy.device)
+    )
 
     assert manager.reset(torch.tensor([0, 2], dtype=torch.int64, device=env.device)) == {}
     recomputed = manager.compute()["policy"]

@@ -141,7 +141,6 @@ def _compose_env_cfg(task: str, backend: str, spec: TaskSpec) -> Any:
     env_cfg_override = EnvConfigAdapter(
         owner_cfg,
         root_dir=ROOT_DIR,
-        algo_name="ppo",
     ).build_task_env_cfg_override()
     cfg = spec.env_cfg_factory()
     apply_cfg_overrides(cfg, env_cfg_override)

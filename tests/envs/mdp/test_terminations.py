@@ -200,11 +200,9 @@ def test_nan_detection_integrates_with_termination_manager() -> None:
 def test_state_check_defers_to_the_env_finite_verdict() -> None:
     """Deferred mode records the verdict device-side instead of raising."""
     env = _env()
-    recorded: list[tuple[torch.Tensor, str]] = []
+    recorded: list[torch.Tensor] = []
     setattr(env, "defer_finite_validation", True)
-    setattr(
-        env, "record_finite_validation", lambda value, label="": recorded.append((value, label))
-    )
+    setattr(env, "record_finite_validation", lambda value: recorded.append(value))
 
     entity = cast(Any, env.scene["robot"])
     entity.root_pos[:] = np.nan
@@ -213,8 +211,7 @@ def test_state_check_defers_to_the_env_finite_verdict() -> None:
     mdp.root_height_below_minimum(env, minimum_height=0.5)
 
     assert len(recorded) == 1
-    value, label = recorded[0]
-    assert label == "termination['root_height_below_minimum']"
+    value = recorded[0]
     assert not bool(torch.isfinite(value).all())
 
 

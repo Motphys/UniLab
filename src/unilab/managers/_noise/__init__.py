@@ -8,9 +8,6 @@ from unilab.managers._noise.noise_cfg import NoiseModelCfg as NoiseModelCfg
 from unilab.managers._noise.noise_cfg import (
     NoiseModelWithAdditiveBiasCfg as NoiseModelWithAdditiveBiasCfg,
 )
-from unilab.managers._noise.noise_cfg import (
-    SegmentwiseUniformNoiseCfg as SegmentwiseUniformNoiseCfg,
-)
 from unilab.managers._noise.noise_cfg import UniformNoiseCfg as UniformNoiseCfg
 from unilab.managers._noise.noise_model import NoiseModel as NoiseModel
 from unilab.managers._noise.noise_model import (

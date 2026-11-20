@@ -73,7 +73,6 @@ class BaseActionCfg(ActionTermCfg):
     actuator_names: tuple[str, ...] | list[str]
     scale: float | dict[str, float] = 1.0
     offset: float | dict[str, float] = 0.0
-    preserve_order: bool = False
 
 
 class BaseAction(ActionTerm):

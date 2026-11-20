@@ -226,8 +226,11 @@ superseded ADR-0006 may remain.
 
 ## Evidence In Repo
 
-- Reusable tensor components: `src/unilab/tasks/motion_tracking/common/tensor_runtime.py`,
-  `src/unilab/tasks/motion_tracking/common/tensor_state_store.py`
+- The reusable tensor component helpers once cited here
+  (`src/unilab/tasks/motion_tracking/common/tensor_runtime.py`,
+  `src/unilab/tasks/motion_tracking/common/tensor_state_store.py`) had no
+  production consumer once the Manager runtime became device-native; they
+  were removed in the YAGNI sweep for issue #2629.
 - General Manager runtime to migrate: `src/unilab/envs/manager_based_rl_env.py`
 - Legacy runtime: removed. The historical path
   `src/unilab/base/np_env.py` no longer exists and is intentionally not cited

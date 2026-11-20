@@ -150,7 +150,6 @@ def _owner_yaml_cfg(
     env_cfg_override = EnvConfigAdapter(
         owner_cfg,
         root_dir=ROOT_DIR,
-        algo_name=algo_name,
     ).build_task_env_cfg_override()
 
     cfg = env_cfg_cls()
