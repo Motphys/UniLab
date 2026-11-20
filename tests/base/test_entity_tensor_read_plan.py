@@ -545,6 +545,36 @@ def test_device_resident_scene_plan_refreshes_stable_public_views() -> None:
     torch.testing.assert_close(body.ang_vel_w[:, 0], backend.sensors["track_angvel_w_hip"])
 
 
+def test_device_resident_body_packets_keep_fixed_addresses_across_refreshes() -> None:
+    backend = _SceneTensorBackend(device_resident=True)
+    plan = _scene(backend).compile_tensor_reads("cpu", _specs())
+    sensor_prefixes = {
+        "pos_w": "track_pos_w_hip",
+        "quat_w": "track_quat_w_hip",
+        "lin_vel_w": "track_linvel_w_hip",
+        "ang_vel_w": "track_angvel_w_hip",
+    }
+
+    plan.refresh()
+    captured = plan.body_tensor_view("robot")
+    for iteration, refresh in enumerate((plan.refresh, plan.refresh_selected), start=1):
+        for offset, sensor_name in enumerate(sensor_prefixes.values()):
+            backend.sensors[sensor_name] = torch.full_like(
+                backend.sensors[sensor_name], iteration * 10 + offset
+            )
+        refresh()
+        latest = plan.body_tensor_view("robot")
+        for body_field, sensor_name in sensor_prefixes.items():
+            captured_value = getattr(captured, body_field)
+            latest_value = getattr(latest, body_field)
+            assert captured_value.data_ptr() == latest_value.data_ptr()
+            torch.testing.assert_close(captured_value, latest_value)
+            torch.testing.assert_close(latest_value[:, 0], backend.sensors[sensor_name])
+        captured = latest
+
+    plan.close()
+
+
 def test_device_resident_scene_plan_reuses_aggregate_body_views() -> None:
     backend = _SceneTensorBackend(device_resident=True)
     scene = _scene(backend)

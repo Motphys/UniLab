@@ -97,20 +97,14 @@ def test_flashsac_g1_motion_tracking_mjwarp_is_managed_term_baseline() -> None:
     assert cfg.training.sim_backend == "mjwarp"
     assert cfg.reward == mujoco_cfg.reward
     assert cfg.algo == mujoco_cfg.algo
-    # Only the interval push differs: angular kicks are zeroed because mjwarp
-    # does not expose the interval angular root-velocity capability.
+    # Only the interval push differs: it is disabled for mjwarp.
     mjwarp_env = OmegaConf.to_container(cfg.env)
     mujoco_env = OmegaConf.to_container(mujoco_cfg.env)
     assert isinstance(mjwarp_env, dict) and isinstance(mujoco_env, dict)
     mjwarp_push = mjwarp_env["events"].pop("push_robot")
-    mujoco_push = mujoco_env["events"].pop("push_robot")
+    mujoco_env["events"].pop("push_robot")
     assert mjwarp_env == mujoco_env
-    assert mjwarp_push["params"]["velocity_range"]["roll"] == [0.0, 0.0]
-    assert mjwarp_push["params"]["velocity_range"]["pitch"] == [0.0, 0.0]
-    assert mjwarp_push["params"]["velocity_range"]["yaw"] == [0.0, 0.0]
-    assert (
-        mjwarp_push["params"]["velocity_range"]["x"] == mujoco_push["params"]["velocity_range"]["x"]
-    )
+    assert mjwarp_push is None
 
 
 def test_flashsac_motion_rewards_publish_canonical_component_names() -> None:

@@ -15,6 +15,18 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ## Unreleased
 
+### Fixed / 修复
+
+- Device-resident scene body-state packets now retain fixed tensor storage across
+  full and selected-reset refreshes. CUDA graphs that capture body-state reads
+  therefore replay against current packet values instead of reclaimed tensor
+  addresses, fixing intermittent observation corruption during autoreset training
+  ([#2642](https://github.com/Motphys/UniLab/issues/2642)).
+  Device-resident 场景 body-state packet 在完整刷新和 selected-reset 刷新之间
+  现保持固定张量存储。捕获 body-state 读取的 CUDA 图重放时因此读取当前 packet
+  值，而非已回收的张量地址，修复 autoreset 训练中的间歇性观测污染
+  （[#2642](https://github.com/Motphys/UniLab/issues/2642)）。
+
 ### Changed / 变更
 
 - Source checkouts now install the RL training runtime (`tensordict`,

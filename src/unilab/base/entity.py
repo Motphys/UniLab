@@ -402,6 +402,7 @@ class SceneTensorReadPlan:
             tuple[str, tuple[str, ...], tuple[str, ...]], torch.Tensor
         ] = {}
         self._packet: Mapping[str, torch.Tensor] = MappingProxyType({})
+        self._body_packet_buffers: dict[str, torch.Tensor] = {}
         self._body_pair_contact_names = MappingProxyType(dict(body_pair_contact_names))
         self._body_pair_contact_batches: dict[str, BodyPairContactBatch] = dict(
             body_pair_contact_batches or {}
@@ -1065,6 +1066,7 @@ class SceneTensorReadPlan:
                 self._host_plan_value.close()
         finally:
             self._aggregate_body_views.clear()
+            self._body_packet_buffers.clear()
             self._body_pair_contact_batches.clear()
             self._contact_reads_ready = False
             self._packet_body_index_cache.clear()
@@ -1215,6 +1217,14 @@ class SceneTensorReadPlan:
                     f"Scene tensor body field '{name}' must be float32 on {self._device}; "
                     f"got {value.dtype} on {value.device}"
                 )
+            if self._host_plan_value is None:
+                # Graph capture records packet addresses, so refresh body blocks in place.
+                carrier = self._body_packet_buffers.get(name)
+                if carrier is None:
+                    carrier = torch.empty(expected, dtype=value.dtype, device=value.device)
+                    self._body_packet_buffers[name] = carrier
+                carrier.copy_(value)
+                packet[name] = carrier
         self._packet = MappingProxyType(packet)
         self._aggregate_body_views.clear()
         self._refreshed = True
