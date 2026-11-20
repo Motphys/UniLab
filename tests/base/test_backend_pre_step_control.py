@@ -165,6 +165,7 @@ def _fake_mujoco_backend(pre_step_control_fn=None):
     backend._ctrl_view = pool.bind("ctrl", np.float64)
     backend._xfrc_view = pool.bind("xfrc_applied")
     backend._sensor_data = pool.bind("sensordata", np.float64)
+    backend._native_sensor_view = None
     backend._pending_xfrc_applied = np.zeros((1, 6), dtype=np.float64)
     backend._pool = pool
     return backend
@@ -251,6 +252,14 @@ class _FakeMotrixModel:
     def step_n(self, data, nsteps: int) -> None:
         self.step_n_calls.append(nsteps)
         data.sensor_value += float(nsteps)
+
+
+def _use_fake_capture_render_model(backend, captured) -> None:
+    def build(width, height):
+        captured["render_model_config"] = (width, height)
+        return backend._model
+
+    backend._build_capture_render_model = build
 
 
 def _fake_motrix_backend(pre_step_control_fn=None):
@@ -354,6 +363,7 @@ def test_motrix_native_video_capture_uses_headless_system_camera(monkeypatch) ->
     backend._render_app = None
     backend._render_headless = None
     backend._render_capture_enabled = False
+    _use_fake_capture_render_model(backend, captured)
 
     backend.bind_renderer(
         spacing=1.5,
@@ -370,7 +380,7 @@ def test_motrix_native_video_capture_uses_headless_system_camera(monkeypatch) ->
     )
     frame = backend.capture_video_frame()
 
-    assert captured["render_target"] == ("image", 3, 2)
+    assert captured["render_model_config"] == (3, 2)
     assert captured["render_app_kwargs"] == {"headless": True}
     assert captured["launch"]["model"] is backend._model
     assert captured["launch"]["batch"] == 3
@@ -440,6 +450,7 @@ def test_motrix_native_video_capture_defaults_camera_lookat_to_grid_center(monke
     backend._render_app = None
     backend._render_headless = None
     backend._render_capture_enabled = False
+    _use_fake_capture_render_model(backend, captured)
 
     backend.bind_renderer(
         spacing=2.0,
@@ -536,6 +547,7 @@ def test_motrix_native_video_capture_tracks_primary_env_base(monkeypatch) -> Non
     backend._render_app = None
     backend._render_headless = None
     backend._render_capture_enabled = False
+    _use_fake_capture_render_model(backend, captured)
     backend._host_get_base_pos = lambda: base_positions
 
     backend.bind_renderer(
@@ -647,7 +659,7 @@ def test_motrix_interactive_renderer_applies_camera_kwargs(monkeypatch) -> None:
         "elevation": -25.0,
         "azimuth": 135.0,
     }
-    assert captured["main_camera"] is None
+    assert "main_camera" not in captured
 
 
 def test_motrix_renderer_zero_offset_mode(monkeypatch) -> None:

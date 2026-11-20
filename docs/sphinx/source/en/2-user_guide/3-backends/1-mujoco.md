@@ -1,11 +1,10 @@
 # MuJoCo Backend
 
-MuJoCo is the default backend path in the committed owner configs. The Python
-dependencies are the official `mujoco` package (`~=3.11.0`, with the exact
-default version pinned by the committed `uv.lock`) plus the
-`mjbatch` native batch engine (currently pinned to the
-[integration fork](https://github.com/unilabsim/mjbatch) in
-`pyproject.toml`), and the adapter lives under `unisim.backend.mujoco`.
+MuJoCo is the default backend path in the committed owner configs. On Python
+3.11 and newer, the `mujoco` extra installs the official `mujoco` package
+(`~=4.0.1`) plus the published `mjbatch-uni==0.3.1` native batch engine, with
+exact versions pinned by the committed `uv.lock`. The adapter lives under
+`unisim.backend.mujoco`.
 
 ## When To Use It
 
@@ -30,21 +29,18 @@ rather than opening the Motrix native interactive renderer.
 
 ## Switching MuJoCo Versions
 
-pyproject constrains `mujoco~=3.11.0`; the committed `uv.lock` pins the exact
-default version, and uv's prefer-locked semantics keep ordinary relocks from
-drifting. The `mjbatch` engine is built against `mujoco==3.11.0` and records
-its build-time `mujoco` version, refusing to import against any other version
-(fail-closed, never a silent behavior change). Switching versions therefore
-requires an `mjbatch` build against the requested version:
+On Python 3.11 and newer, pyproject constrains `mujoco~=4.0.1` and pins
+`mjbatch-uni==0.3.1`; the committed `uv.lock` pins the exact default versions,
+and uv's prefer-locked semantics keep ordinary relocks from drifting. The
+`mjbatch` engine records its build-time `mujoco` version and refuses to import
+against a different one (fail-closed, never a silent behavior change).
+Switching versions therefore requires a compatible `mjbatch` release:
 
-1. bump the `mujoco` bound and the `mjbatch` source pin in
-   `pyproject.toml` (and mirror `pyproject.rocm.toml`),
+1. bump the `mujoco` bound and the `mjbatch-uni` pin in `pyproject.toml` (and
+   mirror `pyproject.rocm.toml`),
 2. re-lock (`uv lock`, plus the ROCm lockfile via `make sync-rocm`) and
    re-sync (`uv sync --extra mujoco`).
 
-The fork's build pins `mujoco==3.11.0` at build time, so the isolated build
-always compiles against the matching mujoco. The engine is currently consumed
-from the pinned integration fork; its final distribution identity (PyPI
-package vs git pin, and prebuilt wheels) is the roadmap's open item — until
-then, coordinate version bumps with the
-[fork](https://github.com/unilabsim/mjbatch).
+Prebuilt `mjbatch-uni` wheels are the default installation path. Coordinate
+new MuJoCo/engine version pairs with the
+[integration fork](https://github.com/unilabsim/mjbatch).

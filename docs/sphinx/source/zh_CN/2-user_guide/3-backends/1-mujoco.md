@@ -1,10 +1,9 @@
 # MuJoCo 后端
 
-MuJoCo 是已提交 owner 配置中的默认后端路径。其 Python 依赖为官方
-`mujoco` 包（`~=3.11.0`，默认版本由已提交的 `uv.lock` 精确钉住）加
-`mjbatch` 原生 batch 引擎（当前在 `pyproject.toml` 中钉住
-[集成 fork](https://github.com/unilabsim/mjbatch)），适配层位于
-`unisim.backend.mujoco` 下。
+MuJoCo 是已提交 owner 配置中的默认后端路径。在 Python 3.11 及更高版本上，
+`mujoco` extra 安装官方 `mujoco` 包（`~=4.0.1`）和发布版
+`mjbatch-uni==0.3.1` 原生 batch 引擎，精确版本由已提交的 `uv.lock` 钉住。
+适配层位于 `unisim.backend.mujoco` 下。
 
 ## 何时使用
 
@@ -27,18 +26,16 @@ MuJoCo 在 `unisim.backend.mujoco.backend` 中声明对物理状态回放的支�
 
 ## 切换 MuJoCo 版本
 
-pyproject 约束 `mujoco~=3.11.0`；默认版本由已提交的 `uv.lock` 精确钉住，
-uv 的 prefer-locked 语义保证普通 relock 不会漂移。`mjbatch` 引擎针对
-`mujoco==3.11.0` 构建，并记录编译时的 `mujoco` 版本，拒绝在其它版本下导入
-（fail-closed，不会静默出错行为）。因此切换版本需要对应版本的 `mjbatch`
-构建：
+在 Python 3.11 及更高版本上，pyproject 约束 `mujoco~=4.0.1` 并钉定
+`mjbatch-uni==0.3.1`；默认精确版本由已提交的 `uv.lock` 钉住，uv 的
+prefer-locked 语义保证普通 relock 不会漂移。`mjbatch` 引擎记录编译时的
+`mujoco` 版本，拒绝在其它版本下导入（fail-closed，不会静默改变行为）。
+因此切换版本需要兼容的 `mjbatch` 发布版本：
 
 1. 在 `pyproject.toml`（并同步镜像 `pyproject.rocm.toml`）中提升 `mujoco`
-   边界和 `mjbatch` 源码钉版；
+   边界和 `mjbatch-uni` 钉版；
 2. 重新锁定（`uv lock`，ROCm lockfile 通过 `make sync-rocm`）并重新同步
    （`uv sync --extra mujoco`）。
 
-fork 的构建在编译期钉住 `mujoco==3.11.0`，因此隔离构建总是针对匹配的 mujoco
-编译。引擎当前从钉住的集成 fork 消费；其最终分发身份（PyPI package 还是
-git 钉版、是否提供预编译 wheel）是 roadmap 上的待定事项——在此之前，版本提升
-需要与 [fork](https://github.com/unilabsim/mjbatch) 维护者协调。
+默认安装路径使用预编译 `mjbatch-uni` wheel。新的 MuJoCo/引擎版本组合需要与
+[集成 fork](https://github.com/unilabsim/mjbatch) 协调。
