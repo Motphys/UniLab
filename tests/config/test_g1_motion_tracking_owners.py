@@ -258,3 +258,20 @@ def test_sac_g1_motion_tracking_mjwarp_uses_tensor_motion_owner() -> None:
     assert critic_terms.motion_anchor_ori_b.func == (
         "unilab.tasks.motion_tracking.common.manager_terms.motion_anchor_ori_b"
     )
+
+
+def test_sac_g1_motion_tracking_motrix_uses_canonical_task_name() -> None:
+    """The Motrix leaf must resolve the same registry task as the other owners.
+
+    ``training.task_name`` feeds the env registry lookup and the reward
+    override resolution, so a leaf-specific spelling breaks env construction
+    and checkpoint directory naming.
+    """
+    cfg = _compose_sac("g1_motion_tracking/motrix")
+
+    assert cfg.training.task_name == "G1MotionTracking"
+    assert cfg.training.sim_backend == "motrix"
+    assert cfg.env.events.push_robot is None
+    mujoco_cfg = _compose_sac("g1_motion_tracking/mujoco")
+    assert cfg.reward == mujoco_cfg.reward
+    assert cfg.algo == mujoco_cfg.algo

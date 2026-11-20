@@ -13,6 +13,24 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased
+
+### Fixed / 修复
+
+- The SAC `g1_motion_tracking/motrix` owner resolves `training.task_name` to
+  `G1MotionTracking` again instead of the leaf-specific `G1MotionTrackingSAC`
+  spelling, which broke env-registry resolution and gave Motrix runs their own
+  checkpoint directory namespace.
+  SAC `g1_motion_tracking/motrix` owner 的 `training.task_name` 恢复为
+  `G1MotionTracking`，不再是该 leaf 特有的 `G1MotionTrackingSAC` 拼写——后者
+  会导致 env 注册表解析失败，并让 Motrix 运行使用独立的 checkpoint 目录名。
+- The FlashSAC `g1_walk_flat/motrix` and `g1_walk_flat/mjwarp` owners now
+  carry the shared `G1WalkResetOwner` tensor reset owner like every other G1
+  walk backend, instead of silently falling back to the generic reset path.
+  FlashSAC `g1_walk_flat/motrix` 与 `g1_walk_flat/mjwarp` owner 现在与其他 G1
+  walk 后端一样携带共享的 `G1WalkResetOwner` 张量 reset owner，不再静默回退到
+  通用 reset 路径。
+
 ## 1.6.0rc1 (2026-11-20)
 
 ### Fixed / 修复

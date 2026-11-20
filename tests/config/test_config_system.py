@@ -191,6 +191,17 @@ def test_ppo_g1_mjwarp_inherits_enabled_playback_default():
     assert cfg.training.play_render_mode == "record"
 
 
+def test_offpolicy_flashsac_g1_walk_flat_tensor_owners_carry_walk_reset_owner():
+    """Motrix/mjwarp leaves own the tensor walk command reset like MuJoCo."""
+    mujoco_cfg = _compose("flashsac", overrides=["task=g1_walk_flat/mujoco"])
+    expected = mujoco_cfg.env.reset_owners.walk.func
+
+    for backend in ("motrix", "mjwarp"):
+        cfg = _compose("flashsac", overrides=[f"task=g1_walk_flat/{backend}"])
+        assert cfg.env.reset_owners.walk.func == expected
+        assert cfg.env.reset_owners.walk.command_name == "twist"
+
+
 def test_appo_adaptive_lr_factors_are_overridden_only_by_dex_hand_owners():
     cfg = _compose("appo", overrides=["task=g1_walk_flat/mujoco"])
 

@@ -14,6 +14,11 @@ training:
   sim_backend: mjwarp
   play_render_mode: record
 env:
+  reset_owners:
+    walk:
+      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwnerCfg
+      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwner
+      command_name: twist
   # MJWarp is DEVICE_RESIDENT/DIRECT. Mirror the SAC owner's CUDA tensor
   # lifecycle so this owner-selected path does not depend on caller defaults.
   mjwarp_nconmax: 128

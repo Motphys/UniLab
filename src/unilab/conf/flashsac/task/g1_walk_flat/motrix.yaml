@@ -10,6 +10,11 @@ training:
   task_name: G1WalkFlat
   sim_backend: motrix
 env:
+  reset_owners:
+    walk:
+      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwnerCfg
+      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwner
+      command_name: twist
   events:
     # kp/kd randomization stays disabled, matching the tuned walk baseline.
     pd_gains: null
