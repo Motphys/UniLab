@@ -67,7 +67,7 @@ class MotionSamplerDiagnostics:
 
 
 class MotionSampler:
-    """Torch-native adaptive/mixed motion sampler for ``MotionCommand``."""
+    """Torch-native start/uniform/adaptive/mixed motion sampler for ``MotionCommand``."""
 
     def __init__(
         self,
@@ -87,9 +87,9 @@ class MotionSampler:
         initial_clip_end_frames: torch.Tensor,
         device: torch.device,
     ) -> None:
-        if mode not in {"adaptive", "mixed"}:
+        if mode not in {"start", "uniform", "adaptive", "mixed"}:
             raise NotImplementedError(
-                f"MotionSampler supports adaptive/mixed modes only, got {mode!r}"
+                f"MotionSampler supports start/uniform/adaptive/mixed modes only, got {mode!r}"
             )
         if num_envs <= 0 or num_frames <= 0 or bin_count <= 0:
             raise ValueError("MotionSampler dimensions must be positive")
@@ -232,7 +232,26 @@ class MotionSampler:
         self.diagnostics.record_reset_dispatch()
         frames: torch.Tensor
         probabilities: torch.Tensor | None = None
-        if self.mode == "adaptive":
+        if self.mode == "start":
+            # Deterministic clip start (mjlab ``sampling_mode="start"``): every
+            # reset row restarts from frame 0. No RNG is consumed.
+            frames = self._reset_frames
+            frames.zero_()
+            self._publish_start_metrics()
+        elif self.mode == "uniform":
+            # Uniform frame sampling (mjlab ``sampling_mode="uniform"``): every
+            # reset row draws an independent uniform frame index.
+            frames = self._reset_frames
+            torch.randint(
+                0,
+                self.num_frames,
+                frames.shape,
+                out=frames,
+                dtype=torch.int32,
+                generator=torch_rng,
+            )
+            self._publish_uniform_metrics()
+        elif self.mode == "adaptive":
             probabilities = self._adaptive_probabilities()
             offsets = self._reset_random_offsets
             torch.rand(
@@ -407,6 +426,19 @@ class MotionSampler:
         self.sampling_top1_prob.copy_(torch.amax(probabilities))
         self.sampling_top1_bin.copy_(top1_index)
         self.sampling_top1_bin.div_(self.bin_count)
+
+    def _publish_start_metrics(self) -> None:
+        # Deterministic restarts always land on frame 0: zero entropy, all mass
+        # on the first bin.
+        self.sampling_entropy.fill_(0.0)
+        self.sampling_top1_prob.fill_(1.0)
+        self.sampling_top1_bin.fill_(0.0)
+
+    def _publish_uniform_metrics(self) -> None:
+        # Uniform sampling has maximum normalized entropy and a flat bin mass.
+        self.sampling_entropy.fill_(1.0)
+        self.sampling_top1_prob.fill_(1.0 / self.bin_count)
+        self.sampling_top1_bin.fill_(0.5)
 
     def _publish_mixed_metrics(self) -> None:
         start_mass = self.start_ratio + (1.0 - self.start_ratio) / self.bin_count

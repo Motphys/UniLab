@@ -37,10 +37,14 @@ def _state_tensor(
             f"{tuple(state.shape)}, expected {expected}"
         )
     if env.defer_finite_validation:
-        # Deferred mode accumulates the verdict on the env's device-resident
-        # carrier; the fixed poll boundary raises on a latched failure instead
-        # of synchronizing here on every step.
-        env.record_finite_validation(state)
+        # Deferred mode records the verdict under the term's own name; the
+        # fixed poll boundary raises naming every latched fail-closed check
+        # instead of synchronizing here on every step.
+        env.require(
+            torch.isfinite(state).all(),
+            f"termination.{term_name}",
+            f"Termination term '{term_name}' received NaN or Inf entity state",
+        )
         return state
     if not bool(torch.isfinite(state).all()):
         invalid_rows = torch.nonzero(~torch.isfinite(state).all(dim=1)).flatten()[:10]

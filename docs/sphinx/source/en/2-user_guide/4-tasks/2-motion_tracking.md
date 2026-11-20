@@ -109,8 +109,7 @@ CUDA_VISIBLE_DEVICES=1 uv run train --algo sac --task g1_motion_tracking --sim m
   training.use_amp=true algo.seed=1 \
   env.commands.motion.params.motion_file=motions/g1/motion_crawl_slope_uni.npz \
   env.scene.model_file=src/unilab/assets/robots/g1/scene_crawl_slope.xml \
-  env.commands.motion.params.sampling_mode=mixed \
-  env.commands.motion.params.sampling_start_ratio=1.0 \
+  env.commands.motion.params.sampling_mode=start \
   env.commands.motion.params.truncate_on_clip_end=true \
   env.max_episode_seconds=20.0 \
   'env.commands.motion.params.pose_range={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
@@ -121,7 +120,7 @@ CUDA_VISIBLE_DEVICES=1 uv run train --algo sac --task g1_motion_tracking --sim m
 Key overrides: `env.commands.motion.params.motion_file` selects the crawl-slope
 clip; `env.scene.model_file` switches to the slope scene
 (`scene_crawl_slope.xml` exists under `src/unilab/assets/robots/g1/`);
-`sampling_mode=mixed` with `sampling_start_ratio=1.0` plus
+`sampling_mode=start` plus
 `truncate_on_clip_end=true` starts every episode from the clip beginning and
 truncates there; and zeroing the command reset ranges reuses the exact clip
 initial state.

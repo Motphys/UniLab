@@ -103,8 +103,7 @@ CUDA_VISIBLE_DEVICES=1 uv run train --algo sac --task g1_motion_tracking --sim m
   training.use_amp=true algo.seed=1 \
   env.commands.motion.params.motion_file=motions/g1/motion_crawl_slope_uni.npz \
   env.scene.model_file=src/unilab/assets/robots/g1/scene_crawl_slope.xml \
-  env.commands.motion.params.sampling_mode=mixed \
-  env.commands.motion.params.sampling_start_ratio=1.0 \
+  env.commands.motion.params.sampling_mode=start \
   env.commands.motion.params.truncate_on_clip_end=true \
   env.max_episode_seconds=20.0 \
   'env.commands.motion.params.pose_range={x:[0,0],y:[0,0],z:[0,0],roll:[0,0],pitch:[0,0],yaw:[0,0]}' \
@@ -114,8 +113,8 @@ CUDA_VISIBLE_DEVICES=1 uv run train --algo sac --task g1_motion_tracking --sim m
 
 关键覆写：`env.commands.motion.params.motion_file` 切换爬坡动作；
 `env.scene.model_file` 切换斜坡场景（`scene_crawl_slope.xml` 在
-`src/unilab/assets/robots/g1/` 下）；`sampling_mode=mixed` 且
-`sampling_start_ratio=1.0`，再加 `truncate_on_clip_end=true`，每个 episode 都从 clip
+`src/unilab/assets/robots/g1/` 下）；`sampling_mode=start` 再加
+`truncate_on_clip_end=true`，每个 episode 都从 clip
 起点出发并在结尾截断；command reset 范围全置零
 即可复用 motion 的精确初始状态。
 

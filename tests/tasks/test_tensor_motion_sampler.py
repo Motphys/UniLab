@@ -38,8 +38,8 @@ def _sampler(
 
 
 def test_sampler_rejects_unsupported_mode_and_invalid_dimensions() -> None:
-    with pytest.raises(NotImplementedError, match="adaptive/mixed"):
-        _sampler(mode="uniform")
+    with pytest.raises(NotImplementedError, match="start/uniform/adaptive/mixed"):
+        _sampler(mode="clip_start")
     with pytest.raises(ValueError, match="dimensions must be positive"):
         _sampler(num_envs=0)
 
@@ -61,6 +61,49 @@ def test_adaptive_reset_sampling_is_device_resident_and_deterministic() -> None:
     generator.manual_seed(7)
     repeat = sampler.sample_frames(reset_mask, generator)
     torch.testing.assert_close(repeat, first)
+
+
+def test_start_mode_resets_to_frame_zero_without_consuming_rng() -> None:
+    sampler = _sampler(mode="start", initial_frames=torch.tensor([5, 6, 7, 8], dtype=torch.int32))
+    mask = torch.tensor([False, True, True, True])
+
+    frames = sampler.sample_frames(mask, torch.Generator(device="cpu").manual_seed(7))
+
+    torch.testing.assert_close(frames, torch.zeros(4, dtype=torch.int32))
+    torch.testing.assert_close(
+        sampler.current_frames, torch.tensor([5, 0, 0, 0], dtype=torch.int32)
+    )
+    assert sampler.sampling_entropy.item() == 0.0
+    assert sampler.sampling_top1_prob.item() == 1.0
+    assert sampler.sampling_top1_bin.item() == 0.0
+
+    # Start sampling is deterministic and must not consume RNG: two generators
+    # at different positions agree, and a fresh generator reproduces the state.
+    other = _sampler(mode="start", initial_frames=torch.tensor([5, 6, 7, 8], dtype=torch.int32))
+    repeat = other.sample_frames(mask, torch.Generator(device="cpu").manual_seed(99))
+    torch.testing.assert_close(repeat, frames)
+
+
+def test_uniform_mode_samples_frames_in_range_and_publishes_flat_metrics() -> None:
+    sampler = _sampler(mode="uniform", initial_frames=torch.tensor([5, 6, 7, 8], dtype=torch.int32))
+    mask = torch.tensor([False, True, True, True])
+    generator = torch.Generator(device="cpu").manual_seed(7)
+
+    frames = sampler.sample_frames(mask, generator)
+
+    assert frames.shape == (4,)
+    assert frames.dtype is torch.int32
+    assert bool((frames >= 0).all()) and bool((frames < sampler.num_frames).all())
+    torch.testing.assert_close(sampler.current_frames[0], torch.tensor(5, dtype=torch.int32))
+    torch.testing.assert_close(sampler.current_frames[1:], frames[1:])
+    assert sampler.sampling_entropy.item() == 1.0
+    assert sampler.sampling_top1_prob.item() == pytest.approx(1.0 / sampler.bin_count)
+    assert sampler.sampling_top1_bin.item() == 0.5
+
+    generator.manual_seed(7)
+    repeat = _sampler(mode="uniform", initial_frames=torch.tensor([5, 6, 7, 8], dtype=torch.int32))
+    repeat_frames = repeat.sample_frames(mask, generator)
+    torch.testing.assert_close(repeat_frames, frames)
 
 
 def test_reset_sampling_returns_valid_frames_and_selects_masked_rows() -> None:

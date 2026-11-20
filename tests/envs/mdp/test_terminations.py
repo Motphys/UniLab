@@ -197,22 +197,28 @@ def test_nan_detection_integrates_with_termination_manager() -> None:
     np.testing.assert_array_equal(manager.terminated, [True, False, False])
 
 
-def test_state_check_defers_to_the_env_finite_verdict() -> None:
-    """Deferred mode records the verdict device-side instead of raising."""
+def test_state_check_defers_to_a_named_env_verdict() -> None:
+    """Deferred mode records a named verdict for the poll boundary instead of raising."""
     env = _env()
-    recorded: list[torch.Tensor] = []
+    recorded: list[tuple[torch.Tensor, str, str]] = []
     setattr(env, "defer_finite_validation", True)
-    setattr(env, "record_finite_validation", lambda value: recorded.append(value))
+    setattr(
+        env,
+        "require",
+        lambda ok, name, message: recorded.append((ok, name, message)),
+    )
 
     entity = cast(Any, env.scene["robot"])
     entity.root_pos[:] = np.nan
 
-    # No eager raise: the verdict is accumulated for the poll boundary.
+    # No eager raise: the named verdict is accumulated for the poll boundary.
     mdp.root_height_below_minimum(env, minimum_height=0.5)
 
     assert len(recorded) == 1
-    value = recorded[0]
-    assert not bool(torch.isfinite(value).all())
+    ok, name, message = recorded[0]
+    assert name == "termination.root_height_below_minimum"
+    assert "root_height_below_minimum" in message
+    assert not bool(ok)
 
 
 def test_state_check_stays_eager_fail_closed_without_defer() -> None:

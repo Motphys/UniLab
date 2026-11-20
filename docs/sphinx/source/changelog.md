@@ -117,6 +117,34 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   后端兼容 / 版本迁移）（[#2584](https://github.com/Motphys/UniLab/pull/2584)，
   [#706](https://github.com/Motphys/UniLab/issues/706)）。
 
+- Restore `BaseActionCfg.preserve_order` (removed in the #2629 YAGNI batch)
+  with the upstream mjlab semantics on UniLab's joint action path:
+  `Entity.find_joints_by_actuator_names` accepts `preserve_order`, and
+  `BaseAction` resolves controlled joints in `actuator_names` order when
+  `preserve_order=true` (default `false` keeps the natural entity joint
+  order); dict-form `scale`/`offset`/`clip` still resolve by name
+  ([#2634](https://github.com/Motphys/UniLab/issues/2634)).
+  恢复 `BaseActionCfg.preserve_order`（在 #2629 YAGNI 批次中删除），并在
+  UniLab 的 joint action 路径上实现 mjlab 上游语义：
+  `Entity.find_joints_by_actuator_names` 接受 `preserve_order` 透传，
+  `preserve_order=true` 时 `BaseAction` 按 `actuator_names` 顺序解析受控关节
+  （默认 `false` 保持实体自然关节序）；dict 形式的 `scale`/`offset`/`clip`
+  仍按名解析
+  （[#2634](https://github.com/Motphys/UniLab/issues/2634))。
+- Deferred finite validation now names the failing check at the env-level poll
+  boundary: termination terms record their entity-state verdicts as named
+  fail-closed checks (`termination.<term_name>`), tensor-sensor observation
+  terms do the same (`observation.<term_name>`), and the env-level
+  `TorchEnv deferred finite validation detected NaN or Inf` error lists the
+  latched failure sources (env-internal checks and the failed manager verdicts)
+  ([#2634](https://github.com/Motphys/UniLab/issues/2634)).
+  延迟有限值校验现在在 env 级 poll 边界点名失败检查：termination term 以
+  命名 fail-closed 检查（`termination.<term_name>`）记录 entity state 裁决，
+  tensor-sensor observation term 同样处理（`observation.<term_name>`）；
+  env 级 `TorchEnv deferred finite validation detected NaN or Inf` 错误信息
+  会列出 latched 失败来源（env 内部检查与失败的 manager 裁决）
+  （[#2634](https://github.com/Motphys/UniLab/issues/2634))。
+
 ### Changed / 变更
 
 - `ResetStateTransaction` materializes the full-width device default table
@@ -282,22 +310,25 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   的模式相矛盾。该方法现在免同步；调用方需自行保证概率有限、非负且和为正，
   方法 docstring 已注明
   （[#2624](https://github.com/Motphys/UniLab/issues/2624)）。
-- The crawl-slope WBT example in the motion-tracking task guide no longer
-  recommends `sampling_mode=start`, which the tensor sampler has never
-  supported (it raises `NotImplementedError` at env construction). The example
-  now uses `sampling_mode=mixed` with `sampling_start_ratio=1.0`, the
-  supported deterministic clip-start form, in both the English and Chinese
-  pages; `MotionCommandCfg.sampling_mode` is narrowed to
-  `Literal["adaptive", "mixed"]` so invalid values are rejected by config
-  validation with a clear error instead of failing deep inside the tensor
-  sampler ([#2629](https://github.com/Motphys/UniLab/issues/2629)).
-  motion-tracking 任务指南中的 crawl-slope WBT 示例不再推荐
-  `sampling_mode=start`（tensor sampler 从未支持该值，会在 env 构造期抛
-  `NotImplementedError`）。示例改用受支持的确定性 clip 起点形式
-  `sampling_mode=mixed` 加 `sampling_start_ratio=1.0`，中英文页面同步修正；
-  `MotionCommandCfg.sampling_mode` 收窄为 `Literal["adaptive", "mixed"]`，
-  非法值在配置校验处即被清晰拒绝，不再深入 tensor sampler 才失败
-  （[#2629](https://github.com/Motphys/UniLab/issues/2629)）。
+- The tensor sampler now supports the upstream mjlab sampling modes `start`
+  (deterministic restart from the clip beginning, no RNG consumed) and
+  `uniform` (independent uniform frame sampling per reset row), restoring the
+  full upstream `SamplingMode` surface as
+  `Literal["start", "uniform", "adaptive", "mixed"]`; `mixed` remains a UniLab
+  extension tuned by `sampling_start_ratio`. The crawl-slope WBT example in the
+  motion-tracking task guide now writes the deterministic form directly as
+  `sampling_mode=start` in both the English and Chinese pages
+  ([#2634](https://github.com/Motphys/UniLab/issues/2634),
+  [#2629](https://github.com/Motphys/UniLab/issues/2629)).
+  tensor sampler 现支持 mjlab 上游的 `start`（确定性从 clip 起点重启，
+  不消耗 RNG）与 `uniform`（每个 reset 行独立均匀帧采样）两种模式，
+  `SamplingMode` 恢复为上游完整的
+  `Literal["start", "uniform", "adaptive", "mixed"]`；`mixed` 仍为由
+  `sampling_start_ratio` 调节的 UniLab 自有扩展。motion-tracking 任务指南的
+  crawl-slope WBT 示例在中英文页面改用直写的 `sampling_mode=start` 表达确定
+  性起点形式
+  （[#2634](https://github.com/Motphys/UniLab/issues/2634)，
+  [#2629](https://github.com/Motphys/UniLab/issues/2629))。
 
 ### Removed / 移除
 
@@ -324,7 +355,7 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `apply_cuda_process_sharing_manifest`, `get_hydra_runtime_choice` (and its
   `unilab.training` re-export), `registry.find_available_sim_backend`,
   `MotionLoader.get_clip_indices`, the `VizCfg`/`viz` field on
-  `UniformVelocityCommandCfg`, `BaseActionCfg.preserve_order`, the
+  `UniformVelocityCommandCfg`, the
   `Sequence[str]` branch of `resolve_checkpoint_file`, the
   `resolve_torch_device_alias` group in `rl.runtime.device`, the ignored
   `num_envs` parameter of `build_actor`, and the silently ignored `algo_name`
@@ -342,7 +373,7 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `apply_cuda_process_sharing_manifest`、`get_hydra_runtime_choice`（及其
   `unilab.training` re-export）、`registry.find_available_sim_backend`、
   `MotionLoader.get_clip_indices`、`UniformVelocityCommandCfg` 上的
-  `VizCfg`/`viz` 字段、`BaseActionCfg.preserve_order`、
+  `VizCfg`/`viz` 字段、
   `resolve_checkpoint_file` 的 `Sequence[str]` 分支、`rl.runtime.device` 中的
   `resolve_torch_device_alias` 整组、`build_actor` 被静默忽略的 `num_envs`
   参数，以及 `EnvConfigAdapter` 被静默忽略的 `algo_name` 参数（其转发参数
