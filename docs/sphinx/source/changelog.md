@@ -13,7 +13,24 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
-## Unreleased
+## 1.6.0 (2026-11-20)
+
+### Changed / 变更
+
+- Pinned `unisim-core==2.8.3` (base, `motrix`, and `superdex` extras). The
+  Motrix backend gains MuJoCo-parity reset randomization for `geom_size`,
+  `dof_armature`, `dof_frictionloss`, `body_inertia`, and `body_iquat`, the
+  native profile gains the `body_torque` and free-root linear/angular velocity
+  interval kicks, the portable entity profile gains `geom_friction`, `gravity`,
+  and actuator `kp`/`kd` randomization, and composed scenes keep the
+  `<position>` actuator shorthand so MotrixSim position actuators stay
+  gain-overridable.
+  固定 `unisim-core==2.8.3`（基础依赖与 `motrix`、`superdex` extra）。Motrix
+  后端补齐与 MuJoCo 对齐的 `geom_size`、`dof_armature`、`dof_frictionloss`、
+  `body_inertia` 与 `body_iquat` reset randomization，原生 profile 新增
+  `body_torque` 与 free-root 线/角速度 interval kick，portable entity profile
+  新增 `geom_friction`、`gravity` 与执行器 `kp`/`kd` randomization，组合场景
+  保留 `<position>` 执行器简写使 MotrixSim 位置执行器可覆盖增益。
 
 ### Fixed / 修复
 

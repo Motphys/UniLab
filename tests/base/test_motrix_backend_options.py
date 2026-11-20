@@ -115,6 +115,7 @@ class _FakeMotrixModel:
         self.num_geoms = len(self.geoms)
         self.actuators = []
         self.num_actuators = 0
+        self.joints = []
         self.joint_dof_pos_indices = []
         self.joint_dof_vel_indices = []
         self.floating_bases = []
@@ -233,14 +234,35 @@ def _install_fake_motrix(monkeypatch, tmp_path):
     fake_model = _FakeMotrixModel()
     _FakeTerrainScanner.instances.clear()
 
+    # unisim-core 2.8.3 resolves per-geom native size-override widths through
+    # isinstance checks against these motrixsim classes; plain sentinel types
+    # keep the fake geoms outside the size-override surface.
+    class _UnsupportedNativeGeom:
+        pass
+
     monkeypatch.setattr(mod, "MOTRIX_AVAILABLE", True)
+
+    def _fake_scene_data(model, batch):
+        num_envs = int(batch[0])
+        return SimpleNamespace(
+            num_envs=num_envs,
+            # unisim-core 2.8.3 sizes the native dof override defaults from the
+            # batched dof_vel width; the fake model has no scalar joints.
+            dof_vel=np.zeros((num_envs, 0), dtype=np.float32),
+        )
+
     monkeypatch.setattr(
         mod,
         "mtx",
         SimpleNamespace(
-            SceneData=lambda model, batch: SimpleNamespace(num_envs=int(batch[0])),
+            SceneData=_fake_scene_data,
             TerrainScanner=_FakeTerrainScanner,
             GeomHField=_FakeNativeHFieldGeom,
+            GeomSphere=_UnsupportedNativeGeom,
+            GeomCapsule=_UnsupportedNativeGeom,
+            GeomCylinder=_UnsupportedNativeGeom,
+            GeomCuboid=_UnsupportedNativeGeom,
+            GeomEllipsoid=_UnsupportedNativeGeom,
         ),
         raising=False,
     )
@@ -285,6 +307,7 @@ def test_motrix_backend_dr_capabilities_include_pd_gains_when_overrides_availabl
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
     backend._whole_model_variant_mode = False
+    backend._body_floatingbase = None
     backend._supports_position_actuator_gains = True
     backend._supports_geom_friction_override = True
     backend._supports_gravity_override = True
@@ -385,6 +408,11 @@ def test_motrix_backend_applies_body_mass_and_ipos_reset_payload() -> None:
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
     backend._whole_model_variant_mode = False
+    backend._body_floatingbase = None
+    # unisim-core 2.8.3 sizes the native joint-override defaults once per
+    # reset; the fake model has no scalar joints, so both tables are empty.
+    backend._default_dof_armature = np.zeros((0,), dtype=np.float32)
+    backend._default_dof_frictionloss = np.zeros((0,), dtype=np.float32)
     backend.backend_type = "motrix"
     backend._model = SimpleNamespace(num_links=2)
     backend._links_by_id = {0: link0, 1: link1}
@@ -423,6 +451,11 @@ def test_motrix_backend_applies_geom_friction_reset_payload() -> None:
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
     backend._whole_model_variant_mode = False
+    backend._body_floatingbase = None
+    # unisim-core 2.8.3 sizes the native joint-override defaults once per
+    # reset; the fake model has no scalar joints, so both tables are empty.
+    backend._default_dof_armature = np.zeros((0,), dtype=np.float32)
+    backend._default_dof_frictionloss = np.zeros((0,), dtype=np.float32)
     backend.backend_type = "motrix"
     backend._model = SimpleNamespace(num_links=1, num_geoms=2)
     backend._geoms_by_id = {0: geom0, 1: geom1}
@@ -488,6 +521,11 @@ def test_motrix_backend_applies_gravity_reset_payload() -> None:
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
     backend._whole_model_variant_mode = False
+    backend._body_floatingbase = None
+    # unisim-core 2.8.3 sizes the native joint-override defaults once per
+    # reset; the fake model has no scalar joints, so both tables are empty.
+    backend._default_dof_armature = np.zeros((0,), dtype=np.float32)
+    backend._default_dof_frictionloss = np.zeros((0,), dtype=np.float32)
     backend.backend_type = "motrix"
     backend._model = fake_model
     backend._supports_gravity_override = True
@@ -515,11 +553,14 @@ def test_motrix_backend_interval_body_force_uses_link_external_force_delta() -> 
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
     backend._whole_model_variant_mode = False
+    backend._body_floatingbase = None
     backend._num_envs = 2
     backend._data = object()
     backend._links_by_id = {0: link}
     backend._supports_external_force = True
+    backend._supports_external_torque = False
     backend._applied_body_forces = {}
+    backend._applied_body_torques = {}
 
     backend.apply_interval_randomization(
         IntervalRandomizationPlan(
