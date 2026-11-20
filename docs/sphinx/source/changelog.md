@@ -147,6 +147,16 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Changed / 变更
 
+- The default and ROCm profiles now pin `unisim-core==2.8.2`; the default
+  SuperDex extra uses the same release. The accompanying runtime transition
+  moves MuJoCo and MJWarp to the 4.0.1 line, mjbatch to 0.3.1, and MotrixSim
+  to 1.0.0; Newton and SuperDex remain on MuJoCo 3.11
+  ([#2638](https://github.com/Motphys/UniLab/issues/2638)).
+  默认与 ROCm profile 现在均钉定 `unisim-core==2.8.2`，默认 profile 的
+  SuperDex extra 也使用同一版本。配套运行时同步升级至 MuJoCo/MJWarp 4.0.1、
+  mjbatch 0.3.1 与 MotrixSim 1.0.0；Newton 和 SuperDex 保持 MuJoCo 3.11
+  （[#2638](https://github.com/Motphys/UniLab/issues/2638)）。
+
 - `ResetStateTransaction` materializes the full-width device default table
   for each reset randomization field only once and caches it per field
   (invalidated when the packed reset device is redeclared), instead of

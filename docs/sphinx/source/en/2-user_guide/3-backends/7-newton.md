@@ -49,14 +49,10 @@ pip install "unilab[newton]"
 
 The extra pins `newton==1.5.1`, `mujoco-warp==3.11.0`, `mujoco==3.11.0`, and
 `warp-lang==1.16.0` exactly and includes the native ViewerGL dependencies
-(`pyglet>=2.1.6,<3`, `imgui-bundle>=1.92.0`). These sit on the same MuJoCo 3.11 /
-MuJoCo-Warp 3.11 / Warp 1.16 line as the `mujoco` extra (`mujoco~=3.11.0`)
-and the `mjwarp` extra (`mujoco-warp~=3.11.0`, `warp-lang==1.16.0`), so all
-three extras are **jointly installable** in one environment:
-
-```bash
-uv sync --extra mujoco --extra mjwarp --extra newton
-```
+(`pyglet>=2.1.6,<3`, `imgui-bundle>=1.92.0`). The `mujoco` and `mjwarp` extras
+now use the MuJoCo 4.0.1 line, so their dependency resolver declarations are
+explicitly mutually exclusive with `newton`. Install Newton in a separate
+environment; do not combine it with the `mujoco` or `mjwarp` extra.
 
 Prerequisites:
 

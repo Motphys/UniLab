@@ -46,14 +46,9 @@ pip install "unilab[newton]"
 
 该 extra 精确钉定 `newton==1.5.1`、`mujoco-warp==3.11.0`、
 `mujoco==3.11.0`、`warp-lang==1.16.0`，并包含原生 ViewerGL 依赖
-（`pyglet>=2.1.6,<3`、`imgui-bundle>=1.92.0`）。它与 `mujoco` extra
-（`mujoco~=3.11.0`）和 `mjwarp` extra（`mujoco-warp~=3.11.0`、
-`warp-lang==1.16.0`）共享同一条 MuJoCo 3.11 / MuJoCo-Warp 3.11 /
-Warp 1.16 版本线，三个 extra 可以**组合进同一个环境**：
-
-```bash
-uv sync --extra mujoco --extra mjwarp --extra newton
-```
+（`pyglet>=2.1.6,<3`、`imgui-bundle>=1.92.0`）。`mujoco` 和 `mjwarp` extra
+现使用 MuJoCo 4.0.1 版本线，依赖解析声明与 `newton` 明确互斥。请在独立环境
+中安装 Newton，不要与 `mujoco` 或 `mjwarp` extra 组合安装。
 
 前置条件：
 

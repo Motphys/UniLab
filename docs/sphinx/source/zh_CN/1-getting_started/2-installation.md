@@ -7,13 +7,10 @@
 - Python `>=3.10,<3.14`，来自 `pyproject.toml`。
 - `uv`，用于依赖同步和命令执行。
 - Git 和 `curl`，用于克隆仓库及下载 runtime asset。
-- 使用 `mujoco` extra 时：MuJoCo 物理后端运行在 `mjbatch` 原生 batch 引擎上，
-  当前从钉住的集成 fork（`unilabsim/mjbatch`）源码构建。uv 以隔离构建
-  （scikit-build-core + nanobind）编译该 git 源码，需要 C++17 工具链和
-  Python 开发头文件；构建绑定 `mujoco==3.11.0`，引擎在 mujoco 版本不一致时
-  拒绝导入。免编译器的安装路径取决于 fork 的最终分发渠道（预编译 wheel 还是
-  git 钉版），这是 roadmap 上的待定事项（见「切换本地 MuJoCo 版本」和
-  「安装错误特征对照表」）。
+- 使用 `mujoco` 和 `mjwarp` extra 时：MuJoCo 4.0 版本线要求 Python `>=3.11`。
+  `mujoco` extra 安装发布版 `mjbatch-uni==0.3.1` 原生引擎，其为 Linux、
+  macOS 和 Windows 上的 CPython 3.11–3.13 提供预编译 wheel。若需要从源码
+  构建，请安装 C++17 工具链和 Python 开发头文件：
   - macOS：`xcode-select --install`
   - Ubuntu / Debian：`sudo apt-get install build-essential python3-dev`
   - Fedora / RHEL：`sudo dnf install gcc-c++ make python3-devel`
@@ -80,15 +77,14 @@ pip install -e .
 # wheel 风格的常规安装（去掉 -e）：
 # pip install .
 
-# 需要 MuJoCo 时（解析钉住的 mjbatch 集成 fork，针对 mujoco==3.11.0 构建）：
-pip install "mujoco~=3.11.0" "mjbatch @ git+https://github.com/unilabsim/mjbatch.git@cf4a83d"
+# 需要 MuJoCo 时（Python >=3.11）：
+pip install "mujoco~=4.0.1" "mjbatch-uni==0.3.1"
 ```
 
 editable install 会指向源码 checkout；常规安装会把 package 和任务配置
 （`unilab/conf/`）复制进环境。两种方式都支持在任意目录运行 `train` / `eval` / `demo`，
-日志与 checkpoint 写入当前工作目录。`mjbatch` 引擎针对钉住的
-`mujoco==3.11.0` 构建；MJWarp、Genesis、平台相关 torch index、ROCm / XPU
-profile 请优先使用上面的 uv 路径。机器人 mesh 和纹理不会打进 wheel，而是在 cold path 从
+日志与 checkpoint 写入当前工作目录。MJWarp、Genesis、平台相关 torch index、
+ROCm / XPU profile 请优先使用上面的 uv 路径。机器人 mesh 和纹理不会打进 wheel，而是在 cold path 从
 `unilabsim/unilab-robots` 数据集下载。请确保安装位置可写，或从源码 checkout 使用
 `uv run unilab-pull-assets` 预拉取。
 
@@ -113,16 +109,19 @@ Hugging Face endpoint 无法访问时，可设置 `HF_ENDPOINT=https://hf-mirror
 均为可选。
 
 ```bash
-# 一次安装全部 scoped 后端。
-uv sync --extra mujoco --extra mjwarp --extra genesis --extra newton --extra motrix
+# 可组合的 MuJoCo 4.0 版本线后端：
+uv sync --extra mujoco --extra mjwarp --extra genesis --extra motrix
+
+# Newton 使用 MuJoCo 3.11，需与上面一组分开同步：
+uv sync --extra newton
 ```
 
 | 后端 | 安装路径 | 重要前置条件 |
 | --- | --- | --- |
-| MuJoCo | `make setup` 或 `uv sync --extra mujoco --extra unirl` | 从源码构建钉住的 `mjbatch` fork（绑定 `mujoco==3.11.0`）；在预编译 wheel 可用之前（roadmap 待定事项）需要 C++17 工具链和 Python 开发头文件 |
-| MJWarp | `uv sync --extra mujoco --extra mjwarp` | NVIDIA CUDA；单 GPU 主机默认使用当前 CUDA 设备，多卡拓扑仍需显式配置 |
+| MuJoCo | `make setup` 或 `uv sync --extra mujoco --extra unirl` | Python >=3.11；在可用平台上安装预编译 `mjbatch-uni==0.3.1` wheel |
+| MJWarp | `uv sync --extra mujoco --extra mjwarp` | Python >=3.11 与 NVIDIA CUDA；单 GPU 主机默认使用当前 CUDA 设备，多卡拓扑仍需显式配置 |
 | Genesis | `uv sync --extra genesis` | 已验证路径使用 Linux x86_64、NVIDIA GPU 及固定版本 torch/Genesis |
-| Newton | `uv sync --extra newton` | Linux CUDA，并钉定 newton / MuJoCo-Warp / Warp 版本 |
+| Newton | `uv sync --extra newton` | Linux CUDA，并钉定 newton / MuJoCo-Warp / Warp 版本；需与 `mujoco`、`mjwarp` 使用独立环境 |
 | Motrix | `uv sync --extra motrix` | CPU-authoritative MotrixSim 与 packed Torch HOST_BRIDGE 传输 |
 | Drake | `make setup-drake` | 本地 Drake C++ 前缀与 DrakeUni native batch extension；当前 scoped 到 PPO `go2_joystick_flat` |
 
@@ -160,20 +159,18 @@ backend extra 之外加上 `--extra unirl`。原 `unilab-rl` 包已并入本仓�
 
 ## 切换本地 MuJoCo 版本
 
-`mujoco` extra 声明 `mujoco~=3.11.0`，`mjbatch` batch 引擎针对
-`mujoco==3.11.0` 构建：引擎会记录编译时的 mujoco 版本，加载时检测到不一致
+在 Python 3.11 及更高版本上，`mujoco` extra 声明 `mujoco~=4.0.1` 和
+`mjbatch-uni==0.3.1`。引擎会记录编译时的 mujoco 版本，加载时检测到不一致
 会拒绝导入（见「安装错误特征对照表」中的 watchdog 行）。因此切换本地
-MuJoCo 版本需要对应版本的 `mjbatch` 构建，而不是修改 UniLab 配置：
+MuJoCo 版本需要兼容的 `mjbatch` 发布版本，而不是修改 UniLab 配置：
 
 1. 在 `pyproject.toml`（并同步镜像 `pyproject.rocm.toml`）中提升 `mujoco`
-   边界和 `mjbatch` 源码钉版；
+   边界和 `mjbatch-uni` 钉版；
 2. 重新锁定（`uv lock`，ROCm lockfile 通过 `make sync-rocm`）并重新同步
    （`uv sync --extra mujoco`）。
 
-fork 的构建在编译期钉住 `mujoco==3.11.0`，因此隔离构建总是针对匹配的 mujoco
-编译。在 fork 的最终分发身份确定之前（PyPI package 还是 git 钉版——roadmap
-待定事项），版本提升需要与 [fork](https://github.com/unilabsim/mjbatch)
-维护者协调。
+默认安装路径使用预编译 `mjbatch-uni` wheel。新的 MuJoCo/引擎版本组合需要与
+[集成 fork](https://github.com/unilabsim/mjbatch) 协调。
 
 ## 安装错误特征对照表
 
@@ -181,9 +178,9 @@ fork 的构建在编译期钉住 `mujoco==3.11.0`，因此隔离构建总是针�
 
 | 报错特征 | 触发场景 | 修复 |
 | --- | --- | --- |
-| `fatal error: Python.h: No such file or directory` | uv 从源码构建 `mjbatch` fork 时缺少 Python 开发头文件 | uv 托管的 Python（`uv python install`）自带头文件；系统 Python 需安装 `python3-dev`（Debian/Ubuntu）或 `python3-devel`（Fedora/RHEL） |
-| `error: [Errno 2] No such file or directory: 'c++'`（或 `c++: No such file or directory`） | 缺少编译器，无法从钉住的 git 源码构建 `mjbatch` | 安装 C++ 工具链（见「环境要求」）后重试 `uv sync --extra mujoco` |
-| `mjbatch was built against MuJoCo <version> but <other> is installed` | 版本 watchdog：引擎的编译期 mujoco 钉版与已安装的 mujoco 不一致 | 用 `uv sync --extra mujoco` 恢复 lock 钉住的组合；更换 mujoco 版本需要重建 `mjbatch`（见「切换本地 MuJoCo 版本」） |
+| `fatal error: Python.h: No such file or directory` | 从源码构建 `mjbatch` 时缺少 Python 开发头文件 | uv 托管的 Python（`uv python install`）自带头文件；系统 Python 需安装 `python3-dev`（Debian/Ubuntu）或 `python3-devel`（Fedora/RHEL） |
+| `error: [Errno 2] No such file or directory: 'c++'`（或 `c++: No such file or directory`） | 缺少编译器，无法从源码构建 `mjbatch` | 安装 C++ 工具链（见「环境要求」）后重试 `uv sync --extra mujoco` |
+| `mjbatch was built against MuJoCo <version> but <other> is installed` | 版本 watchdog：引擎的编译期 mujoco 钉版与已安装的 mujoco 不一致 | 用 `uv sync --extra mujoco` 恢复 lock 钉住的组合；更换 mujoco 版本需要兼容的 `mjbatch` 发布版本（见「切换本地 MuJoCo 版本」） |
 
 ## 平台配置档
 
@@ -195,10 +192,9 @@ wheel 来源是在 `pyproject.toml` 中配置的 PyTorch `cu130` 索引。
 没有 CUDA 时，`cuda` alias 会解析到 MPS。
 
 在 Windows 上，如果没有 GNU `make` 和 Bash，请使用上面的直接 `uv sync` 命令。
-`mjbatch` 引擎不提供 Windows wheel（官方的 `mujoco.dll` 不带 import
-library），因此 MuJoCo 物理后端在 Windows 上仍不可用；纯 `mujoco`
-（MJCF 转换、其他后端的回放渲染）仍可安装。如果要使用 Makefile，请另行安装
-GNU Make 和 Bash（例如通过 Chocolatey 或 WSL）。
+`mjbatch-uni` 0.3.1 已发布 Windows wheel，但 MuJoCo 物理后端尚未形成经过验证的
+Windows 支持通道；纯 `mujoco`（MJCF 转换、其他后端的回放渲染）仍可安装。
+如果要使用 Makefile，请另行安装 GNU Make 和 Bash（例如通过 Chocolatey 或 WSL）。
 
 ROCm 和 Intel XPU 有各自显式的 Makefile 目标：
 

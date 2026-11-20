@@ -247,8 +247,9 @@ def _install_fake_motrix(monkeypatch, tmp_path):
     monkeypatch.setattr(
         scene_mod,
         "materialize_scene_with_sensor_inventory",
-        lambda **kwargs: (fake_model, (), ()),
+        lambda **kwargs: (fake_model, (), (), None),
     )
+    monkeypatch.setattr(mod, "build_reset_write_program", lambda **kwargs: None)
     # These tests exercise override caches and terrain plumbing with a fake
     # native model; unisim-core 1.7.6 validates the whole-MJCF joint order
     # against the real source file at construction (covered upstream), which
@@ -388,6 +389,7 @@ def test_motrix_backend_applies_body_mass_and_ipos_reset_payload() -> None:
     backend._model = SimpleNamespace(num_links=2)
     backend._links_by_id = {0: link0, 1: link1}
     backend._supports_position_actuator_gains = False
+    backend._reset_write_program = None
 
     backend._apply_reset_randomization(
         object(),
@@ -426,6 +428,7 @@ def test_motrix_backend_applies_geom_friction_reset_payload() -> None:
     backend._geoms_by_id = {0: geom0, 1: geom1}
     backend._supports_geom_friction_override = True
     backend._supports_position_actuator_gains = False
+    backend._reset_write_program = None
 
     backend._apply_reset_randomization(
         object(),
@@ -489,6 +492,7 @@ def test_motrix_backend_applies_gravity_reset_payload() -> None:
     backend._model = fake_model
     backend._supports_gravity_override = True
     backend._supports_position_actuator_gains = False
+    backend._reset_write_program = None
     backend._supports_geom_friction_override = False
 
     backend._apply_reset_randomization(

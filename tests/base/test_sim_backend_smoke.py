@@ -168,6 +168,7 @@ def test_mujoco_interval_root_velocity_kick_is_row_selective_and_refreshes_senso
     assert bkd._pool is not None
     # Refresh the derived fields (sensors one substep behind after step()).
     bkd._pool.forward()
+    bkd._sync_sensor_mirror()
 
     # get_physics_state rows are [time, qpos, qvel].
     idx_qpos = 1
