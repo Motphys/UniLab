@@ -29,7 +29,7 @@ from unilab.managers import (
     TerminationManager,
     TerminationTermCfg,
 )
-from unilab.managers._noise import NoiseModelWithAdditiveBiasCfg, UniformNoiseCfg
+from unilab.managers._noise import GaussianNoiseCfg, NoiseModelWithAdditiveBiasCfg
 from unilab.tasks.locomotion.common import manager_terms
 
 from .conftest import FakeEnv
@@ -216,8 +216,8 @@ def test_observation_noise_model_bias_buffer_on_cuda() -> None:
                     "state": ObservationTermCfg(
                         func=lambda env: env.obs,
                         noise=NoiseModelWithAdditiveBiasCfg(
-                            noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
-                            bias_noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
+                            noise_cfg=GaussianNoiseCfg(mean=0.0, std=0.1),
+                            bias_noise_cfg=GaussianNoiseCfg(mean=0.0, std=0.1),
                         ),
                     ),
                 },

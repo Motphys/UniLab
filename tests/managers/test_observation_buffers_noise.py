@@ -10,6 +10,8 @@ import torch
 from unilab.managers import ObservationGroupCfg, ObservationManager, ObservationTermCfg
 from unilab.managers._buffers import CircularBuffer, DelayBuffer
 from unilab.managers._noise import (
+    ConstantNoiseCfg,
+    GaussianNoiseCfg,
     NoiseCfg,
     NoiseModelWithAdditiveBiasCfg,
     UniformNoiseCfg,
@@ -166,9 +168,22 @@ def test_noise_configs_use_supplied_generator() -> None:
     with pytest.raises(ValueError, match="env-owned"):
         uniform.apply(data)
 
+    gaussian = GaussianNoiseCfg(mean=0.0, std=0.1)
+    assert gaussian.apply(data, torch_rng=torch.Generator().manual_seed(2)).shape == data.shape
+    torch.testing.assert_close(
+        ConstantNoiseCfg(bias=2.0, operation="abs").apply(data), torch.full_like(data, 2.0)
+    )
 
-def test_noise_configs_reject_numpy_carriers() -> None:
-    cfg: NoiseCfg = UniformNoiseCfg(n_min=-0.2, n_max=0.2)
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        ConstantNoiseCfg(bias=2.0),
+        UniformNoiseCfg(n_min=-0.2, n_max=0.2),
+        GaussianNoiseCfg(std=0.1),
+    ],
+)
+def test_noise_configs_reject_numpy_carriers(cfg: NoiseCfg) -> None:
     generator = torch.Generator().manual_seed(7)
 
     with pytest.raises(TypeError, match="torch.Tensor"):
@@ -197,6 +212,36 @@ def test_uniform_noise_inplace_matches_reference_expression(operation: str) -> N
     torch.testing.assert_close(data, torch.arange(24, dtype=torch.float32).reshape(8, 3))
 
 
+@pytest.mark.parametrize(
+    ("cfg", "expected"),
+    [
+        (
+            ConstantNoiseCfg(bias=(0.1, -0.2), operation="add"),
+            lambda data, noise: data + torch.tensor((0.1, -0.2)),
+        ),
+        (
+            ConstantNoiseCfg(bias=2.0, operation="scale"),
+            lambda data, noise: data * 2.0,
+        ),
+        (
+            ConstantNoiseCfg(bias=(0.3, -0.1), operation="abs"),
+            lambda data, noise: torch.tensor((0.3, -0.1)).expand_as(data),
+        ),
+    ],
+)
+def test_constant_tensor_noise_stays_on_device_without_rng(
+    cfg: ConstantNoiseCfg, expected, fake_env: FakeEnv
+) -> None:
+    device = fake_env.device
+    data = torch.arange(8, dtype=torch.float32, device=device).reshape(4, 2)
+    result = cfg.apply(data)
+
+    assert isinstance(result, torch.Tensor)
+    assert result.device == device
+    assert result.dtype == torch.float32
+    torch.testing.assert_close(result, expected(data, None))
+
+
 @pytest.mark.parametrize("operation", ["add", "scale", "abs"])
 def test_uniform_tensor_noise_uses_manager_rng_stream_and_device(operation: str) -> None:
     device = torch.device("cpu")
@@ -213,12 +258,40 @@ def test_uniform_tensor_noise_uses_manager_rng_stream_and_device(operation: str)
     torch.testing.assert_close(first, second)
 
 
+def test_gaussian_tensor_noise_uses_manager_rng_stream_and_device() -> None:
+    data = torch.arange(12, dtype=torch.float32).reshape(4, 3)
+    cfg = GaussianNoiseCfg(mean=(0.1, -0.1, 0.0), std=(0.2, 0.3, 0.4))
+    first_rng = torch.Generator().manual_seed(31)
+    second_rng = torch.Generator().manual_seed(31)
+    first = cfg.apply(data, torch_rng=first_rng)
+    second = cfg.apply(data, torch_rng=second_rng)
+
+    assert isinstance(first, torch.Tensor)
+    torch.testing.assert_close(first, second)
+
+
+def test_gaussian_noise_clamps_standard_normal_draw() -> None:
+    torch_cfg = GaussianNoiseCfg(std=0.1, clamp=3.0)
+    tensor_data = torch.full((128, 4), 1.0)
+
+    tensor_result = torch_cfg.apply(tensor_data, torch_rng=torch.Generator().manual_seed(72))
+
+    assert isinstance(tensor_result, torch.Tensor)
+    assert float((tensor_result - tensor_data).abs().max()) <= 0.3 + 1e-8
+
+
+@pytest.mark.parametrize("clamp", [0.0, -3.0, float("inf"), True])
+def test_gaussian_noise_rejects_invalid_clamp(clamp) -> None:
+    with pytest.raises((TypeError, ValueError), match="clamp"):
+        GaussianNoiseCfg(std=0.1, clamp=clamp)
+
+
 def test_additive_bias_noise_supports_scalar_terms() -> None:
     from unilab.managers._noise import NoiseModelWithAdditiveBias
 
     cfg = NoiseModelWithAdditiveBiasCfg(
-        noise_cfg=UniformNoiseCfg(n_min=-0.05, n_max=0.05),
-        bias_noise_cfg=UniformNoiseCfg(n_min=0.4, n_max=0.6),
+        noise_cfg=ConstantNoiseCfg(bias=0.0),
+        bias_noise_cfg=ConstantNoiseCfg(bias=0.5),
     )
     model = NoiseModelWithAdditiveBias(
         cfg,
@@ -227,9 +300,8 @@ def test_additive_bias_noise_supports_scalar_terms() -> None:
         device=torch.device("cpu"),
     )
     result = model(torch.ones(4, dtype=torch.float32))
-    # data (1.0) + uniform noise [-0.05, 0.05] + per-episode bias [0.4, 0.6].
+    torch.testing.assert_close(result, torch.full((4,), 1.5))
     assert result.shape == (4,)
-    assert bool((result >= 1.35).all()) and bool((result <= 1.65).all())
 
 
 def test_additive_bias_noise_model_uses_manager_torch_generator(fake_env: FakeEnv) -> None:
@@ -237,7 +309,7 @@ def test_additive_bias_noise_model_uses_manager_torch_generator(fake_env: FakeEn
 
     device = fake_env.device
     cfg = NoiseModelWithAdditiveBiasCfg(
-        noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
+        noise_cfg=GaussianNoiseCfg(std=0.1),
         bias_noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
     )
     data = torch.ones((4, 3), dtype=torch.float32, device=device)
@@ -518,7 +590,7 @@ def test_tensor_noise_stays_on_device_without_observation_host_detour(
                     "biased": ObservationTermCfg(
                         func=lambda env: source,
                         noise=NoiseModelWithAdditiveBiasCfg(
-                            noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
+                            noise_cfg=GaussianNoiseCfg(std=0.1),
                             bias_noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
                         ),
                     ),
@@ -709,7 +781,7 @@ def test_observation_noise_model_delay_and_seed_reproducibility() -> None:
                 "state": ObservationTermCfg(
                     func=lambda env: env.obs,
                     noise=NoiseModelWithAdditiveBiasCfg(
-                        noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
+                        noise_cfg=GaussianNoiseCfg(std=0.1),
                         bias_noise_cfg=UniformNoiseCfg(n_min=-0.2, n_max=0.2),
                     ),
                 )

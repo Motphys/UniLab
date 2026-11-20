@@ -295,9 +295,11 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `extract_reset_obs`, the `render_play_mode` and
   `run_native_viewer_play_loop` thin wrappers — callers use
   `env.run_playback` directly — and `OnPolicyLogger` with its api_reference
-  entry), and the zero-consumer noise cfgs `ConstantNoiseCfg`,
-  `GaussianNoiseCfg`, and `SegmentwiseUniformNoiseCfg` (`UniformNoiseCfg` and
-  the `NoiseModel` extension base stay).
+  entry), and the zero-consumer noise cfg `SegmentwiseUniformNoiseCfg`
+  (`ConstantNoiseCfg` and `GaussianNoiseCfg` are kept after an mjlab-alignment
+  audit: both are live DR primitives in upstream mjlab, unlike the deleted
+  segmentwise variant which has no upstream counterpart;
+  `UniformNoiseCfg` and the `NoiseModel` extension base also stay).
   issue #2629 下游生态审计复核后的第二批 YAGNI 删除（原"维护者决策"项全部
   转删除）：`UniformVelocityCommandCfg` 的假旋钮 `init_velocity_prob`（8 个
   owner YAML 行同步删除；5 个下游仓库仍需在升级时删掉各自 YAML 中的
@@ -314,9 +316,10 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `extract_reset_obs`、`render_play_mode` 与
   `run_native_viewer_play_loop` 薄封装——调用方改为直接使用
   `env.run_playback`——以及 `OnPolicyLogger` 及其 api_reference 条目）；
-  零消费的 noise cfg（`ConstantNoiseCfg`、`GaussianNoiseCfg`、
-  `SegmentwiseUniformNoiseCfg`；保留 `UniformNoiseCfg` 与 `NoiseModel`
-  扩展基座）。
+  零消费的 noise cfg（`SegmentwiseUniformNoiseCfg`；`ConstantNoiseCfg` 与
+  `GaussianNoiseCfg` 经 mjlab 对齐审计后保留——两者是 mjlab 上游真实消费的
+  DR 原语，而被删的 segmentwise 变体在上游无对应；`UniformNoiseCfg` 与
+  `NoiseModel` 扩展基座同样保留）。
 
 ## 1.5.11 (2026-11-16)
 

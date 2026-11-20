@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import abc
+import math
 from dataclasses import dataclass
 from typing import ClassVar, Literal
 
@@ -72,6 +73,30 @@ class NoiseCfg(abc.ABC):
 
 
 @dataclass
+class ConstantNoiseCfg(NoiseCfg):
+    bias: NoiseParam = 0.0
+
+    @override
+    def apply(
+        self,
+        data: torch.Tensor,
+        *,
+        torch_rng: torch.Generator | None = None,
+    ) -> torch.Tensor:
+        del torch_rng
+        if not isinstance(data, torch.Tensor):
+            raise TypeError(f"Noise data must be torch.Tensor, got {type(data).__name__}")
+        bias = self._as_torch(self.bias, dtype=data.dtype, device=data.device)
+        if self.operation == "add":
+            return data + bias
+        if self.operation == "scale":
+            return data * bias
+        if self.operation == "abs":
+            return torch.zeros_like(data) + bias
+        raise ValueError(f"Unsupported noise operation: {self.operation}")
+
+
+@dataclass
 class UniformNoiseCfg(NoiseCfg):
     n_min: NoiseParam = -1.0
     n_max: NoiseParam = 1.0
@@ -103,6 +128,46 @@ class UniformNoiseCfg(NoiseCfg):
             tuple(data.shape), dtype=data.dtype, device=data.device, generator=generator
         )
         return self._apply_noise(data, unit * (n_max - n_min) + n_min)
+
+
+@dataclass
+class GaussianNoiseCfg(NoiseCfg):
+    mean: NoiseParam = 0.0
+    std: NoiseParam = 1.0
+    # Optional symmetric clamp on the standard-normal draw, in units of sigma
+    # (e.g. clamp=3.0 bounds the additive noise to ±3*std). None keeps the
+    # unbounded Gaussian.
+    clamp: float | None = None
+
+    def __post_init__(self):
+        if isinstance(self.std, float) and self.std <= 0:
+            raise ValueError(f"std ({self.std}) must be positive")
+        if self.clamp is not None:
+            if isinstance(self.clamp, bool) or not isinstance(self.clamp, (int, float)):
+                raise TypeError(f"clamp ({self.clamp!r}) must be a real number or None")
+            if not math.isfinite(self.clamp) or self.clamp <= 0:
+                raise ValueError(f"clamp ({self.clamp}) must be finite and positive")
+
+    @override
+    def apply(
+        self,
+        data: torch.Tensor,
+        *,
+        torch_rng: torch.Generator | None = None,
+    ) -> torch.Tensor:
+        if not isinstance(data, torch.Tensor):
+            raise TypeError(f"Noise data must be torch.Tensor, got {type(data).__name__}")
+        generator = self._require_generator(torch_rng)
+        if generator.device != data.device:
+            raise ValueError("Torch noise generator and observation device do not match.")
+        mean = self._as_torch(self.mean, dtype=data.dtype, device=data.device)
+        std = self._as_torch(self.std, dtype=data.dtype, device=data.device)
+        unit = torch.randn(
+            tuple(data.shape), dtype=data.dtype, device=data.device, generator=generator
+        )
+        if self.clamp is not None:
+            unit.clamp_(min=-self.clamp, max=self.clamp)
+        return self._apply_noise(data, mean + std * unit)
 
 
 ##

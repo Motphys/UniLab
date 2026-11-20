@@ -5,6 +5,8 @@
 
 from unilab.managers._buffers import CircularBuffer as CircularBuffer
 from unilab.managers._buffers import DelayBuffer as DelayBuffer
+from unilab.managers._noise.noise_cfg import ConstantNoiseCfg as ConstantNoiseCfg
+from unilab.managers._noise.noise_cfg import GaussianNoiseCfg as GaussianNoiseCfg
 from unilab.managers._noise.noise_cfg import NoiseCfg as NoiseCfg
 from unilab.managers._noise.noise_cfg import NoiseModelCfg as NoiseModelCfg
 from unilab.managers._noise.noise_cfg import (
