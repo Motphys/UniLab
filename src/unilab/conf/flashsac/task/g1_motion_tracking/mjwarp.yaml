@@ -18,9 +18,4 @@ training:
 
 env:
   events:
-    push_robot:
-      params:
-        velocity_range:
-          roll: [0.0, 0.0]
-          pitch: [0.0, 0.0]
-          yaw: [0.0, 0.0]
+    push_robot: null
