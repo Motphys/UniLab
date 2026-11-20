@@ -169,7 +169,7 @@ class TorchEnv(ABEnv):
     def _configure_fixed_shape_step(self, cfg: EnvCfg) -> None:
         """Resolve the sync-free / graph-capturable step switch.
 
-        ``autoreset_cuda_graph`` is the single public switch (default ``true``
+        ``autoreset_cuda_graph`` is the single public switch (default ``false``
         on the public ``ManagerBasedRlEnvCfg``). Enabling it implies the whole
         fixed-shape chain: ``masked_autoreset`` (the autoreset runs every step
         as a fixed-shape ``reset(ResetSelection)`` under the device done mask —

@@ -1303,7 +1303,7 @@ def _make_cfg(
         max_episode_seconds=1.0,
         seed=7,
         # This file exercises the eager selected-row lifecycle on a fake
-        # CPU backend; pin the default-on public switch (issue #2621) off.
+        # CPU backend; pin the opt-in public graph switch off.
         autoreset_cuda_graph=False,
         observations=observations,
         actions={"drive": _DriveCfg(entity_name="robot")} if actions is None else actions,

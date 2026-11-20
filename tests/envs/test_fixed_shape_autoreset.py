@@ -271,9 +271,9 @@ def _make_cfg(device: str, **overrides: Any) -> ManagerBasedRlEnvCfg:
 
     The fixture pins ``autoreset_cuda_graph=False``: this file exercises the
     fixed-shape chain through the test-only injection protocol and compares
-    it against the selected-row eager path, so the default-on public switch
-    (issue #2621) is pinned off here. Tests that exercise the public switch
-    itself set it through ``overrides``; its default is asserted separately.
+    it against the selected-row eager path. Tests that exercise the opt-in
+    public switch set it through ``overrides``; its default is asserted
+    separately.
     """
     cfg = ManagerBasedRlEnvCfg(
         scene=SceneCfg(
@@ -769,29 +769,29 @@ def test_autoreset_graph_requires_cuda_and_backend_capability() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Default-on flip (issue #2621)
+# Opt-in graph path
 # ---------------------------------------------------------------------------
 
 
-def test_autoreset_cuda_graph_defaults_to_true() -> None:
-    """A task config that does not mention the switch runs the graph path."""
-    assert ManagerBasedRlEnvCfg().autoreset_cuda_graph is True
+def test_autoreset_cuda_graph_defaults_to_false() -> None:
+    """A task config that does not mention the switch uses the eager path."""
+    assert ManagerBasedRlEnvCfg().autoreset_cuda_graph is False
 
 
-def test_autoreset_cuda_graph_default_fails_closed_on_non_cuda_device() -> None:
-    """Default-on stays fail-closed off CUDA: startup raises, naming the switch.
-
-    There is no silent eager fallback; the escape hatch is an explicit
-    ``autoreset_cuda_graph=false``.
-    """
+def test_autoreset_cuda_graph_default_uses_selected_row_path_on_cpu() -> None:
+    """The default does not require a CUDA device or graph-capable backend."""
     cfg = _make_cfg("cpu")
     # A task YAML that does not set the switch keeps the dataclass default;
     # deleting the instance attribute reads it back from the class default.
     del cfg.autoreset_cuda_graph
-    assert cfg.autoreset_cuda_graph is True
+    assert cfg.autoreset_cuda_graph is False
     backend = _TensorBackend(NUM_ENVS, "cpu")
-    with pytest.raises(ValueError, match="autoreset_cuda_graph requires a CUDA env device"):
-        ManagerBasedRlEnv(cfg, cast(SimBackend, backend), NUM_ENVS)
+    env = ManagerBasedRlEnv(cfg, cast(SimBackend, backend), NUM_ENVS)
+    assert not env.masked_autoreset
+    assert not env.persistent_step_buffers
+    assert env.autoreset_graph is None
+    trajectory, _ = _run(env, backend, _actions("cpu", 4))
+    assert any(bool((snap["terminated"] | snap["truncated"]).any()) for snap in trajectory)
 
 
 def test_autoreset_cuda_graph_explicit_false_keeps_the_selected_row_path() -> None:

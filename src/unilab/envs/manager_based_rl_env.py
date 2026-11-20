@@ -145,7 +145,7 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     # fixed-shape chain publishes its fail-closed checks at the poll boundary.
     finite_validation_mode: str = "deferred"
     # Single public switch for the fixed-shape, host-sync-free autoreset fast
-    # path, on by default (issue #2621). ``true`` implies the whole chain: the
+    # path, off by default. ``true`` implies the whole chain: the
     # autoreset runs on every step as a full-width ``reset(ResetSelection)``
     # under the device done mask (no ``any()`` gate, no ``nonzero``), internal
     # working/reset carriers have fixed addresses, and fail-closed finite
@@ -168,9 +168,8 @@ class ManagerBasedRlEnvCfg(EnvCfg):
     # Unsupported combinations fail closed at startup instead of silently
     # falling back to eager: a non-CUDA env device, or a backend without the
     # ``external_graph_capture`` capability. Set the switch explicitly to
-    # ``false`` to opt out — the escape hatch for debugging or for falling
-    # back when a graph-related problem is suspected.
-    autoreset_cuda_graph: bool = True
+    # ``true`` to opt in; the default ``false`` keeps the eager path.
+    autoreset_cuda_graph: bool = False
     autoreset_graph_capture_mode: str = "thread_local"
 
     def validate(self) -> None:

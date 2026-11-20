@@ -25,8 +25,8 @@ def _owner(backend: str) -> tuple[Any, dict[str, Any]]:
     with initialize_config_dir(config_dir=str(ROOT / "src/unilab/conf/ppo"), version_base="1.3"):
         owner = compose("config", overrides=[f"task=go2_joystick_flat/{backend}"])
     override = EnvConfigAdapter(owner, root_dir=ROOT).build_task_env_cfg_override()
-    # These CPU-device tests pin the eager lifecycle; the default-on graph path
-    # fails closed earlier with its own device-capability blocker (#2621).
+    # These CPU-device tests pin the eager lifecycle explicitly instead of
+    # relying on the default or the graph path's device-capability checks.
     override["autoreset_cuda_graph"] = False
     return owner, override
 

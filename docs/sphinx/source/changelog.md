@@ -132,6 +132,16 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Changed / 变更
 
+- `env.autoreset_cuda_graph` now defaults to `false`, so unconfigured tasks
+  keep the selected-row eager lifecycle. Set it explicitly to `true` to opt
+  into masked autoreset, fixed-address internal working/reset buffers, and
+  reset-segment CUDA graph capture on a supported CUDA backend
+  ([#2640](https://github.com/Motphys/UniLab/issues/2640)).
+  `env.autoreset_cuda_graph` 默认值改为 `false`，未显式配置的任务保持
+  selected-row eager 生命周期。显式设置为 `true` 才会启用 masked autoreset、
+  固定地址内部 working/reset buffer，以及受支持 CUDA 后端的 reset 段图捕获
+  （[#2640](https://github.com/Motphys/UniLab/issues/2640)）。
+
 - The default and ROCm profiles now pin `unisim-core==2.8.2`; the default
   SuperDex extra uses the same release. The accompanying runtime transition
   moves MuJoCo and MJWarp to the 4.0.1 line, mjbatch to 0.3.1, and MotrixSim
@@ -197,25 +207,6 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `env.mjwarp_defer_tensor_validation` 会以指明替代键的明确配置错误 fail
   closed。判定语义与 verdict 载体不变
   （[#2618](https://github.com/Motphys/UniLab/issues/2618)）。
-- `env.autoreset_cuda_graph` now defaults to `true`: task configs that do not
-  mention the switch run the fixed-shape autoreset path (masked full-width
-  reset, persistent step buffers, deferred finite validation, and — on CUDA —
-  autoreset segment CUDA graph capture). Unsupported combinations keep failing
-  closed at startup with the switch or backend named (a non-CUDA env device,
-  reset participants that do not accept a `ResetSelection`, or a backend
-  without the `external_graph_capture` capability); there is no silent eager
-  fallback. Set `env.autoreset_cuda_graph=false` explicitly to opt out — the
-  escape hatch for debugging or when a graph-related problem is suspected
-  ([#2621](https://github.com/Motphys/UniLab/issues/2621))。
-  `env.autoreset_cuda_graph` 默认值翻转为 `true`：任务配置不写该开关时即运行
-  fixed-shape autoreset 路径（masked 全宽 reset、持久 step buffer、推迟有限值
-  校验，CUDA 下捕获 autoreset 段 CUDA graph）。不支持的组合仍在启动时按名 fail
-  closed（非 CUDA env 设备、不接受 `ResetSelection` 的 reset 参与者、或未声明
-  `external_graph_capture` 能力的后端）；不做静默 eager 回退。显式设置
-  `env.autoreset_cuda_graph=false` 即可退出——用于调试或疑似 graph 相关问题时的
-  回退逃生口
-  （[#2621](https://github.com/Motphys/UniLab/issues/2621)）。
-
 - High-traffic public interfaces — the Manager protocols in
   `unilab.managers.types`, `TorchEnv`, the reset-state transaction, the MDP
   observation/action/curriculum/ray terms, and the PPO/APPO/SAC/FlashSAC
