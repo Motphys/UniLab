@@ -23,8 +23,6 @@ training:
   sim_backend: genesis
   play_render_mode: auto
 algo:
-  num_envs: 2048
-  max_iterations: 2200
   obs_groups:
     actor:
       - actor
@@ -38,7 +36,3 @@ env:
   # Re-declares the MJCF <option integrator="implicitfast"> that Genesis drops
   # at import; the remaining global options keep the Genesis defaults.
   genesis_integrator: implicitfast
-play_profile:
-  enabled: true
-  env:
-    render_spacing: 2.0

@@ -3,6 +3,18 @@
 # Backend owner leaves inherit this file and only override backend/algo tuning
 # or explicitly disabled terms. Observation scaling uses unit scales (the
 # on-policy tuned baseline); the walk profile lives in conf/sac/task/g1_walk_flat/base.yaml.
+# The shared on-policy training budget and playback profile are common to
+# every backend owner and live here; leaves keep only backend identity,
+# backend knobs, and explicitly disabled terms.
+algo:
+  num_envs: 2048
+  max_iterations: 2200
+
+play_profile:
+  enabled: true
+  env:
+    render_spacing: 2.0
+
 env:
   scene:
     model_file: src/unilab/assets/robots/g1/scene_flat.xml

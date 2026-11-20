@@ -3,7 +3,20 @@
 # Backend owner leaves inherit this file and only override backend/algo tuning
 # or explicitly disabled terms. Observation scaling follows the walk profile
 # (gyro x0.25, joint velocity x0.05, critic linear velocity x2.0); every
-# off-policy owner carries the penalty curriculum.
+# off-policy owner carries the penalty curriculum. The shared SAC training
+# budget, the tensor walk reset owner, and the fused selected-reset terms are
+# common to every backend owner and live here; leaves keep only backend
+# identity, backend knobs, and explicitly disabled terms.
+algo:
+  num_envs: 2048
+  learning_starts: 10
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+
 env:
   scene:
     model_file: src/unilab/assets/robots/g1/scene_flat.xml
@@ -168,12 +181,20 @@ env:
         lin_vel_x: [-0.6, 1.0]
         lin_vel_y: [-0.4, 0.4]
         ang_vel_z: [-0.8, 0.8]
+  reset_owners:
+    walk:
+      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwnerCfg
+      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwner
+      command_name: twist
   events:
+    # Every backend owner selects the fused tensor reset lane; the packed
+    # reset layout is fixed, so the host randomization params stay declared
+    # but unused.
     reset_scene_to_default:
-      func: unilab.envs.mdp.reset_scene_to_default
+      func: unilab.envs.mdp.skip_scene_reset
       mode: reset
     reset_root_state_uniform:
-      func: unilab.envs.mdp.reset_root_state_uniform
+      func: unilab.envs.mdp.reset_root_state_uniform_fused
       mode: reset
       params:
         pose_range:

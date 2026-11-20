@@ -1,6 +1,9 @@
 # @package _global_
-# SAC MuJoCo owner: inherits the 29-DoF off-policy Manager-Based contract from
-# the shared base and only carries backend/algo identity.
+# SAC MuJoCo owner: inherits the shared 29-DoF off-policy Manager-Based
+# contract (training budget, tensor reset owner, fused selected-reset terms)
+# from base.yaml and only carries backend identity. MuJoCo/mjbatch is
+# HOST_BRIDGE: CPU physics remains authoritative while Manager
+# read/reset/control cross one packed device boundary per phase.
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -8,25 +11,3 @@ defaults:
 training:
   task_name: G1WalkFlat
   sim_backend: mujoco
-algo:
-  num_envs: 2048
-  learning_starts: 10
-  max_iterations: 5000
-  save_interval: 1000
-  updates_per_step: 8
-  algo_params:
-    alpha_init: 0.001
-    target_entropy_ratio: 0.0
-  # MuJoCo/mjbatch is HOST_BRIDGE: CPU physics remains authoritative while
-  # Manager reads/reset/control cross one packed device boundary per phase.
-env:
-  reset_owners:
-    walk:
-      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwnerCfg
-      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwner
-      command_name: twist
-  events:
-    reset_scene_to_default:
-      func: unilab.envs.mdp.skip_scene_reset
-    reset_root_state_uniform:
-      func: unilab.envs.mdp.reset_root_state_uniform_fused

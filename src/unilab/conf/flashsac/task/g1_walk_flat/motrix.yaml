@@ -1,6 +1,7 @@
 # @package _global_
-# FlashSAC Motrix owner: keeps the MuJoCo owner's FlashSAC algo identity while
-# adopting the Motrix-direction reward retuning; kp/kd randomization disabled.
+# FlashSAC Motrix owner: inherits the FlashSAC training budget from the
+# shared base and adopts the Motrix-direction reward retuning; kp/kd
+# randomization disabled.
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -8,14 +9,6 @@ defaults:
 training:
   task_name: G1WalkFlat
   sim_backend: motrix
-algo:
-  num_envs: 4096
-  learning_starts: 49
-  max_iterations: 5000
-  save_interval: 1000
-  updates_per_step: 8
-  replay_buffer_n: 256
-  tau: 0.05
 env:
   events:
     # kp/kd randomization stays disabled, matching the tuned walk baseline.

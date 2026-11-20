@@ -1,6 +1,7 @@
 # @package _global_
-# Configured-only FlashSAC mjwarp owner. Mirrors the MuJoCo owner's algo /
-# env / reward identity; mjwarp-specific host-adapter settings follow
+# Configured-only FlashSAC mjwarp owner. Mirrors the MuJoCo owner's reward
+# retuning; the FlashSAC training budget is inherited from the shared base.
+# mjwarp-specific host-adapter settings follow
 # conf/sac/task/g1_walk_flat/mjwarp.yaml. Offline record reuses
 # MuJoCo rendering; interactive eval routes through the MuJoCo viewer.
 # Native playback and device-resident runtime are absent.
@@ -12,14 +13,6 @@ training:
   task_name: G1WalkFlat
   sim_backend: mjwarp
   play_render_mode: record
-algo:
-  num_envs: 4096
-  learning_starts: 49
-  max_iterations: 5000
-  save_interval: 1000
-  updates_per_step: 8
-  replay_buffer_n: 256
-  tau: 0.05
 env:
   # MJWarp is DEVICE_RESIDENT/DIRECT. Mirror the SAC owner's CUDA tensor
   # lifecycle so this owner-selected path does not depend on caller defaults.

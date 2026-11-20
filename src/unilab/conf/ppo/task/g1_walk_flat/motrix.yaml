@@ -1,7 +1,8 @@
 # @package _global_
-# Motrix owner: inherits the shared 29-DoF flat Manager-Based contract from
-# base.yaml, then overrides contract fields for Motrix-specific tuning
-# (intentionally non-transferable from MuJoCo; drop overrides to restore parity).
+# Motrix owner: inherits the shared 29-DoF flat Manager-Based contract and the
+# on-policy training budget from base.yaml, then overrides contract fields for
+# Motrix-specific tuning (intentionally non-transferable from MuJoCo; drop
+# overrides to restore parity).
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -10,8 +11,6 @@ training:
   task_name: G1WalkFlat
   sim_backend: motrix
 algo:
-  num_envs: 2048
-  max_iterations: 2200
   obs_groups:
     actor:
       - policy
@@ -119,7 +118,3 @@ reward:
     weight: -0.005
   pose:
     weight: -0.05
-play_profile:
-  enabled: true
-  env:
-    render_spacing: 2.0

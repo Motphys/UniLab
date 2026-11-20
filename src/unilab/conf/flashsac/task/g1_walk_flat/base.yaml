@@ -3,7 +3,19 @@
 # Backend owner leaves inherit this file and only override backend/algo tuning
 # or explicitly disabled terms. Observation scaling follows the walk profile
 # (gyro x0.25, joint velocity x0.05, critic linear velocity x2.0); every
-# off-policy owner carries the penalty curriculum.
+# off-policy owner carries the penalty curriculum. The shared FlashSAC
+# training budget is common to every backend owner and lives here; leaves
+# keep only backend identity, backend knobs, reward retuning, and explicitly
+# disabled terms.
+algo:
+  num_envs: 4096
+  learning_starts: 49
+  max_iterations: 5000
+  save_interval: 1000
+  updates_per_step: 8
+  replay_buffer_n: 256
+  tau: 0.05
+
 env:
   scene:
     model_file: src/unilab/assets/robots/g1/scene_flat.xml

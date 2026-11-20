@@ -14,8 +14,6 @@ training:
   sim_backend: mjwarp
   play_render_mode: record
 algo:
-  num_envs: 2048
-  max_iterations: 2200
   obs_groups:
     actor:
       - actor
@@ -29,7 +27,3 @@ env:
       func: unilab.envs.mdp.reset_root_state_uniform_fused
     # kp/kd and armature randomization stay disabled, matching the tuned walk baseline.
     pd_gains: null
-play_profile:
-  enabled: true
-  env:
-    render_spacing: 2.0

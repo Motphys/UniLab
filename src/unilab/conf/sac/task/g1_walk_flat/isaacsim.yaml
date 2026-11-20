@@ -11,14 +11,6 @@ training:
   sim_backend: isaacsim
   play_render_mode: none
 algo:
-  num_envs: 2048
-  learning_starts: 10
-  max_iterations: 5000
-  save_interval: 1000
-  updates_per_step: 8
-  algo_params:
-    alpha_init: 0.001
-    target_entropy_ratio: 0.0
   g1_walk_pack:
     _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkRewardPackCfg
     func: unilab.tasks.locomotion.g1.manager_terms.G1WalkRewardPack
@@ -105,16 +97,7 @@ env:
           - robot/right_wrist_yaw_joint
         actuator_names: *mapped_g1_joints
         body_names: [robot/pelvis]
-  reset_owners:
-    walk:
-      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwnerCfg
-      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwner
-      command_name: twist
   events:
-    reset_scene_to_default:
-      func: unilab.envs.mdp.skip_scene_reset
-    reset_root_state_uniform:
-      func: unilab.envs.mdp.reset_root_state_uniform_fused
     # IsaacSim reset DR remains outside this training owner's support slice.
     pd_gains: null
   terminations:
