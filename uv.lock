@@ -5892,7 +5892,7 @@ wheels = [
 
 [[package]]
 name = "unilab"
-version = "1.5.11"
+version = "1.6.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "etils", version = "1.13.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-6-unilab-mjwarp' and extra == 'extra-6-unilab-newton') or (extra == 'extra-6-unilab-mjwarp' and extra == 'extra-6-unilab-superdex') or (extra == 'extra-6-unilab-mujoco' and extra == 'extra-6-unilab-newton') or (extra == 'extra-6-unilab-mujoco' and extra == 'extra-6-unilab-superdex')" },
