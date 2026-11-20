@@ -581,7 +581,9 @@ class MotionCommand(CommandTerm):
             body_lin_vel_w=torch.empty_like(self._motion_data.body_lin_vel_w),
             body_ang_vel_w=torch.empty_like(self._motion_data.body_ang_vel_w),
         )
-        self._command = torch.empty((self.num_envs, num_joints * 2), device=self._device)
+        # Zero-initialized: the deferred finite check can read this buffer before the
+        # first motion packet fills it, and uninitialized memory may hold NaN or Inf.
+        self._command = torch.zeros((self.num_envs, num_joints * 2), device=self._device)
         self._command_finite_valid = torch.ones((), dtype=torch.bool, device=self._device)
         self._body_pos_w = torch.empty((self.num_envs, num_bodies, 3), device=self._device)
         self._body_pos_packet_scratch = torch.empty_like(self._body_pos_w)
