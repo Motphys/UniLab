@@ -5973,6 +5973,9 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+rl = [
+    { name = "unilab", extra = ["unirl"] },
+]
 
 [package.metadata]
 requires-dist = [
@@ -6032,6 +6035,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+rl = [{ name = "unilab", extras = ["unirl"] }]
 
 [[package]]
 name = "uniray"

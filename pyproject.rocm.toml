@@ -81,6 +81,9 @@ unirl = [
 # The RL stack (APPO/off-policy/multi-GPU) is merged into unilab itself
 # (src/unilab/rl/), so the dev environment no longer installs unilab-rl.
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408", "interrogate"]
+# Keep the default training-stack group aligned with pyproject.toml so
+# switching backend extras never uninstalls the RL runtime deps.
+rl = ["unilab[unirl]"]
 
 [[tool.uv.index]]
 name = "pytorch-rocm72"
@@ -102,6 +105,9 @@ exclude-dependencies = [
     "nvidia-cuda-runtime-cu12",
     "nvidia-cudnn-cu12",
 ]
+# Keep the default groups aligned with pyproject.toml: dev tools plus the
+# RL training deps on every `uv sync`/`uv run`.
+default-groups = ["dev", "rl"]
 required-environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
     "sys_platform == 'linux' and platform_machine == 'x86_64'",

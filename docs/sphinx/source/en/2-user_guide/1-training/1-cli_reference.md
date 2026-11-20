@@ -90,7 +90,7 @@ is not auto-activated; reopen the terminal or source the rc file to apply.
 If `make` is unavailable, run the steps directly:
 
 ```bash
-uv sync --extra mujoco --extra unirl
+uv sync --extra mujoco
 uv run --no-sync unilab-complete install
 ```
 

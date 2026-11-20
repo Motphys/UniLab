@@ -11,7 +11,7 @@ Steps that need a simulator install, a display, or a GPU are marked. The
 compose-only checks (`--cfg job`) still pass through the CLI's backend
 preflight, so `--sim mujoco` requires the `mujoco` extra; the routed PPO
 entrypoint also imports the built-in RL stack, so install the `unirl` extra
-as well (`uv sync --extra mujoco --extra unirl` in a source checkout — the
+as well (`uv sync --extra mujoco` in a source checkout — the
 same sync `make setup` runs).
 
 ## 0. Pick Names

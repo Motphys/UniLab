@@ -127,6 +127,12 @@ unirl = [
 # The RL stack (APPO/off-policy/multi-GPU) is merged into unilab itself
 # (src/unilab/rl/), so the dev environment no longer installs unilab-rl.
 dev = ["pytest", "pytest-cov", "ruff", "mypy", "pyright>=1.1.408", "interrogate"]
+# Source checkouts keep the RL training deps installed no matter which
+# backend extra is synced: uv includes default groups on every `uv sync`/
+# `uv run`, so switching backends no longer uninstalls tensordict/rsl-rl-lib/
+# tensorboard/wandb. Dependency groups are uv-only, so `pip install unilab`
+# stays lightweight and pip users still opt in through the `unirl` extra.
+rl = ["unilab[unirl]"]
 
 [[tool.uv.index]]
 name = "r2-cu130"
@@ -140,6 +146,9 @@ torch = [
 ]
 [tool.uv]
 exclude-dependencies = ["torchvision"]
+# Include the dev tools and the RL training deps on every `uv sync`/`uv run`
+# so switching backend extras never uninstalls the training stack.
+default-groups = ["dev", "rl"]
 # Newton and SuperDex remain on MuJoCo 3.11 and cannot coexist with the 4.0 line.
 conflicts = [
     [{ extra = "mjwarp" }, { extra = "newton" }],

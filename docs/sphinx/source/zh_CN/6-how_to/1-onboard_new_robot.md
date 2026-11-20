@@ -10,7 +10,7 @@ owner YAML（{doc}`../2-user_guide/1-training/2-hydra_config`）以及 registry
 需要安装仿真器、显示器或 GPU 的步骤都已标注。纯组合检查（`--cfg job`）仍会
 经过 CLI 的后端预检，因此 `--sim mujoco` 需要 `mujoco` extra；被路由的 PPO
 入口还会导入内置 RL 栈，所以还需要 `unirl` extra（源码检出中执行
-`uv sync --extra mujoco --extra unirl`——与 `make setup` 相同的同步命令）。
+`uv sync --extra mujoco`——与 `make setup` 相同的同步命令）。
 
 ## 0. 选定名称
 
@@ -278,7 +278,7 @@ print(registry.list_registered_envs()['<RegistryName>'])
 ## 6. 首次训练
 
 需要后端的 Python extra 以及 `unirl` RL 栈 extra
-（`uv sync --extra mujoco --extra unirl`）；有意义的运行需要 GPU。先小规模：
+（`uv sync --extra mujoco`）；有意义的运行需要 GPU。先小规模：
 
 ```bash
 uv run train --algo ppo --task <task> --sim mujoco \

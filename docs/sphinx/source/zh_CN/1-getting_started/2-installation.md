@@ -47,7 +47,7 @@ make setup
 补全。如果无法使用 `make`，可运行对应的底层命令：
 
 ```bash
-uv sync --extra mujoco --extra unirl
+uv sync --extra mujoco
 uv run --no-sync unilab-complete install
 ```
 
@@ -118,7 +118,7 @@ uv sync --extra newton
 
 | 后端 | 安装路径 | 重要前置条件 |
 | --- | --- | --- |
-| MuJoCo | `make setup` 或 `uv sync --extra mujoco --extra unirl` | Python >=3.11；在可用平台上安装预编译 `mjbatch-uni==0.3.1` wheel |
+| MuJoCo | `make setup` 或 `uv sync --extra mujoco` | Python >=3.11；在可用平台上安装预编译 `mjbatch-uni==0.3.1` wheel |
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | Python >=3.11 与 NVIDIA CUDA；单 GPU 主机默认使用当前 CUDA 设备，多卡拓扑仍需显式配置 |
 | Genesis | `uv sync --extra genesis` | 已验证路径使用 Linux x86_64、NVIDIA GPU 及固定版本 torch/Genesis |
 | Newton | `uv sync --extra newton` | Linux CUDA，并钉定 newton / MuJoCo-Warp / Warp 版本；需与 `mujoco`、`mjwarp` 使用独立环境 |
@@ -141,12 +141,15 @@ runtime 变量、渲染器要求和验证命令见 scoped 后端页面：
 
 ## 算法 Extras
 
-训练需要 `unirl` extra。RL 栈的代码内置在 `unilab` distribution 的
-`src/unilab/rl/` 中，但其运行时依赖（`rsl-rl-lib`、`tensordict`、
-`tensorboard`、`wandb`）在 `unirl` extra 里——缺少它时 `uv run train` 会在
-import 阶段失败（例如 `ModuleNotFoundError: tensordict`）。`make setup`
-已包含该 extra（`uv sync --extra mujoco --extra unirl`）；手动安装时在你的
-backend extra 之外加上 `--extra unirl`。原 `unilab-rl` 包已并入本仓库
+训练所需的 RL 运行时依赖（`rsl-rl-lib`、`tensordict`、`tensorboard`、`wandb`）
+定义在 `unirl` extra 中；在源码 checkout 里，它们还通过默认依赖组 `rl`
+（`unilab[unirl]`）随每一次 `uv sync` / `uv run` 自动安装。因此切换后端
+extra（例如从 `mujoco` 换到 `newton`）不会再卸载训练栈，
+`uv sync --extra <backend>` 即可，无需再加 `--extra unirl`。缺少这些依赖时
+`uv run train` 会在 import 阶段失败（例如 `ModuleNotFoundError: tensordict`）。
+
+依赖组是 uv 的概念：通过 pip 安装发布包时不生效，仍需显式选择
+`pip install "unilab[unirl]"`。原 `unilab-rl` 包已并入本仓库
 （issue #2372，决策见
 {doc}`/adr/ADR-0016-rl-reintegration-into-unilab-rl`）。
 

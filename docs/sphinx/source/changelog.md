@@ -15,6 +15,18 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ## Unreleased
 
+### Changed / 变更
+
+- Source checkouts now install the RL training runtime (`tensordict`,
+  `rsl-rl-lib`, `tensorboard`, `wandb`) through the default uv dependency
+  group `rl` (`unilab[unirl]`), so switching backend extras with
+  `uv sync --extra <backend>` no longer uninstalls the training stack —
+  adding `--extra unirl` is no longer needed (it stays for pip installs).
+  源码 checkout 现在通过默认 uv 依赖组 `rl`（`unilab[unirl]`）安装 RL 训练
+  运行时（`tensordict`、`rsl-rl-lib`、`tensorboard`、`wandb`），用
+  `uv sync --extra <backend>` 切换后端 extra 不会再卸载训练栈——无需再加
+  `--extra unirl`（pip 安装路径仍保留该 extra）。
+
 ### Added / 新增
 
 - Built-in reset-mode model-field DR terms now accept a ``ResetSelection``,

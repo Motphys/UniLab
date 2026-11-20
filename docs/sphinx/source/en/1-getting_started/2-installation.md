@@ -51,7 +51,7 @@ RL stack) and installs shell completion. If `make` is unavailable, run the
 matching commands directly:
 
 ```bash
-uv sync --extra mujoco --extra unirl
+uv sync --extra mujoco
 uv run --no-sync unilab-complete install
 ```
 
@@ -129,7 +129,7 @@ uv sync --extra newton
 
 | Backend | Install path | Important prerequisites |
 | --- | --- | --- |
-| MuJoCo | `make setup` or `uv sync --extra mujoco --extra unirl` | Python >=3.11; installs prebuilt `mjbatch-uni==0.3.1` wheels where available |
+| MuJoCo | `make setup` or `uv sync --extra mujoco` | Python >=3.11; installs prebuilt `mjbatch-uni==0.3.1` wheels where available |
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | Python >=3.11 and NVIDIA CUDA; on a single-GPU host the current CUDA device is used by default, while multi-GPU topology remains explicit |
 | Genesis | `uv sync --extra genesis` | The validated path uses Linux x86_64, an NVIDIA GPU, and the pinned torch/Genesis versions |
 | Newton | `uv sync --extra newton` | Linux CUDA with the pinned newton / MuJoCo-Warp / Warp versions; use a separate environment from `mujoco` and `mjwarp` |
@@ -153,14 +153,19 @@ verification commands:
 
 ## Algorithm Extras
 
-Training requires the `unirl` extra. The RL stack code itself ships inside the
-`unilab` distribution under `src/unilab/rl/`, but its runtime dependencies
-(`rsl-rl-lib`, `tensordict`, `tensorboard`, `wandb`) live in the `unirl` extra —
-without it, `uv run train` fails on import (e.g. `ModuleNotFoundError:
-tensordict`). `make setup` already includes it (`uv sync --extra mujoco
---extra unirl`); when installing manually, add `--extra unirl` alongside your
-backend extra. The former `unilab-rl` package is merged into this repository
-(issue #2372, decision in
+Training needs the RL runtime dependencies (`rsl-rl-lib`, `tensordict`,
+`tensorboard`, `wandb`), which are defined in the `unirl` extra. In a source
+checkout they are also installed on every `uv sync` / `uv run` through the
+default dependency group `rl` (`unilab[unirl]`), so switching backend extras
+(for example from `mujoco` to `newton`) no longer uninstalls the training
+stack — `uv sync --extra <backend>` is enough, without an extra `--extra
+unirl`. Without these dependencies `uv run train` fails at import time (e.g.
+`ModuleNotFoundError: tensordict`).
+
+Dependency groups are a uv concept: they do not apply when installing the
+published package with pip, so opt in explicitly with
+`pip install "unilab[unirl]"`. The former `unilab-rl` package is merged into
+this repository (issue #2372, decision in
 {doc}`/adr/ADR-0016-rl-reintegration-into-unilab-rl`).
 
 The legacy `uni_rl` extra has been removed. Do not pass it to `uv sync` or

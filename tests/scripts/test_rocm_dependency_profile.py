@@ -68,6 +68,15 @@ def test_rocm_profile_publishes_genesis_extra() -> None:
         assert extras["genesis"] == ["genesis-world==1.3.3"]
 
 
+def test_rl_dependency_group_is_default_in_both_profiles() -> None:
+    # The `rl` default group keeps the unirl training deps installed on every
+    # `uv sync --extra <backend>`, in both the CUDA and ROCm profiles.
+    for path in (ROOT / "pyproject.toml", ROOT / "pyproject.rocm.toml"):
+        project = _project(path)
+        assert project["dependency-groups"]["rl"] == ["unilab[unirl]"]
+        assert project["tool"]["uv"]["default-groups"] == ["dev", "rl"]
+
+
 def test_ray_optional_dependencies_use_published_packages() -> None:
     default_project = _project(ROOT / "pyproject.toml")
     assert default_project["project"]["optional-dependencies"]["ray"] == ["uniray[warp]==0.1.1"]
