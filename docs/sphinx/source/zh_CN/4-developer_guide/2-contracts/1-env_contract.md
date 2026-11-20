@@ -16,6 +16,9 @@ Env 契约由 `src/unilab/base/base.py` 与 `src/unilab/base/torch_env.py`
   的 env 行返回 `(obs_dict, info_dict)`。
 - 在 `TorchEnv` 上调用 `step(actions)` 接受 contiguous float32 Torch tensor，
   并返回 `TorchEnvState`；外部适配器只能在适配边界做 trainer device transfer。
+- 公共 `obs`、`reward`、`terminated` 与 `truncated` 输出逐步 fresh 且归调用方
+  所有，不与可变的 Manager 或内部 working/reset carrier 别名；后续 step 不会
+  改写已返回输出。
 - 不存在 legacy 环境 fallback。不支持的 device、carrier 和 backend tensor
   lifecycle 一律 fail closed。
 

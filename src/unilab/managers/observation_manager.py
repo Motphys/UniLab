@@ -795,8 +795,8 @@ class ObservationManager(ManagerBase):
             values = list(group_obs.values())
             tensors = cast("list[torch.Tensor]", values)
             if len(tensors) == 1:
-                # A one-term concatenated group already has final layout;
-                # preserve its exact dtype/device without a defensive copy.
+                # A one-term concatenated group already has final layout; the
+                # env publication boundary owns the caller-ownership copy.
                 result = tensors[0]
             else:
                 # Multi-term concatenation creates caller-owned result storage.

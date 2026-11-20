@@ -247,8 +247,8 @@ def _build_env_cfg_override(task_name: str) -> dict[str, Any]:
             f"Task '{task_name}' is not registered. "
             f"Available: {sorted(registry.list_registered_envs())}"
         )
-    # Visualization drives the eager selected-row path; opt out of the
-    # default-on autoreset graph path.
+    # Visualization drives the eager selected-row path; keep the opt-in
+    # autoreset graph path disabled explicitly.
     return {"autoreset_cuda_graph": False}
 
 

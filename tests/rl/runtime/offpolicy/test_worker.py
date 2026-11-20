@@ -838,28 +838,21 @@ def test_tensor_collector_reports_bounded_inference_scheduling_diagnostics(
     assert inference_request_queue.get_nowait() == 0
 
 
-def test_tensor_collector_passes_env_observations_to_replay_without_snapshot(
+def test_tensor_collector_passes_fresh_observations_across_steps_without_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Replay receives the env-provided observation tensors directly.
-
-    The env contract guarantees caller-owned public observations (no in-place
-    reuse across steps), so the collector hands them to replay without a
-    defensive staging copy; the stored rows are the identical tensor objects.
-    """
+    """Replay retains each tick's caller-owned observations without collector clones."""
     stop_event = threading.Event()
     metrics_queue: queue.Queue[dict] = queue.Queue(maxsize=4)
     replay_calls: list[tuple[tuple[torch.Tensor, ...], dict[str, object]]] = []
-    initial_obs = torch.zeros((2, 2), dtype=torch.float32)
-    initial_critic = torch.full((2, 3), 5.0, dtype=torch.float32)
-    next_obs = torch.full((2, 2), 7.0, dtype=torch.float32)
-    next_critic = torch.full((2, 3), 11.0, dtype=torch.float32)
+    observations = [torch.zeros((2, 2), dtype=torch.float32)]
+    critics = [torch.zeros((2, 3), dtype=torch.float32)]
 
     class _Env:
         state = SimpleNamespace(
-            obs={"obs": initial_obs, "critic": initial_critic},
+            obs={"obs": observations[0], "critic": critics[0]},
             reward=torch.ones(2),
-            terminated=torch.tensor([False, True]),
+            terminated=torch.zeros(2, dtype=torch.bool),
             truncated=torch.zeros(2, dtype=torch.bool),
             final_observation=None,
             info={"timing": {}},
@@ -867,9 +860,13 @@ def test_tensor_collector_passes_env_observations_to_replay_without_snapshot(
 
         def step(self, actions):
             torch.testing.assert_close(actions, torch.zeros((2, 2)))
-            stop_event.set()
+            step_index = len(observations)
+            observations.append(torch.full((2, 2), float(step_index)))
+            critics.append(torch.full((2, 3), float(100 * step_index)))
+            if step_index == 3:
+                stop_event.set()
             self.state = SimpleNamespace(
-                obs={"obs": next_obs, "critic": next_critic},
+                obs={"obs": observations[-1], "critic": critics[-1]},
                 reward=torch.ones(2),
                 terminated=self.state.terminated,
                 truncated=self.state.truncated,
@@ -948,13 +945,27 @@ def test_tensor_collector_passes_env_observations_to_replay_without_snapshot(
         trace_thread_time=False,
     )
 
-    assert len(replay_calls) == 1
-    replay_args, replay_kwargs = replay_calls[0]
-    assert replay_args[0] is initial_obs
-    assert replay_kwargs["critic"] is initial_critic
-    assert replay_args[3] is next_obs
-    assert replay_kwargs["next_critic"] is next_critic
-    assert replay_args[0].data_ptr() == initial_obs.data_ptr()
+    assert len(replay_calls) == 3
+    for index, (replay_args, replay_kwargs) in enumerate(replay_calls):
+        assert replay_args[0] is observations[index]
+        assert replay_args[3] is observations[index + 1]
+        assert replay_kwargs["critic"] is critics[index]
+        assert replay_kwargs["next_critic"] is critics[index + 1]
+        torch.testing.assert_close(replay_args[0], torch.full_like(replay_args[0], float(index)))
+        torch.testing.assert_close(
+            replay_args[3], torch.full_like(replay_args[3], float(index + 1))
+        )
+        torch.testing.assert_close(
+            replay_kwargs["critic"], torch.full_like(critics[index], float(100 * index))
+        )
+        torch.testing.assert_close(
+            replay_kwargs["next_critic"],
+            torch.full_like(critics[index + 1], float(100 * (index + 1))),
+        )
+        if index > 0:
+            previous_args, previous_kwargs = replay_calls[index - 1]
+            assert replay_args[0] is previous_args[3]
+            assert replay_kwargs["critic"] is previous_kwargs["next_critic"]
 
 
 def test_tensor_collector_steps_env_with_ring_tensor_actions(

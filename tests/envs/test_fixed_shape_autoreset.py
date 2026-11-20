@@ -37,6 +37,7 @@ from unilab.base.reset_selection import (
 )
 from unilab.base.reset_selectors import ResetMaskBuffer, resolve_reset_env_ids
 from unilab.base.scene import SceneCfg
+from unilab.base.torch_env import TorchEnv, TorchEnvState
 from unilab.envs import ManagerBasedRlEnv, ManagerBasedRlEnvCfg
 from unilab.managers import (
     ActionTerm,
@@ -262,18 +263,17 @@ def _make_cfg(device: str, **overrides: Any) -> ManagerBasedRlEnvCfg:
     """Build the canonical test env cfg.
 
     ``overrides`` first lands on declared ``ManagerBasedRlEnvCfg`` fields.
-    Names outside the collapsed public surface (``masked_autoreset``,
-    ``persistent_step_buffers``, ``defer_finite_validation``,
-    ``published_buffer_depth``, ``autoreset_graph_warmup``) attach as plain
+    Internal overrides (``masked_autoreset``, ``persistent_step_buffers``,
+    ``defer_finite_validation``, ``autoreset_graph_warmup``) attach as plain
     attributes instead; ``TorchEnv`` reads them through its soft-``getattr``
     test-only injection protocol, so tests can construct intermediate chain
     states that production Hydra configs can no longer express.
 
     The fixture pins ``autoreset_cuda_graph=False``: this file exercises the
     fixed-shape chain through the test-only injection protocol and compares
-    it against the selected-row eager path, so the default-on public switch
-    (issue #2621) is pinned off here. Tests that exercise the public switch
-    itself set it through ``overrides``; its default is asserted separately.
+    it against the selected-row eager path. Tests that exercise the opt-in
+    public switch set it through ``overrides``; its default is asserted
+    separately.
     """
     cfg = ManagerBasedRlEnvCfg(
         scene=SceneCfg(
@@ -482,6 +482,11 @@ def test_collapsed_switch_keys_fail_closed_as_env_overrides() -> None:
             apply_cfg_overrides(cfg, {key: True})
 
 
+def test_custom_step_carrier_public_surface_is_removed() -> None:
+    assert not hasattr(TorchEnv, "register_step_carrier")
+    assert "carriers" not in TorchEnvState.__dataclass_fields__
+
+
 def test_masked_autoreset_requires_deferred_validation() -> None:
     with pytest.raises(ValueError, match="finite_validation_mode"):
         _make_env("cpu", masked_autoreset=True, finite_validation_mode="strict")
@@ -512,15 +517,13 @@ def test_masked_autoreset_reports_every_unsupported_participant() -> None:
 
 
 @pytest.mark.parametrize("device", DEVICES)
-@pytest.mark.parametrize("depth", [0, 2])
-def test_masked_autoreset_matches_selected_row_autoreset(device: str, depth: int) -> None:
+def test_masked_autoreset_matches_selected_row_autoreset(device: str) -> None:
     actions = _actions(device, 24)
     eager_env, eager_backend = _make_env(device)
     masked_env, masked_backend = _make_env(
         device,
         masked_autoreset=True,
         persistent_step_buffers=True,
-        published_buffer_depth=depth,
     )
     eager, eager_logs = _run(eager_env, eager_backend, actions)
     masked, masked_logs = _run(masked_env, masked_backend, actions)
@@ -531,36 +534,46 @@ def test_masked_autoreset_matches_selected_row_autoreset(device: str, depth: int
     assert any(bool((snap["terminated"] | snap["truncated"]).any()) for snap in masked)
 
 
-def test_persistent_buffers_keep_addresses_and_publish_a_stable_ring() -> None:
-    env, backend = _make_env(
-        "cpu", masked_autoreset=True, persistent_step_buffers=True, published_buffer_depth=2
-    )
+@pytest.mark.parametrize("device", DEVICES)
+def test_persistent_working_buffers_publish_fresh_caller_owned_outputs(device: str) -> None:
+    env, _ = _make_env(device, masked_autoreset=True, persistent_step_buffers=True)
     env.reset()
-    working = env._state
+    working = env._working_state
     assert working is not None
-    working_ptrs = {name: value.data_ptr() for name, value in working.obs.items()}
-    working_ptrs["reward"] = working.reward.data_ptr()
+    working_outputs = {
+        **working.obs,
+        "reward": working.reward,
+        "terminated": working.terminated,
+        "truncated": working.truncated,
+    }
+    working_ptrs = {name: value.data_ptr() for name, value in working_outputs.items()}
     assert env.obs_buf is working.obs
 
     published = []
-    for action in _actions("cpu", 6):
+    for action in _actions(device, 6):
         state = env.step(action)
-        published.append((state, {k: v.clone() for k, v in state.obs.items()}))
-        assert env._state is working
-        assert {n: v.data_ptr() for n, v in working.obs.items()} == {
-            n: p for n, p in working_ptrs.items() if n != "reward"
+        snapshot = {name: value.clone() for name, value in working_outputs.items()}
+        current = {
+            **state.obs,
+            "reward": state.reward,
+            "terminated": state.terminated,
+            "truncated": state.truncated,
         }
-        assert working.reward.data_ptr() == working_ptrs["reward"]
-    # Ring of two persistent slots: alternate objects, and a published state is
-    # unchanged by the following step (the off-policy collector's obs_t).
-    assert published[0][0] is published[2][0] and published[1][0] is published[3][0]
-    assert published[0][0] is not published[1][0]
-    last_state, last_values = published[-1]
-    previous_state, previous_values = published[-2]
-    for name in previous_values:
-        torch.testing.assert_close(previous_state.obs[name], previous_values[name])
-        torch.testing.assert_close(last_state.obs[name], last_values[name])
-    del backend
+        published.append((state, current, snapshot))
+        assert env._working_state is working
+        assert env.state is state
+        assert state is not working
+        assert env.obs_buf is working.obs
+        for name, value in current.items():
+            assert value.data_ptr() != working_ptrs[name]
+        assert {name: value.data_ptr() for name, value in working_outputs.items()} == working_ptrs
+
+    # Every public output remains valid for the whole retained trajectory, not
+    # just until a two-slot ring rotates. The working carriers keep fixed addresses.
+    assert len({id(state) for state, _, _ in published}) == len(published)
+    for _, current, snapshot in published:
+        for name, value in current.items():
+            torch.testing.assert_close(value, snapshot[name])
 
 
 def test_masked_step_has_no_reset_gate_and_reports_reset_call_timing() -> None:
@@ -583,14 +596,27 @@ def test_masked_step_has_no_reset_gate_and_reports_reset_call_timing() -> None:
 
 
 def test_deferred_named_checks_fail_closed_at_the_poll_boundary() -> None:
-    env, _ = _make_env("cpu", masked_autoreset=True)
+    env, _ = _make_env("cpu", masked_autoreset=True, persistent_step_buffers=True)
     env.reset()
+    public = env.state
+    assert public is not None
+    current = {
+        **public.obs,
+        "reward": public.reward,
+        "terminated": public.terminated,
+        "truncated": public.truncated,
+    }
+    snapshot = {name: value.clone() for name, value in current.items()}
     env.require(torch.tensor(True), "test.ok", "never raised")
     env.require(torch.tensor(False), "test.bad", "custom deferred check failed")
     with pytest.raises(ValueError, match="custom deferred check failed"):
         env.step(torch.zeros((NUM_ENVS, 1)))
-    # The failed flag was cleared by the raise; the next boundary is clean.
+    assert env.state is public
+    # The failed flag was cleared by the raise; the next boundary is clean and
+    # must not overwrite the last successfully published state.
     env.step(torch.zeros((NUM_ENVS, 1)))
+    for name, value in current.items():
+        torch.testing.assert_close(value, snapshot[name])
 
 
 def test_transaction_mask_mismatch_is_deferred_not_read() -> None:
@@ -629,11 +655,22 @@ def test_autoreset_cuda_graph_implies_the_whole_fixed_shape_chain() -> None:
     assert env.defer_finite_validation
     assert env._reset_selection is not None
     env.reset()
-    for action in _actions("cuda", 3):
-        env.step(action)
+    published = []
+    for action in _actions("cuda", 5):
+        state = env.step(action)
+        current = {
+            **state.obs,
+            "reward": state.reward,
+            "terminated": state.terminated,
+            "truncated": state.truncated,
+        }
+        published.append((current, {name: value.clone() for name, value in current.items()}))
     graph = env.autoreset_graph
     assert graph is not None and graph.captured
     assert graph.replays >= 1
+    for current, snapshot in published:
+        for name, value in current.items():
+            torch.testing.assert_close(value, snapshot[name])
 
 
 @cuda_only
@@ -732,29 +769,29 @@ def test_autoreset_graph_requires_cuda_and_backend_capability() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Default-on flip (issue #2621)
+# Opt-in graph path
 # ---------------------------------------------------------------------------
 
 
-def test_autoreset_cuda_graph_defaults_to_true() -> None:
-    """A task config that does not mention the switch runs the graph path."""
-    assert ManagerBasedRlEnvCfg().autoreset_cuda_graph is True
+def test_autoreset_cuda_graph_defaults_to_false() -> None:
+    """A task config that does not mention the switch uses the eager path."""
+    assert ManagerBasedRlEnvCfg().autoreset_cuda_graph is False
 
 
-def test_autoreset_cuda_graph_default_fails_closed_on_non_cuda_device() -> None:
-    """Default-on stays fail-closed off CUDA: startup raises, naming the switch.
-
-    There is no silent eager fallback; the escape hatch is an explicit
-    ``autoreset_cuda_graph=false``.
-    """
+def test_autoreset_cuda_graph_default_uses_selected_row_path_on_cpu() -> None:
+    """The default does not require a CUDA device or graph-capable backend."""
     cfg = _make_cfg("cpu")
     # A task YAML that does not set the switch keeps the dataclass default;
     # deleting the instance attribute reads it back from the class default.
     del cfg.autoreset_cuda_graph
-    assert cfg.autoreset_cuda_graph is True
+    assert cfg.autoreset_cuda_graph is False
     backend = _TensorBackend(NUM_ENVS, "cpu")
-    with pytest.raises(ValueError, match="autoreset_cuda_graph requires a CUDA env device"):
-        ManagerBasedRlEnv(cfg, cast(SimBackend, backend), NUM_ENVS)
+    env = ManagerBasedRlEnv(cfg, cast(SimBackend, backend), NUM_ENVS)
+    assert not env.masked_autoreset
+    assert not env.persistent_step_buffers
+    assert env.autoreset_graph is None
+    trajectory, _ = _run(env, backend, _actions("cpu", 4))
+    assert any(bool((snap["terminated"] | snap["truncated"]).any()) for snap in trajectory)
 
 
 def test_autoreset_cuda_graph_explicit_false_keeps_the_selected_row_path() -> None:

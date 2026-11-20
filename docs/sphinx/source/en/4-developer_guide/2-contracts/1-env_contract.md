@@ -17,6 +17,9 @@ The environment contract is code-owned by `src/unilab/base/base.py` and
 - `step(actions)` on `TorchEnv` accepts a contiguous float32 Torch tensor and
   returns `TorchEnvState`; external adapters may transfer tensors to a trainer
   device only at the adapter boundary.
+- Public `obs`, `reward`, `terminated`, and `truncated` outputs are fresh and
+  caller-owned. They do not alias mutable Manager or internal working/reset
+  carriers, and later steps do not mutate them.
 - There is no legacy environment fallback. Unsupported devices, carriers, and
   backend tensor lifecycles fail closed.
 
