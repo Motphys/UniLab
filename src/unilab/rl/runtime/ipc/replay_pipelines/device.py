@@ -29,6 +29,7 @@ from unilab.rl.runtime.device import sync_device
 from unilab.rl.runtime.ipc.completion import wait_completion
 from unilab.rl.runtime.ipc.replay_buffer import ReplayBuffer
 from unilab.rl.runtime.ipc.replay_pipelines.base import ReplayTickMetadata
+from unilab.rl.runtime.ipc.replay_pipelines.fused_gather import build_fused_gather
 from unilab.rl.runtime.ipc.replay_pipelines.transfer import build_replay_transfer_backend
 
 
@@ -63,6 +64,36 @@ def normalize_replay_storage_dtype(value: str | torch.dtype) -> torch.dtype:
             f"Unsupported replay storage dtype {value!r}; expected 'float16' or 'float32'"
         )
     return dtype
+
+
+def _validate_fp16_safe_layout(replay_buffer: ReplayBuffer) -> None:
+    """Fail closed unless every packed column has an explicit storage class.
+
+    The layout layer (``ReplayBuffer``) declares fp16-safe slices and one
+    contiguous scalar slice; together they must cover the full row exactly
+    once. A future column registered in ``_init_packed_layout`` without a
+    storage class raises here at pipeline construction instead of being
+    silently quantized (issue #2651).
+    """
+    width = int(replay_buffer.storage_width)
+    coverage = [0] * width
+    declared = tuple(replay_buffer.fp16_safe_slices) + (replay_buffer.scalar_column_slice,)
+    for sl in declared:
+        start, stop = int(sl.start), int(sl.stop)
+        if start < 0 or stop > width or start >= stop:
+            raise ValueError(f"Replay layout column slice {sl} is outside the packed width {width}")
+        for column in range(start, stop):
+            coverage[column] += 1
+    missing = [column for column, count in enumerate(coverage) if count == 0]
+    overlapping = [column for column, count in enumerate(coverage) if count > 1]
+    if missing or overlapping:
+        raise ValueError(
+            "fp16 replay storage requires every packed column to be declared exactly "
+            "once by ReplayBuffer.fp16_safe_slices or ReplayBuffer.scalar_column_slice; "
+            f"undeclared columns={missing}, overlapping columns={overlapping}. "
+            "Register the new column's storage class in ReplayBuffer._init_packed_layout "
+            "or select training.replay_storage_dtype=float32."
+        )
 
 
 def require_offpolicy_replay_device(device: str | None) -> str:
@@ -192,7 +223,9 @@ class DeviceReplayPipeline:
         self._storage_width = int(replay_buffer.storage_width)
         self._packed_width = self._storage_width
         self._storage_dtype = normalize_replay_storage_dtype(storage_dtype)
-        self._scalar_sl = slice(replay_buffer._rew_col, replay_buffer._trunc_col + 1)
+        self._scalar_sl = replay_buffer.scalar_column_slice
+        if self._uses_mixed_storage:
+            _validate_fp16_safe_layout(replay_buffer)
 
         # -- device memory guard (hard fail: this pipeline is opt-in) --
         storage_itemsize = self._storage_dtype.itemsize
@@ -258,6 +291,23 @@ class DeviceReplayPipeline:
                 dtype=torch.float32,
                 device=self._device,
             )
+        self._gpu_packed = self._transfer_backend.allocate_device_slots(
+            count=2,
+            shape=(self._sample_count, self._packed_width),
+            dtype=torch.float32,
+        )
+        # One-pass fp16 gather (fp16 row read + fp32 scalar replacement +
+        # fp32 row store); falls back to the eager three-pass assembly when
+        # unavailable. Only CUDA learners with mixed storage can fuse.
+        self._fused_gather: Any | None = None
+        if self._gpu_scalars is not None:
+            self._fused_gather = build_fused_gather(
+                sample_count=self._sample_count,
+                width=self._storage_width,
+                scalar_start=int(self._scalar_sl.start),
+                device=self._device,
+            )
+        if self._gpu_scalars is not None and self._fused_gather is None:
             self._gather_scratch = [
                 torch.empty(
                     (self._sample_count, self._storage_width),
@@ -270,11 +320,6 @@ class DeviceReplayPipeline:
                 torch.empty((self._sample_count, 3), dtype=torch.float32, device=self._device)
                 for _ in range(2)
             ]
-        self._gpu_packed = self._transfer_backend.allocate_device_slots(
-            count=2,
-            shape=(self._sample_count, self._packed_width),
-            dtype=torch.float32,
-        )
         self._sync_stream: Any | None = None
         if self._device.type == "cuda":
             self._sync_stream = cast(torch.cuda.Stream, torch.cuda.Stream(device=self._device))
@@ -313,6 +358,14 @@ class DeviceReplayPipeline:
         return bool(self._storage_dtype != torch.float32)
 
     @property
+    def _gather_impl(self) -> str:
+        if self._gpu_scalars is None:
+            return "eager_fp32"
+        if self._fused_gather is not None:
+            return "fused_triton"
+        return "eager_mixed"
+
+    @property
     def h2d_submitter(self) -> str:
         if self._main_thread_submission:
             return "device_ingress_main_thread"
@@ -334,6 +387,7 @@ class DeviceReplayPipeline:
             "storage_rows": self._capacity,
             "storage_width": self._storage_width,
             "storage_dtype": str(self._storage_dtype).removeprefix("torch."),
+            "gather_impl": self._gather_impl,
             "storage_bytes": int(self._gpu_storage.numel() * self._gpu_storage.element_size())
             + (
                 int(self._gpu_scalars.numel() * self._gpu_scalars.element_size())
@@ -375,16 +429,12 @@ class DeviceReplayPipeline:
     def _packed_batch_view(self, packed: torch.Tensor) -> Dict[str, torch.Tensor]:
         rb = self._replay_buffer
         batch = {
-            "obs": packed[:, rb._obs_sl],
-            "next_obs": packed[:, rb._nobs_sl],
-            "actions": packed[:, rb._act_sl],
-            "rewards": packed[:, rb._rew_col],
-            "dones": packed[:, rb._done_col],
-            "truncated": packed[:, rb._trunc_col],
+            name: rb.field_view(packed, name)
+            for name in ("obs", "next_obs", "actions", "rewards", "dones", "truncated")
         }
-        if rb._critic_dim > 0:
-            batch["critic"] = packed[:, rb._critic_sl]
-            batch["next_critic"] = packed[:, rb._ncritic_sl]
+        if rb.critic_dim > 0:
+            batch["critic"] = rb.field_view(packed, "critic")
+            batch["next_critic"] = rb.field_view(packed, "next_critic")
         return batch
 
     def _large_batch_view(self, slot: int) -> Dict[str, torch.Tensor]:
@@ -484,17 +534,16 @@ class DeviceReplayPipeline:
 
         def copy_spans(*, non_blocking: bool) -> None:
             source_offset = 0
-            gpu_scalars = getattr(self, "_gpu_scalars", None)
             for offset, length in _ring_spans(start, end, self._capacity):
                 source_span = source[source_offset : source_offset + length]
                 self._gpu_storage[offset : offset + length].copy_(
                     source_span,
                     non_blocking=non_blocking,
                 )
-                if gpu_scalars is not None:
+                if self._gpu_scalars is not None:
                     # Rewards/dones/truncated bypass the fp16 ring so TD
                     # targets keep full fp32 resolution.
-                    gpu_scalars[offset : offset + length].copy_(
+                    self._gpu_scalars[offset : offset + length].copy_(
                         source_span[:, self._scalar_sl],
                         non_blocking=non_blocking,
                     )
@@ -538,12 +587,8 @@ class DeviceReplayPipeline:
                 end_event=end_event,
                 args={
                     "h2d_bytes": (end - start)
-                    * (
-                        self._storage_width
-                        * getattr(self, "_storage_dtype", torch.float32).itemsize
-                        + 3 * 4
-                    )
-                    if getattr(self, "_gpu_scalars", None) is not None
+                    * (self._storage_width * self._storage_dtype.itemsize + 3 * 4)
+                    if self._gpu_scalars is not None
                     else (end - start) * self._storage_width * 4,
                     "rows": end - start,
                     "span_start": start,
@@ -594,17 +639,20 @@ class DeviceReplayPipeline:
 
         Mixed-storage rings gather the fp16 ring into scratch, up-cast into
         the fp32 packed slot, then overwrite the scalar columns from the
-        authoritative fp32 block. Whole-cycle CUDA graph capture and the
-        learner's static batch buffers are unchanged: they keep consuming the
-        fp32 packed views.
+        authoritative fp32 block — or use the fused single-pass kernel when
+        it built successfully. Whole-cycle CUDA graph capture and the
+        learner's static batch buffers are unchanged: they keep consuming
+        the fp32 packed views.
         """
         packed = self._gpu_packed[slot]
         if self._gpu_scalars is None:
             torch.index_select(self._gpu_storage, 0, indices, out=packed)
             return
+        if self._fused_gather is not None:
+            self._fused_gather(self._gpu_storage, self._gpu_scalars, indices, packed)
+            return
         torch.index_select(self._gpu_storage, 0, indices, out=self._gather_scratch[slot])
         packed.copy_(self._gather_scratch[slot])
-        assert self._gpu_scalars is not None
         torch.index_select(self._gpu_scalars, 0, indices, out=self._scalar_scratch[slot])
         packed[:, self._scalar_sl].copy_(self._scalar_scratch[slot])
 
@@ -1017,8 +1065,9 @@ class DeviceReplayPipeline:
         self._transfer_backend.close()
         self._host_pinned = False
         self._gpu_packed.clear()
-        getattr(self, "_gather_scratch", []).clear()
-        getattr(self, "_scalar_scratch", []).clear()
+        self._fused_gather = None
+        self._gather_scratch.clear()
+        self._scalar_scratch.clear()
         if hasattr(self, "_gpu_scalars"):
             del self._gpu_scalars
         if hasattr(self, "_gpu_storage"):

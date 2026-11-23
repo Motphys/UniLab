@@ -15,7 +15,36 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ## Unreleased / 未发布
 
+### Changed / 变更
+
+- The packed replay layout now declares its fp16-safe column slices and the
+  fp32-authoritative scalar column slice explicitly
+  (`ReplayBuffer.fp16_safe_slices` / `ReplayBuffer.scalar_column_slice`), and
+  the device replay pipeline fails closed at construction when fp16 storage
+  is requested for a layout with undeclared or overlapping columns, instead
+  of silently quantizing them (issue #2651). `DeviceReplayPipeline` now
+  consumes only public `ReplayBuffer` accessors.
+  packed replay 布局现在显式声明 fp16-safe 列切片与 fp32 权威标量列切片
+  （`ReplayBuffer.fp16_safe_slices` / `ReplayBuffer.scalar_column_slice`）；
+  fp16 存储遇到未声明或重叠列时，设备 replay 管线在构造期 fail-closed，
+  不再静默量化（issue #2651）。`DeviceReplayPipeline` 只依赖
+  `ReplayBuffer` 的公开访问器。
+
 ### Added / 新增
+
+- CUDA learners with fp16 replay storage now assemble each learner batch
+  with a fused single-pass Triton gather (fp16 ring row read, fp32 scalar
+  column replacement, one fp32 row store) instead of the eager three-pass
+  index-select/up-cast/overwrite assembly, roughly halving gather traffic;
+  the pipeline falls back to the eager path when Triton is unavailable, the
+  row is too wide, or the smoke verification fails, and reports the active
+  implementation through the replay transfer manifest (`gather_impl`,
+  issue #2652).
+  启用 fp16 replay 存储的 CUDA learner 现在使用单 pass Triton 融合 gather
+  （读取 fp16 ring 行、替换 fp32 标量列、单次写出 fp32 行）替代原先
+  三段式 index-select/上采/覆写组装，gather 流量近似减半；Triton 不可用、
+  行宽超限或冒烟校验失败时自动回退 eager 路径，生效实现通过 replay
+  transfer manifest 的 `gather_impl` 上报（issue #2652）。
 
 - Off-policy device replay rings (SAC and FlashSAC) support a configurable
   storage precision, `training.replay_storage_dtype: float16|float32`, enabled

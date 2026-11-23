@@ -80,7 +80,7 @@ def _make_bounded_replay(
 
 def _pattern_add(rb: ReplayBuffer, start_row: int, n: int) -> None:
     """Add rows whose fields are exact float32 functions of the absolute row id."""
-    obs_dim, action_dim, critic_dim = rb._obs_dim, rb._action_dim, rb._critic_dim
+    obs_dim, action_dim, critic_dim = rb.obs_dim, rb.action_dim, rb.critic_dim
     rows = torch.arange(start_row, start_row + n, dtype=torch.float32)
     col = rows.unsqueeze(1)
     critic = next_critic = None
@@ -108,15 +108,15 @@ def _pattern_add_vector(rb: ReplayBuffer, rows_n: int) -> None:
     rows = torch.arange(rows_n, dtype=torch.float32)
     col = rows.unsqueeze(1)
     critic = next_critic = None
-    if rb._critic_dim > 0:
-        critic = col * 10000 + torch.arange(rb._critic_dim, dtype=torch.float32)
-        next_critic = col * 100000 + torch.arange(rb._critic_dim, dtype=torch.float32)
+    if rb.critic_dim > 0:
+        critic = col * 10000 + torch.arange(rb.critic_dim, dtype=torch.float32)
+        next_critic = col * 100000 + torch.arange(rb.critic_dim, dtype=torch.float32)
     assert (
         rb.add_batch(
-            obs=col * 10 + torch.arange(rb._obs_dim, dtype=torch.float32),
-            actions=col * 1000 + torch.arange(rb._action_dim, dtype=torch.float32),
+            obs=col * 10 + torch.arange(rb.obs_dim, dtype=torch.float32),
+            actions=col * 1000 + torch.arange(rb.action_dim, dtype=torch.float32),
             rewards=rows,
-            next_obs=col * 100 + torch.arange(rb._obs_dim, dtype=torch.float32),
+            next_obs=col * 100 + torch.arange(rb.obs_dim, dtype=torch.float32),
             dones=torch.zeros(rows_n),
             truncated=torch.ones(rows_n),
             critic=critic,
@@ -129,13 +129,13 @@ def _pattern_add_vector(rb: ReplayBuffer, rows_n: int) -> None:
 def _expected_pattern(rb: ReplayBuffer, rewards: torch.Tensor) -> dict[str, torch.Tensor]:
     col = rewards.cpu().unsqueeze(1)
     out = {
-        "obs": col * 10 + torch.arange(rb._obs_dim, dtype=torch.float32),
-        "next_obs": col * 100 + torch.arange(rb._obs_dim, dtype=torch.float32),
-        "actions": col * 1000 + torch.arange(rb._action_dim, dtype=torch.float32),
+        "obs": col * 10 + torch.arange(rb.obs_dim, dtype=torch.float32),
+        "next_obs": col * 100 + torch.arange(rb.obs_dim, dtype=torch.float32),
+        "actions": col * 1000 + torch.arange(rb.action_dim, dtype=torch.float32),
     }
-    if rb._critic_dim > 0:
-        out["critic"] = col * 10000 + torch.arange(rb._critic_dim, dtype=torch.float32)
-        out["next_critic"] = col * 100000 + torch.arange(rb._critic_dim, dtype=torch.float32)
+    if rb.critic_dim > 0:
+        out["critic"] = col * 10000 + torch.arange(rb.critic_dim, dtype=torch.float32)
+        out["next_critic"] = col * 100000 + torch.arange(rb.critic_dim, dtype=torch.float32)
     return out
 
 
@@ -186,6 +186,8 @@ class TestMPSIngressEventLifecycle:
         pipeline._device = torch.device("mps")
         pipeline._capacity = 8
         pipeline._gpu_storage = torch.zeros(8, 2)
+        pipeline._gpu_scalars = None
+        pipeline._storage_dtype = torch.float32
         pipeline._submitted_ptr = 6
         pipeline._visible_ptr = 6
         pipeline._span_events = deque()
@@ -235,6 +237,8 @@ class TestMPSIngressEventLifecycle:
         pipeline._device = torch.device("cuda")
         pipeline._capacity = 4
         pipeline._gpu_storage = torch.zeros(4, 2, device="cuda")
+        pipeline._gpu_scalars = None
+        pipeline._storage_dtype = torch.float32
         pipeline._submitted_ptr = 0
         pipeline._visible_ptr = 0
         pipeline._span_events = deque()
@@ -273,6 +277,8 @@ class TestMPSIngressEventLifecycle:
         pipeline._device = torch.device("cuda")
         pipeline._capacity = 4
         pipeline._gpu_storage = torch.zeros(4, 2, device="cuda")
+        pipeline._gpu_scalars = None
+        pipeline._storage_dtype = torch.float32
         pipeline._submitted_ptr = 0
         pipeline._visible_ptr = 0
         pipeline._span_events = deque()
@@ -362,6 +368,9 @@ class TestMPSIngressEventLifecycle:
         pipeline._transfer_backend = Transfer()
         pipeline._gpu_packed = []
         pipeline._gpu_storage = torch.zeros(4, 2)
+        pipeline._gpu_scalars = None
+        pipeline._gather_scratch = []
+        pipeline._scalar_scratch = []
         pipeline._host_pinned = False
         pipeline._submit_new_spans = lambda: False
 
@@ -645,7 +654,7 @@ class TestDevicePipeline:
         _pattern_add(rb, 32, 16)
         _wait_batch_ready(pipeline, 5, 8)
         batch = pipeline.sample_large_batch(5, 8)
-        assert batch["obs"].shape == (8, rb._obs_dim)
+        assert batch["obs"].shape == (8, rb.obs_dim)
 
     def test_sample_count_mismatch_is_rejected(self, pipeline_factory):
         rb = _make_replay(capacity=64)
@@ -842,7 +851,7 @@ class TestMPSDevicePipeline:
         batch = pipeline.sample_large_batch(5, 8)
 
         assert pipeline._visible_ptr == 48
-        assert batch["obs"].shape == (8, rb._obs_dim)
+        assert batch["obs"].shape == (8, rb.obs_dim)
 
     def test_mps_device_work_rejects_background_thread(self, pipeline_factory):
         rb = _make_replay(capacity=64, device="mps")
@@ -885,7 +894,7 @@ def _small_value_add(rb: ReplayBuffer, start_row: int, n: int) -> None:
     quantization is observable; rewards use a fine-grained fp32-only scale to
     prove the scalar block never passes through fp16.
     """
-    obs_dim, action_dim, critic_dim = rb._obs_dim, rb._action_dim, rb._critic_dim
+    obs_dim, action_dim, critic_dim = rb.obs_dim, rb.action_dim, rb.critic_dim
     rows = torch.arange(start_row, start_row + n, dtype=torch.float32)
     col = rows.unsqueeze(1)
     critic = next_critic = None
@@ -948,11 +957,11 @@ class TestFp16StoragePipeline:
         rows = torch.arange(16, dtype=torch.float32)
         col = rows.unsqueeze(1)
         expected_rows = {
-            "obs": col * 0.013 + torch.arange(rb._obs_dim, dtype=torch.float32) * 0.007,
-            "next_obs": col * 0.023 + torch.arange(rb._obs_dim, dtype=torch.float32) * 0.005,
-            "actions": col * 0.0031 + torch.arange(rb._action_dim, dtype=torch.float32) * 0.0011,
-            "critic": col * 0.031 + torch.arange(rb._critic_dim, dtype=torch.float32) * 0.017,
-            "next_critic": col * 0.043 + torch.arange(rb._critic_dim, dtype=torch.float32) * 0.019,
+            "obs": col * 0.013 + torch.arange(rb.obs_dim, dtype=torch.float32) * 0.007,
+            "next_obs": col * 0.023 + torch.arange(rb.obs_dim, dtype=torch.float32) * 0.005,
+            "actions": col * 0.0031 + torch.arange(rb.action_dim, dtype=torch.float32) * 0.0011,
+            "critic": col * 0.031 + torch.arange(rb.critic_dim, dtype=torch.float32) * 0.017,
+            "next_critic": col * 0.043 + torch.arange(rb.critic_dim, dtype=torch.float32) * 0.019,
         }
         for key, want in expected_rows.items():
             got = batch[key].cpu()
@@ -995,6 +1004,83 @@ class TestFp16StoragePipeline:
 
         assert all(value.dtype == torch.float32 for value in views.values())
         assert all(torch.isfinite(value).all() for value in views.values())
+
+    def test_layout_declarations_cover_every_column_once(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        width = rb.storage_width
+        coverage = [0] * width
+        for sl in (*rb.fp16_safe_slices, rb.scalar_column_slice):
+            for column in range(sl.start, sl.stop):
+                coverage[column] += 1
+        assert all(count == 1 for count in coverage)
+        assert rb.obs_dim == _OBS_DIM
+        assert rb.action_dim == _ACTION_DIM
+        assert rb.critic_dim == _CRITIC_DIM
+
+    def test_fp16_fails_closed_on_undeclared_columns(
+        self, pipeline_factory, monkeypatch: pytest.MonkeyPatch
+    ):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        # Simulate a fork that appended a packed column without registering a
+        # storage class: only the obs slice stays declared fp16-safe.
+        monkeypatch.setattr(
+            ReplayBuffer,
+            "fp16_safe_slices",
+            property(lambda self: (self._obs_sl,)),
+        )
+        with pytest.raises(ValueError, match="undeclared columns"):
+            pipeline_factory(rb, sample_count=8, storage_dtype="float16")
+
+    def test_fp16_fails_closed_on_overlapping_declarations(
+        self, pipeline_factory, monkeypatch: pytest.MonkeyPatch
+    ):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        monkeypatch.setattr(
+            ReplayBuffer,
+            "fp16_safe_slices",
+            property(lambda self: (self._obs_sl, slice(0, self._obs_dim + 1))),
+        )
+        with pytest.raises(ValueError, match="overlapping columns"):
+            pipeline_factory(rb, sample_count=8, storage_dtype="float16")
+
+    def test_fp32_layout_skips_declaration_validation(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        # fp32 keeps every column at full precision, so declarations are not
+        # consulted and partial coverage must not fail construction.
+        pipeline = pipeline_factory(rb, sample_count=8, storage_dtype="float32")
+        assert pipeline._gpu_storage.dtype == torch.float32
+
+    def test_fp16_gather_uses_fused_kernel_and_no_scratch(self, pipeline_factory):
+        import importlib.util
+
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        pipeline = pipeline_factory(rb, sample_count=16)
+        if importlib.util.find_spec("triton") is None:
+            assert pipeline.transfer_manifest["gather_impl"] == "eager_mixed"
+            return
+        assert pipeline.transfer_manifest["gather_impl"] == "fused_triton"
+        # The fused one-pass gather needs no fp16 scratch buffers.
+        assert pipeline._gather_scratch == []
+        assert pipeline._scalar_scratch == []
+
+        _small_value_add(rb, 0, 16)
+        batch = pipeline.sample_large_batch(1, 16)
+        expected_rewards = torch.arange(16, dtype=torch.float32) * 0.000123456
+        assert set(batch["rewards"].cpu().tolist()) <= set(expected_rewards.tolist())
+
+    def test_fp16_gather_falls_back_to_eager(self, pipeline_factory, monkeypatch):
+        import unilab.rl.runtime.ipc.replay_pipelines.device as device_module
+
+        monkeypatch.setattr(device_module, "build_fused_gather", lambda **_kwargs: None)
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        pipeline = pipeline_factory(rb, sample_count=16)
+
+        assert pipeline.transfer_manifest["gather_impl"] == "eager_mixed"
+        assert len(pipeline._gather_scratch) == 2
+        _small_value_add(rb, 0, 16)
+        batch = pipeline.sample_large_batch(1, 16)
+        expected_rewards = torch.arange(16, dtype=torch.float32) * 0.000123456
+        assert set(batch["rewards"].cpu().tolist()) <= set(expected_rewards.tolist())
 
 
 class TestNormalizeReplayStorageDtype:
