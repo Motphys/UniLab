@@ -31,6 +31,16 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   learner 静态批缓冲与 whole-cycle CUDA graph 捕获不变。设备 replay 显存
   近似减半（issue #2649）。
 
+### Fixed / 修复
+
+- Motion-tracking training no longer stops at startup with "CommandManager
+  returned a non-finite command": `MotionCommand` now zero-initializes its
+  command buffer, which the deferred finite check could read before the first
+  motion packet filled it ([#2645](https://github.com/Motphys/UniLab/issues/2645)).
+  运动跟踪训练不再在启动时因 "CommandManager returned a non-finite command"
+  而中止：`MotionCommand` 现以零初始化其命令缓冲区，此前延迟有限性检查可能在首个
+  运动数据包写入之前读取该缓冲区（[#2645](https://github.com/Motphys/UniLab/issues/2645)）。
+
 ## 1.6.0 (2026-11-20)
 
 ### Changed / 变更
