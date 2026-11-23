@@ -546,7 +546,7 @@ def test_motrix_backend_applies_gravity_reset_payload() -> None:
     np.testing.assert_allclose(fake_model.gravity_override, [[0.0, 0.0, -8.0], [1.0, 2.0, -3.0]])
 
 
-def test_motrix_backend_interval_body_force_uses_link_external_force_delta() -> None:
+def test_motrix_backend_interval_body_force_restages_absolute_link_external_force() -> None:
     import unisim.backend.motrix.backend as mod
 
     link = _FakeMotrixLink()
@@ -578,13 +578,17 @@ def test_motrix_backend_interval_body_force_uses_link_external_force_delta() -> 
         np.asarray([[[2.0, 3.0, 4.0]], [[1.0, 1.0, 1.0]]], dtype=np.float64),
     )
 
+    # MotrixSim consumes a staged external force on the next step() instead of
+    # persisting it (unisim-core 2.8.4, unilabsim/unisim#545), so every call
+    # restages the absolute target; an unchanged target is re-written, not
+    # delta-suppressed.
     assert len(link.external_force_calls) == 2
     first_force, first_local = link.external_force_calls[0]
     second_force, second_local = link.external_force_calls[1]
     assert first_local is False
     assert second_local is False
     np.testing.assert_allclose(first_force, [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-    np.testing.assert_allclose(second_force, [[1.0, 1.0, 1.0], [-3.0, -4.0, -5.0]])
+    np.testing.assert_allclose(second_force, [[2.0, 3.0, 4.0], [1.0, 1.0, 1.0]])
 
 
 def test_motrix_backend_defaults_max_iterations_to_three(monkeypatch, tmp_path) -> None:
