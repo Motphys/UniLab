@@ -32,6 +32,20 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Added / 新增
 
+- CUDA learners with fp16 replay storage now assemble each learner batch
+  with a fused single-pass Triton gather (fp16 ring row read, fp32 scalar
+  column replacement, one fp32 row store) instead of the eager three-pass
+  index-select/up-cast/overwrite assembly, roughly halving gather traffic;
+  the pipeline falls back to the eager path when Triton is unavailable, the
+  row is too wide, or the smoke verification fails, and reports the active
+  implementation through the replay transfer manifest (`gather_impl`,
+  issue #2652).
+  启用 fp16 replay 存储的 CUDA learner 现在使用单 pass Triton 融合 gather
+  （读取 fp16 ring 行、替换 fp32 标量列、单次写出 fp32 行）替代原先
+  三段式 index-select/上采/覆写组装，gather 流量近似减半；Triton 不可用、
+  行宽超限或冒烟校验失败时自动回退 eager 路径，生效实现通过 replay
+  transfer manifest 的 `gather_impl` 上报（issue #2652）。
+
 - Off-policy device replay rings (SAC and FlashSAC) support a configurable
   storage precision, `training.replay_storage_dtype: float16|float32`, enabled
   by default: the bounded columns (obs/next_obs/action and critic columns)
