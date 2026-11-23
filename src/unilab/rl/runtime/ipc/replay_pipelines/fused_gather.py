@@ -18,6 +18,7 @@ three-pass path. MPS learners always use the eager path.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import torch
 
@@ -68,8 +69,15 @@ def build_fused_gather(
     if width > _MAX_FUSED_ROW_WIDTH:
         return None
 
+    # ``triton`` is an optional dependency: where it is not installed (or not
+    # resolvable by the type checker), the decorator stays Unknown and the
+    # plain function type would reject the ``kernel[grid]`` launch syntax.
+    # Binding the decorated kernel through an ``Any`` alias keeps both the
+    # runtime JIT path and the no-triton type-check path clean.
+    fused_gather_kernel: Any
+
     @triton.jit
-    def fused_gather_kernel(
+    def _kernel(
         ring_ptr,
         sc_ptr,
         out_ptr,
@@ -91,6 +99,8 @@ def build_fused_gather(
         values = tl.where(cols == scalar_start + 2, s2, values)
         tl.store(out_ptr + row.to(tl.int64) * width + cols, values, mask=mask)
 
+    fused_gather_kernel = _kernel
+
     block = triton.next_power_of_2(width)
     rows = int(sample_count)
 
@@ -109,7 +119,7 @@ def build_fused_gather(
             width,
             scalar_start,
             BLOCK=block,
-            num_warps=4,  # pyright: ignore[reportCallIssue]  (triton launch grid kwargs)
+            num_warps=4,
         )
 
     def launch(
