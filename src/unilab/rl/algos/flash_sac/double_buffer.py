@@ -178,5 +178,6 @@ def build_double_buffer_runner(
             decay_step=int(_algo_param(cfg.algo, "decay_step", 0)),
             min_weight=float(_algo_param(cfg.algo, "replay_min_weight", 0.1)),
             num_buckets=int(_algo_param(cfg.algo, "replay_num_buckets", 2000)),
+            storage_dtype=str(getattr(cfg.training, "replay_storage_dtype", "float16")),
         ),
     )

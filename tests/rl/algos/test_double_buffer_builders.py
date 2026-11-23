@@ -215,6 +215,7 @@ def test_sac_builder_forwards_backend_device_injection(
     assert runner.kwargs["backend_device_resolver"] is (_resolver if with_injection else None)
     assert runner.kwargs["backend_device_configurer"] is (_configurer if with_injection else None)
     assert runner.kwargs["log_interval"] == 3
+    assert runner.kwargs["replay_pipeline_factory"].keywords == {"storage_dtype": "float16"}
     # Without injection the runner-side defaults apply.
     assert runner.kwargs["inference_placement"] is None
     assert runner.kwargs["runtime_settings"] is None
@@ -258,6 +259,7 @@ def test_flashsac_builder_forwards_backend_device_injection(
         "decay_step": 0,
         "min_weight": 0.1,
         "num_buckets": 2000,
+        "storage_dtype": "float16",
     }
 
 

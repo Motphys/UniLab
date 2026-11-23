@@ -70,6 +70,11 @@ training:
   # Manage an explicit user-owned daemon with `uni-cumps`.
   cuda_process_sharing: null
   dp_gradient_wire_dtype: float32
+  # Device replay ring storage precision: 'float16' stores the bounded
+  # columns (obs/action/critic) quantized and keeps rewards/dones/truncated
+  # authoritative in fp32 (roughly halves replay GPU memory; issue #2649);
+  # 'float32' restores the historical full-fp32 ring.
+  replay_storage_dtype: float16
   nan_guard:
     enabled: true
     buffer_size: 100

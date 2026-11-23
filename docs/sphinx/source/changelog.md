@@ -13,6 +13,24 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased / 未发布
+
+### Added / 新增
+
+- Off-policy device replay rings (SAC and FlashSAC) support a configurable
+  storage precision, `training.replay_storage_dtype: float16|float32`, enabled
+  by default: the bounded columns (obs/next_obs/action and critic columns)
+  are stored quantized as fp16 while rewards/dones/truncated stay
+  authoritative in fp32, and the batch gather up-casts back to fp32 so learner
+  static buffers and whole-cycle CUDA graph capture are unchanged. This
+  roughly halves device replay memory (issue #2649).
+  off-policy 设备 replay 存储（SAC 与 FlashSAC）支持可配置的存储精度
+  `training.replay_storage_dtype: float16|float32`，默认开启：有界列
+  （obs/next_obs/action 及 critic 列）以 fp16 量化存储，
+  rewards/dones/truncated 仍以 fp32 保持权威，采样 gather 时上采回 fp32，
+  learner 静态批缓冲与 whole-cycle CUDA graph 捕获不变。设备 replay 显存
+  近似减半（issue #2649）。
+
 ## 1.6.0 (2026-11-20)
 
 ### Changed / 变更

@@ -32,6 +32,39 @@ from unilab.rl.runtime.ipc.replay_pipelines.base import ReplayTickMetadata
 from unilab.rl.runtime.ipc.replay_pipelines.transfer import build_replay_transfer_backend
 
 
+def normalize_replay_storage_dtype(value: str | torch.dtype) -> torch.dtype:
+    """Resolve the packed device-ring storage dtype.
+
+    ``float16`` stores the bounded columns (obs/next_obs/action and, when
+    present, critic/next_critic) as fp16 and keeps rewards/dones/truncated in
+    a separate fp32 column block; sampled batches are up-cast to fp32 during
+    the gather. ``float32`` keeps the entire ring in fp32. Unknown spellings
+    fail closed.
+    """
+    if isinstance(value, torch.dtype):
+        dtype = value
+    else:
+        text = str(value).strip().lower()
+        aliases = {
+            "float16": torch.float16,
+            "fp16": torch.float16,
+            "half": torch.float16,
+            "float32": torch.float32,
+            "fp32": torch.float32,
+            "float": torch.float32,
+        }
+        if text not in aliases:
+            raise ValueError(
+                f"Unsupported replay storage dtype {value!r}; expected 'float16' or 'float32'"
+            )
+        dtype = aliases[text]
+    if dtype not in (torch.float16, torch.float32):
+        raise ValueError(
+            f"Unsupported replay storage dtype {value!r}; expected 'float16' or 'float32'"
+        )
+    return dtype
+
+
 def require_offpolicy_replay_device(device: str | None) -> str:
     """Validate and return the authoritative off-policy replay device.
 
@@ -116,7 +149,15 @@ def _validate_device_memory_budget(
 
 
 class DeviceReplayPipeline:
-    """ReplayPipeline backed by an authoritative packed device ring."""
+    """ReplayPipeline backed by an authoritative packed device ring.
+
+    The ring stores rows in ``storage_dtype``. With ``float16`` the bounded
+    columns (obs/next_obs/action, plus critic columns when present) are stored
+    quantized and rewards/dones/truncated are kept authoritative in a separate
+    fp32 block; the batch gather up-casts back to fp32 so learner static
+    buffers and whole-cycle CUDA graph capture stay unchanged. With
+    ``float32`` the ring keeps the historical single-tensor layout.
+    """
 
     _POLL_INTERVAL_S = 0.0005
     _MEMORY_HEADROOM = 0.8
@@ -130,6 +171,7 @@ class DeviceReplayPipeline:
         base_seed: int = 0,
         trace_recorder=None,
         trace_cuda_events: bool = True,
+        storage_dtype: str | torch.dtype = "float32",
     ) -> None:
         self._replay_buffer = replay_buffer
         self._device = torch.device(require_offpolicy_replay_device(device))
@@ -149,15 +191,26 @@ class DeviceReplayPipeline:
         self._capacity = int(replay_buffer.capacity)
         self._storage_width = int(replay_buffer.storage_width)
         self._packed_width = self._storage_width
+        self._storage_dtype = normalize_replay_storage_dtype(storage_dtype)
+        self._scalar_sl = slice(replay_buffer._rew_col, replay_buffer._trunc_col + 1)
 
         # -- device memory guard (hard fail: this pipeline is opt-in) --
-        storage_bytes = self._capacity * self._storage_width * 4
+        storage_itemsize = self._storage_dtype.itemsize
+        storage_bytes = self._capacity * self._storage_width * storage_itemsize
+        # fp16 rings keep rewards/dones/truncated authoritative in fp32 and
+        # up-cast through a scratch buffer during the batch gather.
+        scalar_bytes = self._capacity * 3 * 4 if self._uses_mixed_storage else 0
         slot_bytes = 2 * self._sample_count * self._packed_width * 4
-        required_bytes = storage_bytes + slot_bytes
+        gather_scratch_bytes = (
+            2 * self._sample_count * (self._storage_width * storage_itemsize + 3 * 4)
+            if self._uses_mixed_storage
+            else 0
+        )
+        required_bytes = storage_bytes + scalar_bytes + slot_bytes + gather_scratch_bytes
         _validate_device_memory_budget(
             self._device,
             required_bytes=required_bytes,
-            storage_bytes=storage_bytes,
+            storage_bytes=storage_bytes + scalar_bytes,
             batch_bytes=slot_bytes,
             headroom=self._MEMORY_HEADROOM,
         )
@@ -191,9 +244,32 @@ class DeviceReplayPipeline:
                 )
         self._gpu_storage: torch.Tensor = torch.empty(
             (self._capacity, self._storage_width),
-            dtype=torch.float32,
+            dtype=self._storage_dtype,
             device=self._device,
         )
+        self._gpu_scalars: torch.Tensor | None = None
+        self._gather_scratch: list[torch.Tensor] = []
+        self._scalar_scratch: list[torch.Tensor] = []
+        if self._uses_mixed_storage:
+            # Rewards/dones/truncated stay authoritative in fp32; the fp16
+            # ring's own scalar columns are cast copies that are never read.
+            self._gpu_scalars = torch.empty(
+                (self._capacity, 3),
+                dtype=torch.float32,
+                device=self._device,
+            )
+            self._gather_scratch = [
+                torch.empty(
+                    (self._sample_count, self._storage_width),
+                    dtype=self._storage_dtype,
+                    device=self._device,
+                )
+                for _ in range(2)
+            ]
+            self._scalar_scratch = [
+                torch.empty((self._sample_count, 3), dtype=torch.float32, device=self._device)
+                for _ in range(2)
+            ]
         self._gpu_packed = self._transfer_backend.allocate_device_slots(
             count=2,
             shape=(self._sample_count, self._packed_width),
@@ -233,6 +309,10 @@ class DeviceReplayPipeline:
             self._sync_thread.start()
 
     @property
+    def _uses_mixed_storage(self) -> bool:
+        return bool(self._storage_dtype != torch.float32)
+
+    @property
     def h2d_submitter(self) -> str:
         if self._main_thread_submission:
             return "device_ingress_main_thread"
@@ -253,7 +333,13 @@ class DeviceReplayPipeline:
             "host_pinned": self._host_pinned,
             "storage_rows": self._capacity,
             "storage_width": self._storage_width,
-            "storage_bytes": int(self._gpu_storage.numel() * self._gpu_storage.element_size()),
+            "storage_dtype": str(self._storage_dtype).removeprefix("torch."),
+            "storage_bytes": int(self._gpu_storage.numel() * self._gpu_storage.element_size())
+            + (
+                int(self._gpu_scalars.numel() * self._gpu_scalars.element_size())
+                if self._gpu_scalars is not None
+                else 0
+            ),
             "host_storage_bytes": self._replay_buffer.host_storage_bytes,
             "ingress_depth": self._replay_buffer._ingress_depth,
             "ingress_slot_rows": self._replay_buffer._ingress_slot_rows,
@@ -398,12 +484,20 @@ class DeviceReplayPipeline:
 
         def copy_spans(*, non_blocking: bool) -> None:
             source_offset = 0
+            gpu_scalars = getattr(self, "_gpu_scalars", None)
             for offset, length in _ring_spans(start, end, self._capacity):
                 source_span = source[source_offset : source_offset + length]
                 self._gpu_storage[offset : offset + length].copy_(
                     source_span,
                     non_blocking=non_blocking,
                 )
+                if gpu_scalars is not None:
+                    # Rewards/dones/truncated bypass the fp16 ring so TD
+                    # targets keep full fp32 resolution.
+                    gpu_scalars[offset : offset + length].copy_(
+                        source_span[:, self._scalar_sl],
+                        non_blocking=non_blocking,
+                    )
                 source_offset += length
 
         if self._device.type == "cuda":
@@ -443,7 +537,14 @@ class DeviceReplayPipeline:
                 start_event=start_event,
                 end_event=end_event,
                 args={
-                    "h2d_bytes": (end - start) * self._storage_width * 4,
+                    "h2d_bytes": (end - start)
+                    * (
+                        self._storage_width
+                        * getattr(self, "_storage_dtype", torch.float32).itemsize
+                        + 3 * 4
+                    )
+                    if getattr(self, "_gpu_scalars", None) is not None
+                    else (end - start) * self._storage_width * 4,
                     "rows": end - start,
                     "span_start": start,
                     "span_end": end,
@@ -488,6 +589,25 @@ class DeviceReplayPipeline:
                 self._prepare_condition.notify_all()
         return drained
 
+    def _gather_packed_rows(self, indices: torch.Tensor, slot: int) -> None:
+        """Gather ring rows into the fp32 packed batch slot.
+
+        Mixed-storage rings gather the fp16 ring into scratch, up-cast into
+        the fp32 packed slot, then overwrite the scalar columns from the
+        authoritative fp32 block. Whole-cycle CUDA graph capture and the
+        learner's static batch buffers are unchanged: they keep consuming the
+        fp32 packed views.
+        """
+        packed = self._gpu_packed[slot]
+        if self._gpu_scalars is None:
+            torch.index_select(self._gpu_storage, 0, indices, out=packed)
+            return
+        torch.index_select(self._gpu_storage, 0, indices, out=self._gather_scratch[slot])
+        packed.copy_(self._gather_scratch[slot])
+        assert self._gpu_scalars is not None
+        torch.index_select(self._gpu_scalars, 0, indices, out=self._scalar_scratch[slot])
+        packed[:, self._scalar_sl].copy_(self._scalar_scratch[slot])
+
     def _gather_rows(self, *, visible_size: int, slot: int, gen: torch.Generator) -> None:
         indices = torch.randint(
             0,
@@ -496,7 +616,7 @@ class DeviceReplayPipeline:
             generator=gen,
             device=self._device,
         )
-        torch.index_select(self._gpu_storage, 0, indices, out=self._gpu_packed[slot])
+        self._gather_packed_rows(indices, slot)
 
     def _service_pending_prepare(self) -> bool:
         if self._main_thread_submission:
@@ -626,6 +746,12 @@ class DeviceReplayPipeline:
             did_work |= self._drain_completed_spans_locked()
         return did_work
 
+    def _device_field_view(self, field_name: str) -> torch.Tensor:
+        """Return the authoritative device column view for a replay field."""
+        if self._gpu_scalars is not None and field_name in ("rewards", "dones", "truncated"):
+            return self._gpu_scalars[:, {"rewards": 0, "dones": 1, "truncated": 2}[field_name]]
+        return self._replay_buffer.field_view(self._gpu_storage, field_name)
+
     def read_committed_fields(
         self,
         field_names: tuple[str, ...],
@@ -648,7 +774,7 @@ class DeviceReplayPipeline:
             index = field_start % self._capacity
             fields: dict[str, torch.Tensor] = {}
             for field_name in field_names:
-                source = self._replay_buffer.field_view(self._gpu_storage, field_name)
+                source = self._device_field_view(field_name)
                 if index + count <= self._capacity:
                     fields[field_name] = source[index : index + count].clone()
                     continue
@@ -891,5 +1017,9 @@ class DeviceReplayPipeline:
         self._transfer_backend.close()
         self._host_pinned = False
         self._gpu_packed.clear()
+        getattr(self, "_gather_scratch", []).clear()
+        getattr(self, "_scalar_scratch", []).clear()
+        if hasattr(self, "_gpu_scalars"):
+            del self._gpu_scalars
         if hasattr(self, "_gpu_storage"):
             del self._gpu_storage

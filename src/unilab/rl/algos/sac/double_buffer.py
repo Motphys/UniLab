@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 from omegaconf import DictConfig, OmegaConf
@@ -11,6 +12,7 @@ from unilab.base.contracts.env import EnvFactory
 from unilab.base.contracts.observations import get_obs_dims
 from unilab.rl.algos.sac.learner import SACLearner
 from unilab.rl.runtime.ipc.replay_pipelines.device import (
+    DeviceReplayPipeline,
     require_offpolicy_replay_device,
 )
 from unilab.rl.runtime.offpolicy.actor_adapter import import_actor_adapter_modules
@@ -157,4 +159,8 @@ def build_double_buffer_runner(
         inference_placement=inference_placement,
         runtime_settings=runtime_settings,
         log_interval=int(cfg.training.log_interval),
+        replay_pipeline_factory=partial(
+            DeviceReplayPipeline,
+            storage_dtype=str(getattr(cfg.training, "replay_storage_dtype", "float16")),
+        ),
     )
