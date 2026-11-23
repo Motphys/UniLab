@@ -278,6 +278,7 @@ def test_flashsac_builder_can_select_age_biased_replay(
         "decay_step": 123,
         "min_weight": 0.2,
         "num_buckets": 64,
+        "storage_dtype": "float16",
     }
     assert runner.kwargs["algo_type"] == "flashsac"
     assert runner.kwargs["policy_before_critic"] is True

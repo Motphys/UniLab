@@ -876,3 +876,143 @@ class TestMPSDevicePipeline:
         batch = pipeline.sample_large_batch(1, 8)
 
         assert batch["obs"].device.type == "mps"
+
+
+def _small_value_add(rb: ReplayBuffer, start_row: int, n: int) -> None:
+    """Add rows with magnitudes well inside the fp16 range.
+
+    Bounded fields use values that are not exactly fp16-representable so the
+    quantization is observable; rewards use a fine-grained fp32-only scale to
+    prove the scalar block never passes through fp16.
+    """
+    obs_dim, action_dim, critic_dim = rb._obs_dim, rb._action_dim, rb._critic_dim
+    rows = torch.arange(start_row, start_row + n, dtype=torch.float32)
+    col = rows.unsqueeze(1)
+    critic = next_critic = None
+    if critic_dim > 0:
+        critic = col * 0.031 + torch.arange(critic_dim, dtype=torch.float32) * 0.017
+        next_critic = col * 0.043 + torch.arange(critic_dim, dtype=torch.float32) * 0.019
+    rb.add(
+        obs=col * 0.013 + torch.arange(obs_dim, dtype=torch.float32) * 0.007,
+        actions=col * 0.0031 + torch.arange(action_dim, dtype=torch.float32) * 0.0011,
+        rewards=rows * 0.000123456,
+        next_obs=col * 0.023 + torch.arange(obs_dim, dtype=torch.float32) * 0.005,
+        dones=torch.zeros(n),
+        truncated=torch.ones(n),
+        critic=critic,
+        next_critic=next_critic,
+    )
+
+
+@cuda_only
+class TestFp16StoragePipeline:
+    @pytest.fixture
+    def pipeline_factory(self):
+        created = []
+
+        def _make(rb, **kwargs):
+            kwargs.setdefault("device", "cuda")
+            kwargs.setdefault("sample_count", 16)
+            kwargs.setdefault("storage_dtype", "float16")
+            pipeline = DeviceReplayPipeline(rb, **kwargs)
+            created.append(pipeline)
+            return pipeline
+
+        yield _make
+        for pipeline in created:
+            pipeline.close()
+
+    def test_fp16_ring_keeps_scalars_authoritative_fp32(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        _small_value_add(rb, 0, 16)
+        pipeline = pipeline_factory(rb, sample_count=16)
+
+        assert pipeline._gpu_storage.dtype == torch.float16
+        assert pipeline._gpu_scalars is not None
+        assert pipeline._gpu_scalars.dtype == torch.float32
+        assert pipeline.transfer_manifest["storage_dtype"] == "float16"
+        manifest = pipeline.transfer_manifest
+        assert manifest["storage_bytes"] == 64 * rb.storage_width * 2 + 64 * 3 * 4
+
+        batch = pipeline.sample_large_batch(1, 16)
+        assert all(value.dtype == torch.float32 for value in batch.values())
+        # Sampling draws with replacement; every returned reward must be one of
+        # the committed fp32 values, never an fp16 rounding of it.
+        rewards = batch["rewards"].cpu()
+        expected_rewards = torch.arange(16, dtype=torch.float32) * 0.000123456
+        assert set(rewards.tolist()) <= set(expected_rewards.tolist())
+        torch.testing.assert_close(batch["dones"].cpu(), torch.zeros(16))
+        torch.testing.assert_close(batch["truncated"].cpu(), torch.ones(16))
+        # Bounded fields round-trip every committed row up to fp16 resolution:
+        # each sampled row must match one of the 16 committed rows.
+        rows = torch.arange(16, dtype=torch.float32)
+        col = rows.unsqueeze(1)
+        expected_rows = {
+            "obs": col * 0.013 + torch.arange(rb._obs_dim, dtype=torch.float32) * 0.007,
+            "next_obs": col * 0.023 + torch.arange(rb._obs_dim, dtype=torch.float32) * 0.005,
+            "actions": col * 0.0031 + torch.arange(rb._action_dim, dtype=torch.float32) * 0.0011,
+            "critic": col * 0.031 + torch.arange(rb._critic_dim, dtype=torch.float32) * 0.017,
+            "next_critic": col * 0.043 + torch.arange(rb._critic_dim, dtype=torch.float32) * 0.019,
+        }
+        for key, want in expected_rows.items():
+            got = batch[key].cpu()
+            distances = torch.cdist(got, want)
+            assert (distances.min(dim=1).values < 2e-3).all(), key
+
+    def test_fp16_read_committed_fields_returns_exact_scalars(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        _small_value_add(rb, 0, 16)
+        pipeline = pipeline_factory(rb, sample_count=8)
+
+        end_ptr, fields = pipeline.read_committed_fields(("rewards", "dones"), start_ptr=0)
+
+        assert end_ptr == 16
+        torch.testing.assert_close(fields["rewards"].cpu(), torch.arange(16) * 0.000123456)
+        assert fields["rewards"].dtype == torch.float32
+
+    def test_fp16_ring_survives_wrap(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=32, slot_rows=16)
+        pipeline = pipeline_factory(rb, sample_count=8)
+        _small_value_add(rb, 0, 16)
+        _wait_visible(pipeline, 16)
+        _small_value_add(rb, 16, 16)
+        _wait_visible(pipeline, 32)
+
+        batch = pipeline.sample_large_batch(1, 8)
+
+        assert all(torch.isfinite(value).all() for value in batch.values())
+        end_ptr, fields = pipeline.read_committed_fields(("rewards",), start_ptr=16)
+        assert end_ptr == 32
+        torch.testing.assert_close(
+            fields["rewards"].cpu(), torch.arange(16, 32, dtype=torch.float32) * 0.000123456
+        )
+
+    def test_fp16_warmup_gather_uses_same_path(self, pipeline_factory):
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        pipeline = pipeline_factory(rb, sample_count=8)
+
+        views = pipeline.warmup()
+
+        assert all(value.dtype == torch.float32 for value in views.values())
+        assert all(torch.isfinite(value).all() for value in views.values())
+
+
+class TestNormalizeReplayStorageDtype:
+    def test_aliases_resolve(self):
+        from unilab.rl.runtime.ipc.replay_pipelines.device import (
+            normalize_replay_storage_dtype,
+        )
+
+        assert normalize_replay_storage_dtype("float16") is torch.float16
+        assert normalize_replay_storage_dtype("fp16") is torch.float16
+        assert normalize_replay_storage_dtype("float32") is torch.float32
+        assert normalize_replay_storage_dtype("fp32") is torch.float32
+        assert normalize_replay_storage_dtype(torch.float16) is torch.float16
+
+    def test_unknown_dtype_fails_closed(self):
+        from unilab.rl.runtime.ipc.replay_pipelines.device import (
+            normalize_replay_storage_dtype,
+        )
+
+        with pytest.raises(ValueError, match="Unsupported replay storage dtype"):
+            normalize_replay_storage_dtype("bfloat16")
