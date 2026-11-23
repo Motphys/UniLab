@@ -15,6 +15,22 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ## Unreleased / 未发布
 
+### Fixed / 修复
+
+- Pinned `unisim-core` to 2.8.4 in both dependency tracks (base, motrix, and
+  superdex extras). unisim-core 2.8.4 fixes the Motrix non-portable
+  `apply_body_force` path staging external wrenches as deltas: MotrixSim
+  consumes a staged external force/torque on the next step instead of
+  persisting it, so a constant force from `unilab.envs.mdp.apply_body_impulse`
+  previously acted for only the first simulation step and its removal kicked
+  the body backwards for one step (issues #2646, unilabsim/unisim#545).
+  两条依赖轨道（base、motrix、superdex extras）均将 `unisim-core` 固定到
+  2.8.4。unisim-core 2.8.4 修复了 Motrix 非 portable 路径
+  `apply_body_force` 以增量方式 stage 外力的问题：MotrixSim 在下一步即
+  消耗所提交的外力/外力矩而非持续生效，此前来自
+  `unilab.envs.mdp.apply_body_impulse` 的恒定外力只在首个仿真步生效，
+  撤销时还会反向踢动刚体一步（issues #2646、unilabsim/unisim#545）。
+
 ### Changed / 变更
 
 - The packed replay layout now declares its fp16-safe column slices and the

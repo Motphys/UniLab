@@ -6016,9 +6016,9 @@ requires-dist = [
     { name = "trimesh", specifier = ">=3.21.7" },
     { name = "typing-extensions" },
     { name = "uniray", extras = ["warp"], marker = "extra == 'ray'", specifier = "==0.1.1" },
-    { name = "unisim-core", specifier = "==2.8.3" },
-    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.8.3" },
-    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.8.3" },
+    { name = "unisim-core", specifier = "==2.8.4" },
+    { name = "unisim-core", extras = ["motrix"], marker = "extra == 'motrix'", specifier = "==2.8.4" },
+    { name = "unisim-core", extras = ["superdex"], marker = "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'superdex'", specifier = "==2.8.4" },
     { name = "viser", specifier = ">=1.0.26" },
     { name = "wandb", marker = "extra == 'unirl'", specifier = ">=0.22.3" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
@@ -6058,15 +6058,15 @@ warp = [
 
 [[package]]
 name = "unisim-core"
-version = "2.8.3"
+version = "2.8.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' or (extra == 'extra-6-unilab-mjwarp' and extra == 'extra-6-unilab-newton') or (extra == 'extra-6-unilab-mjwarp' and extra == 'extra-6-unilab-superdex') or (extra == 'extra-6-unilab-mujoco' and extra == 'extra-6-unilab-newton') or (extra == 'extra-6-unilab-mujoco' and extra == 'extra-6-unilab-superdex')" },
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-6-unilab-mjwarp' and extra == 'extra-6-unilab-newton') or (extra == 'extra-6-unilab-mjwarp' and extra == 'extra-6-unilab-superdex') or (extra == 'extra-6-unilab-mujoco' and extra == 'extra-6-unilab-newton') or (extra == 'extra-6-unilab-mujoco' and extra == 'extra-6-unilab-superdex')" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/0a/ebbd2684628aebe9b02aecfb436bccaa3de5068274e210ef402ca3ead6ae/unisim_core-2.8.3.tar.gz", hash = "sha256:fa54047394f572a88776e03bf98bdf8ad735323f543517623943c60a090865e0", size = 812607, upload-time = "2026-11-20T15:26:49.841Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/7d/ff2fe0a2aeaf701762f9b65be523741d7c35bf4d4069cf6859b725aed263/unisim_core-2.8.4.tar.gz", hash = "sha256:37893b8e60fb183fc77513800f507976a0f107dfcd4fb27b0c8dbaccc9fd8ab1", size = 812714, upload-time = "2026-11-23T06:19:47.68Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7f/4c/3247228bb85d14c00f561fc181357cd55e0f71cdb9edef894afbc65334d5/unisim_core-2.8.3-py3-none-any.whl", hash = "sha256:6fd212967e6a585ffc50ab337246331d80a14938e9915a6999eedd1c59636805", size = 862439, upload-time = "2026-11-20T15:26:48.286Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/bf/8e92a183a543822ae7a1b5796a27a24498244a91691249ce1f2f5f367640/unisim_core-2.8.4-py3-none-any.whl", hash = "sha256:29ddb1a3c3225976e0729014103442f9ab505b5a69259172233a4ea0b7e316e3", size = 862515, upload-time = "2026-11-23T06:19:45.916Z" },
 ]
 
 [package.optional-dependencies]
