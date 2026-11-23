@@ -65,6 +65,36 @@ def normalize_replay_storage_dtype(value: str | torch.dtype) -> torch.dtype:
     return dtype
 
 
+def _validate_fp16_safe_layout(replay_buffer: ReplayBuffer) -> None:
+    """Fail closed unless every packed column has an explicit storage class.
+
+    The layout layer (``ReplayBuffer``) declares fp16-safe slices and one
+    contiguous scalar slice; together they must cover the full row exactly
+    once. A future column registered in ``_init_packed_layout`` without a
+    storage class raises here at pipeline construction instead of being
+    silently quantized (issue #2651).
+    """
+    width = int(replay_buffer.storage_width)
+    coverage = [0] * width
+    declared = tuple(replay_buffer.fp16_safe_slices) + (replay_buffer.scalar_column_slice,)
+    for sl in declared:
+        start, stop = int(sl.start), int(sl.stop)
+        if start < 0 or stop > width or start >= stop:
+            raise ValueError(f"Replay layout column slice {sl} is outside the packed width {width}")
+        for column in range(start, stop):
+            coverage[column] += 1
+    missing = [column for column, count in enumerate(coverage) if count == 0]
+    overlapping = [column for column, count in enumerate(coverage) if count > 1]
+    if missing or overlapping:
+        raise ValueError(
+            "fp16 replay storage requires every packed column to be declared exactly "
+            "once by ReplayBuffer.fp16_safe_slices or ReplayBuffer.scalar_column_slice; "
+            f"undeclared columns={missing}, overlapping columns={overlapping}. "
+            "Register the new column's storage class in ReplayBuffer._init_packed_layout "
+            "or select training.replay_storage_dtype=float32."
+        )
+
+
 def require_offpolicy_replay_device(device: str | None) -> str:
     """Validate and return the authoritative off-policy replay device.
 
@@ -192,7 +222,9 @@ class DeviceReplayPipeline:
         self._storage_width = int(replay_buffer.storage_width)
         self._packed_width = self._storage_width
         self._storage_dtype = normalize_replay_storage_dtype(storage_dtype)
-        self._scalar_sl = slice(replay_buffer._rew_col, replay_buffer._trunc_col + 1)
+        self._scalar_sl = replay_buffer.scalar_column_slice
+        if self._uses_mixed_storage:
+            _validate_fp16_safe_layout(replay_buffer)
 
         # -- device memory guard (hard fail: this pipeline is opt-in) --
         storage_itemsize = self._storage_dtype.itemsize
@@ -375,16 +407,12 @@ class DeviceReplayPipeline:
     def _packed_batch_view(self, packed: torch.Tensor) -> Dict[str, torch.Tensor]:
         rb = self._replay_buffer
         batch = {
-            "obs": packed[:, rb._obs_sl],
-            "next_obs": packed[:, rb._nobs_sl],
-            "actions": packed[:, rb._act_sl],
-            "rewards": packed[:, rb._rew_col],
-            "dones": packed[:, rb._done_col],
-            "truncated": packed[:, rb._trunc_col],
+            name: rb.field_view(packed, name)
+            for name in ("obs", "next_obs", "actions", "rewards", "dones", "truncated")
         }
-        if rb._critic_dim > 0:
-            batch["critic"] = packed[:, rb._critic_sl]
-            batch["next_critic"] = packed[:, rb._ncritic_sl]
+        if rb.critic_dim > 0:
+            batch["critic"] = rb.field_view(packed, "critic")
+            batch["next_critic"] = rb.field_view(packed, "next_critic")
         return batch
 
     def _large_batch_view(self, slot: int) -> Dict[str, torch.Tensor]:
@@ -484,17 +512,16 @@ class DeviceReplayPipeline:
 
         def copy_spans(*, non_blocking: bool) -> None:
             source_offset = 0
-            gpu_scalars = getattr(self, "_gpu_scalars", None)
             for offset, length in _ring_spans(start, end, self._capacity):
                 source_span = source[source_offset : source_offset + length]
                 self._gpu_storage[offset : offset + length].copy_(
                     source_span,
                     non_blocking=non_blocking,
                 )
-                if gpu_scalars is not None:
+                if self._gpu_scalars is not None:
                     # Rewards/dones/truncated bypass the fp16 ring so TD
                     # targets keep full fp32 resolution.
-                    gpu_scalars[offset : offset + length].copy_(
+                    self._gpu_scalars[offset : offset + length].copy_(
                         source_span[:, self._scalar_sl],
                         non_blocking=non_blocking,
                     )
@@ -538,12 +565,8 @@ class DeviceReplayPipeline:
                 end_event=end_event,
                 args={
                     "h2d_bytes": (end - start)
-                    * (
-                        self._storage_width
-                        * getattr(self, "_storage_dtype", torch.float32).itemsize
-                        + 3 * 4
-                    )
-                    if getattr(self, "_gpu_scalars", None) is not None
+                    * (self._storage_width * self._storage_dtype.itemsize + 3 * 4)
+                    if self._gpu_scalars is not None
                     else (end - start) * self._storage_width * 4,
                     "rows": end - start,
                     "span_start": start,
@@ -1017,8 +1040,8 @@ class DeviceReplayPipeline:
         self._transfer_backend.close()
         self._host_pinned = False
         self._gpu_packed.clear()
-        getattr(self, "_gather_scratch", []).clear()
-        getattr(self, "_scalar_scratch", []).clear()
+        self._gather_scratch.clear()
+        self._scalar_scratch.clear()
         if hasattr(self, "_gpu_scalars"):
             del self._gpu_scalars
         if hasattr(self, "_gpu_storage"):

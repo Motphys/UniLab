@@ -15,6 +15,21 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ## Unreleased / 未发布
 
+### Changed / 变更
+
+- The packed replay layout now declares its fp16-safe column slices and the
+  fp32-authoritative scalar column slice explicitly
+  (`ReplayBuffer.fp16_safe_slices` / `ReplayBuffer.scalar_column_slice`), and
+  the device replay pipeline fails closed at construction when fp16 storage
+  is requested for a layout with undeclared or overlapping columns, instead
+  of silently quantizing them (issue #2651). `DeviceReplayPipeline` now
+  consumes only public `ReplayBuffer` accessors.
+  packed replay 布局现在显式声明 fp16-safe 列切片与 fp32 权威标量列切片
+  （`ReplayBuffer.fp16_safe_slices` / `ReplayBuffer.scalar_column_slice`）；
+  fp16 存储遇到未声明或重叠列时，设备 replay 管线在构造期 fail-closed，
+  不再静默量化（issue #2651）。`DeviceReplayPipeline` 只依赖
+  `ReplayBuffer` 的公开访问器。
+
 ### Added / 新增
 
 - Off-policy device replay rings (SAC and FlashSAC) support a configurable

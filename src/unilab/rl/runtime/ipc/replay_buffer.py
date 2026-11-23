@@ -85,6 +85,66 @@ class ReplayBuffer:
             self._ncritic_sl = slice(c, c + critic_dim)
             c += critic_dim
 
+        # Explicit per-column storage-class declaration consumed by the
+        # device replay pipeline when it quantizes the ring to fp16. Any new
+        # packed column must be registered here: undeclared columns fail
+        # closed at pipeline construction instead of being silently
+        # quantized (issue #2651).
+        self._fp16_safe_slices: tuple[slice, ...] = (
+            self._obs_sl,
+            self._nobs_sl,
+            self._act_sl,
+        )
+        if critic_dim > 0:
+            self._fp16_safe_slices += (self._critic_sl, self._ncritic_sl)
+        self._scalar_columns: tuple[int, ...] = (
+            self._rew_col,
+            self._done_col,
+            self._trunc_col,
+        )
+        scalar_slice = slice(min(self._scalar_columns), max(self._scalar_columns) + 1)
+        if scalar_slice.stop - scalar_slice.start != len(self._scalar_columns):
+            raise RuntimeError(
+                "Replay scalar columns (rewards/dones/truncated) must stay contiguous "
+                "so the fp32-authoritative block has one packed slice"
+            )
+        self._scalar_sl = scalar_slice
+
+    @property
+    def obs_dim(self) -> int:
+        """Packed per-row observation width."""
+        return self._obs_dim
+
+    @property
+    def action_dim(self) -> int:
+        """Packed per-row action width."""
+        return self._action_dim
+
+    @property
+    def critic_dim(self) -> int:
+        """Packed per-row critic-observation width; zero when the ring has none."""
+        return self._critic_dim
+
+    @property
+    def fp16_safe_slices(self) -> tuple[slice, ...]:
+        """Column slices whose values are bounded and fp16-quantizable.
+
+        This is the layout layer's explicit declaration of which packed
+        columns may be stored as fp16 by a device replay pipeline. Columns
+        not covered here or by ``scalar_column_slice`` fail closed at
+        pipeline construction when fp16 storage is requested.
+        """
+        return self._fp16_safe_slices
+
+    @property
+    def scalar_column_slice(self) -> slice:
+        """Contiguous packed slice of the fp32-authoritative scalar columns.
+
+        Rewards/dones/truncated keep full fp32 resolution in mixed-storage
+        rings; the layout guarantees they form one contiguous block.
+        """
+        return self._scalar_sl
+
     def _init_bounded_ingress(
         self,
         *,
