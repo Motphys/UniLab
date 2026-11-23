@@ -1050,6 +1050,38 @@ class TestFp16StoragePipeline:
         pipeline = pipeline_factory(rb, sample_count=8, storage_dtype="float32")
         assert pipeline._gpu_storage.dtype == torch.float32
 
+    def test_fp16_gather_uses_fused_kernel_and_no_scratch(self, pipeline_factory):
+        import importlib.util
+
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        pipeline = pipeline_factory(rb, sample_count=16)
+        if importlib.util.find_spec("triton") is None:
+            assert pipeline.transfer_manifest["gather_impl"] == "eager_mixed"
+            return
+        assert pipeline.transfer_manifest["gather_impl"] == "fused_triton"
+        # The fused one-pass gather needs no fp16 scratch buffers.
+        assert pipeline._gather_scratch == []
+        assert pipeline._scalar_scratch == []
+
+        _small_value_add(rb, 0, 16)
+        batch = pipeline.sample_large_batch(1, 16)
+        expected_rewards = torch.arange(16, dtype=torch.float32) * 0.000123456
+        assert set(batch["rewards"].cpu().tolist()) <= set(expected_rewards.tolist())
+
+    def test_fp16_gather_falls_back_to_eager(self, pipeline_factory, monkeypatch):
+        import unilab.rl.runtime.ipc.replay_pipelines.device as device_module
+
+        monkeypatch.setattr(device_module, "build_fused_gather", lambda **_kwargs: None)
+        rb = _make_bounded_replay(capacity=64, slot_rows=16)
+        pipeline = pipeline_factory(rb, sample_count=16)
+
+        assert pipeline.transfer_manifest["gather_impl"] == "eager_mixed"
+        assert len(pipeline._gather_scratch) == 2
+        _small_value_add(rb, 0, 16)
+        batch = pipeline.sample_large_batch(1, 16)
+        expected_rewards = torch.arange(16, dtype=torch.float32) * 0.000123456
+        assert set(batch["rewards"].cpu().tolist()) <= set(expected_rewards.tolist())
+
 
 class TestNormalizeReplayStorageDtype:
     def test_aliases_resolve(self):

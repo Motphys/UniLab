@@ -29,6 +29,7 @@ from unilab.rl.runtime.device import sync_device
 from unilab.rl.runtime.ipc.completion import wait_completion
 from unilab.rl.runtime.ipc.replay_buffer import ReplayBuffer
 from unilab.rl.runtime.ipc.replay_pipelines.base import ReplayTickMetadata
+from unilab.rl.runtime.ipc.replay_pipelines.fused_gather import build_fused_gather
 from unilab.rl.runtime.ipc.replay_pipelines.transfer import build_replay_transfer_backend
 
 
@@ -290,6 +291,23 @@ class DeviceReplayPipeline:
                 dtype=torch.float32,
                 device=self._device,
             )
+        self._gpu_packed = self._transfer_backend.allocate_device_slots(
+            count=2,
+            shape=(self._sample_count, self._packed_width),
+            dtype=torch.float32,
+        )
+        # One-pass fp16 gather (fp16 row read + fp32 scalar replacement +
+        # fp32 row store); falls back to the eager three-pass assembly when
+        # unavailable. Only CUDA learners with mixed storage can fuse.
+        self._fused_gather: Any | None = None
+        if self._gpu_scalars is not None:
+            self._fused_gather = build_fused_gather(
+                sample_count=self._sample_count,
+                width=self._storage_width,
+                scalar_start=int(self._scalar_sl.start),
+                device=self._device,
+            )
+        if self._gpu_scalars is not None and self._fused_gather is None:
             self._gather_scratch = [
                 torch.empty(
                     (self._sample_count, self._storage_width),
@@ -302,11 +320,6 @@ class DeviceReplayPipeline:
                 torch.empty((self._sample_count, 3), dtype=torch.float32, device=self._device)
                 for _ in range(2)
             ]
-        self._gpu_packed = self._transfer_backend.allocate_device_slots(
-            count=2,
-            shape=(self._sample_count, self._packed_width),
-            dtype=torch.float32,
-        )
         self._sync_stream: Any | None = None
         if self._device.type == "cuda":
             self._sync_stream = cast(torch.cuda.Stream, torch.cuda.Stream(device=self._device))
@@ -345,6 +358,14 @@ class DeviceReplayPipeline:
         return bool(self._storage_dtype != torch.float32)
 
     @property
+    def _gather_impl(self) -> str:
+        if self._gpu_scalars is None:
+            return "eager_fp32"
+        if self._fused_gather is not None:
+            return "fused_triton"
+        return "eager_mixed"
+
+    @property
     def h2d_submitter(self) -> str:
         if self._main_thread_submission:
             return "device_ingress_main_thread"
@@ -366,6 +387,7 @@ class DeviceReplayPipeline:
             "storage_rows": self._capacity,
             "storage_width": self._storage_width,
             "storage_dtype": str(self._storage_dtype).removeprefix("torch."),
+            "gather_impl": self._gather_impl,
             "storage_bytes": int(self._gpu_storage.numel() * self._gpu_storage.element_size())
             + (
                 int(self._gpu_scalars.numel() * self._gpu_scalars.element_size())
@@ -617,17 +639,20 @@ class DeviceReplayPipeline:
 
         Mixed-storage rings gather the fp16 ring into scratch, up-cast into
         the fp32 packed slot, then overwrite the scalar columns from the
-        authoritative fp32 block. Whole-cycle CUDA graph capture and the
-        learner's static batch buffers are unchanged: they keep consuming the
-        fp32 packed views.
+        authoritative fp32 block — or use the fused single-pass kernel when
+        it built successfully. Whole-cycle CUDA graph capture and the
+        learner's static batch buffers are unchanged: they keep consuming
+        the fp32 packed views.
         """
         packed = self._gpu_packed[slot]
         if self._gpu_scalars is None:
             torch.index_select(self._gpu_storage, 0, indices, out=packed)
             return
+        if self._fused_gather is not None:
+            self._fused_gather(self._gpu_storage, self._gpu_scalars, indices, packed)
+            return
         torch.index_select(self._gpu_storage, 0, indices, out=self._gather_scratch[slot])
         packed.copy_(self._gather_scratch[slot])
-        assert self._gpu_scalars is not None
         torch.index_select(self._gpu_scalars, 0, indices, out=self._scalar_scratch[slot])
         packed[:, self._scalar_sl].copy_(self._scalar_scratch[slot])
 
@@ -1040,6 +1065,7 @@ class DeviceReplayPipeline:
         self._transfer_backend.close()
         self._host_pinned = False
         self._gpu_packed.clear()
+        self._fused_gather = None
         self._gather_scratch.clear()
         self._scalar_scratch.clear()
         if hasattr(self, "_gpu_scalars"):
