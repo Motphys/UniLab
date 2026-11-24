@@ -13,6 +13,24 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased / 未发布
+
+### Fixed / 修复
+
+- Pinned `unisim-core` to 2.8.5 in both dependency tracks (base, motrix, and
+  superdex extras). This release refreshes MuJoCo tracked named sensors from
+  final state, aligns public sensor metadata, adds an explicit selected-row
+  complete sensor refresh, fixes MJWarp sensor refreshes after model
+  randomization, and preserves native body-pair contact layouts
+  (unilabsim/unisim#547, unilabsim/unisim#549, unilabsim/unisim#550,
+  unilabsim/unisim#551, unilabsim/unisim#552).
+  两条依赖轨道（base、motrix、superdex extras）均将 `unisim-core` 固定到
+  2.8.5。该版本按最终状态刷新 MuJoCo tracked 具名传感器，对齐公共传感器
+  元数据，新增显式选中行完整传感器刷新，修复 MJWarp 模型随机化后的传感器
+  刷新，并保留原生 body-pair contact 布局（unilabsim/unisim#547、
+  unilabsim/unisim#549、unilabsim/unisim#550、unilabsim/unisim#551、
+  unilabsim/unisim#552）。
+
 ## 1.6.1 (2026-11-23)
 
 ### Fixed / 修复
