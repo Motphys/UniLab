@@ -177,6 +177,44 @@ def test_flashsac_g1_motion_tracking_motrix_uses_tensor_command() -> None:
     assert cfg.algo == mujoco_cfg.algo
 
 
+def test_flashsac_g1_motion_tracking_mtxwarp_owner() -> None:
+    mujoco_cfg = _compose_flashsac("g1_motion_tracking/mujoco")
+    cfg = _compose_flashsac("g1_motion_tracking/mtxwarp")
+
+    assert cfg.training.task_name == "G1MotionTracking"
+    assert cfg.training.sim_backend == "mtxwarp"
+    assert cfg.training.play_render_mode == "record"
+    assert cfg.env.commands.motion._target_ == (
+        "unilab.tasks.motion_tracking.common.manager_terms.MotionCommandCfg"
+    )
+    # The interval push needs an absolute mid-episode velocity set and the
+    # CUDA adapter does not advertise the body inertial-position payload;
+    # encoder bias and foot friction DR stay enabled.
+    assert cfg.env.events.push_robot is None
+    assert cfg.env.events.base_com is None
+    assert cfg.env.events.encoder_bias is not None
+    assert cfg.env.events.foot_friction is not None
+    assert cfg.env.mtxwarp_max_contacts == 256
+    assert cfg.env.mtxwarp_max_contact_constraints == 400
+    assert cfg.env.motrix_max_iterations == 10
+    assert cfg.env.autoreset_cuda_graph is True
+    mtx_env = OmegaConf.to_container(cfg.env)
+    mujoco_env = OmegaConf.to_container(mujoco_cfg.env)
+    assert isinstance(mtx_env, dict) and isinstance(mujoco_env, dict)
+    del mtx_env["events"]
+    del mujoco_env["events"]
+    for key in (
+        "mtxwarp_max_contacts",
+        "mtxwarp_max_contact_constraints",
+        "motrix_max_iterations",
+        "autoreset_cuda_graph",
+    ):
+        mtx_env.pop(key, None)
+        mujoco_env.pop(key, None)
+    assert mtx_env == mujoco_env
+    assert cfg.algo == mujoco_cfg.algo
+
+
 def test_flashsac_g1_motion_tracking_contact_policy_is_reward_only() -> None:
     cfg = _compose_flashsac("g1_motion_tracking/mujoco")
 

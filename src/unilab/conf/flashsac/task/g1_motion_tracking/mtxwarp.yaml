@@ -1,0 +1,30 @@
+# @package _global_
+# FlashSAC mtxwarp owner for G1 WBT. MotrixSim runs CUDA-resident; the Manager
+# read/write lifecycle stays on the device. Keep DENYLIST parity with the
+# MuJoCo owner so cross-backend checkpoints transfer 1:1. The interval push is
+# disabled like the CPU motrix owner: the MotrixSim adapters expose delta
+# kicks, while push_by_setting_velocity requires an absolute mid-episode
+# velocity set. Canonical Manager terms own the reset lifecycle.
+defaults:
+  - /task/g1_motion_tracking/base
+  - _self_
+
+training:
+  task_name: G1MotionTracking
+  sim_backend: mtxwarp
+  play_render_mode: record
+
+env:
+  # MotrixSim GPU owns its per-world contact storage; the WBT startup pose is
+  # contact-rich, so reserve 256 contacts and 400 constraint rows.
+  mtxwarp_max_contacts: 256
+  mtxwarp_max_contact_constraints: 400
+  motrix_max_iterations: 10
+  autoreset_cuda_graph: true
+  events:
+    # MotrixSim GPU does not advertise the body inertial-position payload.
+    base_com: null
+    # The interval push is disabled like the CPU motrix owner: the MotrixSim
+    # adapters expose delta kicks, while push_by_setting_velocity requires an
+    # absolute mid-episode velocity set.
+    push_robot: null

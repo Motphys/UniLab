@@ -20,7 +20,8 @@ to the matching task owner YAML; do not switch a run by overriding
   HOST_BRIDGE; the current canonical support scope is SAC `g1_walk_flat` and
   FlashSAC `g1_motion_tracking`.
 - Motrix Warp requires the `mtxwarp` extra and runs physics and Manager tensors
-  on NVIDIA CUDA.
+  on NVIDIA CUDA; the current canonical support scope is FlashSAC
+  `g1_motion_tracking`.
 - SuperDex requires the `superdex` extra on CPython 3.12/3.13 Linux x86_64 and
   provides a CPU-authoritative packed HOST_BRIDGE; the current scope is the
   configured Go2 research owner.

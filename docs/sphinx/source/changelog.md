@@ -21,13 +21,18 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `mtxwarp`, absorbing and reworking PR #2664: the backend registers in the
   env registry and train/eval CLI, consumes the rank-local CUDA device and the
   per-world contact/constraint capacities through the UniSim factory, and
-  ships one owner — SAC `g1_walk_flat` (`uv sync --extra mtxwarp`,
-  `uv run train --algo sac --task g1_walk_flat --sim mtxwarp`). The upstream
+  ships one owner — FlashSAC `g1_motion_tracking`
+  (`uv sync --extra mtxwarp`,
+  `uv run train --algo flashsac --task g1_motion_tracking --sim mtxwarp`),
+  which reserves 256 contacts / 400 constraint rows per world, raises the
+  solver iteration budget, enables CUDA-graph autoreset, and disables the
+  `base_com` and `push_robot` DR terms with recorded backend reasons. The
+  upstream
   adapter keeps its pre-alignment name until unilabsim/unisim#578 renames it;
   UniLab translates the name at the factory and support-matrix boundaries and
   uses `mtxwarp` for every UniLab-facing name, config filename, and doc. PR
-  #2664's Go2 APPO and G1 Motion Tracking FlashSAC owners are not included;
-  their device-resident reset/curriculum bring-up can follow separately. The
+  #2664's Go2 APPO owner is not included; its device-resident
+  reset/curriculum bring-up can follow separately. The
   `mjwarp` and `newton` warp-lang pins relax to `>=1.15` and `>=1.16.0`
   instead of forcing an exact Warp alignment, so `mtxwarp` installs jointly
   with `mjwarp` and `newton`; the intermediate `mtxwarp`-vs-`newton` resolver
@@ -42,20 +47,23 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   the `RESET_TERM_KP/KD` reset terms, so the historical `pd_gains: null`
   overrides were outdated and are removed from the SAC/PPO/APPO/FlashSAC
   motrix owners; the `mjwarp`/`newton`/Isaac owners keep their own
-  rationales unchanged. SAC `g1_walk_flat` is recorded in the support matrix
-  as `Tested`: a maintainer validation on an RTX 4090 ran 300 iterations at
-  2048 envs (seed 7) on both `mtxwarp` and the CPU `motrix` owner, and the
-  reward curves align (mean reward 6.1 -> 14.6 vs 8.4 -> 15.2; episode
-  length 21 -> 57 s vs 30 -> 60 s over identical budgets).
+  rationales unchanged. FlashSAC `g1_motion_tracking` is recorded in the
+  support matrix as `Tested`: a maintainer validation on an RTX 4090 ran 300
+  iterations at 2048 envs (seed 7) on both `mtxwarp` and the CPU `motrix`
+  owner, and the reward curves align (mean reward 0.11 -> 0.56 vs
+  0.12 -> 0.67 over the identical budget).
   新增 CUDA-resident MotrixSim 训练后端，UniLab 侧统一命名 `mtxwarp`（吸收
   并改造 PR #2664）：该后端注册进 env registry 与 train/eval CLI，通过
   UniSim factory 消费 rank-local CUDA 设备与逐环境接触/约束容量，并只携带
-  一个 owner——SAC `g1_walk_flat`（`uv sync --extra mtxwarp`，
-  `uv run train --algo sac --task g1_walk_flat --sim mtxwarp`）。上游
+  一个 owner——FlashSAC `g1_motion_tracking`（`uv sync --extra
+  mtxwarp`，`uv run train --algo flashsac --task g1_motion_tracking --sim
+  mtxwarp`），保留 256 个 contact 与 400 行 constraint、提高 solver 迭代
+  预算、启用 CUDA-graph 自动重置，并按记录的后端原因禁用 `base_com` 与
+  `push_robot` DR 项。上游
   adapter 在 unilabsim/unisim#578 完成改名前保留原名称；UniLab 在 factory
   与支持矩阵边界做名称翻译，所有 UniLab 侧名称、配置文件名与文档统一使用
-  `mtxwarp`。PR #2664 的 Go2 APPO 与 G1 Motion Tracking FlashSAC owner 不在
-  本次范围，其 device-resident reset/curriculum 启用可后续单独跟进。
+  `mtxwarp`。PR #2664 的 Go2 APPO owner 不在本次范围，其 device-resident
+  reset/curriculum 启用可后续单独跟进。
   `mjwarp` 与 `newton` 的 warp-lang 约束分别放宽为 `>=1.15` 与
   `>=1.16.0`，不再强制精确对齐 Warp 版本，因此 `mtxwarp` 可与 `mjwarp`、
   `newton` 同环境安装，中间的 `mtxwarp`-vs-`newton` resolver 冲突声明已
@@ -69,10 +77,10 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `RESET_TERM_KP/KD` reset 项，历史上各 motrix owner 的 `pd_gains: null`
   override（"tensor mask reset 不支持随机化"、"对齐调参基线"）已过时，从
   SAC/PPO/APPO/FlashSAC motrix owner 中移除；`mjwarp`/`newton`/Isaac owner
-  各自的禁用理由不变。支持矩阵中 SAC `g1_walk_flat` 记为 `Tested`：maintainer 在 RTX
-  4090 上对 `mtxwarp` 与 CPU `motrix` owner 各跑了 300 iteration、2048
-  环境（seed 7），奖励曲线对齐（mean reward 6.1 -> 14.6 对比 8.4 ->
-  15.2；episode length 21 -> 57 s 对比 30 -> 60 s，预算完全相同）。
+  各自的禁用理由不变。支持矩阵中 FlashSAC `g1_motion_tracking` 记为
+  `Tested`：maintainer 在 RTX 4090 上对 `mtxwarp` 与 CPU `motrix` owner
+  各跑了 300 iteration、2048 环境（seed 7），奖励曲线对齐（mean reward
+  0.11 -> 0.56 对比 0.12 -> 0.67，预算完全相同）。
 
 ### Changed / 变更
 

@@ -269,13 +269,12 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
 
 # Maintainer-confirmed completed training validations for the CUDA MotrixSim
 # runtime. Entries are added only after a completed short run evidences reward
-# parity with the CPU Motrix owner for the same task. SAC g1_walk_flat, 300
-# iterations at 2048 envs (seed 7, RTX 4090): mean reward 6.1 -> 14.6 and
-# episode length 21 -> 57, tracking the motrix CPU owner's 8.4 -> 15.2 and
-# 30 -> 60 over the same budget.
+# parity with the CPU Motrix owner for the same task. FlashSAC
+# g1_motion_tracking, 300 iterations at 2048 envs (seed 7, RTX 4090): mean
+# reward tracks the motrix CPU owner over the same budget.
 _MAINTAINER_VALIDATED_MTXWARP_ENTRYPOINT_TASKS = frozenset(
     {
-        ("sac_torch", "g1_walk_flat"),
+        ("flashsac_torch", "g1_motion_tracking"),
     }
 )
 

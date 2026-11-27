@@ -9,20 +9,21 @@ on Linux x86_64, and is available from `unisim-core` 2.9.0.
 
 ```bash
 uv sync --locked --extra mtxwarp
-uv run train --algo sac --task g1_walk_flat --sim mtxwarp
+uv run train --algo flashsac --task g1_motion_tracking --sim mtxwarp
 ```
 
-The only owner today is SAC `g1_walk_flat`, aligned with the MuJoCo owner:
-the scalar `tilt` / `base_height` terminations and kp/kd reset randomization
-(`env.events.pd_gains`) are inherited from the shared base contract — the
-CUDA MotrixSim adapter declares the `RESET_TERM_KP/KD` reset terms. Backend
-knobs declare the per-world contact and constraint capacities (256 contacts
-and 400 constraint rows) and a higher solver iteration budget than the CPU
-owner (`env.motrix_max_iterations: 10`) for contact stability. The owner
-keeps eager selected reset so host curriculum updates stay live; set
-`env.autoreset_cuda_graph=false` to pin the eager path explicitly when
-debugging. See the UniSim support matrix for engine capability boundaries;
-`mtxwarp` and `mjwarp` install into the same environment.
+The only owner today is FlashSAC `g1_motion_tracking`. It reserves 256
+contacts and 400 constraint rows per world for the contact-rich WBT startup
+pose and raises the solver iteration budget (`env.motrix_max_iterations: 10`).
+CUDA-graph autoreset is enabled; set `env.autoreset_cuda_graph=false` for the
+eager selected-reset path when debugging. Two base DR terms are disabled with
+recorded backend reasons: `base_com` (the CUDA adapter does not advertise the
+body inertial-position payload) and the `push_robot` interval push (the
+adapters expose delta kicks, while the term sets an absolute mid-episode
+velocity). See the UniSim support matrix for engine capability boundaries;
+`mtxwarp` and `mjwarp` install into the same environment, and
+`training.cuda_process_sharing=mps` is available for single-rank runs through
+the user-managed `uni-cumps` daemon.
 
 ## MotrixSim CPU
 

@@ -89,16 +89,16 @@ uv run scripts/generate_support_matrix.py --write
 | Entrypoint | Task owner | MuJoCo | Motrix | Motrix Warp | Drake | mjwarp | Newton | SuperDex | Genesis | IsaacGym | IsaacSim |
 |------------|------------|---|---|---|---|---|---|---|---|---|---|
 | PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested | - | Configured | - | - | Configured | - | - | - |
-| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Registered | - | Tested | Registered | - | Configured | Registered | Registered |
-| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | Registered | Registered | - | Registered | - | - |
+| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | - | Tested | Registered | - | Configured | Registered | Registered |
+| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | Registered | - | Registered | Registered | - | Registered | - | - |
 | APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested | - | Registered | - | - | Registered | - | - | - |
-| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | - | Registered | Registered | - | Registered | Registered | Registered |
-| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | Registered | Registered | - | Registered | - | - |
-| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | - | Tested | Tested | - | Tested | Tested | Tested |
-| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | Configured | Registered | - | Configured | - | - |
+| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | - | - | Registered | Registered | - | Registered | Registered | Registered |
+| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | Registered | - | Registered | Registered | - | Registered | - | - |
+| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | - | Tested | Tested | - | Tested | Tested | Tested |
+| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | Registered | - | Configured | Registered | - | Configured | - | - |
 | FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered | - | Registered | - | - | Registered | - | - | - |
-| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Registered | - | Configured | Registered | - | Registered | Registered | Registered |
-| FlashSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | Configured | Configured | - | Configured | - | - |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | - | Configured | Registered | - | Registered | Registered | Registered |
+| FlashSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | Tested | - | Configured | Configured | - | Configured | - | - |
 
 ### Source Index
 
