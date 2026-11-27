@@ -201,7 +201,9 @@ _OWNER_CASES = (
         1.0,
         "scene_flat.xml",
         _OFFPOLICY_REWARDS,
-        _RESET_EVENTS,
+        # kp/kd reset randomization is enabled like the MuJoCo owner: the
+        # MotrixSim 1.0.0 adapter declares the RESET_TERM_KP/KD reset terms.
+        (*_RESET_EVENTS, "pd_gains"),
         True,
         id="sac-motrix",
     ),
@@ -476,7 +478,7 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
     if backend == "motrix":
         assert env_cfg.scene.fragment_files == []
         assert env_cfg.scene.terrain is None
-        assert env_cfg.events["pd_gains"] is None
+        assert env_cfg.events["pd_gains"] is not None
         assert hydra_cfg.training.play_render_mode == "record"
     if backend == "mtxwarp":
         assert env_cfg.scene.fragment_files == []

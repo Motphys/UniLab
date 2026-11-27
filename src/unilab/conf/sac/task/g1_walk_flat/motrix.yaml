@@ -38,7 +38,3 @@ algo:
       - penalty_feet_ori
       - feet_phase
       - alive
-env:
-  events:
-    # Motrix tensor mask reset does not support randomization.
-    pd_gains: null

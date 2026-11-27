@@ -35,13 +35,14 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `uni-cumps` daemon) now admits `mtxwarp` next to `mjwarp`, with the
   rank-local collector device resolved for the learner/collector pair. The
   SAC `g1_walk_flat` owners also align with the MuJoCo owner where the
-  backend admits it: both the CPU `motrix` and `mtxwarp` owners inherit the
-  scalar `tilt`/`base_height` terminations instead of the fused termination
-  pack, and the `mtxwarp` owner enables kp/kd reset randomization
-  (`env.events.pd_gains`) because the CUDA adapter declares the
-  `RESET_TERM_KP/KD` reset terms; the CPU `motrix` owner keeps
-  `pd_gains: null` because its tensor mask reset does not carry
-  randomization. SAC `g1_walk_flat` is recorded in the support matrix
+  backend admits it: the motrix-family owners inherit the scalar
+  `tilt`/`base_height` terminations instead of the fused termination pack,
+  and they enable kp/kd reset randomization (`env.events.pd_gains`) like
+  the MuJoCo owners — the MotrixSim 1.0.0 adapter (CPU and CUDA) declares
+  the `RESET_TERM_KP/KD` reset terms, so the historical `pd_gains: null`
+  overrides were outdated and are removed from the SAC/PPO/APPO/FlashSAC
+  motrix owners; the `mjwarp`/`newton`/Isaac owners keep their own
+  rationales unchanged. SAC `g1_walk_flat` is recorded in the support matrix
   as `Tested`: a maintainer validation on an RTX 4090 ran 300 iterations at
   2048 envs (seed 7) on both `mtxwarp` and the CPU `motrix` owner, and the
   reward curves align (mean reward 6.1 -> 14.6 vs 8.4 -> 15.2; episode
@@ -63,10 +64,12 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   解析 rank-local collector 设备。SAC `g1_walk_flat` 的各 owner 也在后端
   能力允许范围内向 MuJoCo owner 看齐：CPU `motrix` 与 `mtxwarp` owner 均
   继承标量 `tilt`/`base_height` termination（不再用 fused termination
-  pack），`mtxwarp` owner 还启用了 kp/kd reset 随机化
-  （`env.events.pd_gains`）——CUDA adapter 声明了 `RESET_TERM_KP/KD` reset
-  项；CPU `motrix` owner 保留 `pd_gains: null`，因为其 tensor mask reset
-  不承载随机化。支持矩阵中 SAC `g1_walk_flat` 记为 `Tested`：maintainer 在 RTX
+  pack），并像 MuJoCo owner 一样启用 kp/kd reset 随机化
+  （`env.events.pd_gains`）——MotrixSim 1.0.0 adapter（CPU 与 CUDA）声明了
+  `RESET_TERM_KP/KD` reset 项，历史上各 motrix owner 的 `pd_gains: null`
+  override（"tensor mask reset 不支持随机化"、"对齐调参基线"）已过时，从
+  SAC/PPO/APPO/FlashSAC motrix owner 中移除；`mjwarp`/`newton`/Isaac owner
+  各自的禁用理由不变。支持矩阵中 SAC `g1_walk_flat` 记为 `Tested`：maintainer 在 RTX
   4090 上对 `mtxwarp` 与 CPU `motrix` owner 各跑了 300 iteration、2048
   环境（seed 7），奖励曲线对齐（mean reward 6.1 -> 14.6 对比 8.4 ->
   15.2；episode length 21 -> 57 s 对比 30 -> 60 s，预算完全相同）。
