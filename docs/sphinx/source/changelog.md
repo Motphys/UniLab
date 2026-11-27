@@ -41,6 +41,27 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `viser` 依赖，现有 UniLab 行为不变
   （[#2660](https://github.com/Motphys/UniLab/issues/2660)）。
 
+- `viser_scene` consumes the unified MuJoCo geom-to-mesh primitive
+  `unisim.visualization.mujoco_geom.geom_mesh` instead of its private
+  `_geom_mesh`/`_extract_mesh` helpers (batched-viewer output is unchanged),
+  and `unilab.visualization.debug_primitives` is removed in favor of
+  `unisim.visualization.debug_primitives` (ADR-0008): `play_interactive.py`
+  builds `DebugPrimitive` lists and injects them with
+  `append_debug_primitives(viewer.user_scn, [primitives])`, with no re-export,
+  shim, or alias. The duck-typed `line` kind used by task-owned ray overlays
+  is drawn by the shared unisim conversion. It requires `unisim-core` 2.8.6, which
+  this release pins ([#2660](https://github.com/Motphys/UniLab/issues/2660)).
+  `viser_scene` 改用统一的 MuJoCo geom 到 mesh 原语
+  `unisim.visualization.mujoco_geom.geom_mesh`，不再保留私有的
+  `_geom_mesh`/`_extract_mesh`（批量 viewer 的输出不变）；同时移除
+  `unilab.visualization.debug_primitives`，改为使用
+  `unisim.visualization.debug_primitives`（ADR-0008）：`play_interactive.py`
+  只构造 `DebugPrimitive` 列表，并通过
+  `append_debug_primitives(viewer.user_scn, [primitives])` 注入，不保留
+  re-export、shim 或 alias。task 侧 ray overlay 使用的 duck-typed `line`
+  种类由 unisim 的共享转换绘制。该变更依赖 `unisim-core` 2.8.6，本版本
+  已固定到该版本（[#2660](https://github.com/Motphys/UniLab/issues/2660)）。
+
 ### Fixed / 修复
 
 - Pinned `unisim-core` to 2.8.6 in both dependency tracks (base, motrix, and

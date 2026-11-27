@@ -57,10 +57,6 @@ from unilab.training import (
 )
 from unilab.training.tensor_runtime import select_collector_tensor_device
 from unilab.utils.checkpoint import resolve_checkpoint_path
-from unilab.visualization.debug_primitives import (
-    append_debug_primitives_to_scene,
-    segment_arrow,
-)
 from unilab.visualization.interactive_playback import (
     KeyboardCommander,
     PlaybackControls,
@@ -99,6 +95,7 @@ ensure_registries()
 
 from unisim.backend.base import DebugPrimitive
 from unisim.backend.mujoco.playback import resolve_render_play_model_files
+from unisim.visualization.debug_primitives import append_debug_primitives, segment_arrow
 
 from unilab.base.scene import SceneCfg
 
@@ -1115,7 +1112,7 @@ def play_interactive(args, cfg: DictConfig, *, algo: str | None = None):
 
                 viewer.user_scn.ngeom = 0
                 if primitives:
-                    append_debug_primitives_to_scene(viewer.user_scn, primitives)
+                    append_debug_primitives(viewer.user_scn, [primitives])
 
                 viewer.sync()
 

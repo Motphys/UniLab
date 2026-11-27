@@ -40,7 +40,6 @@ _PRODUCTION_NUMPY_IMPORT_ALLOWLIST = {
     # Playback/rendering/visualization host formats.
     "src/unilab/scripts/play_interactive.py",
     "src/unilab/scripts/train_rsl_rl.py",
-    "src/unilab/visualization/debug_primitives.py",
     "src/unilab/visualization/interactive_playback.py",
     "src/unilab/visualization/playback.py",
     "src/unilab/visualization/playback_session.py",
