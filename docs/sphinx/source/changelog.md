@@ -15,6 +15,27 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ## Unreleased
 
+### Added / 新增
+
+- Added the optional `mtxwarp` extra: `unilab[mtxwarp]` installs the
+  CUDA-resident MotrixSim runtime by delegating to `unisim-core[motrix-gpu]`
+  (Linux x86-64 with NVIDIA CUDA; `motrixsim-gpu==1.0.0` resolves
+  warp-lang 1.17.0). The UniLab registry and train/eval CLI do not expose the
+  `motrix_gpu` backend yet; this extra only provides the package install path
+  ahead of that enablement. To keep `mtxwarp` jointly installable with
+  `mjwarp`, the `mjwarp` extra's warp-lang pin relaxed from `==1.16.0` to
+  `>=1.15` (mujoco-warp 4.0.1's own upstream floor), and `mtxwarp` declares a
+  resolver conflict with `newton` (whose extra still pins warp-lang 1.16.0
+  exactly).
+  新增可选 `mtxwarp` extra：`unilab[mtxwarp]` 通过委托
+  `unisim-core[motrix-gpu]` 安装 CUDA-resident MotrixSim 运行时（Linux
+  x86-64 + NVIDIA CUDA；`motrixsim-gpu==1.0.0` 解析出 warp-lang
+  1.17.0）。UniLab registry 与 train/eval CLI 尚未开放 `motrix_gpu`
+  后端，该 extra 仅为后续启用提供安装路径。为使 `mtxwarp` 与 `mjwarp`
+  可同环境安装，`mjwarp` extra 的 warp-lang 约束由 `==1.16.0` 放宽为
+  `>=1.15`（mujoco-warp 4.0.1 的上游下限），同时 `mtxwarp` 与 `newton`
+  声明 resolver 冲突（newton extra 仍精确钉住 warp-lang 1.16.0）。
+
 ### Changed / 变更
 
 - Pinned `unisim-core` to 2.9.0 in both dependency tracks (base, motrix, and

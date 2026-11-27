@@ -136,6 +136,12 @@ uv sync --extra newton
 | Motrix | `uv sync --extra motrix` | CPU-authoritative MotrixSim with packed Torch HOST_BRIDGE transfers |
 | Drake | `make setup-drake` | Local Drake C++ prefix plus the DrakeUni native batch extension; currently scoped to PPO `go2_joystick_flat` |
 
+The CUDA-resident MotrixSim runtime also has a package-only install path via
+`uv sync --extra mtxwarp` (delegating to `unisim-core[motrix-gpu]`; Linux
+x86-64 with NVIDIA CUDA). The UniLab registry and train/eval CLI do not expose
+the `motrix_gpu` backend yet, so this extra only prepares the environment ahead
+of that enablement.
+
 The `isaacgym`, `isaacsim`, and `superdex` adapters remain temporarily shelved
 by `unisim-core` during issue #1811. Their extras and historical backend pages
 are not production support claims and the UniLab train/eval CLI rejects them
