@@ -1,0 +1,47 @@
+# @package _global_
+# SAC mtxwarp owner: inherits the shared 29-DoF off-policy Manager-Based
+# contract from base.yaml with MuJoCo-parity terminations (scalar tilt /
+# base_height) and kp/kd reset randomization enabled — the CUDA MotrixSim
+# adapter declares RESET_TERM_KP/KD. Backend knobs carry the per-world
+# contact/constraint capacities and the higher solver iteration budget.
+defaults:
+  - /task/g1_walk_flat/base
+  - _self_
+
+training:
+  task_name: G1WalkFlat
+  sim_backend: mtxwarp
+  play_render_mode: record
+algo:
+  g1_walk_pack:
+    _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkRewardPackCfg
+    func: unilab.tasks.locomotion.g1.manager_terms.G1WalkRewardPack
+    weight: 0.0
+    command_name: twist
+    entity_name: robot
+    tracking_lin_sigma: 0.25
+    tracking_ang_sigma: 0.25
+    gait_frequency: 1.5
+    gait_init_mode: offset_phase
+    swing_height: 0.09
+    feet_phase_sigma: 0.04
+    min_forward_speed: 0.0
+    pose_weights: [0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 0.01, 1.0, 5.0, 0.01, 5.0, 5.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+    reward_pack_names:
+      - tracking_lin_vel
+      - tracking_ang_vel
+      - penalty_ang_vel_xy
+      - penalty_orientation
+      - penalty_action_rate
+      - pose
+      - penalty_feet_ori
+      - feet_phase
+      - alive
+env:
+  # MotrixSim GPU owns its per-world contact storage. G1 is contact-rich at the
+  # startup pose, so reserve 256 contacts and 400 constraint rows.
+  mtxwarp_max_contacts: 256
+  mtxwarp_max_contact_constraints: 400
+  # G1 uses a higher iteration budget for contact stability.
+  motrix_max_iterations: 10
+  render_spacing: 2.0

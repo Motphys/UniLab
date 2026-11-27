@@ -35,16 +35,32 @@ BACKEND_ENV_DEVICE_FIELDS: dict[str, str] = {
 }
 
 
-# Newton consumes an explicit ``cuda:N`` device string (``newton_device``)
-# instead of an integer id.  The RL runtime's collector-side process binding
-# is injection-based: the spawned collector applies the caller-supplied
-# backend-device configurer and skips binding when none is injected.  UniLab
-# injects ``configure_backend_process_device``; the env override additionally
-# forwards the rank-local device string so spawn collectors can pass it to
-# the Newton adapter.
+# In-process adapters taking explicit ``cuda:N`` device strings receive the
+# rank-local device through the environment override, including when the
+# collector is spawned in a separate process.
 BACKEND_ENV_DEVICE_STR_FIELDS: dict[str, str] = {
+    "mtxwarp": "mtxwarp_device",
     "newton": "newton_device",
 }
+
+# UniLab backend names that differ from the UniSim adapter name they consume.
+# The upstream adapter keeps the ``motrix_gpu`` name until
+# unilabsim/unisim#578 renames it; UniLab exposes the backend as ``mtxwarp``.
+_UNILAB_ADAPTER_NAME_MAP = {"mtxwarp": "motrix_gpu"}
+
+
+def unisim_adapter_name(backend_type: str) -> str:
+    """Map a UniLab backend name to the consuming UniSim adapter name."""
+    return _UNILAB_ADAPTER_NAME_MAP.get(backend_type, backend_type)
+
+
+def unilab_backend_name(adapter_name: str) -> str:
+    """Map a UniSim adapter name to the UniLab backend name exposing it."""
+    for unilab_name, unisim_name in _UNILAB_ADAPTER_NAME_MAP.items():
+        if unisim_name == adapter_name:
+            return unilab_name
+    return adapter_name
+
 
 _EXTERNAL_CUDA_IPC_BACKENDS = {"isaacgym", "isaacsim"}
 
@@ -68,7 +84,7 @@ def _host_bridge_profile(backend_type: str) -> TensorPlatformProfile | None:
     """Return the public HOST_BRIDGE capability profile for a backend."""
 
     backend = _normalize_backend(backend_type)
-    profile = get_tensor_platform_profiles().get(backend)
+    profile = get_tensor_platform_profiles().get(unisim_adapter_name(backend))
     if profile is None or profile.execution is not TensorExecution.HOST_BRIDGE:
         return None
     return profile
@@ -357,7 +373,7 @@ def canonicalize_collector_tensor_device(requested_device: str | None) -> str:
 def resolve_backend_process_device(backend_type: str, learner_device: str | None) -> str | None:
     backend = _normalize_backend(backend_type)
     if (
-        backend not in {"mjwarp", "newton", "genesis"}
+        backend not in {"mjwarp", "mtxwarp", "newton", "genesis"}
         and backend not in _EXTERNAL_CUDA_IPC_BACKENDS
     ):
         return None

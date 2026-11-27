@@ -52,6 +52,7 @@ class UniformVelocityCommand(CommandTerm):
     """Sample planar velocity commands and update frame-dependent components."""
 
     cfg: UniformVelocityCommandCfg
+    supports_reset_selection = True
 
     def __init__(self, cfg: UniformVelocityCommandCfg, env: ManagerBasedRlEnv):
         self._validate_cfg(cfg)

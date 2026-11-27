@@ -1,5 +1,30 @@
 # Motrix Backend
 
+## Motrix Warp (CUDA-resident MotrixSim)
+
+Use `--sim mtxwarp` with the `mtxwarp` extra to run MotrixSim physics and
+Manager tensors on the same NVIDIA CUDA device. The profile uses MotrixSim
+1.0.0 with Warp (warp-lang >= 1.15, resolved to 1.17.0 by the CUDA runtime)
+on Linux x86_64, and is available from `unisim-core` 2.9.0.
+
+```bash
+uv sync --locked --extra mtxwarp
+uv run train --algo sac --task g1_walk_flat --sim mtxwarp
+```
+
+The only owner today is SAC `g1_walk_flat`, aligned with the MuJoCo owner:
+the scalar `tilt` / `base_height` terminations and kp/kd reset randomization
+(`env.events.pd_gains`) are inherited from the shared base contract — the
+CUDA MotrixSim adapter declares the `RESET_TERM_KP/KD` reset terms. Backend
+knobs declare the per-world contact and constraint capacities (256 contacts
+and 400 constraint rows) and a higher solver iteration budget than the CPU
+owner (`env.motrix_max_iterations: 10`) for contact stability. The owner
+keeps eager selected reset so host curriculum updates stay live; set
+`env.autoreset_cuda_graph=false` to pin the eager path explicitly when
+debugging. See the UniSim support matrix for engine capability boundaries;
+`mtxwarp` and `mjwarp` install into the same environment.
+
+## MotrixSim CPU
 
 Motrix is an optional backend installed through the `motrix` extra, which
 delegates to `unisim-core[motrix]`: the runtime pin lives in UniSim's

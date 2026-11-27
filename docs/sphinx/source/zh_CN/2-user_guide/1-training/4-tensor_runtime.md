@@ -17,7 +17,7 @@ SAC 与 FlashSAC 会在探测环境或构造 learner 之前解析所有面向进
 | `training.collector_metrics_interval` | `1` | 正整数，最大 `10000` |
 | `training.replay_ingress_depth` | `2` | 正整数，最大 `16` |
 | `training.replay_ingress_slot_rows` | `null` | `1` 到 `algo.num_envs`；`null` 表示 `algo.num_envs` |
-| `training.cuda_process_sharing` | `null` | `null` 或单 rank MJWarp 显式 `mps` |
+| `training.cuda_process_sharing` | `null` | `null` 或 device-resident CUDA 后端（`mjwarp`、`mtxwarp`）单 rank 显式 `mps` |
 | Learner 每次同步的行数 | `algo.batch_size * algo.updates_per_step` | 受 CUDA 显存预算约束 |
 
 除 `training.cuda_process_sharing` 外，所有值必须是精确的正整数。布尔值、字符串、

@@ -81,7 +81,7 @@ _OWNER_CASES = (
         ("task=go2_joystick_flat/motrix",),
         "motrix",
         0.25,
-        False,
+        True,
         True,
         False,
         id="appo-motrix",
@@ -271,7 +271,9 @@ def test_go2_flat_motrix_owner_uses_tensor_reset_events() -> None:
 
     assert env_cfg.events["reset_scene_to_default"].func is mdp.skip_scene_reset
     assert env_cfg.events["reset_root_state_uniform"].func is mdp.reset_root_state_uniform_fused
-    assert env_cfg.events["pd_gains"] is None
+    # kp/kd reset randomization is enabled like the MuJoCo owner: the MotrixSim
+    # 1.0.0 adapter declares the RESET_TERM_KP/KD reset terms.
+    assert env_cfg.events["pd_gains"] is not None
 
 
 @pytest.mark.parametrize(

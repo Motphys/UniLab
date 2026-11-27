@@ -47,6 +47,7 @@ _SUPPORTED_SIM_BACKENDS = (
     "genesis",
     "newton",
     "motrix",
+    "mtxwarp",
     "superdex",
     "drake",
     "isaacsim",

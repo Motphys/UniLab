@@ -1,7 +1,8 @@
 # @package _global_
 # FlashSAC Motrix owner: inherits the FlashSAC training budget from the
 # shared base and adopts the Motrix-direction reward retuning; kp/kd
-# randomization disabled.
+# randomization is enabled like the MuJoCo owner — the MotrixSim 1.0.0
+# adapter declares the RESET_TERM_KP/KD reset terms.
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -15,9 +16,6 @@ env:
       _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwnerCfg
       func: unilab.tasks.locomotion.g1.manager_terms.G1WalkResetOwner
       command_name: twist
-  events:
-    # kp/kd randomization stays disabled, matching the tuned walk baseline.
-    pd_gains: null
 reward:
   tracking_lin_vel:
     weight: 2.2

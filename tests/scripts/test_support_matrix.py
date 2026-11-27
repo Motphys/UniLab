@@ -180,7 +180,7 @@ def test_platform_profiles_keep_host_and_device_boundaries_fail_closed() -> None
         assert profile.data_plane.value == "host_bridge"
         assert profile.torch_devices == ("cpu", "cuda")
 
-    for backend in ("mjwarp", "newton", "genesis"):
+    for backend in ("mjwarp", "newton", "genesis", "mtxwarp"):
         profile = profiles[backend]
         assert profile.execution.value == "device_resident"
         assert profile.process_topology.value == "in_process"
@@ -198,10 +198,11 @@ def test_platform_profiles_keep_host_and_device_boundaries_fail_closed() -> None
     assert profiles["mujoco"].reset_randomization is SupportLevel.UNKNOWN
     assert profiles["mujoco"].fixed_variants is SupportLevel.UNKNOWN
     assert profiles["motrix"].reset_randomization is SupportLevel.UNKNOWN
+    assert profiles["motrix"].fixed_variants is SupportLevel.UNKNOWN
     assert profiles["mjwarp"].reset_randomization is SupportLevel.UNSUPPORTED
     for backend in ("newton", "genesis", "isaacgym", "isaacsim"):
         assert profiles[backend].reset_randomization is SupportLevel.EXACT
-    for backend in ("motrix", "drake", "superdex", "isaacgym", "isaacsim"):
+    for backend in ("mtxwarp", "drake", "superdex", "isaacgym", "isaacsim"):
         assert profiles[backend].fixed_variants is SupportLevel.UNSUPPORTED
 
 
@@ -336,6 +337,7 @@ def test_generated_support_matrix_exposes_manager_owner_backends() -> None:
     assert support_matrix.BACKENDS == (
         "mujoco",
         "motrix",
+        "mtxwarp",
         "drake",
         "mjwarp",
         "newton",

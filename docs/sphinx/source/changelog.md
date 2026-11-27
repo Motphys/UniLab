@@ -17,24 +17,62 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ### Added / 新增
 
-- Added the optional `mtxwarp` extra: `unilab[mtxwarp]` installs the
-  CUDA-resident MotrixSim runtime by delegating to `unisim-core[motrix-gpu]`
-  (Linux x86-64 with NVIDIA CUDA; `motrixsim-gpu==1.0.0` resolves
-  warp-lang 1.17.0). The UniLab registry and train/eval CLI do not expose the
-  `motrix_gpu` backend yet; this extra only provides the package install path
-  ahead of that enablement. To keep `mtxwarp` jointly installable with
-  `mjwarp`, the `mjwarp` extra's warp-lang pin relaxed from `==1.16.0` to
-  `>=1.15` (mujoco-warp 4.0.1's own upstream floor), and `mtxwarp` declares a
-  resolver conflict with `newton` (whose extra still pins warp-lang 1.16.0
-  exactly).
-  新增可选 `mtxwarp` extra：`unilab[mtxwarp]` 通过委托
-  `unisim-core[motrix-gpu]` 安装 CUDA-resident MotrixSim 运行时（Linux
-  x86-64 + NVIDIA CUDA；`motrixsim-gpu==1.0.0` 解析出 warp-lang
-  1.17.0）。UniLab registry 与 train/eval CLI 尚未开放 `motrix_gpu`
-  后端，该 extra 仅为后续启用提供安装路径。为使 `mtxwarp` 与 `mjwarp`
-  可同环境安装，`mjwarp` extra 的 warp-lang 约束由 `==1.16.0` 放宽为
-  `>=1.15`（mujoco-warp 4.0.1 的上游下限），同时 `mtxwarp` 与 `newton`
-  声明 resolver 冲突（newton extra 仍精确钉住 warp-lang 1.16.0）。
+- Added the CUDA-resident MotrixSim training backend under the UniLab name
+  `mtxwarp`, absorbing and reworking PR #2664: the backend registers in the
+  env registry and train/eval CLI, consumes the rank-local CUDA device and the
+  per-world contact/constraint capacities through the UniSim factory, and
+  ships one owner — SAC `g1_walk_flat` (`uv sync --extra mtxwarp`,
+  `uv run train --algo sac --task g1_walk_flat --sim mtxwarp`). The upstream
+  adapter keeps its pre-alignment name until unilabsim/unisim#578 renames it;
+  UniLab translates the name at the factory and support-matrix boundaries and
+  uses `mtxwarp` for every UniLab-facing name, config filename, and doc. PR
+  #2664's Go2 APPO and G1 Motion Tracking FlashSAC owners are not included;
+  their device-resident reset/curriculum bring-up can follow separately. The
+  `mjwarp` and `newton` warp-lang pins relax to `>=1.15` and `>=1.16.0`
+  instead of forcing an exact Warp alignment, so `mtxwarp` installs jointly
+  with `mjwarp` and `newton`; the intermediate `mtxwarp`-vs-`newton` resolver
+  conflict is dropped. `training.cuda_process_sharing=mps` (the user-managed
+  `uni-cumps` daemon) now admits `mtxwarp` next to `mjwarp`, with the
+  rank-local collector device resolved for the learner/collector pair. The
+  SAC `g1_walk_flat` owners also align with the MuJoCo owner where the
+  backend admits it: the motrix-family owners inherit the scalar
+  `tilt`/`base_height` terminations instead of the fused termination pack,
+  and they enable kp/kd reset randomization (`env.events.pd_gains`) like
+  the MuJoCo owners — the MotrixSim 1.0.0 adapter (CPU and CUDA) declares
+  the `RESET_TERM_KP/KD` reset terms, so the historical `pd_gains: null`
+  overrides were outdated and are removed from the SAC/PPO/APPO/FlashSAC
+  motrix owners; the `mjwarp`/`newton`/Isaac owners keep their own
+  rationales unchanged. SAC `g1_walk_flat` is recorded in the support matrix
+  as `Tested`: a maintainer validation on an RTX 4090 ran 300 iterations at
+  2048 envs (seed 7) on both `mtxwarp` and the CPU `motrix` owner, and the
+  reward curves align (mean reward 6.1 -> 14.6 vs 8.4 -> 15.2; episode
+  length 21 -> 57 s vs 30 -> 60 s over identical budgets).
+  新增 CUDA-resident MotrixSim 训练后端，UniLab 侧统一命名 `mtxwarp`（吸收
+  并改造 PR #2664）：该后端注册进 env registry 与 train/eval CLI，通过
+  UniSim factory 消费 rank-local CUDA 设备与逐环境接触/约束容量，并只携带
+  一个 owner——SAC `g1_walk_flat`（`uv sync --extra mtxwarp`，
+  `uv run train --algo sac --task g1_walk_flat --sim mtxwarp`）。上游
+  adapter 在 unilabsim/unisim#578 完成改名前保留原名称；UniLab 在 factory
+  与支持矩阵边界做名称翻译，所有 UniLab 侧名称、配置文件名与文档统一使用
+  `mtxwarp`。PR #2664 的 Go2 APPO 与 G1 Motion Tracking FlashSAC owner 不在
+  本次范围，其 device-resident reset/curriculum 启用可后续单独跟进。
+  `mjwarp` 与 `newton` 的 warp-lang 约束分别放宽为 `>=1.15` 与
+  `>=1.16.0`，不再强制精确对齐 Warp 版本，因此 `mtxwarp` 可与 `mjwarp`、
+  `newton` 同环境安装，中间的 `mtxwarp`-vs-`newton` resolver 冲突声明已
+  移除。`training.cuda_process_sharing=mps`（用户以 `uni-cumps` 管理的
+  daemon）现与 `mjwarp` 一并支持 `mtxwarp`，并为 learner/collector 进程对
+  解析 rank-local collector 设备。SAC `g1_walk_flat` 的各 owner 也在后端
+  能力允许范围内向 MuJoCo owner 看齐：CPU `motrix` 与 `mtxwarp` owner 均
+  继承标量 `tilt`/`base_height` termination（不再用 fused termination
+  pack），并像 MuJoCo owner 一样启用 kp/kd reset 随机化
+  （`env.events.pd_gains`）——MotrixSim 1.0.0 adapter（CPU 与 CUDA）声明了
+  `RESET_TERM_KP/KD` reset 项，历史上各 motrix owner 的 `pd_gains: null`
+  override（"tensor mask reset 不支持随机化"、"对齐调参基线"）已过时，从
+  SAC/PPO/APPO/FlashSAC motrix owner 中移除；`mjwarp`/`newton`/Isaac owner
+  各自的禁用理由不变。支持矩阵中 SAC `g1_walk_flat` 记为 `Tested`：maintainer 在 RTX
+  4090 上对 `mtxwarp` 与 CPU `motrix` owner 各跑了 300 iteration、2048
+  环境（seed 7），奖励曲线对齐（mean reward 6.1 -> 14.6 对比 8.4 ->
+  15.2；episode length 21 -> 57 s 对比 30 -> 60 s，预算完全相同）。
 
 ### Changed / 变更
 

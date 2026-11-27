@@ -30,7 +30,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
-SUPPORTED_CUDA_PROCESS_SHARING_BACKENDS = frozenset({"mjwarp"})
+# Device-resident CUDA tensor backends whose learner/collector two-process
+# rank topology benefits from MPS kernel overlap. CPU-authoritative HOST_BRIDGE
+# backends keep independent contexts.
+SUPPORTED_CUDA_PROCESS_SHARING_BACKENDS = frozenset({"mjwarp", "mtxwarp"})
 _DEFAULT_PIPE_DIRECTORY = "/tmp/nvidia-mps"
 _MPS_CONTROL_QUERY_TIMEOUT_SEC = 5.0
 
@@ -427,9 +430,11 @@ def probe_cuda_process_sharing(
 
     normalized_backend = str(backend).strip().lower()
     if normalized_backend not in SUPPORTED_CUDA_PROCESS_SHARING_BACKENDS:
+        supported = " and ".join(sorted(SUPPORTED_CUDA_PROCESS_SHARING_BACKENDS))
         raise ValueError(
-            "training.cuda_process_sharing='mps' supports only the mjwarp "
-            f"backend in this release; got training.sim_backend={backend!r}."
+            "training.cuda_process_sharing='mps' supports only the "
+            f"{supported} backends in this release; got "
+            f"training.sim_backend={backend!r}."
         )
     if platform.system() != "Linux":
         raise ValueError(
@@ -452,8 +457,8 @@ def probe_cuda_process_sharing(
     if collector_device is None:
         raise ValueError(
             "training.cuda_process_sharing='mps' requires a CUDA collector "
-            "process device; the mjwarp learner/collector rank-local binding "
-            "did not produce one."
+            "process device; the learner/collector rank-local binding did not "
+            "produce one."
         )
 
     learner_index = _cuda_index(str(learner_device), configured)

@@ -36,9 +36,10 @@ hold:
    backend does not support is set to `null` in that backend's owner while the
    shared base owner keeps it for the others.
 
-In-repo examples of this pattern: `src/unilab/conf/ppo/task/g1_walk_flat/motrix.yaml`
-and `.../mjwarp.yaml` set `pd_gains: null` while the MuJoCo owner keeps kp/kd
-randomization; `src/unilab/conf/sac/task/g1_motion_tracking/genesis.yaml` sets
+In-repo examples of this pattern: `src/unilab/conf/sac/task/g1_motion_tracking/motrix.yaml`
+sets `push_robot: null` (the owner does not declare the interval push), and
+`src/unilab/conf/ppo/task/g1_walk_flat/mjwarp.yaml` sets `pd_gains: null`,
+while the MuJoCo owner keeps kp/kd randomization; `src/unilab/conf/sac/task/g1_motion_tracking/genesis.yaml` sets
 `foot_friction: null` with a comment recording that Genesis has no
 per-environment friction API. The most complete worked owner example (mass,
 COM, gravity, push) is the `events:` block of
@@ -342,7 +343,7 @@ and interval push only (see {doc}`0-index`). Keep shared terms in the task
 `base.yaml`, declare `randomize_physics_scene_gravity` only in `mujoco.yaml`,
 and if the shared base declares it, set `randomize_physics_scene_gravity: null`
 in `motrix.yaml` — the same pattern as `pd_gains: null` in
-`src/unilab/conf/ppo/task/g1_walk_flat/motrix.yaml` and `.../mjwarp.yaml`.
+`src/unilab/conf/ppo/task/g1_walk_flat/mjwarp.yaml`.
 Leaving the term enabled for Motrix would fail closed at construction instead
 of being skipped.
 

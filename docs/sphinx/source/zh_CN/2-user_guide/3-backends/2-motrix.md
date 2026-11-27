@@ -1,5 +1,29 @@
 # Motrix 后端
 
+## Motrix Warp（CUDA-resident MotrixSim）
+
+安装 `mtxwarp` extra 并指定 `--sim mtxwarp`，即可让 MotrixSim 物理仿真
+和 Manager 张量使用同一张 NVIDIA CUDA 设备。该配置使用 MotrixSim 1.0.0
+与 Warp（warp-lang >= 1.15，由 CUDA 运行时解析为 1.17.0），支持 Linux
+x86_64，随 `unisim-core` 2.9.0 起可用。
+
+```bash
+uv sync --locked --extra mtxwarp
+uv run train --algo sac --task g1_walk_flat --sim mtxwarp
+```
+
+当前仅 SAC `g1_walk_flat` 一个 owner，与 MuJoCo owner 对齐：标量
+`tilt` / `base_height` termination 与 kp/kd reset 随机化
+（`env.events.pd_gains`）直接继承共享 base contract——CUDA MotrixSim
+adapter 声明了 `RESET_TERM_KP/KD` reset 项。后端参数声明逐环境接触与约束
+容量（256 个 contact、400 行 constraint），并使用比 CPU owner 更高的
+solver 迭代预算（`env.motrix_max_iterations: 10`）以保证接触稳定。该 owner
+使用即时执行的选行重置，以保留宿主机上的课程更新；调试时可用
+`env.autoreset_cuda_graph=false` 显式固定为即时路径。引擎支持范围见
+UniSim 支持矩阵；`mtxwarp` 与 `mjwarp` 可同环境安装。
+
+## MotrixSim CPU
+
 Motrix 是一个可选后端，通过 `motrix` extra 安装。该 extra 委托给
 `unisim-core[motrix]`，runtime 版本固定在 UniSim 的 `pyproject.toml`
 中，适配层位于 `unisim.backend.motrix` 下。

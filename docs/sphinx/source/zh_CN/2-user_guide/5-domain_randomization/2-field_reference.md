@@ -30,9 +30,10 @@ DR term 运行在三个生命周期类别下（见 {doc}`0-index` 的生命周�
    不支持的 term 在该 backend 的 owner 中置为 `null`，共享 base owner 为
    其余 backend 保留它。
 
-仓库内的该模式示例：`src/unilab/conf/ppo/task/g1_walk_flat/motrix.yaml` 与
-`.../mjwarp.yaml` 把 `pd_gains` 置为 `null`，而 MuJoCo owner 保留 kp/kd
-随机化；`src/unilab/conf/sac/task/g1_motion_tracking/genesis.yaml` 把
+仓库内的该模式示例：`src/unilab/conf/sac/task/g1_motion_tracking/motrix.yaml`
+将 `push_robot` 置为 `null`（该 owner 不声明 interval push），
+`src/unilab/conf/ppo/task/g1_walk_flat/mjwarp.yaml` 把 `pd_gains` 置为
+`null`，而 MuJoCo owner 保留 kp/kd 随机化；`src/unilab/conf/sac/task/g1_motion_tracking/genesis.yaml` 把
 `foot_friction` 置为 `null`，注释记录了 Genesis 没有逐环境 friction API。
 最完整的 owner 实例（mass、COM、gravity、push）是
 `src/unilab/conf/flashsac/task/go2_joystick_flat/mujoco.yaml` 的 `events:` 段。
@@ -319,8 +320,8 @@ owner 给 `base` 加 ±1.5 kg），`scale` 乘无量纲因子（SAC G1 Genesis o
 `base.yaml`，只在 `mujoco.yaml` 声明
 `randomize_physics_scene_gravity`；如果共享 base 已声明它，就在
 `motrix.yaml` 中设置 `randomize_physics_scene_gravity: null` —— 与
-`src/unilab/conf/ppo/task/g1_walk_flat/motrix.yaml` 和 `.../mjwarp.yaml`
-中 `pd_gains: null` 的模式相同。若让 Motrix 保留该 term，构造期会 fail
+`src/unilab/conf/ppo/task/g1_walk_flat/mjwarp.yaml` 中 `pd_gains: null`
+的模式相同。若让 Motrix 保留该 term，构造期会 fail
 closed 而不是被跳过。
 
 这些 term 背后的 payload 级契约见

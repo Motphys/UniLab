@@ -127,14 +127,15 @@ def test_enabled_probe_remains_nvidia_gated(linux_mps: Any) -> None:
         )
 
 
-def test_valid_single_rank_request_records_server_evidence(linux_mps: Any) -> None:
+@pytest.mark.parametrize("backend", ["mjwarp", "mtxwarp"])
+def test_valid_single_rank_request_records_server_evidence(linux_mps: Any, backend: str) -> None:
     _socket_control(linux_mps)
 
     evidence = probe_cuda_process_sharing(
         "mps",
         "cuda:0",
         "cuda:0",
-        backend="mjwarp",
+        backend=backend,
         torch_module=_torch("GPU-a"),
         run_command=_fake_commands(),
     )
@@ -197,7 +198,7 @@ def test_single_host_dp_rank_records_rank_scoped_evidence(linux_mps: Any) -> Non
     ("overrides", "message"),
     [
         ({"requested": "invalid"}, "expected null or 'mps'"),
-        ({"backend": "mujoco"}, "only the mjwarp backend"),
+        ({"backend": "mujoco"}, "only the mjwarp and mtxwarp backends"),
         ({"rank": 2, "world_size": 2}, "valid rank in"),
         ({"collector_device": None}, "requires a CUDA collector"),
         ({"learner_device": "cpu"}, "requires CUDA learner and collector"),
