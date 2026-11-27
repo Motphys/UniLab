@@ -16,7 +16,8 @@ task owner YAML；不要单独覆盖 `training.sim_backend`。
   为 SAC `g1_walk_flat` 和 FlashSAC `g1_motion_tracking`。
 - Motrix 需要 `motrix` extra，提供 CPU-authoritative packed HOST_BRIDGE；当前
   canonical 支持范围为 SAC `g1_walk_flat` 和 FlashSAC `g1_motion_tracking`。
-- Motrix Warp 需要 `mtxwarp` extra，在 NVIDIA CUDA 上运行物理仿真和 Manager 张量。
+- Motrix Warp 需要 `mtxwarp` extra，在 NVIDIA CUDA 上运行物理仿真和 Manager
+  张量；当前 canonical 支持范围为 FlashSAC `g1_motion_tracking`。
 - SuperDex 在 CPython 3.12/3.13 Linux x86_64 上需要 `superdex` extra，提供
   CPU-authoritative packed HOST_BRIDGE；当前范围为 Go2 configured research owner。
 - Drake 需要本地编译的 DrakeUni batch extension。其 scoped PPO
