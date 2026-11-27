@@ -21,6 +21,7 @@ import mujoco
 import numpy as np
 import trimesh
 import viser
+from unisim.visualization.mujoco_geom import geom_mesh
 
 # --------------------------------------------------------------------------- #
 # Rotation helpers (pure numpy, no scipy dependency)                          #
@@ -76,43 +77,6 @@ def _rgba_to_color(rgba: np.ndarray) -> tuple[int, int, int]:
 
 def _rgba_to_opacity(rgba: np.ndarray) -> float:
     return float(np.clip(rgba[3], 0.0, 1.0))
-
-
-def _extract_mesh(model: mujoco.MjModel, geom_dataid: int) -> tuple[np.ndarray, np.ndarray]:
-    """Extract vertices and faces for a MuJoCo mesh geom."""
-    vert_adr = model.mesh_vertadr[geom_dataid]
-    vert_num = model.mesh_vertnum[geom_dataid]
-    face_adr = model.mesh_faceadr[geom_dataid]
-    face_num = model.mesh_facenum[geom_dataid]
-
-    vertices = model.mesh_vert[vert_adr : vert_adr + vert_num].copy()
-    faces = model.mesh_face[face_adr : face_adr + face_num].copy()
-    return vertices, faces
-
-
-def _geom_mesh(model: mujoco.MjModel, geom_index: int) -> tuple[np.ndarray, np.ndarray] | None:
-    """Return a local mesh for a MuJoCo geom that can be batched by Viser."""
-    geom_type = model.geom_type[geom_index]
-    size = model.geom_size[geom_index]
-    if geom_type == mujoco.mjtGeom.mjGEOM_SPHERE:
-        mesh = trimesh.creation.icosphere(subdivisions=2, radius=float(size[0]))
-    elif geom_type == mujoco.mjtGeom.mjGEOM_CAPSULE:
-        mesh = trimesh.creation.capsule(height=float(size[1]) * 2.0, radius=float(size[0]))
-    elif geom_type == mujoco.mjtGeom.mjGEOM_ELLIPSOID:
-        mesh = trimesh.creation.icosphere(subdivisions=2, radius=1.0)
-        mesh.vertices *= np.asarray(size[:3], dtype=np.float64)
-    elif geom_type == mujoco.mjtGeom.mjGEOM_CYLINDER:
-        mesh = trimesh.creation.cylinder(radius=float(size[0]), height=float(size[1]) * 2.0)
-    elif geom_type == mujoco.mjtGeom.mjGEOM_BOX:
-        mesh = trimesh.creation.box(extents=np.asarray(size[:3], dtype=np.float64) * 2.0)
-    elif geom_type == mujoco.mjtGeom.mjGEOM_MESH:
-        dataid = int(model.geom_dataid[geom_index])
-        if dataid < 0:
-            return None
-        return _extract_mesh(model, dataid)
-    else:
-        return None
-    return np.asarray(mesh.vertices), np.asarray(mesh.faces)
 
 
 # MuJoCo's default scene option (mjvOption.geomgroup) enables geom groups
@@ -280,9 +244,9 @@ class MujocoViserScene:
                 )
 
             elif geom_type == mujoco.mjtGeom.mjGEOM_MESH:
-                dataid = model.geom_dataid[i]
-                if dataid >= 0:
-                    vertices, faces = _extract_mesh(model, dataid)
+                mesh = geom_mesh(model, i)
+                if mesh is not None:
+                    vertices, faces = mesh
                     handle = server.scene.add_mesh_simple(
                         name,
                         vertices=vertices.astype(np.float32),
@@ -382,10 +346,10 @@ class MujocoViserBatchScene:
                     grid.position = tuple(self._position_offsets[0])
                     self._grid_handles.append(grid)
                 continue
-            mesh_data = _geom_mesh(model, geom_index)
-            if mesh_data is None:
+            mesh = geom_mesh(model, geom_index)
+            if mesh is None:
                 continue
-            vertices, faces = mesh_data
+            vertices, faces = mesh
             count = len(self._models)
             positions = np.zeros((count, 3), dtype=np.float32)
             orientations = np.tile(np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32), (count, 1))

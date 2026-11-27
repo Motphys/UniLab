@@ -297,6 +297,18 @@ def test_play_interactive_viewer_model_uses_shared_render_playback_resolver(
     assert Path(resolved["tmp_dir"]).name.startswith("unilab-interactive-viewer-")
 
 
+def test_play_interactive_debug_overlays_bind_shared_unisim_conversion():
+    """The interactive viewer injects overlays through unisim's shared conversion."""
+    mod = _load_script("play_interactive")
+    shared = importlib.import_module("unisim.visualization.debug_primitives")
+
+    assert mod.append_debug_primitives is shared.append_debug_primitives
+    assert mod.segment_arrow is shared.segment_arrow
+    # The transitional UniLab injector is gone: no re-export, shim, or alias.
+    assert importlib.util.find_spec("unilab.visualization.debug_primitives") is None
+    assert not hasattr(mod, "append_debug_primitives_to_scene")
+
+
 def _minimal_playback_cfg() -> Any:
     return OmegaConf.create({"training": {"device": "cpu"}, "algo": {"algo": "ppo"}})
 

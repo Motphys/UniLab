@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from typing import Any
 
 import mujoco
 import numpy as np
+import pytest
+from unisim.visualization.mujoco_geom import geom_mesh
 
+from unilab.visualization import viser_scene
 from unilab.visualization.viser_scene import (
     MujocoViserBatchScene,
     MujocoViserScene,
@@ -28,6 +32,9 @@ class _FakeScene:
     def __init__(self) -> None:
         self.handles: list[_FakeHandle] = []
         self.up: str | None = None
+        self.grids: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        self.simple_meshes: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        self.batched_meshes: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
 
     def set_up_direction(self, value: str) -> None:
         self.up = value
@@ -38,7 +45,7 @@ class _FakeScene:
         return handle
 
     def add_grid(self, *args, **kwargs):
-        del args, kwargs
+        self.grids.append((args, kwargs))
         return self._handle()
 
     def add_icosphere(self, *args, **kwargs):
@@ -58,11 +65,11 @@ class _FakeScene:
         return self._handle()
 
     def add_mesh_simple(self, *args, **kwargs):
-        del args, kwargs
+        self.simple_meshes.append((args, kwargs))
         return self._handle()
 
     def add_batched_meshes_simple(self, *args, **kwargs):
-        del args, kwargs
+        self.batched_meshes.append((args, kwargs))
         return self._handle()
 
 
@@ -201,3 +208,91 @@ def test_mujoco_viser_batch_scene_hides_geom_groups_beyond_mujoco_default() -> N
 
     assert list(scene._handles) == [0]
     assert len(server.scene.handles) == 1
+
+
+def _every_meshable_geom_kind_xml() -> str:
+    # One geom per kind ``geom_mesh`` supports, behind a plane that the batch
+    # scene draws as a grid instead of a mesh.
+    return """
+    <mujoco>
+      <asset>
+        <mesh name="tetra" vertex="0 0 0 0.1 0 0 0 0.1 0 0 0 0.1" face="0 2 1 0 1 3 0 3 2 1 2 3"/>
+      </asset>
+      <worldbody>
+        <geom name="ground" type="plane" size="2 2 0.1"/>
+        <geom name="sphere" type="sphere" size="0.1"/>
+        <geom name="capsule" type="capsule" size="0.05 0.2"/>
+        <geom name="ellipsoid" type="ellipsoid" size="0.1 0.2 0.15"/>
+        <geom name="cylinder" type="cylinder" size="0.1 0.3"/>
+        <geom name="box" type="box" size="0.1 0.2 0.3"/>
+        <geom name="tetra" type="mesh" mesh="tetra"/>
+      </worldbody>
+    </mujoco>
+    """
+
+
+def _assert_carries_geom_mesh(
+    kwargs: dict[str, Any], model: mujoco.MjModel, geom_index: int
+) -> None:
+    """Check that ``kwargs`` hold the ``geom_mesh`` output of one geom, cast as today."""
+    vertices, faces = geom_mesh(model, geom_index)
+    assert kwargs["vertices"].dtype == np.float32
+    assert kwargs["faces"].dtype == np.int32
+    np.testing.assert_array_equal(kwargs["vertices"], vertices.astype(np.float32))
+    np.testing.assert_array_equal(kwargs["faces"], faces.astype(np.int32))
+
+
+def test_mujoco_viser_batch_scene_draws_every_geom_mesh_kind_through_geom_mesh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = mujoco.MjModel.from_xml_string(_every_meshable_geom_kind_xml())  # pyright: ignore[reportAttributeAccessIssue]
+    requested: list[int] = []
+
+    def recording_geom_mesh(model: mujoco.MjModel, geom_index: int):
+        requested.append(geom_index)
+        return geom_mesh(model, geom_index)
+
+    monkeypatch.setattr(viser_scene, "geom_mesh", recording_geom_mesh)
+    server = _FakeServer()
+    scene = MujocoViserBatchScene(server, [model])
+
+    # Every geom behind the plane is resolved by the shared helper, and only those.
+    assert requested == [1, 2, 3, 4, 5, 6]
+    assert list(scene._handles) == requested
+    assert [args for args, _ in server.scene.batched_meshes] == [
+        (f"/mujoco/batch/geom/{geom_index}",) for geom_index in requested
+    ]
+    for geom_index, (_, kwargs) in zip(requested, server.scene.batched_meshes, strict=True):
+        _assert_carries_geom_mesh(kwargs, model, geom_index)
+
+    # The plane is still one grid and nothing else: no scene node is created
+    # besides that grid and the six batched meshes.
+    assert [args for args, _ in server.scene.grids] == [("/mujoco/batch/ground",)]
+    _, grid_kwargs = server.scene.grids[0]
+    assert (grid_kwargs["width"], grid_kwargs["height"], grid_kwargs["cell_size"]) == (
+        4.0,
+        4.0,
+        0.5,
+    )
+    assert len(server.scene.handles) == len(server.scene.grids) + len(server.scene.batched_meshes)
+
+
+def test_mujoco_viser_scene_draws_mesh_geoms_through_geom_mesh() -> None:
+    model = mujoco.MjModel.from_xml_string(_every_meshable_geom_kind_xml())  # pyright: ignore[reportAttributeAccessIssue]
+    server = _FakeServer()
+    scene = MujocoViserScene(server, model, render_plane=True)
+
+    # The native Viser primitives keep drawing plane, sphere, capsule, ellipsoid,
+    # cylinder, and box; only the mesh geom goes through ``add_mesh_simple``.
+    assert list(scene._handles) == [0, 1, 2, 3, 4, 5, 6]
+    assert len(server.scene.simple_meshes) == 1
+    args, kwargs = server.scene.simple_meshes[0]
+    assert args == ("/mujoco/geom/6",)
+    _assert_carries_geom_mesh(kwargs, model, 6)
+
+    # A mesh geom without compiled mesh data is skipped, as before the switch.
+    model.geom_dataid[6] = -1
+    server = _FakeServer()
+    scene = MujocoViserScene(server, model, render_plane=False)
+    assert server.scene.simple_meshes == []
+    assert list(scene._handles) == [1, 2, 3, 4, 5]

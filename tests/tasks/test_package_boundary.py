@@ -40,15 +40,12 @@ _PRODUCTION_NUMPY_IMPORT_ALLOWLIST = {
     # Playback/rendering/visualization host formats.
     "src/unilab/scripts/play_interactive.py",
     "src/unilab/scripts/train_rsl_rl.py",
-    "src/unilab/visualization/debug_primitives.py",
     "src/unilab/visualization/interactive_playback.py",
     "src/unilab/visualization/playback.py",
-    "src/unilab/visualization/playback_clock.py",
     "src/unilab/visualization/playback_session.py",
     "src/unilab/visualization/playback_state.py",
     "src/unilab/visualization/viser_playback.py",
     "src/unilab/visualization/viser_scene.py",
-    "src/unilab/visualization/viser_utils.py",
     # Cold NPZ motion ingestion.
     *_RUNTIME_NUMPY_ALLOWLIST,
     # RL runtime NumPy leaves merged from unilab-rl (ADR-0016): replay ring,

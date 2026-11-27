@@ -15,30 +15,52 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
 
 ## Unreleased
 
-### Added / 新增
+### Changed / 变更
 
-- `unilab.visualization` gains shared offline Viser playback primitives,
-  ported from the downstream leanretarget audit: `PlaybackClock` maps
-  monotonic wall time onto an arbitrary non-uniform timestamp grid with
-  seek/play/speed control and loop-or-clamp ends
-  (`unilab/visualization/playback_clock.py`); `PlaybackTimelineGui` binds the
-  Frame slider plus Play/Speed/Loop GUI controls to one clock and centralizes
-  the serve-loop slider writeback pattern
-  (`unilab/visualization/viser_playback_controls.py`); and
-  `unilab/visualization/viser_utils.py` provides `set_handle_property`,
-  `nominal_fps`, `cylinder_transform`, and `scaled_vector_endpoint` for Viser
-  handle updates, nominal-rate estimation, and vector display geometry. No
-  existing UniLab behavior changes.
-  `unilab.visualization` 新增从下游 leanretarget 审计移植的离线 Viser
-  回放原语：`PlaybackClock` 将单调墙钟映射到任意非均匀时间戳网格，
-  支持 seek/play/speed 与 loop 或 clamp 末端
-  （`unilab/visualization/playback_clock.py`）；`PlaybackTimelineGui` 将
-  Frame slider 与 Play/Speed/Loop 控件绑定到一个时钟，并集中管理 serve
-  循环的 slider 回写模式
-  （`unilab/visualization/viser_playback_controls.py`）；
-  `unilab/visualization/viser_utils.py` 提供 `set_handle_property`、
-  `nominal_fps`、`cylinder_transform` 与 `scaled_vector_endpoint`，用于
-  Viser handle 更新、名义采样率估计与向量显示几何。现有 UniLab 行为不变。
+- The shared offline Viser playback primitives are no longer part of UniLab:
+  `PlaybackClock`, `PlaybackTimelineGui`, `set_handle_property`,
+  `nominal_fps`, `cylinder_transform`, and `scaled_vector_endpoint` were moved
+  to `unisim.visualization` (`playback_clock`, `viser_playback_controls`,
+  `viser_utils`) before their first UniLab release, with their public names and
+  semantics unchanged. `unilab.visualization.playback_clock`,
+  `viser_playback_controls`, and `viser_utils` are removed with no re-export,
+  shim, or alias; import them from `unisim.visualization` instead, installing
+  Viser through the optional `unisim-core[viz]` extra when a viewer hosts a
+  real server. UniLab keeps its own `viser` dependency for its existing
+  viewers, and no existing UniLab behavior changes
+  ([#2660](https://github.com/Motphys/UniLab/issues/2660)).
+  共享的离线 Viser 回放原语不再属于 UniLab：`PlaybackClock`、
+  `PlaybackTimelineGui`、`set_handle_property`、`nominal_fps`、
+  `cylinder_transform` 与 `scaled_vector_endpoint` 在首次随 UniLab 发版之前
+  已迁至 `unisim.visualization`（`playback_clock`、`viser_playback_controls`、
+  `viser_utils`），公共名称与语义保持不变。
+  `unilab.visualization.playback_clock`、`viser_playback_controls` 与
+  `viser_utils` 已移除，不保留 re-export、shim 或 alias；请改为从
+  `unisim.visualization` 导入，viewer 需要托管真实 server 时通过可选的
+  `unisim-core[viz]` extra 安装 Viser。UniLab 现有 viewer 继续使用自身的
+  `viser` 依赖，现有 UniLab 行为不变
+  （[#2660](https://github.com/Motphys/UniLab/issues/2660)）。
+
+- `viser_scene` consumes the unified MuJoCo geom-to-mesh primitive
+  `unisim.visualization.mujoco_geom.geom_mesh` instead of its private
+  `_geom_mesh`/`_extract_mesh` helpers (batched-viewer output is unchanged),
+  and `unilab.visualization.debug_primitives` is removed in favor of
+  `unisim.visualization.debug_primitives` (ADR-0008): `play_interactive.py`
+  builds `DebugPrimitive` lists and injects them with
+  `append_debug_primitives(viewer.user_scn, [primitives])`, with no re-export,
+  shim, or alias. The duck-typed `line` kind used by task-owned ray overlays
+  is drawn by the shared unisim conversion. It requires `unisim-core` 2.8.6, which
+  this release pins ([#2660](https://github.com/Motphys/UniLab/issues/2660)).
+  `viser_scene` 改用统一的 MuJoCo geom 到 mesh 原语
+  `unisim.visualization.mujoco_geom.geom_mesh`，不再保留私有的
+  `_geom_mesh`/`_extract_mesh`（批量 viewer 的输出不变）；同时移除
+  `unilab.visualization.debug_primitives`，改为使用
+  `unisim.visualization.debug_primitives`（ADR-0008）：`play_interactive.py`
+  只构造 `DebugPrimitive` 列表，并通过
+  `append_debug_primitives(viewer.user_scn, [primitives])` 注入，不保留
+  re-export、shim 或 alias。task 侧 ray overlay 使用的 duck-typed `line`
+  种类由 unisim 的共享转换绘制。该变更依赖 `unisim-core` 2.8.6，本版本
+  已固定到该版本（[#2660](https://github.com/Motphys/UniLab/issues/2660)）。
 
 ### Fixed / 修复
 

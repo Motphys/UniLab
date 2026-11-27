@@ -132,16 +132,40 @@ record 管线各自维护了一套互不兼容的绘制代码。
 
 - env 契约: `src/unilab/base/base.py`, `src/unilab/base/torch_env.py`
 - 任务 overlay 发现: `src/unilab/envs/manager_based_rl_env.py`（`get_playback_debug_overlays`）
-- 交互注入器: `src/unilab/visualization/debug_primitives.py`
+- 交互注入: `src/unilab/scripts/play_interactive.py`（构造 `DebugPrimitive` 并委托
+  `unisim.visualization.debug_primitives.append_debug_primitives`，见下方 Amendment）
 - 可嵌入 session: `src/unilab/visualization/playback_session.py`
 - camera 归一化: `src/unilab/visualization/playback.py`
 - 交互 viewer 迁移: `src/unilab/scripts/play_interactive.py`
 - 训练入口迁移: `src/unilab/scripts/train_rsl_rl.py`, `src/unilab/scripts/train_appo.py`, `src/unilab/scripts/train_offpolicy.py`
 - 上游契约: `unisim.backend.base`（`DebugPrimitive`, `CameraCfg`, `DebugOverlayGetter`, `validate_debug_overlays`, `BackendPlayCapabilities.supports_debug_overlay` / `supports_interactive_debug_overlay`）
-- 测试: `tests/visualization/test_debug_primitives.py`, `tests/visualization/test_playback_session.py`, `tests/base/test_torch_env.py`, `tests/envs/test_manager_based_rl_env.py`（overlay 聚合）
+- 测试: `tests/scripts/test_visualization_entrypoints.py`（交互注入委托）,
+  `tests/visualization/test_playback_session.py`, `tests/base/test_torch_env.py`,
+  `tests/envs/test_manager_based_rl_env.py`（overlay 聚合）; 注入转换本身的覆盖位于
+  unisim（`tests/contract/test_debug_primitives.py`）
 
 ## Related Documents
 
 - {doc}`ADR Index </adr/README>`
 - {doc}`ADR-0002 Backend Capability Boundary For Play And Snapshot </adr/ADR-0002-backend-capability-boundary-for-play-and-snapshot>`
 - {doc}`ADR-0007 UniSim Extraction Boundary </adr/ADR-0007-unisim-extraction-boundary>`
+
+## Amendment: 交互注入器委托 unisim
+
+- Status: Accepted
+- Date: 2026-11-27
+- Issue: [#2660](https://github.com/Motphys/UniLab/issues/2660)
+- Scope: 仅修订本 ADR 中交互注入器的归属（Decision 3 与 Consequences 里的“过渡
+  实现”）；叠加层数据契约、capability 门控、`SnapshotPlaybackSession` 与 camera
+  归一化不变。
+
+unisim 已按 Consequences 的建议形态暴露公共 interactive-path helper：
+`unisim.visualization.debug_primitives.append_debug_primitives(scene, overlays, *,
+offsets=None, mesh_ids=None, mesh_materials=None)`，并提供 `segment_arrow` 与
+`quat_from_z_axis`。同一份转换也服务离线渲染 worker（`render_many` 复用它），而该模块
+本身不触发 `render_many` 的 GL 探测。过渡注入器
+`unilab/visualization/debug_primitives.py` 已删除，不留 re-export、shim 或 alias：
+`play_interactive.py` 只构造 `DebugPrimitive` 列表，并以单 env 的 per-env 形态调用
+`append_debug_primitives(viewer.user_scn, [primitives])`。task 侧 ray overlay 使用的
+duck-typed `line` 种类由 unisim 的共享转换负责绘制；`validate_debug_overlays` 仍只放行
+真正的 `DebugPrimitive`，因此离线录制路径不变。
