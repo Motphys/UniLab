@@ -59,7 +59,12 @@ class EnvCfg:
     superdex_assets_root: Optional[str] = None
     superdex_effort_limits: Optional[list[float]] = None
     superdex_allow_contact_approximation: bool = False
-    motrix_max_iterations: Optional[int] = None
+    # MotrixSim constraint-solver iterations per step. The default of 3 keeps
+    # task owners on the historical adapter-side budget: unisim-core 2.9.0
+    # preserves the authored/imported ``<option iterations>`` when this is
+    # None, while pre-2.9.0 adapters always forced 3. Set an explicit value
+    # per owner (or null to adopt the authored XML value).
+    motrix_max_iterations: Optional[int] = 3
     # Explicit CPU block owned by this env's process (Linux affinity only).
     # ``cpu_ids[i]`` pins MuJoCo BatchEnvPool worker thread ``i`` to one CPU,
     # and likewise pins MotrixSim's shared worker pool to the listed cores

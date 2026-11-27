@@ -2,7 +2,7 @@
 
 MuJoCo is the default backend path in the committed owner configs. On Python
 3.11 and newer, the `mujoco` extra installs the official `mujoco` package
-(`~=4.0.1`) plus the published `mjbatch-uni==0.3.1` native batch engine, with
+(`~=4.0.1`) plus the published `mjbatch-uni==0.3.3` native batch engine, with
 exact versions pinned by the committed `uv.lock`. The adapter lives under
 `unisim.backend.mujoco`.
 
@@ -30,7 +30,7 @@ rather than opening the Motrix native interactive renderer.
 ## Switching MuJoCo Versions
 
 On Python 3.11 and newer, pyproject constrains `mujoco~=4.0.1` and pins
-`mjbatch-uni==0.3.1`; the committed `uv.lock` pins the exact default versions,
+`mjbatch-uni==0.3.3`; the committed `uv.lock` pins the exact default versions,
 and uv's prefer-locked semantics keep ordinary relocks from drifting. The
 `mjbatch` engine records its build-time `mujoco` version and refuses to import
 against a different one (fail-closed, never a silent behavior change).
