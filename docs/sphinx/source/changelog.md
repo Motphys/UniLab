@@ -13,6 +13,27 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased
+
+### Fixed / 修复
+
+- CUDA graph capture of the autoreset segment (`env.autoreset_cuda_graph`) no
+  longer fails with `CUDA error: operation failed due to a previous error
+  during capture` in a process that has already closed another environment. A
+  cyclic garbage collection landing inside the capture could finalize that
+  earlier environment, and destroying its captured `torch.cuda.CUDAGraph` or
+  the mjwarp backend's pinned host caches is rejected during capture and
+  invalidates it. `AutoresetGraph` now collects pending cyclic garbage before
+  the capture and suspends the cyclic collector for its duration
+  ([#2668](https://github.com/Motphys/UniLab/issues/2668)).
+  autoreset 段（`env.autoreset_cuda_graph`）的 CUDA graph 捕获不再在同一进程已关闭
+  另一个环境时以 `CUDA error: operation failed due to a previous error during
+  capture` 失败：落在捕获期间的循环垃圾回收可能终结更早的环境，而销毁其已捕获的
+  `torch.cuda.CUDAGraph` 或 mjwarp 后端的 pinned host 缓存在捕获期间会被拒绝，
+  并使该捕获失效。`AutoresetGraph` 现在会在捕获前回收待处理的循环垃圾，并在
+  捕获期间挂起循环垃圾回收器
+  （[#2668](https://github.com/Motphys/UniLab/issues/2668)）。
+
 ## 1.6.4 (2026-11-28)
 
 ### Added / 新增
