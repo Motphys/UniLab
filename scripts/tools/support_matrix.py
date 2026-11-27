@@ -11,30 +11,37 @@ from omegaconf import OmegaConf
 from unisim.support import TensorPlatformProfile, get_tensor_platform_profiles
 
 from unilab.base import registry
+from unilab.base.process_device import unilab_backend_name, unisim_adapter_name
 from unilab.base.registry import ensure_registries
 
 BEGIN_MARKER = "<!-- BEGIN GENERATED SUPPORT MATRIX -->"
 END_MARKER = "<!-- END GENERATED SUPPORT MATRIX -->"
 # UniSim owns the reviewed tensor adapter inventory. Isaac backends are explicit
 # external-worker owners whose task cells remain registry/config/evidence-gated.
+# UniLab exposes the upstream ``motrix_gpu`` adapter under the name ``mtxwarp``
+# (rename tracked at unilabsim/unisim#578), so inventory keys are translated at
+# the matrix boundary.
 _ALL_BACKENDS: tuple[str, ...] = tuple(get_tensor_platform_profiles())
+_SUPPORTED_UNILAB_BACKENDS = {
+    "mujoco",
+    "mjwarp",
+    "genesis",
+    "newton",
+    "motrix",
+    "mtxwarp",
+    "superdex",
+    "drake",
+    "isaacgym",
+    "isaacsim",
+}
 BACKENDS: tuple[str, ...] = tuple(
-    backend
+    unilab_backend_name(backend)
     for backend in _ALL_BACKENDS
-    if backend
-    in {
-        "mujoco",
-        "mjwarp",
-        "genesis",
-        "newton",
-        "motrix",
-        "superdex",
-        "drake",
-        "isaacgym",
-        "isaacsim",
-    }
+    if unilab_backend_name(backend) in _SUPPORTED_UNILAB_BACKENDS
 )
-SHELVED_BACKENDS = frozenset(_ALL_BACKENDS) - frozenset(BACKENDS)
+SHELVED_BACKENDS = frozenset(_ALL_BACKENDS) - frozenset(
+    unisim_adapter_name(backend) for backend in BACKENDS
+)
 
 # Issue-gated M9 candidate owners (#1674) are benchmark/test fixtures,
 # not support claims.  Exclude them from the generated matrix until those
@@ -260,10 +267,28 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
     return entries
 
 
+# Maintainer-confirmed completed training validations for the CUDA MotrixSim
+# runtime. Entries are added only after a completed short run evidences reward
+# parity with the CPU Motrix owner for the same task. SAC g1_walk_flat, 300
+# iterations at 2048 envs (seed 7, RTX 4090): mean reward 6.1 -> 14.6 and
+# episode length 21 -> 57, tracking the motrix CPU owner's 8.4 -> 15.2 and
+# 30 -> 60 over the same budget.
+_MAINTAINER_VALIDATED_MTXWARP_ENTRYPOINT_TASKS = frozenset(
+    {
+        ("sac_torch", "g1_walk_flat"),
+    }
+)
+
+
 def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -> bool:
     if backend == "superdex":
         # Bounded native smoke/short training does not establish full training support.
         return False
+    if backend == "mtxwarp":
+        return (
+            spec.entrypoint_id,
+            task_slug,
+        ) in _MAINTAINER_VALIDATED_MTXWARP_ENTRYPOINT_TASKS
     if backend == "mjwarp":
         return (
             spec.entrypoint_id,
@@ -385,6 +410,7 @@ def _backend_label(backend: str) -> str:
         "mujoco": "MuJoCo",
         "mjwarp": "mjwarp",
         "motrix": "Motrix",
+        "mtxwarp": "Motrix Warp",
         "isaacgym": "IsaacGym",
         "genesis": "Genesis",
         "isaacsim": "IsaacSim",
@@ -449,7 +475,7 @@ def render_support_matrix(root: Path | None = None, language: str = "zh") -> str
         ]
 
     for backend in BACKENDS:
-        profile = profiles[backend]
+        profile = profiles[unisim_adapter_name(backend)]
         lines.append(
             f"| `{backend}` | {platform_display(profile, language)} | "
             f"{' / '.join(label.upper() for label in profile.torch_devices)} | "

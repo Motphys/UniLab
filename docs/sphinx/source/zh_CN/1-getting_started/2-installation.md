@@ -125,10 +125,10 @@ uv sync --extra newton
 | Motrix | `uv sync --extra motrix` | CPU-authoritative MotrixSim 与 packed Torch HOST_BRIDGE 传输 |
 | Drake | `make setup-drake` | 本地 Drake C++ 前缀与 DrakeUni native batch extension；当前 scoped 到 PPO `go2_joystick_flat` |
 
-CUDA-resident MotrixSim 运行时另有仅安装包的路径：`uv sync --extra
-mtxwarp`（委托 `unisim-core[motrix-gpu]`；Linux x86-64 + NVIDIA CUDA）。UniLab
-registry 与 train/eval CLI 尚未开放 `motrix_gpu` 后端，该 extra 仅为后续启用
-提前准备好环境。
+CUDA-resident MotrixSim 运行时另有安装包路径：`uv sync --extra
+mtxwarp`（委托 UniSim 的 CUDA MotrixSim extra；Linux x86-64 + NVIDIA
+CUDA）。UniLab 侧统一使用 `mtxwarp` 命名；上游 extra 改名对齐见
+unilabsim/unisim#578。
 
 `isaacgym`、`isaacsim` 与 `superdex` 适配器在 issue #1811 期间由
 `unisim-core` 暂时搁置。它们的 extras 和历史后端页面不构成生产支持声明；

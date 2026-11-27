@@ -73,6 +73,7 @@ uv run scripts/generate_support_matrix.py --write
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `mujoco` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge with explicit ROCm Torch buffers (`cuda`) | In-process; no external Python worker | unknown | unknown | 不支持 | 支持 |
 | `motrix` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge with explicit ROCm Torch buffers (`cuda`) | In-process; no external Python worker | unknown | unknown | 不支持 | 支持 |
+| `mtxwarp` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux x86-64 CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 支持 | 不支持 | 不支持 | 不支持 |
 | `drake` | Host bridge / in-process / host bridge | CPU / CUDA | Required only when the learner requests CUDA state/control buffers | Supported: CPU-authoritative physics with optional CUDA Torch buffers | CPU-authoritative host bridge only; no CUDA physics claim | CPU-authoritative host bridge with explicit ROCm Torch buffers (`cuda`) | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 支持 |
 | `mjwarp` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 不支持 | 不支持 | 不支持 | 不支持 |
 | `newton` | Device-resident / in-process / direct | CUDA | Required for the entire tensor lifecycle | Supported: Linux CUDA only | Unsupported; no CPU, MPS, or ROCm fallback | Unsupported; no CPU, MPS, or ROCm fallback | In-process; no external Python worker | 支持 | 不支持 | 不支持 | 不支持 |
@@ -85,19 +86,19 @@ uv run scripts/generate_support_matrix.py --write
 
 ### Entrypoint x Task Owner
 
-| Entrypoint | Task owner | MuJoCo | Motrix | Drake | mjwarp | Newton | SuperDex | Genesis | IsaacGym | IsaacSim |
-|------------|------------|---|---|---|---|---|---|---|---|---|
-| PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested | Configured | - | - | Configured | - | - | - |
-| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | Tested | Registered | - | Configured | Registered | Registered |
-| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | Registered | Registered | - | Registered | - | - |
-| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested | Registered | - | - | Registered | - | - | - |
-| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | - | Registered | Registered | - | Registered | Registered | Registered |
-| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | Registered | Registered | - | Registered | - | - |
-| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | Tested | Tested | - | Tested | Tested | Tested |
-| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | Configured | Registered | - | Configured | - | - |
-| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered | Registered | - | - | Registered | - | - | - |
-| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | - | Configured | Registered | - | Registered | Registered | Registered |
-| FlashSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | Configured | Configured | - | Configured | - | - |
+| Entrypoint | Task owner | MuJoCo | Motrix | Motrix Warp | Drake | mjwarp | Newton | SuperDex | Genesis | IsaacGym | IsaacSim |
+|------------|------------|---|---|---|---|---|---|---|---|---|---|
+| PPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested | - | Configured | - | - | Configured | - | - | - |
+| PPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Registered | - | Tested | Registered | - | Configured | Registered | Registered |
+| PPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | Registered | Registered | - | Registered | - | - |
+| APPO (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Tested | - | Registered | - | - | Registered | - | - | - |
+| APPO (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Registered | Registered | - | Registered | Registered | - | Registered | Registered | Registered |
+| APPO (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | Registered | Registered | - | Registered | - | - |
+| SAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Tested | - | Tested | Tested | - | Tested | Tested | Tested |
+| SAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | Configured | Registered | - | Configured | - | - |
+| FlashSAC (torch) | `go2_joystick_flat` (Go2 joystick) | Tested | Registered | - | Registered | - | - | Registered | - | - | - |
+| FlashSAC (torch) | `g1_walk_flat` (G1 walk flat) | Tested | Tested | Registered | - | Configured | Registered | - | Registered | Registered | Registered |
+| FlashSAC (torch) | `g1_motion_tracking` (G1 motion tracking) | Tested | Tested | - | - | Configured | Configured | - | Configured | - | - |
 
 ### Source Index
 

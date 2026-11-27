@@ -31,6 +31,7 @@ class _Vec3SensorTerm(SensorTermBase):
     """Bind one named vec3 sensor on the cold path and read it per step."""
 
     _allowed_params: ClassVar[frozenset[str]] = frozenset({"sensor_name"})
+    supports_reset_selection = True
 
     def __init__(self, cfg: ManagerTermBaseCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)

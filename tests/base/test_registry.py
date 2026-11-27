@@ -267,6 +267,7 @@ def test_default_backend_order_is_tensor_manager_scope():
         "genesis",
         "newton",
         "motrix",
+        "mtxwarp",
         "superdex",
     )
 

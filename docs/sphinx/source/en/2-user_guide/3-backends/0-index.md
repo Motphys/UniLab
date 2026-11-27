@@ -1,7 +1,7 @@
 # Simulation Backends
 
 The tensor-only Manager runtime exposes `mujoco`, `mjwarp`, `genesis`, `newton`,
-`motrix`, `superdex`, the scoped Drake owner, and the explicit external-worker
+`motrix`, `mtxwarp`, `superdex`, the scoped Drake owner, and the explicit external-worker
 Isaac owners described below. User commands select one with `--sim`, which routes
 to the matching task owner YAML; do not switch a run by overriding
 `training.sim_backend` alone.
@@ -19,6 +19,8 @@ to the matching task owner YAML; do not switch a run by overriding
 - Motrix requires the `motrix` extra and provides a CPU-authoritative packed
   HOST_BRIDGE; the current canonical support scope is SAC `g1_walk_flat` and
   FlashSAC `g1_motion_tracking`.
+- Motrix Warp requires the `mtxwarp` extra and runs physics and Manager tensors
+  on NVIDIA CUDA.
 - SuperDex requires the `superdex` extra on CPython 3.12/3.13 Linux x86_64 and
   provides a CPU-authoritative packed HOST_BRIDGE; the current scope is the
   configured Go2 research owner.
@@ -39,6 +41,7 @@ to the matching task owner YAML; do not switch a run by overriding
 | Genesis | Linux x86_64 | Required: NVIDIA GPU and driver; only the `gs.gpu` channel is validated |
 | Newton | Linux | Required: NVIDIA CUDA; the selected-reset lane is device-resident |
 | Motrix | Linux / macOS / Windows | CPU-authoritative physics; Torch CUDA buffers are optional |
+| Motrix Warp | Linux x86_64 | Required: NVIDIA CUDA; device-resident state and reset |
 | SuperDex | Linux x86_64 (CPython 3.12/3.13) | CPU-authoritative physics; Torch CUDA buffers are optional |
 | Drake | Linux x86_64 / Apple Silicon macOS | CPU-authoritative physics; Torch CUDA buffers are optional |
 | IsaacGym | Linux | Required: external Python 3.8 worker and NVIDIA CUDA |
@@ -60,7 +63,7 @@ the algorithm in `--algo`, not in `--task`.
 | --- | --- |
 | Default path or broadest owner coverage | MuJoCo |
 | MuJoCo-only tools such as `scripts/play_viser.py` | MuJoCo |
-| Device-resident tensor owner | MJWarp, Genesis, or Newton, when the task support matrix marks the combination supported |
+| Device-resident tensor owner | MJWarp, Genesis, Newton, or Motrix Warp, as listed in the task support matrix |
 | CPU-authoritative packed HOST_BRIDGE | Motrix; SuperDex or scoped Drake for their configured research owners |
 
 The support matrix is generated from registry, owner YAML, and tests; use it as

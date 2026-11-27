@@ -560,6 +560,7 @@ def test_g1_walk_registries_are_manager_only() -> None:
             "genesis",
             "newton",
             "motrix",
+            "mtxwarp",
             "isaacsim",
             "isaacgym",
         ],

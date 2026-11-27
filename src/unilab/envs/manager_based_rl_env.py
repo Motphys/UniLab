@@ -927,13 +927,14 @@ class ManagerBasedRlEnv(TorchEnv):
                 )
             names = tuple(sensor_names)
             if narrow:
+                names = self._resolve_packed_sensor_names(
+                    command_term, names, "command", name, require_all=True
+                )
                 self._require_device_resident_sensors(names, f"command term '{name}'")
             elif capabilities.packed_host_bridge:
-                # Only HOST_BRIDGE packs need backend-local aliases. Device-
-                # resident plans consume the term's canonical semantic names.
-                names = self._resolve_host_bridge_sensor_names(
-                    self.command_manager.get_term(name),
-                    tuple(sensor_names),
+                names = self._resolve_packed_sensor_names(
+                    command_term,
+                    names,
                     "command",
                     name,
                 )
@@ -988,20 +989,20 @@ class ManagerBasedRlEnv(TorchEnv):
                 f"sensors {missing} required by {term_label}"
             )
 
-    def _resolve_host_bridge_sensor_names(
+    def _resolve_packed_sensor_names(
         self,
         term: Any,
         requested: tuple[str, ...],
         manager_name: str,
         term_name: str,
+        *,
+        require_all: bool = False,
     ) -> tuple[str, ...]:
-        """Negotiate optional packed reads against available named sensors.
+        """Negotiate packed reads against the scene's named sensor inventory.
 
-        Optional ``tensor_sensor_names`` describe a device-plane optimization,
-        not the semantic term contract. A HOST_BRIDGE packet must contain only
-        backend-native sensor names (Go2 exposes ``local_linvel`` while G1
-        exposes ``pelvis_local_linvel``), so unavailable names retain their
-        validated public host-carrier implementation.
+        A Go2 scene exposes ``local_linvel`` where a G1 scene exposes
+        ``pelvis_local_linvel``. Unresolved DEVICE_RESIDENT names are kept
+        for validation. HOST_BRIDGE can omit unavailable optional reads.
         """
         aliases = getattr(term, "packed_sensor_aliases", None)
         if aliases is None:
@@ -1018,18 +1019,29 @@ class ManagerBasedRlEnv(TorchEnv):
                 f"'{term_name}' must map canonical names to sequences of names; "
                 f"got {aliases!r}"
             )
-        candidates = tuple(dict.fromkeys(name for alias in aliases.values() for name in alias))
-        available = self._available_entity_sensors(candidates)
+        candidates = tuple(
+            dict.fromkeys(local for name in requested for local in aliases.get(name, (name,)))
+        )
+        inventory = self._published_device_resident_sensors() if require_all else None
+        available = (
+            inventory if inventory is not None else self._available_entity_sensors(candidates)
+        )
         resolved: list[str] = []
         for name in requested:
             if name in resolved:
                 continue
-            for local_name in aliases.get(name, (name,)):
-                if local_name in resolved:
-                    continue
-                if local_name in available:
-                    resolved.append(local_name)
-                    break
+            local = next(
+                (
+                    alias
+                    for alias in aliases.get(name, (name,))
+                    if alias in available and alias not in resolved
+                ),
+                None,
+            )
+            if local is None and require_all:
+                local = name
+            if local is not None and local not in resolved:
+                resolved.append(local)
         return tuple(resolved)
 
     def _available_entity_sensors(self, names: tuple[str, ...]) -> set[str]:

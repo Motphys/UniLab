@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import torch
 
-from unilab.base.reset_selection import ResetSelection
+from unilab.base.reset_selection import ResetSelection, reset_selection_capable
 from unilab.base.reset_selectors import ResetMaskBuffer
 from unilab.managers.event_manager import EventTermCfg
 from unilab.managers.manager_base import ManagerTermBase
@@ -1591,6 +1591,8 @@ class PushBySettingVelocity(ManagerTermBase):
     on a term constructed without them fails closed at apply time.
     """
 
+    supports_reset_selection = True
+
     def __init__(self, cfg: EventTermCfg, env: ManagerBasedRlEnv):
         super().__init__(env)
         term_name = "push_by_setting_velocity"
@@ -2198,9 +2200,10 @@ def _bind_root_reset() -> _RootResetFn:
     return _root_reset_compiled
 
 
+@reset_selection_capable
 def reset_root_state_uniform_fused(
     env: ManagerBasedRlEnv,
-    env_ids: torch.Tensor,
+    env_ids: torch.Tensor | ResetSelection,
     pose_range: dict[str, tuple[float, float]],
     velocity_range: dict[str, tuple[float, float]] | None = None,
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
@@ -2250,11 +2253,12 @@ def reset_root_state_uniform_fused(
     asset.write_root_state_tensor_to_sim(root_state, reset_mask)
 
 
+@reset_selection_capable
 def skip_scene_reset(
     env: ManagerBasedRlEnv,
-    env_ids: torch.Tensor,
+    env_ids: torch.Tensor | ResetSelection,
 ) -> None:
-    """No-op reset hook for the canonical MJWarp reset scene term."""
+    """No-op scene hook when a reset event writes the complete state."""
     del env, env_ids
 
 

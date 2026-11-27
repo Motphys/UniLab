@@ -78,6 +78,14 @@ class EnvCfg:
     # device profile never relies on an implicit backend-wide allocation size.
     mjwarp_nconmax: Optional[int] = None
     mjwarp_njmax: Optional[int] = None
+    # ``mtxwarp`` uses the rank-local CUDA device and owns its per-world
+    # contact and constraint-row storage.
+    mtxwarp_device: Optional[str] = None
+    # MotrixSim's conservative estimate is small for a contact-rich humanoid, so
+    # the owner profile declares the capacities explicitly like ``mjwarp``.
+    mtxwarp_max_contacts: Optional[int] = None
+    mtxwarp_max_contact_constraints: Optional[int] = None
+    mtxwarp_max_convexhull_pairs: Optional[int] = None
     # ``newton`` owns MuJoCo-Warp 3.11 capacity and requires explicit CUDA
     # placement; the process binder supplies the rank-local device when unset.
     newton_device: Optional[str] = None
@@ -171,6 +179,11 @@ class EnvCfg:
         for name, value in (
             ("mjwarp_nconmax", self.mjwarp_nconmax),
             ("mjwarp_njmax", self.mjwarp_njmax),
+            ("mtxwarp_max_contacts", self.mtxwarp_max_contacts),
+            (
+                "mtxwarp_max_contact_constraints",
+                self.mtxwarp_max_contact_constraints,
+            ),
             ("newton_nconmax", self.newton_nconmax),
             ("newton_njmax", self.newton_njmax),
         ):
@@ -178,13 +191,24 @@ class EnvCfg:
                 isinstance(value, bool) or not isinstance(value, int) or value <= 0
             ):
                 raise ValueError(f"{name} must be a positive integer or None, got {value!r}")
-        if self.newton_device is not None and (
-            not isinstance(self.newton_device, str) or not self.newton_device.strip()
+        max_convexhull_pairs = self.mtxwarp_max_convexhull_pairs
+        if max_convexhull_pairs is not None and (
+            isinstance(max_convexhull_pairs, bool)
+            or not isinstance(max_convexhull_pairs, int)
+            or max_convexhull_pairs < 0
         ):
             raise ValueError(
-                "newton_device must be a non-empty CUDA device string or None, "
-                f"got {self.newton_device!r}"
+                "mtxwarp_max_convexhull_pairs must be a non-negative integer "
+                f"or None, got {max_convexhull_pairs!r}"
             )
+        for name, value in (
+            ("mtxwarp_device", self.mtxwarp_device),
+            ("newton_device", self.newton_device),
+        ):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(
+                    f"{name} must be a non-empty CUDA device string or None, got {value!r}"
+                )
         if (
             isinstance(self.newton_capacity_check_steps, bool)
             or not isinstance(self.newton_capacity_check_steps, int)

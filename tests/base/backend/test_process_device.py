@@ -402,16 +402,19 @@ def test_non_gpu_backend_is_left_untouched() -> None:
     assert apply_backend_env_device_override(owner_override, "mujoco") == owner_override
 
 
-def test_newton_override_carries_cuda_device_string(
+@pytest.mark.parametrize("backend", ["mtxwarp", "newton"])
+def test_backend_override_carries_cuda_device_string(
     monkeypatch: pytest.MonkeyPatch,
+    backend: str,
 ) -> None:
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-rank-local")
-    owner_override: dict[str, object] = {"newton_device": None, "nested": {"keep": True}}
+    field = f"{backend}_device"
+    owner_override: dict[str, object] = {field: None, "nested": {"keep": True}}
 
-    routed = apply_backend_env_device_override(owner_override, "newton")
+    routed = apply_backend_env_device_override(owner_override, backend)
 
-    assert routed["newton_device"] == "cuda:0"
-    assert owner_override["newton_device"] is None
+    assert routed[field] == "cuda:0"
+    assert owner_override[field] is None
     assert routed["nested"] is owner_override["nested"]
 
 
