@@ -13,6 +13,33 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased
+
+### Added / 新增
+
+- `unilab.visualization` gains shared offline Viser playback primitives,
+  ported from the downstream leanretarget audit: `PlaybackClock` maps
+  monotonic wall time onto an arbitrary non-uniform timestamp grid with
+  seek/play/speed control and loop-or-clamp ends
+  (`unilab/visualization/playback_clock.py`); `PlaybackTimelineGui` binds the
+  Frame slider plus Play/Speed/Loop GUI controls to one clock and centralizes
+  the serve-loop slider writeback pattern
+  (`unilab/visualization/viser_playback_controls.py`); and
+  `unilab/visualization/viser_utils.py` provides `set_handle_property`,
+  `nominal_fps`, `cylinder_transform`, and `scaled_vector_endpoint` for Viser
+  handle updates, nominal-rate estimation, and vector display geometry. No
+  existing UniLab behavior changes.
+  `unilab.visualization` 新增从下游 leanretarget 审计移植的离线 Viser
+  回放原语：`PlaybackClock` 将单调墙钟映射到任意非均匀时间戳网格，
+  支持 seek/play/speed 与 loop 或 clamp 末端
+  （`unilab/visualization/playback_clock.py`）；`PlaybackTimelineGui` 将
+  Frame slider 与 Play/Speed/Loop 控件绑定到一个时钟，并集中管理 serve
+  循环的 slider 回写模式
+  （`unilab/visualization/viser_playback_controls.py`）；
+  `unilab/visualization/viser_utils.py` 提供 `set_handle_property`、
+  `nominal_fps`、`cylinder_transform` 与 `scaled_vector_endpoint`，用于
+  Viser handle 更新、名义采样率估计与向量显示几何。现有 UniLab 行为不变。
+
 ## 1.6.2 (2026-11-24)
 
 ### Fixed / 修复
