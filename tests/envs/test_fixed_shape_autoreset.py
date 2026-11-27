@@ -8,6 +8,8 @@ autoreset segment is captured into a CUDA graph).
 
 from __future__ import annotations
 
+import gc
+import weakref
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -26,6 +28,7 @@ from unisim.backend.base import (
 from unisim.backend.graph_capture import ExternalGraphCapture, GraphCaptureError, closing_capture
 
 from tests.envs.test_manager_based_rl_env import _ResetBackend
+from unilab.base.autoreset_graph import AutoresetGraph
 from unilab.base.entity import EntityCfg
 from unilab.base.registry import apply_cfg_overrides
 from unilab.base.reset_selection import (
@@ -756,6 +759,126 @@ def test_captured_reset_rejects_host_published_log_entries() -> None:
     env.step(_actions("cuda", 1)[0])
     with pytest.raises(GraphCaptureError, match="host log entries"):
         env.step(_actions("cuda", 1)[0])
+
+
+@cuda_only
+@pytest.mark.parametrize("stale_owner", ["owner_graph", "pinned_host_cache"])
+def test_autoreset_graph_capture_survives_finalizers_of_a_closed_owner(stale_owner: str) -> None:
+    """A closed owner left to the cyclic collector cannot invalidate the next capture.
+
+    The capture body allocates, so a generation rollover can run the cyclic
+    collector inside the capture. Finalizing a previously closed owner there is
+    capture-unsafe: destroying its ``torch.cuda.CUDAGraph`` or one of its pinned
+    host ``wp.array`` caches (the mjwarp backend's host caches) returns
+    ``cudaErrorStreamCaptureUnsupported`` and invalidates the capture, which the
+    next launch reports as ``cudaErrorStreamCaptureInvalidated``. The collection
+    is forced into the capture instead of relying on the collector's timing.
+    """
+    actions = _actions("cuda", 12)
+    eager_env, eager_backend = _make_env(
+        "cuda", masked_autoreset=True, persistent_step_buffers=True
+    )
+    eager, eager_logs = _run(eager_env, eager_backend, actions)
+
+    # The closed owner stays pending until the collection forced into the
+    # capture; an automatic collection in between would make the test vacuous.
+    gc_was_enabled = gc.isenabled()
+    gc.disable()
+    finalized_in_capture: list[bool] = []
+    collections_in_capture = 0
+
+    def record_finalization() -> None:
+        finalized_in_capture.append(torch.cuda.is_current_stream_capturing())
+
+    finalizer = None
+    try:
+        closed_env, closed_backend = _make_env(
+            "cuda",
+            autoreset_cuda_graph=stale_owner == "owner_graph",
+            autoreset_graph_warmup=1,
+        )
+        closed_env.reset()
+        if stale_owner == "owner_graph":
+            for action in _actions("cuda", 2):
+                closed_env.step(action)
+            closed_graph = closed_env.autoreset_graph
+            assert closed_graph is not None and closed_graph.captured
+            resource: Any = closed_graph._graph
+            del closed_graph
+        else:
+            warp = pytest.importorskip("warp", reason="pinned host caches need Warp")
+            warp.init()
+            closed_backend.host_cache = warp.empty(
+                (NUM_ENVS, 4), dtype=warp.float32, device="cpu", pinned=True
+            )
+            resource = closed_backend.host_cache
+        finalizer = weakref.finalize(resource, record_finalization)
+        closed_env.close()
+        # Cyclic garbage: only the cyclic collector can free the closed owner.
+        closed = {"env": closed_env, "backend": closed_backend}
+        closed["self"] = closed
+        del closed, closed_env, closed_backend, resource
+
+        live_env, live_backend = _make_env(
+            "cuda", autoreset_cuda_graph=True, autoreset_graph_warmup=1
+        )
+        set_state_tensor_mask = live_backend.set_state_tensor_mask
+
+        def set_state_tensor_mask_with_cyclic_gc(*args, **kwargs):
+            nonlocal collections_in_capture
+            if torch.cuda.is_current_stream_capturing():
+                collections_in_capture += 1
+                gc.collect()
+            return set_state_tensor_mask(*args, **kwargs)
+
+        live_backend.set_state_tensor_mask = set_state_tensor_mask_with_cyclic_gc  # type: ignore[method-assign]
+        graphed, graph_logs = _run(live_env, live_backend, actions)
+        graph = live_env.autoreset_graph
+        assert graph is not None and graph.captured
+        assert graph.replays == len(actions) - 1
+        _assert_same(eager, graphed)
+        assert eager_logs == graph_logs
+        assert collections_in_capture == 1, "no collection was forced inside the capture"
+        assert finalized_in_capture, "the closed owner was never finalized"
+        assert not any(finalized_in_capture), "a closed owner was finalized inside the capture"
+    finally:
+        if finalizer is not None:
+            finalizer.detach()
+        if gc_was_enabled:
+            gc.enable()
+
+
+@cuda_only
+def test_autoreset_graph_capture_suspends_the_cyclic_collector() -> None:
+    """The capture runs with the cyclic collector suspended and restores it after."""
+    counter = torch.zeros((), device="cuda")
+    collector_enabled_in_capture: list[bool] = []
+
+    def body() -> None:
+        counter.add_(1.0)
+        if torch.cuda.is_current_stream_capturing():
+            collector_enabled_in_capture.append(gc.isenabled())
+
+    gc_was_enabled = gc.isenabled()
+    gc.enable()
+    try:
+        graph = AutoresetGraph(
+            backend=_TensorBackend(NUM_ENVS, "cuda"),
+            device=torch.device("cuda"),
+            body=body,
+            bind_capture=lambda capture: None,
+            warmup=1,
+        )
+        graph.run()
+        graph.run()
+        assert graph.captured
+        assert graph.replays == 1
+        assert counter.item() == 2.0
+        assert collector_enabled_in_capture == [False]
+        assert gc.isenabled()
+    finally:
+        if not gc_was_enabled:
+            gc.disable()
 
 
 def test_autoreset_graph_requires_cuda_and_backend_capability() -> None:

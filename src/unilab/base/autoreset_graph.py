@@ -19,15 +19,33 @@ Capture protocol (all public, no object-graph inspection):
    once immediately; the host transitions already ran during capture.
 4. Every later call checks the backend's replay guards, replays the graph and
    re-applies the recorded host transitions in recording order.
+5. No finalizer runs inside the capture. The body allocates enough to trigger
+   the cyclic collector there, and finalizing a previously closed owner is a
+   capture-unsafe runtime call, so pending cyclic garbage is collected first
+   and the collector stays suspended for the capture.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import gc
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from typing import Any
 
 import torch
 from unisim.backend.graph_capture import ExternalGraphCapture, GraphCaptureError
+
+
+@contextmanager
+def _suspend_gc() -> Iterator[None]:
+    """Keep the cyclic collector, and with it every finalizer, out of a capture."""
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
 
 
 class AutoresetGraph:
@@ -96,37 +114,46 @@ class AutoresetGraph:
         self._capture_and_run()
 
     def _capture_and_run(self) -> None:
-        current = torch.cuda.current_stream(self._device)
-        stream = torch.cuda.Stream(device=self._device)
-        stream.wait_stream(current)
-        graph = torch.cuda.CUDAGraph()
-        for generator in self._generators:
-            graph.register_generator_state(generator)
-        capture: ExternalGraphCapture | None = None
-        try:
-            with torch.cuda.graph(
-                graph, stream=stream, capture_error_mode=self._capture_error_mode
-            ):
-                with self._backend.torch_graph_capture_scope(
-                    stream, capture_error_mode=self._capture_error_mode
-                ) as capture:
-                    self._bind_capture(capture)
-                    try:
-                        self._body()
-                    finally:
-                        self._bind_capture(None)
-        except GraphCaptureError:
-            raise
-        except Exception as exc:
-            raise GraphCaptureError(f"autoreset graph capture failed: {exc}") from exc
-        current.wait_stream(stream)
-        assert capture is not None
-        self._graph = graph
-        self._capture = capture
-        # Capture recorded the device work without executing it; the host
-        # transitions already ran once during capture.
-        graph.replay()
-        self.replays += 1
+        # Closing an earlier owner leaves its torch.cuda.CUDAGraph and its pinned
+        # host caches to the cyclic collector, and destroying either inside a
+        # capture is a runtime call the capture rejects: it fails with
+        # cudaErrorStreamCaptureUnsupported and invalidates the capture, which
+        # the next launch reports as cudaErrorStreamCaptureInvalidated. Release
+        # pending cyclic garbage now, while no capture is active, and keep the
+        # collector out of the capture.
+        gc.collect()
+        with _suspend_gc():
+            current = torch.cuda.current_stream(self._device)
+            stream = torch.cuda.Stream(device=self._device)
+            stream.wait_stream(current)
+            graph = torch.cuda.CUDAGraph()
+            for generator in self._generators:
+                graph.register_generator_state(generator)
+            capture: ExternalGraphCapture | None = None
+            try:
+                with torch.cuda.graph(
+                    graph, stream=stream, capture_error_mode=self._capture_error_mode
+                ):
+                    with self._backend.torch_graph_capture_scope(
+                        stream, capture_error_mode=self._capture_error_mode
+                    ) as capture:
+                        self._bind_capture(capture)
+                        try:
+                            self._body()
+                        finally:
+                            self._bind_capture(None)
+            except GraphCaptureError:
+                raise
+            except Exception as exc:
+                raise GraphCaptureError(f"autoreset graph capture failed: {exc}") from exc
+            current.wait_stream(stream)
+            assert capture is not None
+            self._graph = graph
+            self._capture = capture
+            # Capture recorded the device work without executing it; the host
+            # transitions already ran once during capture.
+            graph.replay()
+            self.replays += 1
 
 
 __all__ = ["AutoresetGraph"]
