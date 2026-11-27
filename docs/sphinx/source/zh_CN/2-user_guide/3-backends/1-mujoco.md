@@ -2,7 +2,7 @@
 
 MuJoCo 是已提交 owner 配置中的默认后端路径。在 Python 3.11 及更高版本上，
 `mujoco` extra 安装官方 `mujoco` 包（`~=4.0.1`）和发布版
-`mjbatch-uni==0.3.1` 原生 batch 引擎，精确版本由已提交的 `uv.lock` 钉住。
+`mjbatch-uni==0.3.3` 原生 batch 引擎，精确版本由已提交的 `uv.lock` 钉住。
 适配层位于 `unisim.backend.mujoco` 下。
 
 ## 何时使用
@@ -27,7 +27,7 @@ MuJoCo 在 `unisim.backend.mujoco.backend` 中声明对物理状态回放的支�
 ## 切换 MuJoCo 版本
 
 在 Python 3.11 及更高版本上，pyproject 约束 `mujoco~=4.0.1` 并钉定
-`mjbatch-uni==0.3.1`；默认精确版本由已提交的 `uv.lock` 钉住，uv 的
+`mjbatch-uni==0.3.3`；默认精确版本由已提交的 `uv.lock` 钉住，uv 的
 prefer-locked 语义保证普通 relock 不会漂移。`mjbatch` 引擎记录编译时的
 `mujoco` 版本，拒绝在其它版本下导入（fail-closed，不会静默改变行为）。
 因此切换版本需要兼容的 `mjbatch` 发布版本：

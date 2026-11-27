@@ -58,12 +58,12 @@ except Exception as _motrixsim_error:
     _MOTRIXSIM_IMPORT_ERROR = _motrixsim_error
 
 # Mirror UniLab MotrixBackend's production default. Training uses this value
-# (EnvConfig.motrix_max_iterations defaults to None, and the backend falls back
-# to DEFAULT_MOTRIX_MAX_ITERATIONS), so the benchmark reflects real workloads
+# (EnvConfig.motrix_max_iterations), so the benchmark reflects real workloads
 # rather than the XML's <option iterations> which would otherwise leak in.
-from unisim.backend.motrix.backend import (  # noqa: E402
-    DEFAULT_MOTRIX_MAX_ITERATIONS,
-)
+# unisim-core 2.9.0 removed DEFAULT_MOTRIX_MAX_ITERATIONS from the adapter
+# (it now preserves the authored iteration count unless overridden), so the
+# historical adapter default lives here.
+_MOTRIX_PRODUCTION_MAX_ITERATIONS = 3
 
 
 @dataclass
@@ -97,7 +97,7 @@ def _require_motrixsim() -> None:
 def _load_task_model(task_name: str) -> Any:
     model_file = locomotion_task_model_file(task_name)
     model = mtx.load_model(model_file)  # type: ignore[union-attr]
-    model.options.max_iterations = DEFAULT_MOTRIX_MAX_ITERATIONS
+    model.options.max_iterations = _MOTRIX_PRODUCTION_MAX_ITERATIONS
     return model
 
 

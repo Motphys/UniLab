@@ -10,7 +10,7 @@ live in the getting-started and algorithm pages.
 - Git and `curl`, used to clone the repository and fetch runtime assets.
 - For the `mujoco` and `mjwarp` extras: Python `>=3.11` is required by the
   MuJoCo 4.0 line. The `mujoco` extra installs the published
-  `mjbatch-uni==0.3.1` native engine, which provides prebuilt wheels for
+  `mjbatch-uni==0.3.3` native engine, which provides prebuilt wheels for
   CPython 3.11–3.13 on Linux, macOS, and Windows. If a source build is needed,
   install a C++17 toolchain and Python development headers:
   - macOS: `xcode-select --install`
@@ -84,7 +84,7 @@ pip install -e .
 # pip install .
 
 # MuJoCo (Python >=3.11):
-pip install "mujoco~=4.0.1" "mjbatch-uni==0.3.1"
+pip install "mujoco~=4.0.1" "mjbatch-uni==0.3.3"
 ```
 
 The editable install points at the checkout; the regular install copies the
@@ -129,7 +129,7 @@ uv sync --extra newton
 
 | Backend | Install path | Important prerequisites |
 | --- | --- | --- |
-| MuJoCo | `make setup` or `uv sync --extra mujoco` | Python >=3.11; installs prebuilt `mjbatch-uni==0.3.1` wheels where available |
+| MuJoCo | `make setup` or `uv sync --extra mujoco` | Python >=3.11; installs prebuilt `mjbatch-uni==0.3.3` wheels where available |
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | Python >=3.11 and NVIDIA CUDA; on a single-GPU host the current CUDA device is used by default, while multi-GPU topology remains explicit |
 | Genesis | `uv sync --extra genesis` | The validated path uses Linux x86_64, an NVIDIA GPU, and the pinned torch/Genesis versions |
 | Newton | `uv sync --extra newton` | Linux CUDA with the pinned newton / MuJoCo-Warp / Warp versions; use a separate environment from `mujoco` and `mjwarp` |
@@ -178,7 +178,7 @@ If your code imports `uni_rl` directly, see
 ## Switching The Local MuJoCo Version
 
 On Python 3.11 and newer, the `mujoco` extra declares `mujoco~=4.0.1` and
-`mjbatch-uni==0.3.1`. The engine records its build-time mujoco version and
+`mjbatch-uni==0.3.3`. The engine records its build-time mujoco version and
 refuses to import against a different one (see the watchdog row in "Install
 Error Signatures"). Switching the local MuJoCo version therefore requires a
 compatible `mjbatch` release — it is not a UniLab config change:
@@ -213,7 +213,7 @@ playback uses the `mjpython` application bundled by the official MuJoCo wheel. T
 `cuda` alias resolves to MPS when CUDA is absent.
 
 On Windows, use the direct `uv sync` commands from above unless GNU `make` and
-Bash are available. `mjbatch-uni` 0.3.1 publishes Windows wheels, but the
+Bash are available. `mjbatch-uni` 0.3.3 publishes Windows wheels, but the
 MuJoCo physics backend is not a validated Windows support lane; plain
 `mujoco` (MJCF conversion and playback rendering via other backends) still
 installs. If you want to use the Makefile, install GNU Make and Bash separately

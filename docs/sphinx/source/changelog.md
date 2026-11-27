@@ -13,6 +13,42 @@ UniLab 遵循[语义化版本](https://semver.org/)。本共享页面以中英�
 PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完整提交历史请参阅
 [UniLab 仓库](https://github.com/unilabsim/UniLab)。
 
+## Unreleased
+
+### Changed / 变更
+
+- Pinned `unisim-core` to 2.9.0 in both dependency tracks (base, motrix, and
+  superdex extras) and moved the MuJoCo extra's `mjbatch-uni` pin to 0.3.3 to
+  stay aligned. This release resets MuJoCo rows without the executor's
+  throwaway forward, scopes the derived-constant recompute to commits that
+  wrote model fields, reports `set_state_reset_rand_ms` from the model-field
+  upload plus recompute, restores one batched native sensor call per packed
+  Motrix read, reworks the Motrix single-MJCF profile around native MJCF-order
+  public state (root-state layouts now follow the native floating-base
+  coordinates, and authored solver options apply to generated terrain),
+  exposes the Motrix named-sensor inventory and import report, and adds the
+  optional `motrix_gpu` adapter. Because 2.9.0 preserves the authored
+  ``<option iterations>`` instead of forcing the historical adapter default,
+  the `EnvCfg.motrix_max_iterations` default moves from `None` to `3` so every
+  existing Motrix task owner keeps its previous solver budget; owners can set
+  the field explicitly (or to null) to adopt the authored XML value
+  (unilabsim/unisim#569, unilabsim/unisim#571, unilabsim/unisim#573,
+  unilabsim/unisim#575, unilabsim/unisim#576, unilabsim/unisim#577).
+  两条依赖轨道（base、motrix、superdex extras）均将 `unisim-core` 固定到
+  2.9.0，并将 MuJoCo extra 的 `mjbatch-uni` 同步提升到 0.3.3。该版本的
+  MuJoCo reset 不再执行 executor 内会被覆盖的 forward，派生常量重算仅在
+  commit 写入模型字段时触发，`set_state_reset_rand_ms` 改由模型字段上传与
+  重算时间上报，Motrix packed 传感器读恢复单次批量原生调用，Motrix
+  single-MJCF profile 改为原生 MJCF 顺序的公共状态（root-state layout
+  改由原生 floating-base 坐标决定，authored solver 选项同步应用到生成
+  地形），公开 Motrix 具名传感器清单与 import report，并新增可选的
+  `motrix_gpu` adapter。由于 2.9.0 改为保留 authored ``<option
+  iterations>`` 而不再强制历史上的 adapter 默认值，`EnvCfg.motrix_max_iterations``
+  的默认值从 `None` 调整为 `3`，使现有 Motrix task owner 维持原有 solver
+  预算；owner 亦可显式设置该字段（或置空）以采用 XML 中的 authored 值
+  （unilabsim/unisim#569、unilabsim/unisim#571、unilabsim/unisim#573、
+  unilabsim/unisim#575、unilabsim/unisim#576、unilabsim/unisim#577）。
+
 ## 1.6.3 (2026-11-27)
 
 ### Changed / 变更

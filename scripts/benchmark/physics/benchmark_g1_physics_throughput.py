@@ -267,9 +267,12 @@ def _build_motrixsim(
     if mtx is None:
         _require_backend("motrixsim")
     model = mtx.load_model(xml_path)
-    from unisim.backend.motrix.backend import DEFAULT_MOTRIX_MAX_ITERATIONS
-
-    model.options.max_iterations = DEFAULT_MOTRIX_MAX_ITERATIONS
+    # Keep the raw-engine run on the same solver budget the UniLab adapter
+    # uses in production (EnvConfig.motrix_max_iterations). unisim-core 2.9.0
+    # removed DEFAULT_MOTRIX_MAX_ITERATIONS from the adapter — it preserves
+    # the authored <option iterations> unless overridden — so the historical
+    # adapter default lives here.
+    model.options.max_iterations = 3
     data = mtx.SceneData(model, batch=[batch_size])
     if model.num_keyframes:
         model.keyframes[0].apply(data)

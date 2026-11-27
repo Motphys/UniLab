@@ -108,7 +108,17 @@ class _FakeMotrixGeom:
 
 class _FakeMotrixModel:
     def __init__(self) -> None:
-        self.options = SimpleNamespace(timestep=None, max_iterations=None)
+        # unisim-core 2.9.0 (#573) preserves the authored/imported iteration
+        # count unless max_iterations is explicitly overridden, so the real
+        # importer always leaves an int here; the fake mirrors that contract.
+        self.options = SimpleNamespace(
+            timestep=None,
+            max_iterations=3,
+            # unisim-core 2.9.0 (#569) snapshots the import report eagerly at
+            # construction and reads gravity/tolerance from the model options.
+            gravity=np.asarray([0.0, 0.0, -9.81], dtype=np.float64),
+            solver_tolerance=1e-8,
+        )
         self.links = [_FakeMotrixLink()]
         self.num_links = 1
         self.geoms = [_FakeMotrixGeom(hfield=object(), link=self.links[0])]
@@ -266,10 +276,23 @@ def _install_fake_motrix(monkeypatch, tmp_path):
         ),
         raising=False,
     )
+    # unisim-core 2.9.0 (#569/#573) materializes scenes as
+    # (model, sensor inventory, world); the inventory carries the named-sensor
+    # categories and joint-actuator-force source map, and the context records
+    # the world solver type eagerly.
+    fake_inventory = SimpleNamespace(
+        names=(),
+        frame_identities=(),
+        categories={},
+        joint_actuator_force_sensors={},
+    )
+    fake_world = SimpleNamespace(
+        simulate_option=SimpleNamespace(solver_type="SolverType.PGS"),
+    )
     monkeypatch.setattr(
         scene_mod,
         "materialize_scene_with_sensor_inventory",
-        lambda **kwargs: (fake_model, (), (), None),
+        lambda **kwargs: (fake_model, fake_inventory, fake_world),
     )
     monkeypatch.setattr(mod, "build_reset_write_program", lambda **kwargs: None)
     # These tests exercise override caches and terrain plumbing with a fake
@@ -358,12 +381,21 @@ def test_motrix_body_sensor_views_use_canonical_world_state() -> None:
     np.testing.assert_allclose(views["track_angvel_w_base"], [[13, 14, 15], [16, 17, 18]])
 
 
-def test_motrix_root_layout_gates_on_configured_base_and_returns_fixed_columns() -> None:
+def test_motrix_root_layout_gates_on_floating_base_and_returns_native_columns() -> None:
     import unisim.backend.motrix.backend as mod
 
+    # unisim-core 2.9.0 (#573) publishes single-MJCF public state in native
+    # MJCF order, so the layout comes from the native floating-base coordinate
+    # indices instead of the historical fixed synthetic-base prefix; the
+    # configured-base gate is replaced by a floating-base ownership check.
     bodies = {
         "fixed": SimpleNamespace(floatingbase=None),
-        "floating": SimpleNamespace(floatingbase=SimpleNamespace()),
+        "floating": SimpleNamespace(
+            floatingbase=SimpleNamespace(
+                dof_pos_indices=np.arange(7),
+                dof_vel_indices=np.arange(6),
+            )
+        ),
     }
     backend = object.__new__(mod.MotrixBackend)
     backend._portable_mode = False
@@ -374,9 +406,9 @@ def test_motrix_root_layout_gates_on_configured_base_and_returns_fixed_columns()
     layout = backend.get_root_state_layout("floating")
     assert layout.qpos_indices == tuple(range(7))
     assert layout.qvel_indices == tuple(range(6))
-    with pytest.raises(NotImplementedError, match="configured base"):
+    with pytest.raises(NotImplementedError, match="own a floating base"):
         backend.get_root_state_layout("fixed")
-    with pytest.raises(NotImplementedError, match="configured base"):
+    with pytest.raises(ValueError, match="not found"):
         backend.get_root_state_layout("missing")
 
 
@@ -591,12 +623,14 @@ def test_motrix_backend_interval_body_force_restages_absolute_link_external_forc
     np.testing.assert_allclose(second_force, [[2.0, 3.0, 4.0], [1.0, 1.0, 1.0]])
 
 
-def test_motrix_backend_defaults_max_iterations_to_three(monkeypatch, tmp_path) -> None:
+def test_motrix_backend_preserves_imported_max_iterations(monkeypatch, tmp_path) -> None:
     mod, fake_model = _install_fake_motrix(monkeypatch, tmp_path)
 
     mod.MotrixBackend(SceneCfg(model_file="source.xml"), num_envs=1, sim_dt=0.01, base_name="base")
 
     assert fake_model.options.timestep == 0.01
+    # unisim-core 2.9.0 (#573) preserves the importer-provided iteration count
+    # instead of overwriting it with an adapter-side default.
     assert fake_model.options.max_iterations == 3
 
 

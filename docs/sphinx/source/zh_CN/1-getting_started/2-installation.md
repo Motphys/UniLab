@@ -8,7 +8,7 @@
 - `uv`，用于依赖同步和命令执行。
 - Git 和 `curl`，用于克隆仓库及下载 runtime asset。
 - 使用 `mujoco` 和 `mjwarp` extra 时：MuJoCo 4.0 版本线要求 Python `>=3.11`。
-  `mujoco` extra 安装发布版 `mjbatch-uni==0.3.1` 原生引擎，其为 Linux、
+  `mujoco` extra 安装发布版 `mjbatch-uni==0.3.3` 原生引擎，其为 Linux、
   macOS 和 Windows 上的 CPython 3.11–3.13 提供预编译 wheel。若需要从源码
   构建，请安装 C++17 工具链和 Python 开发头文件：
   - macOS：`xcode-select --install`
@@ -78,7 +78,7 @@ pip install -e .
 # pip install .
 
 # 需要 MuJoCo 时（Python >=3.11）：
-pip install "mujoco~=4.0.1" "mjbatch-uni==0.3.1"
+pip install "mujoco~=4.0.1" "mjbatch-uni==0.3.3"
 ```
 
 editable install 会指向源码 checkout；常规安装会把 package 和任务配置
@@ -118,7 +118,7 @@ uv sync --extra newton
 
 | 后端 | 安装路径 | 重要前置条件 |
 | --- | --- | --- |
-| MuJoCo | `make setup` 或 `uv sync --extra mujoco` | Python >=3.11；在可用平台上安装预编译 `mjbatch-uni==0.3.1` wheel |
+| MuJoCo | `make setup` 或 `uv sync --extra mujoco` | Python >=3.11；在可用平台上安装预编译 `mjbatch-uni==0.3.3` wheel |
 | MJWarp | `uv sync --extra mujoco --extra mjwarp` | Python >=3.11 与 NVIDIA CUDA；单 GPU 主机默认使用当前 CUDA 设备，多卡拓扑仍需显式配置 |
 | Genesis | `uv sync --extra genesis` | 已验证路径使用 Linux x86_64、NVIDIA GPU 及固定版本 torch/Genesis |
 | Newton | `uv sync --extra newton` | Linux CUDA，并钉定 newton / MuJoCo-Warp / Warp 版本；需与 `mujoco`、`mjwarp` 使用独立环境 |
@@ -163,7 +163,7 @@ extra（例如从 `mujoco` 换到 `newton`）不会再卸载训练栈，
 ## 切换本地 MuJoCo 版本
 
 在 Python 3.11 及更高版本上，`mujoco` extra 声明 `mujoco~=4.0.1` 和
-`mjbatch-uni==0.3.1`。引擎会记录编译时的 mujoco 版本，加载时检测到不一致
+`mjbatch-uni==0.3.3`。引擎会记录编译时的 mujoco 版本，加载时检测到不一致
 会拒绝导入（见「安装错误特征对照表」中的 watchdog 行）。因此切换本地
 MuJoCo 版本需要兼容的 `mjbatch` 发布版本，而不是修改 UniLab 配置：
 
@@ -195,7 +195,7 @@ wheel 来源是在 `pyproject.toml` 中配置的 PyTorch `cu130` 索引。
 没有 CUDA 时，`cuda` alias 会解析到 MPS。
 
 在 Windows 上，如果没有 GNU `make` 和 Bash，请使用上面的直接 `uv sync` 命令。
-`mjbatch-uni` 0.3.1 已发布 Windows wheel，但 MuJoCo 物理后端尚未形成经过验证的
+`mjbatch-uni` 0.3.3 已发布 Windows wheel，但 MuJoCo 物理后端尚未形成经过验证的
 Windows 支持通道；纯 `mujoco`（MJCF 转换、其他后端的回放渲染）仍可安装。
 如果要使用 Makefile，请另行安装 GNU Make 和 Bash（例如通过 Chocolatey 或 WSL）。
 
