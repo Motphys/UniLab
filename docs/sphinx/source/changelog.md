@@ -31,7 +31,10 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `mjwarp` and `newton` warp-lang pins relax to `>=1.15` and `>=1.16.0`
   instead of forcing an exact Warp alignment, so `mtxwarp` installs jointly
   with `mjwarp` and `newton`; the intermediate `mtxwarp`-vs-`newton` resolver
-  conflict is dropped. SAC `g1_walk_flat` is recorded in the support matrix
+  conflict is dropped. `training.cuda_process_sharing=mps` (the user-managed
+  `uni-cumps` daemon) now admits `mtxwarp` next to `mjwarp`, with the
+  rank-local collector device resolved for the learner/collector pair. SAC
+  `g1_walk_flat` is recorded in the support matrix
   as `Tested`: a maintainer validation on an RTX 4090 ran 300 iterations at
   2048 envs (seed 7) on both `mtxwarp` and the CPU `motrix` owner, and the
   reward curves align (mean reward 6.1 -> 14.6 vs 8.4 -> 15.2; episode
@@ -48,7 +51,9 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `mjwarp` 与 `newton` 的 warp-lang 约束分别放宽为 `>=1.15` 与
   `>=1.16.0`，不再强制精确对齐 Warp 版本，因此 `mtxwarp` 可与 `mjwarp`、
   `newton` 同环境安装，中间的 `mtxwarp`-vs-`newton` resolver 冲突声明已
-  移除。支持矩阵中 SAC `g1_walk_flat` 记为 `Tested`：maintainer 在 RTX
+  移除。`training.cuda_process_sharing=mps`（用户以 `uni-cumps` 管理的
+  daemon）现与 `mjwarp` 一并支持 `mtxwarp`，并为 learner/collector 进程对
+  解析 rank-local collector 设备。支持矩阵中 SAC `g1_walk_flat` 记为 `Tested`：maintainer 在 RTX
   4090 上对 `mtxwarp` 与 CPU `motrix` owner 各跑了 300 iteration、2048
   环境（seed 7），奖励曲线对齐（mean reward 6.1 -> 14.6 对比 8.4 ->
   15.2；episode length 21 -> 57 s 对比 30 -> 60 s，预算完全相同）。

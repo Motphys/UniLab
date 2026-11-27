@@ -17,7 +17,7 @@ autotuner and does not add multi-GPU scaling.
 | `training.collector_metrics_interval` | `1` | Positive integer, at most `10000` |
 | `training.replay_ingress_depth` | `2` | Positive integer, at most `16` |
 | `training.replay_ingress_slot_rows` | `null` | `1` through `algo.num_envs`; `null` means `algo.num_envs` |
-| `training.cuda_process_sharing` | `null` | `null` or explicit `mps` for single-rank MJWarp |
+| `training.cuda_process_sharing` | `null` | `null` or explicit `mps` for single-rank device-resident CUDA backends (`mjwarp`, `mtxwarp`) |
 | Learner rows per synchronization | `algo.batch_size * algo.updates_per_step` | Constrained by the CUDA memory budget |
 
 Values other than `training.cuda_process_sharing` must be exact positive

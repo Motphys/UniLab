@@ -373,7 +373,7 @@ def canonicalize_collector_tensor_device(requested_device: str | None) -> str:
 def resolve_backend_process_device(backend_type: str, learner_device: str | None) -> str | None:
     backend = _normalize_backend(backend_type)
     if (
-        backend not in {"mjwarp", "newton", "genesis"}
+        backend not in {"mjwarp", "mtxwarp", "newton", "genesis"}
         and backend not in _EXTERNAL_CUDA_IPC_BACKENDS
     ):
         return None

@@ -75,13 +75,21 @@ def test_host_or_backend_owned_devices_do_not_receive_runner_binding(backend_typ
     assert resolve_backend_process_device(backend_type, "cuda:2") is None
 
 
-@pytest.mark.parametrize("backend_type", ["mjwarp", "newton", "isaacgym", "isaacsim"])
+@pytest.mark.parametrize("backend_type", ["mjwarp", "mtxwarp", "newton", "isaacgym", "isaacsim"])
 @pytest.mark.parametrize("device", [None, "cpu", "mps", "xpu:1"])
 def test_bound_process_device_fails_closed_without_cuda(
     backend_type: str, device: str | None
 ) -> None:
     with pytest.raises(ValueError, match="CUDA process device"):
         resolve_backend_process_device(backend_type, device)
+
+
+def test_mtxwarp_process_device_follows_rank_learner_device() -> None:
+    # The CUDA MotrixSim adapter takes an explicit ``device`` constructor kwarg
+    # and needs no process-global binder, but the MPS probe still requires the
+    # rank-local collector device to resolve for the learner/collector pair.
+    assert resolve_backend_process_device("mtxwarp", "cuda:3") == "cuda:3"
+    assert configure_backend_process_device("mtxwarp", "cuda:3") is None
 
 
 def test_mjwarp_binding_rejects_non_cuda_warp_resolution(
