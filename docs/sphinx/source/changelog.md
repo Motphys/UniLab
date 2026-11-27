@@ -40,6 +40,24 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `nominal_fps`、`cylinder_transform` 与 `scaled_vector_endpoint`，用于
   Viser handle 更新、名义采样率估计与向量显示几何。现有 UniLab 行为不变。
 
+### Fixed / 修复
+
+- Pinned `unisim-core` to 2.8.6 in both dependency tracks (base, motrix, and
+  superdex extras). This release keeps MJWarp contact-record sensors isolated
+  from a reset, replays the MJWarp final-state and derived-constant refreshes
+  through backend-owned CUDA graphs, and adds the simulator-neutral playback
+  primitives, the unified camera fit, the MuJoCo geom-to-mesh extraction, and
+  the debug-primitive conversion under `unisim.visualization`
+  (unilabsim/unisim#559, unilabsim/unisim#561, unilabsim/unisim#562,
+  unilabsim/unisim#564, unilabsim/unisim#565, unilabsim/unisim#566).
+  两条依赖轨道（base、motrix、superdex extras）均将 `unisim-core` 固定到
+  2.8.6。该版本让 MJWarp contact-record 传感器不受复位影响，把 MJWarp
+  最终状态与派生常量的刷新改为回放后端持有的 CUDA graph，并在
+  `unisim.visualization` 下新增仿真器中立的回放原语、统一的相机拟合、
+  MuJoCo geom 到 mesh 提取以及 debug 原语转换（unilabsim/unisim#559、
+  unilabsim/unisim#561、unilabsim/unisim#562、unilabsim/unisim#564、
+  unilabsim/unisim#565、unilabsim/unisim#566）。
+
 ## 1.6.2 (2026-11-24)
 
 ### Fixed / 修复
