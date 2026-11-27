@@ -41,8 +41,8 @@ _EXTERNAL_WORKER_DEVICE_FIELDS = {
 def _requested_cuda_only_device(backend_type: str, kwargs: dict[str, Any]) -> str:
     if backend_type == "mjwarp":
         return "cuda"
-    if backend_type == "newton":
-        device = kwargs.get("newton_device")
+    if backend_type in {"motrix_gpu", "newton"}:
+        device = kwargs.get(f"{backend_type}_device")
         return "cuda" if device is None else str(device)
 
     if backend_type not in _CUDA_BACKEND_INT_DEVICE_FIELDS:
@@ -233,6 +233,10 @@ def env_backend_kwargs(cfg: "EnvCfg") -> dict[str, Any]:
         "superdex_effort_limits": cfg.superdex_effort_limits,
         "superdex_allow_contact_approximation": cfg.superdex_allow_contact_approximation,
         "motrix_max_iterations": cfg.motrix_max_iterations,
+        "motrix_gpu_device": cfg.motrix_gpu_device,
+        "motrix_gpu_max_contacts": cfg.motrix_gpu_max_contacts,
+        "motrix_gpu_max_contact_constraints": cfg.motrix_gpu_max_contact_constraints,
+        "motrix_gpu_max_convexhull_pairs": cfg.motrix_gpu_max_convexhull_pairs,
         "cpu_ids": cfg.cpu_ids,
         "mjwarp_nconmax": cfg.mjwarp_nconmax,
         "mjwarp_njmax": cfg.mjwarp_njmax,
@@ -335,6 +339,22 @@ def create_backend(
     if scene.entity_variant is not None:
         paths.extend(source.model_file for source in scene.entity_variant.plan.variants)
     ensure_robot_assets_for_paths(list(dict.fromkeys(paths)))
+    # MotrixSim GPU owns its per-world contact storage; translate the owner
+    # capacities into the adapter's constructor names and drop them for every
+    # other backend so they never leak into an unrelated constructor.
+    gpu_max_contacts = kwargs.pop("motrix_gpu_max_contacts", None)
+    gpu_max_contact_constraints = kwargs.pop("motrix_gpu_max_contact_constraints", None)
+    gpu_max_convexhull_pairs = kwargs.pop("motrix_gpu_max_convexhull_pairs", None)
+    gpu_device = kwargs.pop("motrix_gpu_device", None)
+    if backend_type == "motrix_gpu":
+        if gpu_device is not None:
+            kwargs["device"] = gpu_device
+        if gpu_max_contacts is not None:
+            kwargs["max_contacts"] = gpu_max_contacts
+        if gpu_max_contact_constraints is not None:
+            kwargs["max_contact_constraints"] = gpu_max_contact_constraints
+        if gpu_max_convexhull_pairs is not None:
+            kwargs["max_convexhull_pairs"] = gpu_max_convexhull_pairs
     if backend_type == "drake":
         # unisim-core 1.4.2 dropped the Drake-branch filtering of MuJoCo
         # root-body options; Drake derives root state from its own plant and

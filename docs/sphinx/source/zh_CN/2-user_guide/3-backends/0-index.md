@@ -1,7 +1,7 @@
 # 仿真后端
 
 当前 tensor-only Manager runtime 暴露 `mujoco`、`mjwarp`、`genesis`、
-`newton`、`motrix`、`superdex`、scoped Drake owner，以及下文描述的显式
+`newton`、`motrix`、`motrix_gpu`、`superdex`、scoped Drake owner，以及下文描述的显式
 external-worker Isaac owner。用户命令通过 `--sim` 选择后端，并组合对应的
 task owner YAML；不要单独覆盖 `training.sim_backend`。
 
@@ -16,6 +16,7 @@ task owner YAML；不要单独覆盖 `training.sim_backend`。
   为 SAC `g1_walk_flat` 和 FlashSAC `g1_motion_tracking`。
 - Motrix 需要 `motrix` extra，提供 CPU-authoritative packed HOST_BRIDGE；当前
   canonical 支持范围为 SAC `g1_walk_flat` 和 FlashSAC `g1_motion_tracking`。
+- Motrix GPU 需要 `mtxwarp` extra，在 NVIDIA CUDA 上运行物理仿真和 Manager 张量。
 - SuperDex 在 CPython 3.12/3.13 Linux x86_64 上需要 `superdex` extra，提供
   CPU-authoritative packed HOST_BRIDGE；当前范围为 Go2 configured research owner。
 - Drake 需要本地编译的 DrakeUni batch extension。其 scoped PPO
@@ -34,6 +35,7 @@ task owner YAML；不要单独覆盖 `training.sim_backend`。
 | Genesis | Linux x86_64 | 要求：NVIDIA GPU 与 driver；仅验证 `gs.gpu` channel |
 | Newton | Linux | 要求：NVIDIA CUDA；selected-reset 通道为 device-resident |
 | Motrix | Linux / macOS / Windows | CPU-authoritative physics；Torch CUDA buffer 可选 |
+| Motrix GPU | Linux x86_64 | 要求 NVIDIA CUDA，状态和重置张量驻留设备 |
 | SuperDex | Linux x86_64（CPython 3.12/3.13） | CPU-authoritative physics；Torch CUDA buffer 可选 |
 | Drake | Linux x86_64 / Apple Silicon macOS | CPU-authoritative physics；Torch CUDA buffer 可选 |
 | IsaacGym | Linux | 要求：外部 Python 3.8 worker 与 NVIDIA CUDA |

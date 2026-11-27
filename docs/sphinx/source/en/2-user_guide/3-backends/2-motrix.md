@@ -1,5 +1,27 @@
 # Motrix Backend
 
+## MotrixSim GPU
+
+Use `--sim motrix_gpu` with the `mtxwarp` extra to run MotrixSim physics and
+Manager tensors on the same NVIDIA CUDA device. The profile uses MotrixSim
+1.0.0 and Warp 1.17.0 on Linux x86_64.
+
+The extra installs the adapter from the published UniSim 2.9.0 wheel.
+
+```bash
+uv run --locked --extra mtxwarp train --algo appo --task go2_joystick_flat --sim motrix_gpu
+uv run --locked --extra mtxwarp train --algo sac --task g1_walk_flat --sim motrix_gpu
+uv run --locked --extra mtxwarp train --algo flashsac --task g1_motion_tracking --sim motrix_gpu
+```
+
+The task owners define their per-world contact and constraint capacities. G1
+Walk uses eager selected reset to preserve its host curriculum updates.
+The other two owners enable CUDA graph autoreset. Set
+`env.autoreset_cuda_graph=false` to use eager selected reset when debugging.
+The G1 motion owner disables the unsupported body COM randomization. See
+the UniSim support matrix for engine capability boundaries.
+
+## MotrixSim CPU
 
 Motrix is an optional backend installed through the `motrix` extra, which
 delegates to `unisim-core[motrix]`: the runtime pin lives in UniSim's

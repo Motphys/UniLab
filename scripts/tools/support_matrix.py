@@ -28,6 +28,7 @@ BACKENDS: tuple[str, ...] = tuple(
         "genesis",
         "newton",
         "motrix",
+        "motrix_gpu",
         "superdex",
         "drake",
         "isaacgym",
@@ -261,7 +262,7 @@ def _configured_entries(root: Path, spec: EntrypointSpec) -> dict[str, dict[str,
 
 
 def _is_tested(spec: EntrypointSpec, task_slug: str, backend: str, root: Path) -> bool:
-    if backend == "superdex":
+    if backend in {"motrix_gpu", "superdex"}:
         # Bounded native smoke/short training does not establish full training support.
         return False
     if backend == "mjwarp":
@@ -385,6 +386,7 @@ def _backend_label(backend: str) -> str:
         "mujoco": "MuJoCo",
         "mjwarp": "mjwarp",
         "motrix": "Motrix",
+        "motrix_gpu": "Motrix GPU",
         "isaacgym": "IsaacGym",
         "genesis": "Genesis",
         "isaacsim": "IsaacSim",

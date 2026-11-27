@@ -87,6 +87,16 @@ _OWNER_CASES = (
         id="appo-motrix",
     ),
     pytest.param(
+        "appo",
+        ("task=go2_joystick_flat/motrix_gpu",),
+        "motrix_gpu",
+        0.25,
+        False,
+        True,
+        False,
+        id="appo-motrix-gpu",
+    ),
+    pytest.param(
         "flashsac",
         ("task=go2_joystick_flat/mujoco",),
         "mujoco",
@@ -238,7 +248,7 @@ def test_go2_flat_registry_is_manager_only() -> None:
     assert bare_cfg.rewards == {}
     assert registry.list_registered_envs()["Go2JoystickFlat"] == {
         "config_factory": "ManagerBasedRlEnvCfg",
-        "available_backends": ["mujoco", "motrix", "superdex", "drake"],
+        "available_backends": ["mujoco", "motrix", "motrix_gpu", "superdex", "drake"],
     }
 
 
@@ -272,6 +282,36 @@ def test_go2_flat_motrix_owner_uses_tensor_reset_events() -> None:
     assert env_cfg.events["reset_scene_to_default"].func is mdp.skip_scene_reset
     assert env_cfg.events["reset_root_state_uniform"].func is mdp.reset_root_state_uniform_fused
     assert env_cfg.events["pd_gains"] is None
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires NVIDIA CUDA")
+def test_go2_flat_motrix_gpu_replays_autoreset() -> None:
+    from unisim.backend.motrix_gpu.dependencies import motrix_gpu_available
+
+    if not motrix_gpu_available():
+        pytest.skip("requires the Motrix GPU runtime")
+    registry.ensure_registries()
+    _, env_cfg, override = _materialize(
+        "appo", ("task=go2_joystick_flat/motrix_gpu", "env.max_episode_seconds=0.06")
+    )
+    assert env_cfg.autoreset_cuda_graph
+    env = registry.make(
+        "Go2JoystickFlat", sim_backend="motrix_gpu", env_cfg_override=override, num_envs=4
+    )
+    try:
+        obs, _ = env.reset(None, seed=2)
+        assert all(values.is_cuda for values in obs.values())
+        actions = torch.zeros((4, 12), device=env.device)
+        done_count = 0
+        for _ in range(12):
+            state = env.step(actions)
+            done_count += int((state.terminated | state.truncated).sum())
+            assert torch.isfinite(state.reward).all()
+        graph = env.autoreset_graph
+        assert graph is not None and graph.replays > 1
+        assert done_count > 0
+    finally:
+        env.close()
 
 
 @pytest.mark.parametrize(

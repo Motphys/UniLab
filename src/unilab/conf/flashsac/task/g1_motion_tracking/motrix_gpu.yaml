@@ -1,0 +1,18 @@
+# @package _global_
+defaults:
+  - /task/g1_motion_tracking/base
+  - _self_
+
+training:
+  task_name: G1MotionTracking
+  sim_backend: motrix_gpu
+  play_render_mode: record
+
+env:
+  motrix_gpu_max_contacts: 256
+  motrix_gpu_max_contact_constraints: 400
+  motrix_max_iterations: 10
+  autoreset_cuda_graph: true
+  events:
+    # MotrixSim GPU does not advertise the body inertial-position payload.
+    base_com: null

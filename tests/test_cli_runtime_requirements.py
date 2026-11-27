@@ -52,6 +52,17 @@ def test_check_runtime_requirements_requires_motrix_extra(
         cli._check_runtime_requirements("sac", "motrix")
 
 
+def test_check_runtime_requirements_requires_motrix_gpu_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "unisim.backend.motrix_gpu.dependencies.motrix_gpu_available", lambda: False
+    )
+
+    with pytest.raises(SystemExit, match="sim=motrix_gpu requires the mtxwarp extra"):
+        cli._check_runtime_requirements("sac", "motrix_gpu")
+
+
 def test_check_runtime_requirements_requires_drake_extra(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -84,6 +95,7 @@ def test_cli_backend_choices_are_tensor_manager_scope() -> None:
         "genesis",
         "newton",
         "motrix",
+        "motrix_gpu",
         "superdex",
         "drake",
         "isaacsim",

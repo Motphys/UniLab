@@ -1,0 +1,23 @@
+# @package _global_
+defaults:
+  - /task/go2_joystick_flat/base
+  - _self_
+
+training:
+  task_name: Go2JoystickFlat
+  sim_backend: motrix_gpu
+  play_render_mode: none
+algo:
+  num_envs: 512
+  steps_per_env: 24
+  max_iterations: 180
+env:
+  motrix_gpu_max_contacts: 128
+  motrix_gpu_max_contact_constraints: 256
+  autoreset_cuda_graph: true
+  events:
+    reset_scene_to_default:
+      func: unilab.envs.mdp.skip_scene_reset
+    reset_root_state_uniform:
+      func: unilab.envs.mdp.reset_root_state_uniform_fused
+    pd_gains: null

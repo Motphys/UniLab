@@ -1,5 +1,27 @@
 # Motrix 后端
 
+## MotrixSim GPU
+
+安装 `mtxwarp` extra 并指定 `--sim motrix_gpu`，即可让 MotrixSim 物理仿真
+和 Manager 张量使用同一张 NVIDIA GPU。该配置使用 MotrixSim 1.0.0 与 Warp
+1.17.0，支持 Linux x86_64。
+
+该 extra 从已发布的 UniSim 2.9.0 wheel 安装适配器。
+
+```bash
+uv run --locked --extra mtxwarp train --algo appo --task go2_joystick_flat --sim motrix_gpu
+uv run --locked --extra mtxwarp train --algo sac --task g1_walk_flat --sim motrix_gpu
+uv run --locked --extra mtxwarp train --algo flashsac --task g1_motion_tracking --sim motrix_gpu
+```
+
+各 task owner 定义每个仿真环境的接触和约束容量。G1 Walk 使用即时执行的
+选行重置，以保留宿主机上的课程更新。其余两个 owner 启用 CUDA Graph 自动
+重置。调试时可以用 `env.autoreset_cuda_graph=false` 切换为即时执行。
+G1 动作跟踪 owner 禁用了当前后端不支持的质心随机化。引擎支持范围见
+UniSim 支持矩阵。
+
+## MotrixSim CPU
+
 Motrix 是一个可选后端，通过 `motrix` extra 安装。该 extra 委托给
 `unisim-core[motrix]`，runtime 版本固定在 UniSim 的 `pyproject.toml`
 中，适配层位于 `unisim.backend.motrix` 下。

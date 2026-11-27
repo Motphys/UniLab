@@ -35,14 +35,11 @@ BACKEND_ENV_DEVICE_FIELDS: dict[str, str] = {
 }
 
 
-# Newton consumes an explicit ``cuda:N`` device string (``newton_device``)
-# instead of an integer id.  The RL runtime's collector-side process binding
-# is injection-based: the spawned collector applies the caller-supplied
-# backend-device configurer and skips binding when none is injected.  UniLab
-# injects ``configure_backend_process_device``; the env override additionally
-# forwards the rank-local device string so spawn collectors can pass it to
-# the Newton adapter.
+# In-process adapters taking explicit ``cuda:N`` device strings receive the
+# rank-local device through the environment override, including when the
+# collector is spawned in a separate process.
 BACKEND_ENV_DEVICE_STR_FIELDS: dict[str, str] = {
+    "motrix_gpu": "motrix_gpu_device",
     "newton": "newton_device",
 }
 

@@ -23,6 +23,7 @@ SUPPORTED_SIMS = (
     "genesis",
     "newton",
     "motrix",
+    "motrix_gpu",
     "superdex",
     "drake",
     "isaacsim",
@@ -162,6 +163,21 @@ def _check_runtime_requirements(algo: str, sim: str) -> None:
             "`pip install unilab[motrix]` (or `uv sync --extra motrix` in a source "
             "checkout)."
         )
+    if sim == "motrix_gpu":
+        try:
+            from unisim.backend.motrix_gpu.dependencies import motrix_gpu_available
+        except ModuleNotFoundError as exc:
+            if exc.name != "unisim.backend.motrix_gpu":
+                raise
+            raise SystemExit(
+                "sim=motrix_gpu requires a UniSim build with the Motrix GPU adapter."
+            ) from exc
+
+        if not motrix_gpu_available():
+            raise SystemExit(
+                "sim=motrix_gpu requires the mtxwarp extra. Install it with "
+                "`pip install unilab[mtxwarp]` (or `uv sync --extra mtxwarp` in a source checkout)."
+            )
     if sim == "isaacsim":
         from unisim.backend.isaacsim.dependencies import isaacsim_runtime_available
 

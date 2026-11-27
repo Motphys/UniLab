@@ -107,9 +107,7 @@ newton = [
 motrix = ["unisim-core[motrix]==2.9.0"]
 # CUDA-resident MotrixSim for Linux x86-64 with NVIDIA CUDA, delegating to
 # UniSim's motrix-gpu extra (motrixsim-gpu==1.0.0 resolves warp-lang 1.17.0;
-# the `mtxwarp` name mirrors that Warp-based runtime). UniLab's registry and
-# train/eval CLI do not expose the motrix_gpu backend yet; this extra only
-# makes the package install path available ahead of that enablement.
+# the `mtxwarp` name mirrors that Warp-based runtime).
 mtxwarp = ["unisim-core[motrix-gpu]==2.9.0"]
 genesis = ["genesis-world==1.3.3"]
 # Wheels are CPython 3.12/3.13 Linux x86_64 only; the marker keeps uv lock
