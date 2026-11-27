@@ -1,5 +1,9 @@
 # @package _global_
-# Use the same tensor reward and termination packs as MJWarp.
+# SAC mtxwarp owner: inherits the shared 29-DoF off-policy Manager-Based
+# contract from base.yaml with MuJoCo-parity terminations (scalar tilt /
+# base_height) and kp/kd reset randomization enabled — the CUDA MotrixSim
+# adapter declares RESET_TERM_KP/KD. Backend knobs carry the per-world
+# contact/constraint capacities and the higher solver iteration budget.
 defaults:
   - /task/g1_walk_flat/base
   - _self_
@@ -34,16 +38,6 @@ algo:
       - feet_phase
       - alive
 env:
-  terminations:
-    tilt: null
-    base_height: null
-    g1_walk_termination_pack:
-      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkTerminationPackCfg
-      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkTerminationPack
-      entity_name: robot
-      root_body_name: pelvis
-      max_tilt_deg: 65.0
-      minimum_height: 0.3
   # MotrixSim GPU owns its per-world contact storage. G1 is contact-rich at the
   # startup pose, so reserve 256 contacts and 400 constraint rows.
   mtxwarp_max_contacts: 256
@@ -51,5 +45,3 @@ env:
   # G1 uses a higher iteration budget for contact stability.
   motrix_max_iterations: 10
   render_spacing: 2.0
-  events:
-    pd_gains: null

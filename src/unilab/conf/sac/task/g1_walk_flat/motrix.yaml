@@ -42,13 +42,3 @@ env:
   events:
     # Motrix tensor mask reset does not support randomization.
     pd_gains: null
-  terminations:
-    tilt: null
-    base_height: null
-    g1_walk_termination_pack:
-      _target_: unilab.tasks.locomotion.g1.manager_terms.G1WalkTerminationPackCfg
-      func: unilab.tasks.locomotion.g1.manager_terms.G1WalkTerminationPack
-      entity_name: robot
-      root_body_name: pelvis
-      max_tilt_deg: 65.0
-      minimum_height: 0.3

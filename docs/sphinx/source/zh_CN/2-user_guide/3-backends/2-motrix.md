@@ -12,7 +12,10 @@ uv sync --locked --extra mtxwarp
 uv run train --algo sac --task g1_walk_flat --sim mtxwarp
 ```
 
-当前仅 SAC `g1_walk_flat` 一个 owner：它定义了每个仿真环境的接触和约束
+当前仅 SAC `g1_walk_flat` 一个 owner，与 MuJoCo owner 对齐：标量
+`tilt` / `base_height` termination 与 kp/kd reset 随机化
+（`env.events.pd_gains`）直接继承共享 base contract——CUDA MotrixSim
+adapter 声明了 `RESET_TERM_KP/KD` reset 项。后端参数声明逐环境接触与约束
 容量（256 个 contact、400 行 constraint），并使用比 CPU owner 更高的
 solver 迭代预算（`env.motrix_max_iterations: 10`）以保证接触稳定。该 owner
 使用即时执行的选行重置，以保留宿主机上的课程更新；调试时可用

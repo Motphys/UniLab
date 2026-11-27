@@ -69,7 +69,7 @@ _OFFPOLICY_REWARDS = (
     "feet_phase",
     "alive",
 )
-_TENSOR_RESET_EVENT_BACKENDS = {"mujoco", "mjwarp", "newton", "isaacgym", "isaacsim"}
+_TENSOR_RESET_EVENT_BACKENDS = {"mujoco", "mjwarp", "mtxwarp", "newton", "isaacgym", "isaacsim"}
 _MOTRIX_PACKED_HOST_BRIDGE_BACKENDS = {"motrix"}
 
 _OBSERVATION_TERMS = (
@@ -207,6 +207,21 @@ _OWNER_CASES = (
     ),
     pytest.param(
         "sac",
+        ("task=g1_walk_flat/mtxwarp",),
+        "G1WalkFlat",
+        "mtxwarp",
+        29,
+        1.0,
+        "scene_flat.xml",
+        _OFFPOLICY_REWARDS,
+        # MuJoCo-parity owner: the CUDA MotrixSim adapter declares RESET_TERM_KP/KD,
+        # so kp/kd reset randomization stays enabled.
+        (*_RESET_EVENTS, "pd_gains"),
+        True,
+        id="sac-mtxwarp",
+    ),
+    pytest.param(
+        "sac",
         ("task=g1_walk_flat/isaacgym",),
         "G1WalkFlat",
         "isaacgym",
@@ -252,6 +267,7 @@ _WALK_PROFILE_IDS = {
     "sac-genesis",
     "sac-newton",
     "sac-motrix",
+    "sac-mtxwarp",
     "sac-isaacgym",
     "sac-isaacsim",
     "flashsac-mujoco",
@@ -390,7 +406,6 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         "sac-mjwarp",
         "sac-genesis",
         "sac-newton",
-        "sac-motrix",
         "sac-isaacgym",
         "sac-isaacsim",
     }
@@ -462,6 +477,14 @@ def test_g1_owner_materializes_complete_plain_manager_cfg(
         assert env_cfg.scene.fragment_files == []
         assert env_cfg.scene.terrain is None
         assert env_cfg.events["pd_gains"] is None
+        assert hydra_cfg.training.play_render_mode == "record"
+    if backend == "mtxwarp":
+        assert env_cfg.scene.fragment_files == []
+        assert env_cfg.scene.terrain is None
+        assert env_cfg.events["pd_gains"] is not None
+        assert env_cfg.mtxwarp_max_contacts == 256
+        assert env_cfg.mtxwarp_max_contact_constraints == 400
+        assert env_cfg.motrix_max_iterations == 10
         assert hydra_cfg.training.play_render_mode == "record"
     if backend == "isaacgym":
         assert env_cfg.isaacgym_device_id == 0

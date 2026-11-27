@@ -12,13 +12,17 @@ uv sync --locked --extra mtxwarp
 uv run train --algo sac --task g1_walk_flat --sim mtxwarp
 ```
 
-The only owner today is SAC `g1_walk_flat`: it declares the per-world contact
-and constraint capacities (256 contacts and 400 constraint rows) and a higher
-solver iteration budget than the CPU owner (`env.motrix_max_iterations: 10`)
-for contact stability. The owner keeps eager selected reset so host curriculum
-updates stay live; set `env.autoreset_cuda_graph=false` to pin the eager path
-explicitly when debugging. See the UniSim support matrix for engine capability
-boundaries; `mtxwarp` and `mjwarp` install into the same environment.
+The only owner today is SAC `g1_walk_flat`, aligned with the MuJoCo owner:
+the scalar `tilt` / `base_height` terminations and kp/kd reset randomization
+(`env.events.pd_gains`) are inherited from the shared base contract — the
+CUDA MotrixSim adapter declares the `RESET_TERM_KP/KD` reset terms. Backend
+knobs declare the per-world contact and constraint capacities (256 contacts
+and 400 constraint rows) and a higher solver iteration budget than the CPU
+owner (`env.motrix_max_iterations: 10`) for contact stability. The owner
+keeps eager selected reset so host curriculum updates stay live; set
+`env.autoreset_cuda_graph=false` to pin the eager path explicitly when
+debugging. See the UniSim support matrix for engine capability boundaries;
+`mtxwarp` and `mjwarp` install into the same environment.
 
 ## MotrixSim CPU
 

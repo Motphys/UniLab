@@ -33,8 +33,15 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   with `mjwarp` and `newton`; the intermediate `mtxwarp`-vs-`newton` resolver
   conflict is dropped. `training.cuda_process_sharing=mps` (the user-managed
   `uni-cumps` daemon) now admits `mtxwarp` next to `mjwarp`, with the
-  rank-local collector device resolved for the learner/collector pair. SAC
-  `g1_walk_flat` is recorded in the support matrix
+  rank-local collector device resolved for the learner/collector pair. The
+  SAC `g1_walk_flat` owners also align with the MuJoCo owner where the
+  backend admits it: both the CPU `motrix` and `mtxwarp` owners inherit the
+  scalar `tilt`/`base_height` terminations instead of the fused termination
+  pack, and the `mtxwarp` owner enables kp/kd reset randomization
+  (`env.events.pd_gains`) because the CUDA adapter declares the
+  `RESET_TERM_KP/KD` reset terms; the CPU `motrix` owner keeps
+  `pd_gains: null` because its tensor mask reset does not carry
+  randomization. SAC `g1_walk_flat` is recorded in the support matrix
   as `Tested`: a maintainer validation on an RTX 4090 ran 300 iterations at
   2048 envs (seed 7) on both `mtxwarp` and the CPU `motrix` owner, and the
   reward curves align (mean reward 6.1 -> 14.6 vs 8.4 -> 15.2; episode
@@ -53,7 +60,13 @@ PyPI 版本变更与未发布变更；发布日期采用 PyPI 上传日期。完
   `newton` 同环境安装，中间的 `mtxwarp`-vs-`newton` resolver 冲突声明已
   移除。`training.cuda_process_sharing=mps`（用户以 `uni-cumps` 管理的
   daemon）现与 `mjwarp` 一并支持 `mtxwarp`，并为 learner/collector 进程对
-  解析 rank-local collector 设备。支持矩阵中 SAC `g1_walk_flat` 记为 `Tested`：maintainer 在 RTX
+  解析 rank-local collector 设备。SAC `g1_walk_flat` 的各 owner 也在后端
+  能力允许范围内向 MuJoCo owner 看齐：CPU `motrix` 与 `mtxwarp` owner 均
+  继承标量 `tilt`/`base_height` termination（不再用 fused termination
+  pack），`mtxwarp` owner 还启用了 kp/kd reset 随机化
+  （`env.events.pd_gains`）——CUDA adapter 声明了 `RESET_TERM_KP/KD` reset
+  项；CPU `motrix` owner 保留 `pd_gains: null`，因为其 tensor mask reset
+  不承载随机化。支持矩阵中 SAC `g1_walk_flat` 记为 `Tested`：maintainer 在 RTX
   4090 上对 `mtxwarp` 与 CPU `motrix` owner 各跑了 300 iteration、2048
   环境（seed 7），奖励曲线对齐（mean reward 6.1 -> 14.6 对比 8.4 ->
   15.2；episode length 21 -> 57 s 对比 30 -> 60 s，预算完全相同）。
